@@ -54,14 +54,6 @@
 - memory-service
   - [ ] 聊天记忆（单/群）
   - [ ] 跨会话用户个体记忆（用户偏好与历史交互）
-- 可观测性
-  - OTel
-    - [ ] Prometheus
-    - [ ] Jaeger
-  - [ ] Zap
-  - [ ] ELK
-  - [ ] CozeLoop
-  - [ ] Grafana
 - 服务治理
   - [ ] kitex封装包
   - [ ] 降级
@@ -70,6 +62,14 @@
   - [ ] viper
   - [ ] nacos
   - [ ] minio
+- 可观测性
+  - OTel
+    - [ ] Prometheus
+    - [ ] Jaeger
+  - [ ] Zap
+  - [ ] ELK
+  - [ ] CozeLoop
+  - [ ] Grafana
 - 部署
   - [ ] docker-compose
   - [ ] K8s
