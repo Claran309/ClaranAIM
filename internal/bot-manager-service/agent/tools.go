@@ -1,8 +1,8 @@
 package agent
 
 import (
-	"ClaranAIM/bot-service/internal/graphTool"
-	"ClaranAIM/bot-service/internal/logic"
+	"ClaranAIM/internal/bot-manager-service/graphTool"
+	"ClaranAIM/internal/bot-manager-service/logic"
 	"context"
 	"log"
 

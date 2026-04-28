@@ -2,6 +2,7 @@
 - [x] 架构设计
 - [x] 底层设施框架选取
 - [ ] 表设计
+- [ ] api-gateway
 - [ ] websocket-gateway
 - user-service
   - [ ] 用户登录与注册
@@ -39,6 +40,9 @@
 - msg-filter-service
   - [ ] 实时审核
   - [ ] 实时多语言翻译
+- file-service
+  - [ ] 保存多媒体消息（图片、文件、语音）
+  - [ ] 传输多媒体消息
 - bot-manager-service
   - bot类型
     - [ ] 内部bot
@@ -67,6 +71,8 @@
   - [ ] 降级
   - [ ] 重试
 - 其他组件
+  - [ ] redis
+  - [ ] kafka
   - [ ] viper
   - [ ] nacos
   - [ ] minio
@@ -78,6 +84,8 @@
   - [ ] ELK
   - [ ] CozeLoop
   - [ ] Grafana
+- 压测
+  - [ ] K6
 - 部署
   - [ ] docker-compose
   - [ ] K8s
@@ -85,3 +93,18 @@
 - 前端
   - [ ] Vibe Coding
 - [ ] 测试验收
+
+Phase 1 (核心链路跑通):
+  表设计 → api/websocket-gateway → user-service(登录注册) → msg-core-service(文本消息收发) → msg-history-service(基础存储查询)
+
+Phase 2 (社交能力):
+  好友管理 → 群组管理 → 已读回执 → 在线状态
+
+Phase 3 (AI 能力):
+  bot-runtime(基础对话) → bot-manager → memory-service → rag-service
+
+Phase 4 (进阶):
+  MCP → 多Bot协作 → msg-filter → 多端同步 → 消息撤回/编辑
+
+Phase 5 (工程化):
+  可观测性 → 压测 → 服务治理 → K8s部署

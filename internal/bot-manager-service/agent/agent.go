@@ -1,7 +1,7 @@
 package agent
 
 import (
-	"ClaranAIM/bot-service/internal/component"
+	"ClaranAIM/internal/bot-manager-service/component"
 	"context"
 	"fmt"
 	"log"

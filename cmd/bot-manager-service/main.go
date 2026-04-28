@@ -1,8 +1,8 @@
 package main
 
 import (
-	"ClaranAIM/bot-service/internal/agent"
-	"ClaranAIM/bot-service/internal/component"
+	"ClaranAIM/internal/bot-manager-service/agent"
+	"ClaranAIM/internal/bot-manager-service/component"
 	"bufio"
 	"bytes"
 	"context"
