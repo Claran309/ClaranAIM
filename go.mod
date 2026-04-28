@@ -1,4 +1,4 @@
-module AmiyaAgent
+module ClaranAIM
 
 go 1.25.3
 

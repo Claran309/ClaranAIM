@@ -1,7 +1,7 @@
 package agent
 
 import (
-	"AmiyaAgent/internal/component"
+	"ClaranAIM/bot-service/internal/component"
 	"context"
 	"fmt"
 	"log"

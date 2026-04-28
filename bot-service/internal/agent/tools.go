@@ -1,8 +1,8 @@
 package agent
 
 import (
-	"AmiyaAgent/internal/graphTool"
-	"AmiyaAgent/internal/logic"
+	"ClaranAIM/bot-service/internal/graphTool"
+	"ClaranAIM/bot-service/internal/logic"
 	"context"
 	"log"
 

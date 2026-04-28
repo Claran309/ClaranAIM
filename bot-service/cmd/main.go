@@ -1,8 +1,8 @@
 package main
 
 import (
-	"AmiyaAgent/internal/agent"
-	"AmiyaAgent/internal/component"
+	"ClaranAIM/bot-service/internal/agent"
+	"ClaranAIM/bot-service/internal/component"
 	"bufio"
 	"bytes"
 	"context"
