@@ -1,0 +1,21 @@
+# 服务配置
+service:
+  name: "user-service"
+  address: "127.0.0.1:9001"
+
+# 以下敏感配置从 .env 文件读取
+# MySQL/Redis/JWT/Etcd 配置由环境变量覆盖
+mysql:
+  dsn: ""
+
+redis:
+  addr: ""
+  password: ""
+  db: 0
+
+jwt:
+  secret_key: ""
+  expiration: 0
+
+etcd:
+  endpoints: []

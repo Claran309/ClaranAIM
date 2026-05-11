@@ -1,0 +1,52 @@
+services:
+  mysql:
+    image: mysql/mysql-server:latest
+    container_name: MySQL
+    restart: always
+    ports:
+      - "3306:33060"
+    environment:
+      MYSQL_ROOT_PASSWORD: chr070309
+      MYSQL_DATABASE: ClaranCloudDisk
+      MYSQL_USER: claran
+      MYSQL_PASSWORD: chr070309
+    volumes:
+      - mysql_data:/var/lib/mysql
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci --port=33060
+    networks:
+      - claran-net
+
+  redis:
+    image: redis:latest
+    container_name: Redis
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - claran-net
+
+  etcd:
+    image: bitnami/etcd:3.5
+    container_name: Etcd
+    restart: always
+    ports:
+      - "2379:2379"
+      - "2380:2380"
+    environment:
+      ALLOW_NONE_AUTHENTICATION: "yes"
+      ETCD_ADVERTISE_CLIENT_URLS: http://localhost:2379
+    volumes:
+      - etcd_data:/bitnami/etcd
+    networks:
+      - claran-net
+
+volumes:
+  mysql_data:
+  redis_data:
+  etcd_data:
+
+networks:
+  claran-net:
+    driver: bridge

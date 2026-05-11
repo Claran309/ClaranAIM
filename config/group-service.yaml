@@ -1,0 +1,20 @@
+# 服务配置
+service:
+  name: "group-service"
+  address: "127.0.0.1:9002"
+
+# 以下敏感配置从 .env 文件读取
+mysql:
+  dsn: ""
+
+redis:
+  addr: ""
+  password: ""
+  db: 0
+
+jwt:
+  secret_key: ""
+  expiration: 0
+
+etcd:
+  endpoints: []

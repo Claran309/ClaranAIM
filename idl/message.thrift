@@ -1,0 +1,183 @@
+namespace go message
+
+struct Conversation {
+    1: i64 id
+    2: string type
+    3: string created_at
+    4: string updated_at
+}
+
+struct Message {
+    1: i64 id
+    2: i64 conversation_id
+    3: i64 sender_id
+    4: string content
+    5: string msg_type
+    6: string created_at
+}
+
+struct CreateConversationReq {
+    1: string type
+    2: list<i64> participant_ids
+}
+
+struct CreateConversationResp {
+    1: bool success
+    2: i64 conversation_id
+    3: string msg
+}
+
+struct GetConversationReq {
+    1: i64 conversation_id
+}
+
+struct GetConversationResp {
+    1: bool success
+    2: Conversation conversation
+    3: string msg
+}
+
+struct GetUserConversationsReq {
+    1: i64 user_id
+}
+
+struct UserConversationInfo {
+    1: i64 conversation_id
+    2: string type
+    3: string last_message
+    4: string last_message_time
+    5: i64 unread_count
+    6: string target_name
+    7: string target_avatar
+}
+
+struct GetUserConversationsResp {
+    1: bool success
+    2: list<UserConversationInfo> conversations
+    3: string msg
+}
+
+struct SendMessageReq {
+    1: i64 conversation_id
+    2: i64 sender_id
+    3: string content
+    4: string msg_type
+}
+
+struct SendMessageResp {
+    1: bool success
+    2: i64 msg_id
+    3: string send_time
+    4: string msg
+}
+
+struct GetHistoryReq {
+    1: i64 conversation_id
+    2: i64 user_id
+    3: i64 limit
+    4: i64 before_id
+}
+
+struct GetHistoryResp {
+    1: bool success
+    2: list<Message> messages
+    3: string msg
+}
+
+struct SearchMessagesReq {
+    1: i64 user_id
+    2: list<i64> conversation_ids
+    3: string keyword
+    4: i64 limit
+}
+
+struct SearchMessagesResp {
+    1: bool success
+    2: list<Message> messages
+    3: string msg
+}
+
+struct GetConversationParticipantsReq {
+    1: i64 conversation_id
+}
+
+struct GetConversationParticipantsResp {
+    1: bool success
+    2: list<i64> user_ids
+    3: string msg
+}
+
+// 消息核心服务
+service MessageService {
+    CreateConversationResp CreateConversation(1: CreateConversationReq req)
+    GetConversationResp GetConversation(1: GetConversationReq req)
+    GetUserConversationsResp GetUserConversations(1: GetUserConversationsReq req)
+    SendMessageResp SendMessage(1: SendMessageReq req)
+    GetHistoryResp GetHistory(1: GetHistoryReq req)
+    SearchMessagesResp SearchMessages(1: SearchMessagesReq req)
+    GetConversationParticipantsResp GetConversationParticipants(1: GetConversationParticipantsReq req)
+}
+
+// ===== 消息历史服务 =====
+
+struct SaveMessageReq {
+    1: i64 conversation_id
+    2: i64 sender_id
+    3: string content
+    4: string msg_type
+}
+
+struct SaveMessageResp {
+    1: bool success
+    2: i64 message_id
+    3: string msg
+}
+
+struct OfflineMessage {
+    1: i64 id
+    2: i64 user_id
+    3: i64 message_id
+    4: bool is_read
+    5: string created_at
+    6: string read_at
+}
+
+struct GetOfflineMessagesReq {
+    1: i64 user_id
+}
+
+struct GetOfflineMessagesResp {
+    1: bool success
+    2: list<OfflineMessage> messages
+    3: string msg
+}
+
+struct MarkOfflineReadReq {
+    1: i64 user_id
+    2: list<i64> message_ids
+}
+
+struct MarkOfflineReadResp {
+    1: bool success
+    2: string msg
+}
+
+struct GetUnreadCountReq {
+    1: i64 user_id
+}
+
+struct GetUnreadCountResp {
+    1: bool success
+    2: i64 count
+    3: string msg
+}
+
+// 消息历史服务
+service HistoryService {
+    SaveMessageResp SaveMessage(1: SaveMessageReq req)
+    GetHistoryResp GetHistory(1: GetHistoryReq req)
+    SearchMessagesResp SearchHistory(1: SearchMessagesReq req)
+    GetOfflineMessagesResp GetOfflineMessages(1: GetOfflineMessagesReq req)
+    MarkOfflineReadResp MarkOfflineRead(1: MarkOfflineReadReq req)
+    GetUnreadCountResp GetUnreadCount(1: GetUnreadCountReq req)
+}

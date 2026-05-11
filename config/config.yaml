@@ -1,14 +1,19 @@
-openai:
-  api_key: "your_api_key"
-  base_url: "your_base_url"
-  model_name: "your_model_name"
+mysql:
+  dsn: "claran:chr070309@tcp(localhost:3306)/ClaranCloudDisk?charset=utf8mb4&parseTime=True&loc=Local"
 
-storage:
-  session_dir: "agent_sessions_dir"
+redis:
+  addr: "localhost:6379"
+  password: ""
+  db: 0
 
-agent:
-  root: "agent_root_dir"
+jwt:
+  secret_key: "MySuperSecureJWTKey@2025!Claran_work"
+  expiration: 168
 
-cozeloop:
-  api_token: "your_cozeloop_api_token"
-  workspace_id: "your_cozeloop_workspace_id"
+etcd:
+  endpoints:
+    - "http://localhost:2379"
+
+service:
+  name: ""
+  address: ""
