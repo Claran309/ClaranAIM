@@ -114,15 +114,50 @@ bash scripts/start.sh
 # 4. 打开前端页面测试
 # 浏览器打开 dist/index.html
 ```
+## 注意事项
+
+- 缓存集成到service层而非dao层
 
 ## To do list for tomorrow
-- 当前并未完全实现用户信息管理系统或前端未适配相应接口，待调试
+- 修改个人信息界面头像没居中
 
-- 前端页面设计一般（如各种提示引导框在不起眼的位置），待修改
+- 添加不存在的用户为好友也能成功并创建聊天回话，这是非法的
 
-- 项目详细内容待审阅
+- 上传附件时显示上传文件失败
 
-- bot基础功能待审阅与调试
+- 最好统一输出失败信息日志以方便排查错误
+
+- bot的计费管理、路由管理、配置管理都没有相应功能和前端页面
+
+- 当用户创建一个未注册用户为好友时能成功，并且用户注册并占据用户ID后显示出非法创建者为好友，这是不合理的
+
+- 好友的在线状态不正常，现在登出后可以正常显示离线，但是重新登录后仍然显示离线
+
+- 在前端页面的二级输入框中，我鼠标一滑动窗口就会自己关闭
+
+- bot部分不正常，内部的bot怎么能让用户自己配置apikey和baseurl呢？直接调用我之前写好的agent就行了，只有自部署的bot才要用户自己提供相关信息
+
+- 对话失败: 对话失败: [NodeRunError] failed to create chat completion: invalid character '<' looking for beginning of value / node path: [node_1, ChatModel]
+
+- bot对话界面不应该放在会话中，应该视为一个单独会话或者用户
+
+- 群公告应在会话的最顶端常态显示（用户可以自己关掉）
+
+- 群聊管理应该放在会话右上角的三点里
+
+- 群聊可以邀请不存在的用户进群
+
+- 群聊禁言功能未正常生效
+
+- 可以和已删除用户对话，这是错误的
+
+- 可以非法创建不合理的会话，如创建一个不存在的用户会话，这是不合理的
+
+- 气泡位置不正确，应该贴合人物头像位置
+
+- 聊天界面用户不显示头像，这是不正确的
+
+- 根据新增功能和接口扩写TechArch.md文件
 
 ## 开发阶段
 
@@ -135,9 +170,9 @@ bash scripts/start.sh
 user-service
   - [x] 用户登录与注册
   - 用户信息管理
-    - [ ] 信息
-    - [ ] 头像
-    - [ ] 在线状态
+    - [x] 信息
+    - [x] 头像
+    - [x] 在线状态
   - 好友管理
     - [x] 添加/删除
     - [x] 分组
@@ -146,14 +181,14 @@ user-service
 group-service
   - 群聊管理
     - [x] 创建/注销
-    - [ ] 转让群主
-    - [ ] 群公告
-    - [ ] 置顶
+    - [x] 转让群主
+    - [x] 群公告
+    - [x] 置顶
   - 群成员管理
     - [x] 成员校验
     - [x] 邀请/踢出
-    - [ ] 禁言
-    - [ ] 管理员
+    - [x] 禁言
+    - [x] 管理员
 msg-core-service
   - [x] 消息发送（文本）
   - [ ] 消息发送（图片、文件、语音）
@@ -176,10 +211,10 @@ file-service
 bot-manager-service
   bot类型
     - [ ] 内部bot
-    - [ ] 自部署bot
+    - [x] 自部署bot
   - [ ] 计费管理
-  - [ ] 配置管理
-  - [ ] 路由管理
+  - [x] 配置管理
+  - [x] 路由管理
 bot-runtime-service
   - [ ] agent基础功能
   - [ ] 总结历史消息，生成要点摘要与待办提取（根据上下文生成回复候选，用户可一键选用）
@@ -205,7 +240,7 @@ memory-service
   - [ ] kafka
   - [x] viper (配置管理 + 环境变量覆盖)
   - [ ] nacos
-  - [ ] minio
+  - [x] minio (对象存储: 图片/文件/语音)
 可观测性
   OTel
     - [ ] Prometheus
@@ -217,18 +252,18 @@ memory-service
 压测
   - [ ] K6
 部署
-  - [x] docker-compose (MySQL + Redis + Etcd)
+  - [x] docker-compose (MySQL + Redis + Etcd + MinIO)
   - [ ] K8s
   - [ ] 服务器
 前端
-  - [x] Vibe Coding (登录注册/聊天/好友/群组/实时消息)
+  - [x] Vibe Coding (登录注册/聊天/好友/群组/实时消息/群管理/AI助手)
 - [ ] 测试验收
 
 - [x] Phase 1 (核心链路跑通):
   表设计 → api/websocket-gateway → user-service(登录注册) → msg-core-service(文本消息收发) → msg-history-service(基础存储查询)
 
-- [ ] Phase 2 (社交能力):
-  好友管理 → 群组管理 → 已读回执 → 在线状态
+- [x] Phase 2 (社交能力):
+  好友管理 → 群组管理 → 在线状态 → 多媒体消息
 
 - [ ] Phase 3 (AI 能力):
   bot-runtime(基础对话) → bot-manager → memory-service → rag-service

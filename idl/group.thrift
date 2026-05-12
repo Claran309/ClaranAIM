@@ -8,6 +8,7 @@ struct Group {
     5: string announcement
     6: string created_at
     7: string updated_at
+    8: bool is_pinned
 }
 
 struct GroupMember {
@@ -109,6 +110,17 @@ struct MuteMemberResp {
     2: string msg
 }
 
+struct UnmuteMemberReq {
+    1: i64 group_id
+    2: i64 operator_id
+    3: i64 user_id
+}
+
+struct UnmuteMemberResp {
+    1: bool success
+    2: string msg
+}
+
 struct SetRoleReq {
     1: i64 group_id
     2: i64 operator_id
@@ -154,6 +166,17 @@ struct TransferOwnerResp {
     2: string msg
 }
 
+struct PinGroupReq {
+    1: i64 group_id
+    2: i64 operator_id
+    3: bool is_pinned
+}
+
+struct PinGroupResp {
+    1: bool success
+    2: string msg
+}
+
 service GroupService {
     CreateGroupResp CreateGroup(1: CreateGroupReq req)
     DeleteGroupResp DeleteGroup(1: DeleteGroupReq req)
@@ -163,8 +186,10 @@ service GroupService {
     InviteMemberResp InviteMember(1: InviteMemberReq req)
     KickMemberResp KickMember(1: KickMemberReq req)
     MuteMemberResp MuteMember(1: MuteMemberReq req)
+    UnmuteMemberResp UnmuteMember(1: UnmuteMemberReq req)
     SetRoleResp SetRole(1: SetRoleReq req)
     GetGroupMembersResp GetGroupMembers(1: GetGroupMembersReq req)
     CheckMemberResp CheckMember(1: CheckMemberReq req)
     TransferOwnerResp TransferOwner(1: TransferOwnerReq req)
+    PinGroupResp PinGroup(1: PinGroupReq req)
 }

@@ -1,0 +1,18 @@
+service:
+  name: "bot-manager-service"
+  address: "127.0.0.1:9006"
+
+mysql:
+  dsn: ""
+
+redis:
+  addr: ""
+  password: ""
+  db: 0
+
+jwt:
+  secret_key: ""
+  expiration: 0
+
+etcd:
+  endpoints: []

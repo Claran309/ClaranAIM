@@ -1,24 +1,37 @@
-// API基础配置
 const API_BASE = 'http://localhost:8080/api/v1';
 const WS_BASE = 'ws://localhost:8081/ws';
 
 let token = localStorage.getItem('claran_token') || '';
 let currentUser = JSON.parse(localStorage.getItem('claran_user') || 'null');
 let currentConversationID = null;
+let currentConversationType = '';
 let ws = null;
+let wsReconnectTimer = null;
+let unreadMap = JSON.parse(localStorage.getItem('claran_unread') || '{}');
+let localMsgIdCounter = 0;
+let pendingMessages = {};
+let friendsCache = [];
+let groupsCache = [];
+let userNickCache = {};
+let conversationNameCache = {};
 
-// 通用请求方法
+if (currentUser && currentUser.id) {
+    userNickCache[currentUser.id] = currentUser.nickname || currentUser.username;
+}
+
+function saveUnreadMap() {
+    localStorage.setItem('claran_unread', JSON.stringify(unreadMap));
+}
+
 async function request(method, path, data = null, auth = true) {
     const headers = { 'Content-Type': 'application/json' };
     if (auth && token) {
         headers['Authorization'] = `Bearer ${token}`;
     }
-
     const options = { method, headers };
     if (data && method !== 'GET') {
         options.body = JSON.stringify(data);
     }
-
     try {
         const resp = await fetch(`${API_BASE}${path}`, options);
         const result = await resp.json();
@@ -29,71 +42,109 @@ async function request(method, path, data = null, auth = true) {
     }
 }
 
-// 用户API
 const userAPI = {
     register: (username, password, nickname) =>
         request('POST', '/user/register', { username, password, nickname }, false),
-
     login: (username, password) =>
         request('POST', '/user/login', { username, password }, false),
-
     getInfo: () => request('GET', '/user/info'),
-
     updateInfo: (nickname, email, phone) =>
         request('PUT', '/user/info', { nickname, email, phone }),
-
+    updateAvatar: (avatar) =>
+        request('POST', '/user/avatar', { avatar }),
+    logout: () => request('POST', '/user/logout'),
     addFriend: (friendID, groupID, remark) =>
         request('POST', '/user/friend/add', { friend_id: friendID, group_id: groupID || 0, remark: remark || '' }),
-
     deleteFriend: (friendID) =>
         request('POST', '/user/friend/delete', { friend_id: friendID }),
-
     getFriendList: () => request('GET', '/user/friend/list'),
-
     getFriendGroups: () => request('GET', '/user/friend/groups'),
+    batchGetInfo: (ids) => request('GET', `/user/batch?ids=${ids.join(',')}`),
 };
 
-// 群组API
 const groupAPI = {
     create: (name, memberIDs) =>
         request('POST', '/group/create', { name, member_ids: memberIDs }),
-
     get: (id) => request('GET', `/group/${id}`),
-
     list: () => request('GET', '/group/list'),
-
     invite: (groupID, userIDs) =>
         request('POST', '/group/invite', { group_id: groupID, user_ids: userIDs }),
-
     kick: (groupID, userID) =>
         request('POST', '/group/kick', { group_id: groupID, user_id: userID }),
-
     getMembers: (id) => request('GET', `/group/${id}/members`),
+    transfer: (groupID, newOwnerID) =>
+        request('POST', '/group/transfer', { group_id: groupID, new_owner_id: newOwnerID }),
+    updateInfo: (groupID, name, announcement) =>
+        request('PUT', '/group/info', { group_id: groupID, name, announcement }),
+    pin: (groupID, isPinned) =>
+        request('POST', '/group/pin', { group_id: groupID, is_pinned: isPinned }),
+    mute: (groupID, userID, durationMinutes) =>
+        request('POST', '/group/mute', { group_id: groupID, user_id: userID, duration_minutes: durationMinutes }),
+    unmute: (groupID, userID) =>
+        request('POST', '/group/unmute', { group_id: groupID, user_id: userID }),
+    setRole: (groupID, userID, role) =>
+        request('POST', '/group/role', { group_id: groupID, user_id: userID, role }),
+    deleteGroup: (groupID) =>
+        request('POST', '/group/delete', { group_id: groupID }),
 };
 
-// 消息API
 const messageAPI = {
     createConversation: (type, participantIDs) =>
         request('POST', '/message/conversation', { type, participant_ids: participantIDs }),
-
     send: (conversationID, content, msgType = 'text') =>
         request('POST', '/message/send', { conversation_id: conversationID, content, msg_type: msgType }),
-
     getHistory: (conversationID, limit = 50, beforeID = 0) =>
         request('GET', `/message/history/${conversationID}?limit=${limit}&before_id=${beforeID}`),
-
-    search: (keyword, limit = 20) =>
-        request('GET', `/message/search?keyword=${encodeURIComponent(keyword)}&limit=${limit}`),
-
+    search: (keyword, conversationID = 0, limit = 20) =>
+        request('GET', `/message/search?keyword=${encodeURIComponent(keyword)}&limit=${limit}&conversation_id=${conversationID}`),
     getConversations: () => request('GET', '/message/conversations'),
 };
 
-// WebSocket连接
-let wsReconnectTimer = null;
+const fileAPI = {
+    upload: async (file, fileType = 'file') => {
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('file_type', fileType);
+        const headers = {};
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+        try {
+            const resp = await fetch(`${API_BASE}/file/upload`, {
+                method: 'POST',
+                headers,
+                body: formData,
+            });
+            return await resp.json();
+        } catch (err) {
+            showToast('文件上传失败: ' + err.message, 'error');
+            return null;
+        }
+    },
+    get: (id) => request('GET', `/file/${id}`),
+    delete: (id) => request('DELETE', `/file/${id}`, { file_id: id }),
+    list: (fileType = '', limit = 20, offset = 0) =>
+        request('GET', `/file/list?file_type=${fileType}&limit=${limit}&offset=${offset}`),
+};
+
+const botAPI = {
+    create: (name, type, description, modelName, apiKey, baseURL, systemPrompt, skillsDir, agentRoot) =>
+        request('POST', '/bot/create', { name, type, description, model_name: modelName, api_key: apiKey, base_url: baseURL, system_prompt: systemPrompt, skills_dir: skillsDir, agent_root: agentRoot }),
+    update: (botID, data) =>
+        request('PUT', '/bot/update', { bot_id: botID, ...data }),
+    get: (id) => request('GET', `/bot/${id}`),
+    list: (type = '') => request('GET', `/bot/list?type=${type}`),
+    delete: (botID) => request('DELETE', '/bot/delete', { bot_id: botID }),
+    chat: (botID, message, conversationID = 0) =>
+        request('POST', '/bot/chat', { bot_id: botID, message, conversation_id: conversationID }),
+    createRoute: (botID, routePattern, routeType, priority) =>
+        request('POST', '/bot/route/create', { bot_id: botID, route_pattern: routePattern, route_type: routeType, priority }),
+    listRoutes: (botID) => request('GET', `/bot/${botID}/routes`),
+    deleteRoute: (routeID) => request('DELETE', '/bot/route/delete', { route_id: routeID }),
+    getBilling: (botID, limit = 20, offset = 0) =>
+        request('GET', `/bot/${botID}/billing?limit=${limit}&offset=${offset}`),
+};
 
 function connectWS() {
     if (!token) return;
-
     if (ws) {
         ws.close();
         ws = null;
@@ -102,7 +153,7 @@ function connectWS() {
     ws = new WebSocket(`${WS_BASE}?token=${token}`);
 
     ws.onopen = () => {
-        showToast('WebSocket连接已建立', 'success');
+        showToast('实时连接已建立', 'success');
         if (wsReconnectTimer) {
             clearTimeout(wsReconnectTimer);
             wsReconnectTimer = null;
@@ -119,7 +170,7 @@ function connectWS() {
     };
 
     ws.onclose = () => {
-        showToast('WebSocket连接已断开', 'info');
+        showToast('实时连接已断开，3秒后重连', 'warning');
         ws = null;
         wsReconnectTimer = setTimeout(connectWS, 3000);
     };
@@ -129,17 +180,71 @@ function connectWS() {
     };
 }
 
-let lastSentMsgIds = new Set();
-
 function handleWSMessage(msg) {
     if (msg.type === 'new_message' && msg.data) {
-        if (msg.data.conversation_id === currentConversationID) {
-            if (msg.data.msg_id && lastSentMsgIds.has(msg.data.msg_id)) {
-                lastSentMsgIds.delete(msg.data.msg_id);
-                return;
-            }
-            appendMessage(msg.data);
+        const data = msg.data;
+
+        if (data.sender_id === currentUser.id) {
+            return;
+        }
+
+        if (data.conversation_id === currentConversationID) {
+            appendMessage(data);
+        } else {
+            const convId = data.conversation_id;
+            unreadMap[convId] = (unreadMap[convId] || 0) + 1;
+            saveUnreadMap();
+            updateUnreadBadge();
         }
         loadConversations();
     }
+}
+
+function updateUnreadBadge() {
+    let total = 0;
+    for (const key in unreadMap) {
+        total += unreadMap[key];
+    }
+    const badge = document.getElementById('conv-unread');
+    if (total > 0) {
+        badge.textContent = total > 99 ? '99+' : total;
+        badge.style.display = 'inline-block';
+    } else {
+        badge.style.display = 'none';
+    }
+}
+
+async function resolveUserNames(userIDs) {
+    const unknownIDs = userIDs.filter(id => !userNickCache[id]);
+    if (unknownIDs.length === 0) return;
+
+    try {
+        const resp = await userAPI.batchGetInfo(unknownIDs);
+        if (resp && resp.code === 0 && resp.data && resp.data.users) {
+            for (const u of resp.data.users) {
+                userNickCache[u.id] = u.nickname || u.username;
+            }
+        }
+    } catch (e) {
+        console.error('批量获取用户信息失败:', e);
+    }
+}
+
+function getUserName(userID) {
+    if (userID === currentUser.id) {
+        return currentUser.nickname || currentUser.username || '我';
+    }
+    return userNickCache[userID] || '用户' + userID;
+}
+
+function getUserAvatarChar(userID) {
+    const name = getUserName(userID);
+    return name.charAt(0).toUpperCase();
+}
+
+function renderAvatarHTML(avatarURL, fallbackChar, extraClass) {
+    if (avatarURL) {
+        return `<div class="avatar ${extraClass || ''}"><img src="${avatarURL}" style="width:100%;height:100%;border-radius:50%;object-fit:cover;"></div>`;
+    }
+    return `<div class="avatar ${extraClass || ''}">${fallbackChar}</div>`;
 }

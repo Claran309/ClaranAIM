@@ -1,0 +1,28 @@
+service:
+  name: "file-service"
+  address: "127.0.0.1:9005"
+
+mysql:
+  dsn: ""
+
+redis:
+  addr: ""
+  password: ""
+  db: 0
+
+jwt:
+  secret_key: ""
+  expiration: 0
+
+etcd:
+  endpoints: []
+
+minio:
+  endpoint: ""
+  access_key: ""
+  secret_key: ""
+  bucket: "claranaim"
+  use_minio: false
+
+storage:
+  dir: "./storage"

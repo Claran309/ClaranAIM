@@ -15,6 +15,7 @@ type Group struct {
 	Announcement string `thrift:"announcement,5" frugal:"5,default,string" json:"announcement"`
 	CreatedAt    string `thrift:"created_at,6" frugal:"6,default,string" json:"created_at"`
 	UpdatedAt    string `thrift:"updated_at,7" frugal:"7,default,string" json:"updated_at"`
+	IsPinned     bool   `thrift:"is_pinned,8" frugal:"8,default,bool" json:"is_pinned"`
 }
 
 func NewGroup() *Group {
@@ -51,6 +52,10 @@ func (p *Group) GetCreatedAt() (v string) {
 func (p *Group) GetUpdatedAt() (v string) {
 	return p.UpdatedAt
 }
+
+func (p *Group) GetIsPinned() (v bool) {
+	return p.IsPinned
+}
 func (p *Group) SetId(val int64) {
 	p.Id = val
 }
@@ -72,6 +77,9 @@ func (p *Group) SetCreatedAt(val string) {
 func (p *Group) SetUpdatedAt(val string) {
 	p.UpdatedAt = val
 }
+func (p *Group) SetIsPinned(val bool) {
+	p.IsPinned = val
+}
 
 func (p *Group) String() string {
 	if p == nil {
@@ -88,6 +96,7 @@ var fieldIDToName_Group = map[int16]string{
 	5: "announcement",
 	6: "created_at",
 	7: "updated_at",
+	8: "is_pinned",
 }
 
 type GroupMember struct {
@@ -871,6 +880,91 @@ var fieldIDToName_MuteMemberResp = map[int16]string{
 	2: "msg",
 }
 
+type UnmuteMemberReq struct {
+	GroupId    int64 `thrift:"group_id,1" frugal:"1,default,i64" json:"group_id"`
+	OperatorId int64 `thrift:"operator_id,2" frugal:"2,default,i64" json:"operator_id"`
+	UserId     int64 `thrift:"user_id,3" frugal:"3,default,i64" json:"user_id"`
+}
+
+func NewUnmuteMemberReq() *UnmuteMemberReq {
+	return &UnmuteMemberReq{}
+}
+
+func (p *UnmuteMemberReq) InitDefault() {
+}
+
+func (p *UnmuteMemberReq) GetGroupId() (v int64) {
+	return p.GroupId
+}
+
+func (p *UnmuteMemberReq) GetOperatorId() (v int64) {
+	return p.OperatorId
+}
+
+func (p *UnmuteMemberReq) GetUserId() (v int64) {
+	return p.UserId
+}
+func (p *UnmuteMemberReq) SetGroupId(val int64) {
+	p.GroupId = val
+}
+func (p *UnmuteMemberReq) SetOperatorId(val int64) {
+	p.OperatorId = val
+}
+func (p *UnmuteMemberReq) SetUserId(val int64) {
+	p.UserId = val
+}
+
+func (p *UnmuteMemberReq) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("UnmuteMemberReq(%+v)", *p)
+}
+
+var fieldIDToName_UnmuteMemberReq = map[int16]string{
+	1: "group_id",
+	2: "operator_id",
+	3: "user_id",
+}
+
+type UnmuteMemberResp struct {
+	Success bool   `thrift:"success,1" frugal:"1,default,bool" json:"success"`
+	Msg     string `thrift:"msg,2" frugal:"2,default,string" json:"msg"`
+}
+
+func NewUnmuteMemberResp() *UnmuteMemberResp {
+	return &UnmuteMemberResp{}
+}
+
+func (p *UnmuteMemberResp) InitDefault() {
+}
+
+func (p *UnmuteMemberResp) GetSuccess() (v bool) {
+	return p.Success
+}
+
+func (p *UnmuteMemberResp) GetMsg() (v string) {
+	return p.Msg
+}
+func (p *UnmuteMemberResp) SetSuccess(val bool) {
+	p.Success = val
+}
+func (p *UnmuteMemberResp) SetMsg(val string) {
+	p.Msg = val
+}
+
+func (p *UnmuteMemberResp) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("UnmuteMemberResp(%+v)", *p)
+}
+
+var fieldIDToName_UnmuteMemberResp = map[int16]string{
+	1: "success",
+	2: "msg",
+}
+
 type SetRoleReq struct {
 	GroupId    int64  `thrift:"group_id,1" frugal:"1,default,i64" json:"group_id"`
 	OperatorId int64  `thrift:"operator_id,2" frugal:"2,default,i64" json:"operator_id"`
@@ -1220,6 +1314,91 @@ var fieldIDToName_TransferOwnerResp = map[int16]string{
 	2: "msg",
 }
 
+type PinGroupReq struct {
+	GroupId    int64 `thrift:"group_id,1" frugal:"1,default,i64" json:"group_id"`
+	OperatorId int64 `thrift:"operator_id,2" frugal:"2,default,i64" json:"operator_id"`
+	IsPinned   bool  `thrift:"is_pinned,3" frugal:"3,default,bool" json:"is_pinned"`
+}
+
+func NewPinGroupReq() *PinGroupReq {
+	return &PinGroupReq{}
+}
+
+func (p *PinGroupReq) InitDefault() {
+}
+
+func (p *PinGroupReq) GetGroupId() (v int64) {
+	return p.GroupId
+}
+
+func (p *PinGroupReq) GetOperatorId() (v int64) {
+	return p.OperatorId
+}
+
+func (p *PinGroupReq) GetIsPinned() (v bool) {
+	return p.IsPinned
+}
+func (p *PinGroupReq) SetGroupId(val int64) {
+	p.GroupId = val
+}
+func (p *PinGroupReq) SetOperatorId(val int64) {
+	p.OperatorId = val
+}
+func (p *PinGroupReq) SetIsPinned(val bool) {
+	p.IsPinned = val
+}
+
+func (p *PinGroupReq) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("PinGroupReq(%+v)", *p)
+}
+
+var fieldIDToName_PinGroupReq = map[int16]string{
+	1: "group_id",
+	2: "operator_id",
+	3: "is_pinned",
+}
+
+type PinGroupResp struct {
+	Success bool   `thrift:"success,1" frugal:"1,default,bool" json:"success"`
+	Msg     string `thrift:"msg,2" frugal:"2,default,string" json:"msg"`
+}
+
+func NewPinGroupResp() *PinGroupResp {
+	return &PinGroupResp{}
+}
+
+func (p *PinGroupResp) InitDefault() {
+}
+
+func (p *PinGroupResp) GetSuccess() (v bool) {
+	return p.Success
+}
+
+func (p *PinGroupResp) GetMsg() (v string) {
+	return p.Msg
+}
+func (p *PinGroupResp) SetSuccess(val bool) {
+	p.Success = val
+}
+func (p *PinGroupResp) SetMsg(val string) {
+	p.Msg = val
+}
+
+func (p *PinGroupResp) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("PinGroupResp(%+v)", *p)
+}
+
+var fieldIDToName_PinGroupResp = map[int16]string{
+	1: "success",
+	2: "msg",
+}
+
 type GroupService interface {
 	CreateGroup(ctx context.Context, req *CreateGroupReq) (r *CreateGroupResp, err error)
 
@@ -1237,6 +1416,8 @@ type GroupService interface {
 
 	MuteMember(ctx context.Context, req *MuteMemberReq) (r *MuteMemberResp, err error)
 
+	UnmuteMember(ctx context.Context, req *UnmuteMemberReq) (r *UnmuteMemberResp, err error)
+
 	SetRole(ctx context.Context, req *SetRoleReq) (r *SetRoleResp, err error)
 
 	GetGroupMembers(ctx context.Context, req *GetGroupMembersReq) (r *GetGroupMembersResp, err error)
@@ -1244,6 +1425,8 @@ type GroupService interface {
 	CheckMember(ctx context.Context, req *CheckMemberReq) (r *CheckMemberResp, err error)
 
 	TransferOwner(ctx context.Context, req *TransferOwnerReq) (r *TransferOwnerResp, err error)
+
+	PinGroup(ctx context.Context, req *PinGroupReq) (r *PinGroupResp, err error)
 }
 
 type GroupServiceCreateGroupArgs struct {
@@ -1854,6 +2037,82 @@ var fieldIDToName_GroupServiceMuteMemberResult = map[int16]string{
 	0: "success",
 }
 
+type GroupServiceUnmuteMemberArgs struct {
+	Req *UnmuteMemberReq `thrift:"req,1" frugal:"1,default,UnmuteMemberReq" json:"req"`
+}
+
+func NewGroupServiceUnmuteMemberArgs() *GroupServiceUnmuteMemberArgs {
+	return &GroupServiceUnmuteMemberArgs{}
+}
+
+func (p *GroupServiceUnmuteMemberArgs) InitDefault() {
+}
+
+var GroupServiceUnmuteMemberArgs_Req_DEFAULT *UnmuteMemberReq
+
+func (p *GroupServiceUnmuteMemberArgs) GetReq() (v *UnmuteMemberReq) {
+	if !p.IsSetReq() {
+		return GroupServiceUnmuteMemberArgs_Req_DEFAULT
+	}
+	return p.Req
+}
+func (p *GroupServiceUnmuteMemberArgs) SetReq(val *UnmuteMemberReq) {
+	p.Req = val
+}
+
+func (p *GroupServiceUnmuteMemberArgs) IsSetReq() bool {
+	return p.Req != nil
+}
+
+func (p *GroupServiceUnmuteMemberArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("GroupServiceUnmuteMemberArgs(%+v)", *p)
+}
+
+var fieldIDToName_GroupServiceUnmuteMemberArgs = map[int16]string{
+	1: "req",
+}
+
+type GroupServiceUnmuteMemberResult struct {
+	Success *UnmuteMemberResp `thrift:"success,0,optional" frugal:"0,optional,UnmuteMemberResp" json:"success,omitempty"`
+}
+
+func NewGroupServiceUnmuteMemberResult() *GroupServiceUnmuteMemberResult {
+	return &GroupServiceUnmuteMemberResult{}
+}
+
+func (p *GroupServiceUnmuteMemberResult) InitDefault() {
+}
+
+var GroupServiceUnmuteMemberResult_Success_DEFAULT *UnmuteMemberResp
+
+func (p *GroupServiceUnmuteMemberResult) GetSuccess() (v *UnmuteMemberResp) {
+	if !p.IsSetSuccess() {
+		return GroupServiceUnmuteMemberResult_Success_DEFAULT
+	}
+	return p.Success
+}
+func (p *GroupServiceUnmuteMemberResult) SetSuccess(x interface{}) {
+	p.Success = x.(*UnmuteMemberResp)
+}
+
+func (p *GroupServiceUnmuteMemberResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *GroupServiceUnmuteMemberResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("GroupServiceUnmuteMemberResult(%+v)", *p)
+}
+
+var fieldIDToName_GroupServiceUnmuteMemberResult = map[int16]string{
+	0: "success",
+}
+
 type GroupServiceSetRoleArgs struct {
 	Req *SetRoleReq `thrift:"req,1" frugal:"1,default,SetRoleReq" json:"req"`
 }
@@ -2155,5 +2414,81 @@ func (p *GroupServiceTransferOwnerResult) String() string {
 }
 
 var fieldIDToName_GroupServiceTransferOwnerResult = map[int16]string{
+	0: "success",
+}
+
+type GroupServicePinGroupArgs struct {
+	Req *PinGroupReq `thrift:"req,1" frugal:"1,default,PinGroupReq" json:"req"`
+}
+
+func NewGroupServicePinGroupArgs() *GroupServicePinGroupArgs {
+	return &GroupServicePinGroupArgs{}
+}
+
+func (p *GroupServicePinGroupArgs) InitDefault() {
+}
+
+var GroupServicePinGroupArgs_Req_DEFAULT *PinGroupReq
+
+func (p *GroupServicePinGroupArgs) GetReq() (v *PinGroupReq) {
+	if !p.IsSetReq() {
+		return GroupServicePinGroupArgs_Req_DEFAULT
+	}
+	return p.Req
+}
+func (p *GroupServicePinGroupArgs) SetReq(val *PinGroupReq) {
+	p.Req = val
+}
+
+func (p *GroupServicePinGroupArgs) IsSetReq() bool {
+	return p.Req != nil
+}
+
+func (p *GroupServicePinGroupArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("GroupServicePinGroupArgs(%+v)", *p)
+}
+
+var fieldIDToName_GroupServicePinGroupArgs = map[int16]string{
+	1: "req",
+}
+
+type GroupServicePinGroupResult struct {
+	Success *PinGroupResp `thrift:"success,0,optional" frugal:"0,optional,PinGroupResp" json:"success,omitempty"`
+}
+
+func NewGroupServicePinGroupResult() *GroupServicePinGroupResult {
+	return &GroupServicePinGroupResult{}
+}
+
+func (p *GroupServicePinGroupResult) InitDefault() {
+}
+
+var GroupServicePinGroupResult_Success_DEFAULT *PinGroupResp
+
+func (p *GroupServicePinGroupResult) GetSuccess() (v *PinGroupResp) {
+	if !p.IsSetSuccess() {
+		return GroupServicePinGroupResult_Success_DEFAULT
+	}
+	return p.Success
+}
+func (p *GroupServicePinGroupResult) SetSuccess(x interface{}) {
+	p.Success = x.(*PinGroupResp)
+}
+
+func (p *GroupServicePinGroupResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *GroupServicePinGroupResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("GroupServicePinGroupResult(%+v)", *p)
+}
+
+var fieldIDToName_GroupServicePinGroupResult = map[int16]string{
 	0: "success",
 }

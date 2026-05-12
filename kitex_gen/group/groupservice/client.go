@@ -19,10 +19,12 @@ type Client interface {
 	InviteMember(ctx context.Context, req *group.InviteMemberReq, callOptions ...callopt.Option) (r *group.InviteMemberResp, err error)
 	KickMember(ctx context.Context, req *group.KickMemberReq, callOptions ...callopt.Option) (r *group.KickMemberResp, err error)
 	MuteMember(ctx context.Context, req *group.MuteMemberReq, callOptions ...callopt.Option) (r *group.MuteMemberResp, err error)
+	UnmuteMember(ctx context.Context, req *group.UnmuteMemberReq, callOptions ...callopt.Option) (r *group.UnmuteMemberResp, err error)
 	SetRole(ctx context.Context, req *group.SetRoleReq, callOptions ...callopt.Option) (r *group.SetRoleResp, err error)
 	GetGroupMembers(ctx context.Context, req *group.GetGroupMembersReq, callOptions ...callopt.Option) (r *group.GetGroupMembersResp, err error)
 	CheckMember(ctx context.Context, req *group.CheckMemberReq, callOptions ...callopt.Option) (r *group.CheckMemberResp, err error)
 	TransferOwner(ctx context.Context, req *group.TransferOwnerReq, callOptions ...callopt.Option) (r *group.TransferOwnerResp, err error)
+	PinGroup(ctx context.Context, req *group.PinGroupReq, callOptions ...callopt.Option) (r *group.PinGroupResp, err error)
 }
 
 // NewClient creates a client for the service defined in IDL.
@@ -94,6 +96,11 @@ func (p *kGroupServiceClient) MuteMember(ctx context.Context, req *group.MuteMem
 	return p.kClient.MuteMember(ctx, req)
 }
 
+func (p *kGroupServiceClient) UnmuteMember(ctx context.Context, req *group.UnmuteMemberReq, callOptions ...callopt.Option) (r *group.UnmuteMemberResp, err error) {
+	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
+	return p.kClient.UnmuteMember(ctx, req)
+}
+
 func (p *kGroupServiceClient) SetRole(ctx context.Context, req *group.SetRoleReq, callOptions ...callopt.Option) (r *group.SetRoleResp, err error) {
 	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
 	return p.kClient.SetRole(ctx, req)
@@ -112,4 +119,9 @@ func (p *kGroupServiceClient) CheckMember(ctx context.Context, req *group.CheckM
 func (p *kGroupServiceClient) TransferOwner(ctx context.Context, req *group.TransferOwnerReq, callOptions ...callopt.Option) (r *group.TransferOwnerResp, err error) {
 	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
 	return p.kClient.TransferOwner(ctx, req)
+}
+
+func (p *kGroupServiceClient) PinGroup(ctx context.Context, req *group.PinGroupReq, callOptions ...callopt.Option) (r *group.PinGroupResp, err error) {
+	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
+	return p.kClient.PinGroup(ctx, req)
 }

@@ -5,6 +5,7 @@ import (
 	"ClaranAIM/internal/group-service/handler"
 	"ClaranAIM/internal/group-service/service"
 	"ClaranAIM/kitex_gen/group/groupservice"
+	"ClaranAIM/pkg/cache/redis"
 	"ClaranAIM/pkg/config"
 	"log"
 	"net"
@@ -21,15 +22,25 @@ func main() {
 		log.Fatal("加载配置失败:", err)
 	}
 
-	// 初始化数据库（group-service 独立管理自己的表）
 	db, err := dao.InitDB(cfg.MySQL.DSN)
 	if err != nil {
 		log.Fatal("初始化数据库失败:", err)
 	}
 	log.Println("group-service 数据库初始化成功")
 
+	var redisClient *redis.RedisClient
+	if cfg.Redis.Addr != "" {
+		redisClient, err = redis.NewRedisClient(cfg.Redis.Addr, cfg.Redis.Password, cfg.Redis.DB)
+		if err != nil {
+			log.Printf("Redis连接失败，将不使用缓存: %v", err)
+			redisClient = nil
+		} else {
+			log.Println("group-service Redis连接成功")
+		}
+	}
+
 	groupRepo := dao.NewGroupRepo(db)
-	groupService := service.NewGroupService(groupRepo)
+	groupService := service.NewGroupService(groupRepo, redisClient)
 	groupHandler := handler.NewGroupServiceImpl(groupService)
 
 	r, err := etcd.NewEtcdRegistry(cfg.Etcd.Endpoints)

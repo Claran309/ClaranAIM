@@ -69,6 +69,13 @@ var serviceMethods = map[string]kitex.MethodInfo{
 		false,
 		kitex.WithStreamingMode(kitex.StreamingNone),
 	),
+	"UnmuteMember": kitex.NewMethodInfo(
+		unmuteMemberHandler,
+		newGroupServiceUnmuteMemberArgs,
+		newGroupServiceUnmuteMemberResult,
+		false,
+		kitex.WithStreamingMode(kitex.StreamingNone),
+	),
 	"SetRole": kitex.NewMethodInfo(
 		setRoleHandler,
 		newGroupServiceSetRoleArgs,
@@ -94,6 +101,13 @@ var serviceMethods = map[string]kitex.MethodInfo{
 		transferOwnerHandler,
 		newGroupServiceTransferOwnerArgs,
 		newGroupServiceTransferOwnerResult,
+		false,
+		kitex.WithStreamingMode(kitex.StreamingNone),
+	),
+	"PinGroup": kitex.NewMethodInfo(
+		pinGroupHandler,
+		newGroupServicePinGroupArgs,
+		newGroupServicePinGroupResult,
 		false,
 		kitex.WithStreamingMode(kitex.StreamingNone),
 	),
@@ -307,6 +321,24 @@ func newGroupServiceMuteMemberResult() interface{} {
 	return group.NewGroupServiceMuteMemberResult()
 }
 
+func unmuteMemberHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
+	realArg := arg.(*group.GroupServiceUnmuteMemberArgs)
+	realResult := result.(*group.GroupServiceUnmuteMemberResult)
+	success, err := handler.(group.GroupService).UnmuteMember(ctx, realArg.Req)
+	if err != nil {
+		return err
+	}
+	realResult.Success = success
+	return nil
+}
+func newGroupServiceUnmuteMemberArgs() interface{} {
+	return group.NewGroupServiceUnmuteMemberArgs()
+}
+
+func newGroupServiceUnmuteMemberResult() interface{} {
+	return group.NewGroupServiceUnmuteMemberResult()
+}
+
 func setRoleHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
 	realArg := arg.(*group.GroupServiceSetRoleArgs)
 	realResult := result.(*group.GroupServiceSetRoleResult)
@@ -377,6 +409,24 @@ func newGroupServiceTransferOwnerArgs() interface{} {
 
 func newGroupServiceTransferOwnerResult() interface{} {
 	return group.NewGroupServiceTransferOwnerResult()
+}
+
+func pinGroupHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
+	realArg := arg.(*group.GroupServicePinGroupArgs)
+	realResult := result.(*group.GroupServicePinGroupResult)
+	success, err := handler.(group.GroupService).PinGroup(ctx, realArg.Req)
+	if err != nil {
+		return err
+	}
+	realResult.Success = success
+	return nil
+}
+func newGroupServicePinGroupArgs() interface{} {
+	return group.NewGroupServicePinGroupArgs()
+}
+
+func newGroupServicePinGroupResult() interface{} {
+	return group.NewGroupServicePinGroupResult()
 }
 
 type kClient struct {
@@ -469,6 +519,16 @@ func (p *kClient) MuteMember(ctx context.Context, req *group.MuteMemberReq) (r *
 	return _result.GetSuccess(), nil
 }
 
+func (p *kClient) UnmuteMember(ctx context.Context, req *group.UnmuteMemberReq) (r *group.UnmuteMemberResp, err error) {
+	var _args group.GroupServiceUnmuteMemberArgs
+	_args.Req = req
+	var _result group.GroupServiceUnmuteMemberResult
+	if err = p.c.Call(ctx, "UnmuteMember", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
+
 func (p *kClient) SetRole(ctx context.Context, req *group.SetRoleReq) (r *group.SetRoleResp, err error) {
 	var _args group.GroupServiceSetRoleArgs
 	_args.Req = req
@@ -504,6 +564,16 @@ func (p *kClient) TransferOwner(ctx context.Context, req *group.TransferOwnerReq
 	_args.Req = req
 	var _result group.GroupServiceTransferOwnerResult
 	if err = p.c.Call(ctx, "TransferOwner", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
+
+func (p *kClient) PinGroup(ctx context.Context, req *group.PinGroupReq) (r *group.PinGroupResp, err error) {
+	var _args group.GroupServicePinGroupArgs
+	_args.Req = req
+	var _result group.GroupServicePinGroupResult
+	if err = p.c.Call(ctx, "PinGroup", &_args, &_result); err != nil {
 		return
 	}
 	return _result.GetSuccess(), nil

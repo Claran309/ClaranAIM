@@ -12,37 +12,55 @@ import (
 	"time"
 )
 
+// MessageService 消息核心服务接口
+// 提供会话管理和消息收发的核心业务逻辑
 type MessageService interface {
+	// CreateConversation 创建会话（私聊/群聊）
+	// 私聊会自动检查是否已存在，避免重复创建
 	CreateConversation(ctx context.Context, convType string, participantIDs []int64) (*model.Conversation, error)
+	// GetConversation 获取会话详情
 	GetConversation(ctx context.Context, conversationID int64) (*model.Conversation, error)
+	// GetUserConversations 获取用户的会话列表（含最后一条消息摘要）
 	GetUserConversations(ctx context.Context, userID int64) ([]UserConversationInfo, error)
+	// SendMessage 发送消息（核心方法：存储 + 缓存 + WebSocket推送）
 	SendMessage(ctx context.Context, conversationID, senderID int64, content, msgType string) (*model.Message, error)
+	// GetHistory 获取会话历史消息（支持游标分页）
 	GetHistory(ctx context.Context, conversationID, userID int64, limit, beforeID int64) ([]model.Message, error)
+	// SearchMessages 搜索消息（在用户参与的会话中搜索）
 	SearchMessages(ctx context.Context, userID int64, keyword string, limit int64) ([]model.Message, error)
+	// SearchMessagesInConversations 在指定会话中搜索消息
+	SearchMessagesInConversations(ctx context.Context, conversationIDs []int64, keyword string, limit int64) ([]model.Message, error)
+	// GetConversationParticipants 获取会话参与者ID列表
 	GetConversationParticipants(ctx context.Context, conversationID int64) ([]int64, error)
 }
 
+// UserConversationInfo 用户会话列表项
+// 包含会话基本信息和最后一条消息摘要，用于前端会话列表展示
 type UserConversationInfo struct {
-	ConversationID  int64  `json:"conversation_id"`
-	Type            string `json:"type"`
-	LastMessage     string `json:"last_message"`
-	LastMessageTime string `json:"last_message_time"`
-	UnreadCount     int64  `json:"unread_count"`
-	TargetName      string `json:"target_name"`
-	TargetAvatar    string `json:"target_avatar"`
+	ConversationID  int64  `json:"conversation_id"`   // 会话ID
+	Type            string `json:"type"`              // 会话类型：private/group
+	LastMessage     string `json:"last_message"`      // 最后一条消息内容
+	LastMessageTime string `json:"last_message_time"` // 最后一条消息时间
+	UnreadCount     int64  `json:"unread_count"`      // 未读消息数（预留字段）
+	TargetName      string `json:"target_name"`       // 对方用户名（私聊时使用，预留）
+	TargetAvatar    string `json:"target_avatar"`     // 对方头像（预留字段）
 }
 
 type messageServiceImpl struct {
-	repo       dao.MessageRepository
-	pushClient *push.PushClient
-	redis      *redis.RedisClient
+	repo       dao.MessageRepository // 数据访问层
+	pushClient *push.PushClient      // WebSocket推送客户端
+	redis      *redis.RedisClient    // Redis缓存客户端
 }
 
 func NewMessageService(repo dao.MessageRepository, pushClient *push.PushClient, r *redis.RedisClient) MessageService {
 	return &messageServiceImpl{repo: repo, pushClient: pushClient, redis: r}
 }
 
+// CreateConversation 创建会话
+// 流程：校验参数 → 私聊查重 → 创建会话记录 → 添加参与者 → 清除缓存
+// 私聊类型会自动检查两个用户之间是否已有会话，避免重复创建
 func (s *messageServiceImpl) CreateConversation(ctx context.Context, convType string, participantIDs []int64) (*model.Conversation, error) {
+	// 参数校验
 	if convType != "private" && convType != "group" {
 		return nil, errors.New("无效的会话类型")
 	}
@@ -50,6 +68,7 @@ func (s *messageServiceImpl) CreateConversation(ctx context.Context, convType st
 		return nil, errors.New("参与者至少为2人")
 	}
 
+	// 私聊查重：如果两个用户之间已有私聊会话，直接返回已有会话
 	if convType == "private" && len(participantIDs) == 2 {
 		existing, err := s.repo.FindPrivateConversation(ctx, participantIDs[0], participantIDs[1])
 		if err != nil {
@@ -60,6 +79,7 @@ func (s *messageServiceImpl) CreateConversation(ctx context.Context, convType st
 		}
 	}
 
+	// 第1步：创建会话记录
 	conv := &model.Conversation{
 		Type: convType,
 	}
@@ -67,6 +87,7 @@ func (s *messageServiceImpl) CreateConversation(ctx context.Context, convType st
 		return nil, err
 	}
 
+	// 第2步：添加所有参与者
 	for _, uid := range participantIDs {
 		p := &model.ConversationParticipant{
 			ConversationID: conv.ID,
@@ -77,6 +98,7 @@ func (s *messageServiceImpl) CreateConversation(ctx context.Context, convType st
 		}
 	}
 
+	// 第3步：清除所有参与者的会话列表缓存，使其重新加载
 	for _, uid := range participantIDs {
 		s.invalidateConversationCache(ctx, uid)
 	}
@@ -84,6 +106,8 @@ func (s *messageServiceImpl) CreateConversation(ctx context.Context, convType st
 	return conv, nil
 }
 
+// GetConversation 获取会话详情
+// 根据会话ID查询会话信息，不存在则返回错误
 func (s *messageServiceImpl) GetConversation(ctx context.Context, conversationID int64) (*model.Conversation, error) {
 	conv, err := s.repo.GetConversationByID(ctx, conversationID)
 	if err != nil {
@@ -95,7 +119,11 @@ func (s *messageServiceImpl) GetConversation(ctx context.Context, conversationID
 	return conv, nil
 }
 
+// GetUserConversations 获取用户的会话列表
+// 流程：查缓存 → 查数据库 → 组装会话信息 → 写缓存
+// 每个会话项包含会话ID、类型、最后一条消息等摘要信息
 func (s *messageServiceImpl) GetUserConversations(ctx context.Context, userID int64) ([]UserConversationInfo, error) {
+	// 第1步：尝试从Redis缓存获取
 	if s.redis != nil {
 		cacheKey := fmt.Sprintf("user:conversations:%d", userID)
 		var cached []UserConversationInfo
@@ -105,11 +133,13 @@ func (s *messageServiceImpl) GetUserConversations(ctx context.Context, userID in
 		}
 	}
 
+	// 第2步：缓存未命中，从数据库查询
 	participants, err := s.repo.GetUserConversations(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
 
+	// 第3步：组装会话列表信息
 	var result []UserConversationInfo
 	for _, p := range participants {
 		conv, _ := s.repo.GetConversationByID(ctx, p.ConversationID)
@@ -122,6 +152,7 @@ func (s *messageServiceImpl) GetUserConversations(ctx context.Context, userID in
 			Type:           conv.Type,
 		}
 
+		// 获取该会话的最后一条消息
 		msgs, _ := s.repo.GetMessages(ctx, conv.ID, 1, 0)
 		if len(msgs) > 0 {
 			info.LastMessage = msgs[0].Content
@@ -131,6 +162,7 @@ func (s *messageServiceImpl) GetUserConversations(ctx context.Context, userID in
 		result = append(result, info)
 	}
 
+	// 第4步：写入Redis缓存，5分钟过期
 	if s.redis != nil && len(result) > 0 {
 		cacheKey := fmt.Sprintf("user:conversations:%d", userID)
 		s.redis.SetJSON(ctx, cacheKey, result, 5*time.Minute)
@@ -139,11 +171,15 @@ func (s *messageServiceImpl) GetUserConversations(ctx context.Context, userID in
 	return result, nil
 }
 
+// SendMessage 发送消息（核心方法）
+// 完整流程：校验 → 存储消息 → 更新会话时间 → 缓存最近消息 → 清除会话列表缓存 → WebSocket推送
 func (s *messageServiceImpl) SendMessage(ctx context.Context, conversationID, senderID int64, content, msgType string) (*model.Message, error) {
+	// 参数校验
 	if content == "" {
 		return nil, errors.New("消息内容不能为空")
 	}
 
+	// 验证会话是否存在
 	conv, err := s.repo.GetConversationByID(ctx, conversationID)
 	if err != nil {
 		return nil, err
@@ -152,10 +188,12 @@ func (s *messageServiceImpl) SendMessage(ctx context.Context, conversationID, se
 		return nil, errors.New("会话不存在")
 	}
 
+	// 默认消息类型为文本
 	if msgType == "" {
 		msgType = "text"
 	}
 
+	// 第1步：创建消息记录
 	msg := &model.Message{
 		ConversationID: conversationID,
 		SenderID:       senderID,
@@ -167,10 +205,11 @@ func (s *messageServiceImpl) SendMessage(ctx context.Context, conversationID, se
 		return nil, err
 	}
 
+	// 第2步：更新会话的UpdatedAt时间戳（使会话列表按最新消息排序）
 	conv.UpdatedAt = msg.CreatedAt
 	_ = s.repo.UpdateConversation(ctx, conv)
 
-	// 缓存最近消息
+	// 第3步：缓存最近消息到Redis（10分钟过期）
 	if s.redis != nil {
 		cacheKey := fmt.Sprintf("conversation:recent:%d", conversationID)
 		recentMsg := map[string]interface{}{
@@ -183,13 +222,14 @@ func (s *messageServiceImpl) SendMessage(ctx context.Context, conversationID, se
 		}
 		s.redis.SetJSON(ctx, cacheKey, recentMsg, 10*time.Minute)
 
+		// 清除所有参与者的会话列表缓存（因为最后一条消息已更新）
 		participants, _ := s.repo.GetParticipants(ctx, conversationID)
 		for _, p := range participants {
 			s.invalidateConversationCache(ctx, p.UserID)
 		}
 	}
 
-	// WebSocket推送
+	// 第4步：通过WebSocket推送消息给所有参与者（实现实时通讯）
 	if s.pushClient != nil {
 		participants, err := s.repo.GetParticipants(ctx, conversationID)
 		if err == nil {
@@ -217,16 +257,21 @@ func (s *messageServiceImpl) SendMessage(ctx context.Context, conversationID, se
 	return msg, nil
 }
 
+// GetHistory 获取会话历史消息
+// 使用游标分页：beforeID > 0 时加载更早的消息
+// 返回结果按时间正序排列（从旧到新）
 func (s *messageServiceImpl) GetHistory(ctx context.Context, conversationID, userID int64, limit, beforeID int64) ([]model.Message, error) {
 	if limit <= 0 {
 		limit = 50
 	}
 
+	// 从数据库查询（按ID倒序）
 	messages, err := s.repo.GetMessages(ctx, conversationID, limit, beforeID)
 	if err != nil {
 		return nil, err
 	}
 
+	// 反转为时间正序（从旧到新），方便前端展示
 	for i, j := 0, len(messages)-1; i < j; i, j = i+1, j-1 {
 		messages[i], messages[j] = messages[j], messages[i]
 	}
@@ -234,6 +279,8 @@ func (s *messageServiceImpl) GetHistory(ctx context.Context, conversationID, use
 	return messages, nil
 }
 
+// SearchMessages 搜索消息
+// 先获取用户参与的所有会话ID，然后在这些会话中搜索包含关键词的消息
 func (s *messageServiceImpl) SearchMessages(ctx context.Context, userID int64, keyword string, limit int64) ([]model.Message, error) {
 	if keyword == "" {
 		return nil, errors.New("搜索关键词不能为空")
@@ -259,6 +306,23 @@ func (s *messageServiceImpl) SearchMessages(ctx context.Context, userID int64, k
 	return s.repo.SearchMessages(ctx, convIDs, keyword, limit)
 }
 
+// SearchMessagesInConversations 在指定会话中搜索消息
+// 直接在给定的会话ID列表中搜索，不需要获取用户的所有会话
+func (s *messageServiceImpl) SearchMessagesInConversations(ctx context.Context, conversationIDs []int64, keyword string, limit int64) ([]model.Message, error) {
+	if keyword == "" {
+		return nil, errors.New("搜索关键词不能为空")
+	}
+	if len(conversationIDs) == 0 {
+		return nil, nil
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+	return s.repo.SearchMessages(ctx, conversationIDs, keyword, limit)
+}
+
+// GetConversationParticipants 获取会话参与者ID列表
+// 用于确定消息推送的目标用户
 func (s *messageServiceImpl) GetConversationParticipants(ctx context.Context, conversationID int64) ([]int64, error) {
 	participants, err := s.repo.GetParticipants(ctx, conversationID)
 	if err != nil {
@@ -272,6 +336,8 @@ func (s *messageServiceImpl) GetConversationParticipants(ctx context.Context, co
 	return userIDs, nil
 }
 
+// invalidateConversationCache 清除用户的会话列表缓存
+// 当会话信息发生变化时（新消息、新会话等）调用
 func (s *messageServiceImpl) invalidateConversationCache(ctx context.Context, userID int64) {
 	if s.redis == nil {
 		return
