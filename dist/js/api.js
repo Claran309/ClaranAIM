@@ -13,6 +13,7 @@ let pendingMessages = {};
 let friendsCache = [];
 let groupsCache = [];
 let userNickCache = {};
+let userAvatarCache = {};
 let conversationNameCache = {};
 
 if (currentUser && currentUser.id) {
@@ -89,8 +90,8 @@ const groupAPI = {
 };
 
 const messageAPI = {
-    createConversation: (type, participantIDs) =>
-        request('POST', '/message/conversation', { type, participant_ids: participantIDs }),
+    createConversation: (type, participantIDs, groupID = 0) =>
+        request('POST', '/message/conversation', { type, participant_ids: participantIDs, group_id: groupID }),
     send: (conversationID, content, msgType = 'text') =>
         request('POST', '/message/send', { conversation_id: conversationID, content, msg_type: msgType }),
     getHistory: (conversationID, limit = 50, beforeID = 0) =>
@@ -113,9 +114,21 @@ const fileAPI = {
                 headers,
                 body: formData,
             });
-            return await resp.json();
+            if (!resp.ok) {
+                const text = await resp.text();
+                let errMsg = '上传失败';
+                try { errMsg = JSON.parse(text).message || errMsg; } catch(e) {}
+                showToast('文件上传失败: ' + errMsg, 'error');
+                return null;
+            }
+            const result = await resp.json();
+            if (result.code !== 0) {
+                showToast('文件上传失败: ' + (result.message || '未知错误'), 'error');
+                return result;
+            }
+            return result;
         } catch (err) {
-            showToast('文件上传失败: ' + err.message, 'error');
+            showToast('文件上传网络错误: ' + err.message, 'error');
             return null;
         }
     },
@@ -223,6 +236,9 @@ async function resolveUserNames(userIDs) {
         if (resp && resp.code === 0 && resp.data && resp.data.users) {
             for (const u of resp.data.users) {
                 userNickCache[u.id] = u.nickname || u.username;
+                if (u.avatar) {
+                    userAvatarCache[u.id] = u.avatar;
+                }
             }
         }
     } catch (e) {
@@ -240,6 +256,18 @@ function getUserName(userID) {
 function getUserAvatarChar(userID) {
     const name = getUserName(userID);
     return name.charAt(0).toUpperCase();
+}
+
+function getUserAvatarHTML(userID, extraClass) {
+    const avatarURL = userAvatarCache[userID];
+    if (userID === currentUser.id && currentUser.avatar) {
+        return `<img src="${currentUser.avatar}" class="avatar-img ${extraClass || ''}">`;
+    }
+    if (avatarURL) {
+        return `<img src="${avatarURL}" class="avatar-img ${extraClass || ''}">`;
+    }
+    const char = getUserAvatarChar(userID);
+    return char;
 }
 
 function renderAvatarHTML(avatarURL, fallbackChar, extraClass) {

@@ -1,9 +1,7 @@
-# 服务配置
 service:
   name: "api-gateway"
   address: "127.0.0.1:8080"
 
-# 以下敏感配置从 .env 文件读取
 mysql:
   dsn: ""
 
@@ -18,3 +16,13 @@ jwt:
 
 etcd:
   endpoints: []
+
+minio:
+  endpoint: ""
+  access_key: ""
+  secret_key: ""
+  bucket: ""
+  use_minio: true
+
+storage:
+  dir: "./storage/source"

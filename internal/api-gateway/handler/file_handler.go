@@ -2,13 +2,70 @@ package handler
 
 import (
 	"ClaranAIM/internal/api-gateway/client"
+	"ClaranAIM/pkg/config"
+	"ClaranAIM/pkg/logger"
 	"ClaranAIM/pkg/response"
 	"context"
+	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"strconv"
 
 	"github.com/cloudwego/hertz/pkg/app"
+	"github.com/google/uuid"
+	"github.com/minio/minio-go/v7"
+	"github.com/minio/minio-go/v7/pkg/credentials"
 )
+
+var minioClient *minio.Client
+var minioBucket string
+var useMinio bool
+var minioEndpoint string
+var storageDir string
+
+func InitFileStorage(cfg *config.Config) {
+	storageDir = cfg.Storage.Dir
+	if storageDir == "" {
+		storageDir = "./storage/source"
+	}
+	if err := os.MkdirAll(storageDir, 0o755); err != nil {
+		logger.Error("创建本地存储目录失败", "error", err)
+	}
+
+	if cfg.Minio.UseMinio && cfg.Minio.Endpoint != "" {
+		mc, err := minio.New(cfg.Minio.Endpoint, &minio.Options{
+			Creds:  credentials.NewStaticV4(cfg.Minio.AccessKey, cfg.Minio.SecretKey, ""),
+			Secure: false,
+		})
+		if err != nil {
+			logger.Error("MinIO客户端初始化失败，将使用本地存储", "error", err)
+			useMinio = false
+			return
+		}
+
+		ctx := context.Background()
+		exists, err := mc.BucketExists(ctx, cfg.Minio.Bucket)
+		if err != nil {
+			logger.Warn("检查MinIO Bucket失败", "error", err)
+		} else if !exists {
+			if err := mc.MakeBucket(ctx, cfg.Minio.Bucket, minio.MakeBucketOptions{}); err != nil {
+				logger.Error("创建MinIO Bucket失败", "error", err)
+			} else {
+				logger.Info("MinIO Bucket创建成功", "bucket", cfg.Minio.Bucket)
+			}
+		}
+
+		minioClient = mc
+		minioBucket = cfg.Minio.Bucket
+		minioEndpoint = cfg.Minio.Endpoint
+		useMinio = true
+		logger.Info("文件上传使用MinIO", "bucket", minioBucket)
+	} else {
+		useMinio = false
+		logger.Info("文件上传使用本地存储", "dir", storageDir)
+	}
+}
 
 type FileHandler struct{}
 
@@ -35,26 +92,76 @@ func (h *FileHandler) UploadFile(ctx context.Context, c *app.RequestContext) {
 	}
 	defer src.Close()
 
-	resp, err := client.FileClient.UploadFile(ctx, client.NewUploadFileReq(file.Filename, fileType, file.Size, file.Header.Get("Content-Type"), id))
+	fileID := uuid.New().String()
+	ext := filepath.Ext(file.Filename)
+	objectName := filepath.Join(fileType, fileID+ext)
+	objectName = filepath.ToSlash(objectName)
+
+	var fileURL string
+	var actualSize int64
+
+	if useMinio && minioClient != nil {
+		uploadInfo, err := minioClient.PutObject(ctx, minioBucket, objectName, src, -1, minio.PutObjectOptions{
+			ContentType: file.Header.Get("Content-Type"),
+		})
+		if err != nil {
+			logger.Error("上传到MinIO失败", "error", err, "object", objectName)
+			response.Error(c, fmt.Sprintf("上传到MinIO失败: %v", err))
+			return
+		}
+		actualSize = uploadInfo.Size
+		fileURL = fmt.Sprintf("http://%s/%s/%s", minioEndpoint, minioBucket, objectName)
+		logger.Info("文件上传到MinIO成功", "object", objectName, "size", actualSize)
+	} else {
+		fullPath := filepath.Join(storageDir, objectName)
+		if err := os.MkdirAll(filepath.Dir(fullPath), 0o755); err != nil {
+			logger.Error("创建目录失败", "error", err)
+			response.Error(c, fmt.Sprintf("创建目录失败: %v", err))
+			return
+		}
+
+		dst, err := os.Create(fullPath)
+		if err != nil {
+			logger.Error("创建文件失败", "error", err)
+			response.Error(c, fmt.Sprintf("创建文件失败: %v", err))
+			return
+		}
+		defer dst.Close()
+
+		written, err := io.Copy(dst, src)
+		if err != nil {
+			os.Remove(fullPath)
+			logger.Error("写入文件失败", "error", err)
+			response.Error(c, fmt.Sprintf("写入文件失败: %v", err))
+			return
+		}
+		actualSize = written
+		fileURL = fmt.Sprintf("/files/%s", objectName)
+		logger.Info("文件上传到本地成功", "path", fullPath, "size", actualSize)
+	}
+
+	resp, err := client.FileClient.UploadFile(ctx, client.NewUploadFileReq(file.Filename, fileType, actualSize, file.Header.Get("Content-Type"), id))
 	if err != nil {
-		response.Error(c, err.Error())
+		logger.Error("文件元数据RPC调用失败", "error", err, "filename", file.Filename)
+		response.Error(c, fmt.Sprintf("文件已上传但元数据保存失败: %v", err))
 		return
 	}
 
 	if !resp.Success {
-		response.Error(c, resp.Msg)
+		logger.Error("文件元数据保存失败", "msg", resp.Msg, "filename", file.Filename)
+		response.Error(c, fmt.Sprintf("文件已上传但元数据保存失败: %s", resp.Msg))
 		return
 	}
 
-	if resp.FileUrl != "" {
-		_ = saveFileToLocal(resp.FileUrl, src)
-	}
-
-	response.Success(c, resp)
-}
-
-func saveFileToLocal(path string, reader io.Reader) error {
-	return nil
+	logger.Info("文件上传完成", "file_id", fileID, "filename", file.Filename, "size", actualSize)
+	response.Success(c, map[string]interface{}{
+		"success":  true,
+		"file_id":  fileID,
+		"file_url": fileURL,
+		"filename": file.Filename,
+		"size":     actualSize,
+		"msg":      "上传成功",
+	})
 }
 
 func (h *FileHandler) GetFile(ctx context.Context, c *app.RequestContext) {

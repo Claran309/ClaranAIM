@@ -4,6 +4,7 @@ import (
 	"ClaranAIM/internal/api-gateway/client"
 	"ClaranAIM/pkg/response"
 	"context"
+	"fmt"
 	"strconv"
 
 	"github.com/cloudwego/hertz/pkg/app"
@@ -27,11 +28,29 @@ func (h *GroupHandler) CreateGroup(ctx context.Context, c *app.RequestContext) {
 	}
 	userID, _ := c.Get("userID")
 	id := userID.(int64)
+
+	for _, uid := range req.MemberIDs {
+		userResp, err := client.UserClient.GetUserInfo(ctx, client.NewGetUserInfoReq(uid))
+		if err != nil || !userResp.Success {
+			response.BadRequest(c, fmt.Sprintf("用户 %d 不存在", uid))
+			return
+		}
+	}
+
 	resp, err := client.GroupClient.CreateGroup(ctx, client.NewCreateGroupReq(req.Name, id, req.MemberIDs))
 	if err != nil {
 		response.Error(c, err.Error())
 		return
 	}
+
+	if resp.Success && resp.GroupId > 0 {
+		allMembers := append([]int64{id}, req.MemberIDs...)
+		_, convErr := client.MessageClient.CreateConversation(ctx, client.NewCreateConversationReq("group", allMembers, resp.GroupId))
+		if convErr != nil {
+			fmt.Printf("创建群聊会话失败: %v\n", convErr)
+		}
+	}
+
 	response.Success(c, resp)
 }
 
@@ -73,6 +92,15 @@ func (h *GroupHandler) InviteMember(ctx context.Context, c *app.RequestContext) 
 	}
 	userID, _ := c.Get("userID")
 	id := userID.(int64)
+
+	for _, uid := range req.UserIDs {
+		userResp, err := client.UserClient.GetUserInfo(ctx, client.NewGetUserInfoReq(uid))
+		if err != nil || !userResp.Success {
+			response.BadRequest(c, fmt.Sprintf("用户 %d 不存在", uid))
+			return
+		}
+	}
+
 	resp, err := client.GroupClient.InviteMember(ctx, client.NewInviteMemberReq(req.GroupID, id, req.UserIDs))
 	if err != nil {
 		response.Error(c, err.Error())

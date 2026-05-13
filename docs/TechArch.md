@@ -1,6 +1,6 @@
 # ClaranAIM 技术实现原理
 
-本文档从架构设计、数据流、核心机制三个维度，逐层拆解 ClaranAIM 第一阶段的完整技术实现逻辑。
+本文档从架构设计、数据流、核心机制三个维度，逐层拆解 ClaranAIM 的完整技术实现逻辑。
 
 ---
 
@@ -9,46 +9,48 @@
 ### 1.1 架构图
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                         前端 (dist/)                             │
-│              登录/注册 · 聊天 · 好友 · 群组                       │
-└──────┬──────────────────────────────┬───────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────┐
+│                           前端 (dist/)                                │
+│        登录/注册 · 聊天 · 好友 · 群组 · 群管理 · AI助手 · 文件传输      │
+└──────┬──────────────────────────────┬────────────────────────────────┘
        │ HTTP (REST API)              │ WebSocket
        ▼                              ▼
 ┌──────────────┐              ┌──────────────────┐
 │  api-gateway  │              │ websocket-gateway │
 │  (Hertz :8080)│              │  (net/http :8081) │
 │  JWT鉴权·路由  │              │  连接管理·消息推送  │
-└──┬───┬───┬───┘              └────────┬─────────┘
-   │   │   │                           │
-   │   │   │  RPC (Kitex + TTHeader)   │ HTTP /push
-   │   │   │  服务发现: Etcd            │
-   ▼   ▼   ▼                           │
-┌─────┐┌─────┐┌──────────┐             │
-│user ││group││msg-core  │◄────────────┘
-│svc  ││svc  ││svc       │  PushClient
-│:9001││:9002││:9003     │
-└──┬──┘└──┬──┘└──┬───────┘
-   │      │      │
-   │      │      ▼
-   │      │  ┌──────────────┐
-   │      │  │msg-history   │
-   │      │  │svc :9004     │
-   │      │  └──────┬───────┘
-   ▼      ▼         ▼
-┌─────────────────────────────┐
-│     MySQL (Docker :3306)     │
-│  users · friends · groups    │
-│  messages · conversations    │
-└─────────────────────────────┘
-┌─────────────────────────────┐
-│     Redis (Docker :6379)     │
-│  缓存 · 在线状态              │
-└─────────────────────────────┘
-┌─────────────────────────────┐
-│     Etcd (Docker :2379)      │
-│  服务注册与发现               │
-└─────────────────────────────┘
+│  文件上传代理  │              │  在线状态同步       │
+└──┬──┬──┬──┬──┬──┘              └────────┬─────────┘
+   │  │  │  │  │                          │
+   │  │  │  │  │  RPC (Kitex + TTHeader)  │ HTTP /push
+   │  │  │  │  │  服务发现: Etcd           │
+   ▼  ▼  ▼  ▼  ▼                          │
+┌─────┐┌─────┐┌──────────┐┌─────┐┌────────┐│
+│user ││group││msg-core  ││file ││bot-mgr ││
+│svc  ││svc  ││svc       ││svc  ││svc     ││
+│:9001││:9002││:9003     ││:9005││:9006   ││
+└──┬──┘└──┬──┘└──┬───────┘└──┬──┘└──┬─────┘│
+   │      │      │            │      │      │
+   │      │      ▼            │      │      │
+   │      │  ┌──────────┐     │      │      │
+   │      │  │msg-history│     │      │      │
+   │      │  │svc :9004  │     │      │      │
+   │      │  └────┬─────┘     │      │      │
+   ▼      ▼       ▼           ▼      ▼      │
+┌────────────────────────────────────────────┘
+│     MySQL (Docker :3306)                    │
+│  users · friends · groups · messages        │
+│  conversations · files · bots · billing     │
+├────────────────────────────────────────────┐
+│     Redis (Docker :6379)                    │
+│  缓存 · 在线状态 · 未读消息计数              │
+├────────────────────────────────────────────┐
+│     MinIO (Docker :9000)                    │
+│  图片 · 文件 · 语音 对象存储                │
+├────────────────────────────────────────────┐
+│     Etcd (Docker :2379)                     │
+│  服务注册与发现                             │
+└────────────────────────────────────────────┘
 ```
 
 ### 1.2 为什么是微服务而不是单体
@@ -65,12 +67,14 @@
 
 | 服务 | 端口 | 框架 | 职责 |
 |------|------|------|------|
-| api-gateway | 8080 | Hertz | HTTP 入口，JWT 鉴权，路由分发，RPC 转发 |
-| websocket-gateway | 8081 | net/http + gorilla/websocket | WebSocket 连接管理，实时消息推送 |
-| user-service | 9001 | Kitex | 用户注册/登录/信息/好友/分组 |
-| group-service | 9002 | Kitex | 群组 CRUD/成员管理/权限校验 |
-| msg-core-service | 9003 | Kitex | 会话管理/消息发送/消息搜索 |
+| api-gateway | 8080 | Hertz | HTTP 入口，JWT 鉴权，路由分发，RPC 转发，文件上传代理 |
+| websocket-gateway | 8081 | net/http + gorilla/websocket | WebSocket 连接管理，实时消息推送，在线状态同步 |
+| user-service | 9001 | Kitex | 用户注册/登录/信息/好友/分组/在线状态 |
+| group-service | 9002 | Kitex | 群组 CRUD/成员管理/权限校验/禁言/置顶/转让群主 |
+| msg-core-service | 9003 | Kitex | 会话管理/消息发送/消息搜索/禁言校验/实时推送 |
 | msg-history-service | 9004 | Kitex | 消息历史归档/离线消息/已读未读 |
+| file-service | 9005 | Kitex | 文件元数据管理/MinIO 对象存储集成 |
+| bot-manager-service | 9006 | Kitex | Bot 配置/路由/计费/内部Bot/自部署Bot/Agent 对话 |
 
 ---
 
@@ -342,6 +346,12 @@ idl/user.thrift → kitex_gen/user/
 
 idl/group.thrift → kitex_gen/group/...
 idl/message.thrift → kitex_gen/message/...
+idl/file.thrift → kitex_gen/file/
+  ├── fileservice/client.go    ← 文件上传/下载/删除/列表
+  └── file/model.go            ← FileMeta 结构体
+idl/bot.thrift → kitex_gen/bot/
+  ├── botservice/client.go     ← Bot CRUD/对话/路由/计费
+  └── bot/model.go             ← BotConfig/BotRoute/BillingRecord
 ```
 
 **RPC 客户端配置**（api-gateway 中）：
@@ -477,13 +487,24 @@ msg-core-service:
 | 发送消息 | `conversation:recent:{id}` + `user:conversations:{uid}` | 缓存最近消息 + 清除所有参与者的会话列表缓存 |
 | 创建会话 | `user:conversations:{uid}` | 清除所有参与者的会话列表缓存 |
 
+group-service:
+| 操作 | 缓存 Key | 策略 |
+|------|---------|------|
+| 获取群组信息 | `group:info:{id}` | 先查缓存（TTL 10min），未命中查 DB 回写 |
+| 获取用户群组列表 | `user:groups:{uid}` | 先查缓存（TTL 5min），未命中查 DB 回写 |
+| 获取群成员列表 | `group:members:{id}` | 先查缓存（TTL 5min），未命中查 DB 回写 |
+| 创建/更新/删除群组 | `group:info:{id}` + `user:groups:{uid}` | 删除群组缓存 + 删除成员的群组列表缓存 |
+| 添加/移除成员 | `group:members:{id}` + `user:groups:{uid}` | 删除成员列表缓存 + 删除被操作用户的群组列表缓存 |
+
 ### 4.6 数据库设计原则
 
 **每个服务独立管理自己的表**：
 - user-service 管理 users、friends、friend_groups 表
-- group-service 管理 groups、group_members 表
-- msg-core-service 管理 conversations、conversation_participants、messages 表
+- group-service 管理 groups、group_members 表（含 is_muted、is_pinned、role 等扩展字段）
+- msg-core-service 管理 conversations、conversation_participants、messages 表（含 group_id 字段）
 - msg-history-service 管理 message_history、offline_messages 表
+- file-service 管理 file_metas 表（文件元数据，实际文件存储在 MinIO）
+- bot-manager-service 管理 bots、bot_routes、billing_records 表
 
 **启动时自动迁移**：
 ```go
@@ -696,14 +717,16 @@ services:
   mysql:        # 数据库 - 端口 3306
   redis:        # 缓存 - 端口 6379
   etcd:         # 服务注册发现 - 端口 2379
+  minio:        # 对象存储 - 端口 9000(API) + 9001(控制台)
 ```
 
 ### 7.2 服务连接方式
 
 所有服务通过 `localhost:{port}` 连接 Docker 容器：
-- MySQL: `claran:chr070309@tcp(localhost:3306)/ClaranAIM?charset=utf8mb4&parseTime=True&loc=Local`
+- MySQL: `claran:chr070309@tcp(localhost:3306)/ClaranCloudDisk?charset=utf8mb4&parseTime=True&loc=Local`
 - Redis: `localhost:6379`，无密码，DB 0
 - Etcd: `http://localhost:2379`
+- MinIO: `localhost:9000`，Bucket: `claran-aim`
 
 ---
 
@@ -712,13 +735,15 @@ services:
 ### 8.1 完整启动顺序
 
 ```
-1. docker-compose up -d          → 启动 MySQL、Redis、Etcd
+1. docker-compose up -d          → 启动 MySQL、Redis、Etcd、MinIO
 2. 等待 MySQL 初始化完成（约 10 秒）
-3. scripts/start.bat             → 依次启动 5 个后端服务
+3. scripts/start.bat             → 依次启动 8 个后端服务
    ├── user-service (:9001)      → 自动建表 + 注册到 Etcd
    ├── group-service (:9002)     → 自动建表 + 注册到 Etcd
    ├── msg-core-service (:9003)  → 自动建表 + 注册到 Etcd
    ├── msg-history-service (:9004) → 自动建表 + 注册到 Etcd
+   ├── file-service (:9005)      → 自动建表 + 注册到 Etcd + 初始化 MinIO Bucket
+   ├── bot-manager-service (:9006) → 自动建表 + 注册到 Etcd
    ├── api-gateway (:8080)       → 初始化 RPC 客户端（从 Etcd 发现服务）
    └── websocket-gateway (:8081) → 启动 Hub 事件循环
 4. 浏览器打开 dist/index.html    → 前端页面
@@ -743,6 +768,9 @@ services:
 | WebSocket 认证 | websocket-gateway/handler | 连接时验证 Token |
 | CORS 限制 | api-gateway/middleware | 开发阶段允许所有来源 |
 | SQL 注入防护 | GORM | 参数化查询，不拼接 SQL |
+| 用户存在性校验 | api-gateway/user-service | 添加好友/创建群组/发送消息前校验 |
+| 群聊禁言校验 | msg-core-service | 发送消息前检查群成员禁言状态 |
+| Bot API Key 隐藏 | bot-manager-service | 内部 Bot 响应中隐藏 API Key |
 
 ---
 
@@ -756,3 +784,343 @@ services:
 | 在线状态 | Redis String + TTL | Redis Set + 定时刷新 |
 | 历史消息分页 | 游标分页（before_id） | 已实现，无需优化 |
 | 批量用户查询 | 逐个查缓存 | Pipeline 批量查询 Redis |
+
+---
+
+## 十一、文件服务实现原理
+
+### 11.1 整体架构
+
+```
+前端 <input type="file">
+  │
+  ▼
+api-gateway: FileHandler.Upload()
+  │  1. 解析 multipart/form-data
+  │  2. 直接上传文件到 MinIO（不经过 RPC 传输大文件）
+  │  3. 调用 RPC: FileClient.CreateFileMeta() → 记录文件元数据到 MySQL
+  │
+  ▼
+file-service: FileMeta 持久化
+  │  存储文件名、大小、类型、MinIO Key、上传者等元信息
+  │
+  ▼
+MinIO: 实际文件存储
+  │  Bucket: claran-aim
+  │  Key: uploads/{timestamp}_{filename}
+```
+
+### 11.2 为什么文件上传在 API 网关层处理
+
+- **避免大文件通过 RPC 传输**：Thrift RPC 不适合传输大文件，会增加序列化开销
+- **减少一跳网络延迟**：文件直接从网关到 MinIO，不需要经过 file-service 中转
+- **file-service 只管元数据**：文件的实际存储由 MinIO 负责，file-service 只记录元信息
+
+### 11.3 文件下载流程
+
+```
+前端 GET /api/v1/file/{id}
+  │
+  ▼
+api-gateway: FileHandler.GetFile()
+  │  1. 调用 RPC: FileClient.GetFileMeta() → 获取文件元信息
+  │  2. 从 MinIO 读取文件流
+  │  3. 设置 Content-Disposition 头 → 浏览器下载
+  │
+  ▼
+返回文件二进制流
+```
+
+### 11.4 MinIO 配置
+
+| 配置项 | 环境变量 | 说明 |
+|-------|---------|------|
+| Endpoint | MINIO_ENDPOINT | MinIO 服务地址，默认 localhost:9000 |
+| Access Key | MINIO_ROOT_USER | 认证用户名 |
+| Secret Key | MINIO_ROOT_PASSWORD | 认证密码 |
+| Bucket | MINIO_BUCKET_NAME | 存储桶名称，默认 claran-aim |
+| Use MinIO | MINIO_USE_MINIO | 是否使用 MinIO（false 则存本地） |
+
+---
+
+## 十二、Bot 管理服务实现原理
+
+### 12.1 Bot 类型区分
+
+```
+┌─────────────────────────────────────────────┐
+│              Bot 类型                        │
+├──────────────────┬──────────────────────────┤
+│    内部 Bot       │      自部署 Bot           │
+├──────────────────┼──────────────────────────┤
+│ 使用系统默认      │ 用户自己提供               │
+│ API Key + URL    │ API Key + Base URL        │
+│ 不可编辑密钥字段  │ 可编辑所有配置              │
+│ 由管理员创建      │ 任何用户可创建              │
+│ 配置来源:         │ 配置来源:                  │
+│  .env 中的        │ 创建时用户填写              │
+│  LLM_DEFAULT_*   │                           │
+└──────────────────┴──────────────────────────┘
+```
+
+**内部 Bot 的 API Key 来源**：
+```
+.env 文件:
+  LLM_DEFAULT_API_KEY=sk-xxx
+  LLM_DEFAULT_BASE_URL=https://api.openai.com/v1
+  LLM_DEFAULT_MODEL=gpt-4o-mini
+
+bot-manager-service.yaml:
+  llm:
+    default_api_key: ${LLM_DEFAULT_API_KEY}
+    default_base_url: ${LLM_DEFAULT_BASE_URL}
+    default_model: ${LLM_DEFAULT_MODEL}
+
+创建内部 Bot 时:
+  svc.CreateBot(ctx, ..., defaultAPIKey, defaultBaseURL, defaultModel)
+  → 自动填充 API Key 和 Base URL
+```
+
+**自部署 Bot**：
+- 用户创建时必须提供 API Key 和 Base URL
+- 前端动态显示/隐藏密钥配置字段（内部 Bot 隐藏，自部署 Bot 显示）
+
+### 12.2 Agent 对话流程
+
+```
+前端 POST /api/v1/bot/chat
+  │  {bot_id: 1, message: "你好"}
+  │
+  ▼
+api-gateway: BotHandler.Chat()
+  │  调用 RPC: BotClient.ChatWithBot(ctx, &ChatWithBotReq{...})
+  │
+  ▼
+bot-manager-service: ChatWithBot()
+  │
+  │  ── 第1步：校验 ──
+  │  1. 查询 Bot 配置 → 校验 Bot 存在且已启用
+  │  2. 校验 API Key 和 Base URL 非空
+  │
+  │  ── 第2步：创建 Agent ──
+  │  3. getOrCreateAgent() → 根据配置创建或复用 Agent
+  │     │
+  │     ▼
+  │  component.NewChatModel(ctx, apiKey, baseURL, modelName)
+  │     │  确保 BaseURL 以 "/v1" 结尾
+  │     │  创建 OpenAI ChatModel 实例
+  │     │
+  │     ▼
+  │  agent.NewAgent(ctx, chatModel, tools, ...)
+  │     │  注册工具（graphTool/rag/websearch）
+  │     │  配置系统 Prompt
+  │     │  配置对话记忆（sessionStore）
+  │
+  │  ── 第3步：执行对话 ──
+  │  4. ag.Run(ctx, &AgentInput{Messages: [UserMessage]})
+  │     │  返回 AsyncIterator[AgentEvent]
+  │     │
+  │     ▼
+  │  遍历事件流:
+  │     event.Output.MessageOutput.GetMessage() → 提取回复内容
+  │
+  │  ── 第4步：计费记录 ──
+  │  5. 估算 Token 数 = (输入长度 + 输出长度) / 4
+  │  6. 估算费用 = Token 数 × 0.0001
+  │  7. recordBilling() → 写入 billing_records 表
+  │
+  ▼
+返回 ChatWithBotResp{success: true, reply: "..."}
+```
+
+### 12.3 Bot 路由管理
+
+```
+BotRoute 模型:
+  ├── id          路由ID
+  ├── bot_id      关联的Bot
+  ├── path        路由路径（如 /api/bot/chat）
+  ├── method      HTTP方法（POST/GET）
+  ├── description 路由描述
+  └── is_active   是否启用
+
+用途：
+  - 为每个 Bot 定义可访问的 API 路由
+  - 支持动态启用/禁用路由
+  - 未来可扩展为 API Gateway 级别的路由分发
+```
+
+### 12.4 计费管理
+
+```
+BillingRecord 模型:
+  ├── id          记录ID
+  ├── bot_id      关联的Bot
+  ├── user_id     使用者
+  ├── action      操作类型（chat/chat_error/chat_empty）
+  ├── token_count 估算Token数
+  ├── cost        估算费用
+  └── created_at  记录时间
+
+计费策略（当前为估算）：
+  - Token 估算 = (输入字符数 + 输出字符数) / 4
+  - 费用估算 = Token 数 × 0.0001
+  - 未来可接入 OpenAI API 返回的实际 Token 用量
+```
+
+---
+
+## 十三、群聊禁言机制
+
+### 13.1 数据模型
+
+```
+GroupMember 扩展字段:
+  ├── is_muted    是否被禁言
+  ├── muted_until 禁言到期时间（永久禁言为 NULL）
+  ├── role        成员角色：owner/admin/member
+  └── is_pinned   会话是否置顶
+```
+
+### 13.2 禁言校验流程
+
+```
+前端 POST /api/v1/message/send
+  │
+  ▼
+api-gateway: MessageHandler.SendMessage()
+  │  1. 获取会话参与者
+  │  2. 校验参与者是否存在（防止与已删除用户对话）
+  │  3. 调用 RPC: MessageClient.SendMessage()
+  │
+  ▼
+msg-core-service: SendMessage()
+  │  1. 校验消息内容非空
+  │  2. 校验会话存在
+  │  3. ★ 禁言校验 ★
+  │     │
+  │     ▼
+  │  如果 conversation.GroupID != 0:
+  │     调用 group-service RPC: GetGroupMember(groupID, senderID)
+  │     │
+  │     ▼
+  │  检查 member.IsMuted:
+  │     - true 且 MutedUntil 为 NULL → 永久禁言，拒绝发送
+  │     - true 且 MutedUntil > now → 限时禁言，拒绝发送
+  │     - true 且 MutedUntil < now → 禁言已过期，允许发送
+  │     - false → 允许发送
+  │
+  │  4. 持久化消息
+  │  5. 更新会话时间戳
+  │  6. WebSocket 推送
+```
+
+### 13.3 权限控制
+
+```
+操作权限矩阵:
+┌──────────┬──────┬───────┬────────┐
+│ 操作      │ 群主  │ 管理员 │ 普通成员 │
+├──────────┼──────┼───────┼────────┤
+│ 转让群主  │  ✅   │  ❌   │  ❌    │
+│ 设置管理员│  ✅   │  ❌   │  ❌    │
+│ 禁言成员  │  ✅   │  ✅   │  ❌    │
+│ 踢出成员  │  ✅   │  ✅   │  ❌    │
+│ 修改群信息│  ✅   │  ✅   │  ❌    │
+│ 发送消息  │  ✅   │  ✅   │  ✅*   │
+│ 邀请成员  │  ✅   │  ✅   │  ✅    │
+└──────────┴──────┴───────┴────────┘
+  * 普通成员在未被禁言时可发送消息
+```
+
+---
+
+## 十四、统一日志系统
+
+### 14.1 设计目标
+
+- 所有服务使用统一的日志格式
+- 每条日志包含：时间戳、日志级别、服务名、消息、结构化字段
+- 替代 Go 标准库 `log` 包的无格式输出
+
+### 14.2 日志格式
+
+```
+[2026-05-13 10:30:45.123] [INFO] [user-service] 数据库初始化成功
+[2026-05-13 10:30:45.456] [ERROR] [msg-core-service] 发送消息失败 | error=禁言中 | user_id=1 | conv_id=5
+```
+
+### 14.3 使用方式
+
+```go
+// 初始化（main.go 中）
+logger.InitService("user-service")
+
+// 基本日志
+logger.Info("数据库初始化成功")
+logger.Warn("Redis连接失败，将仅使用数据库", "error", err)
+logger.Error("发送消息失败", "error", err, "user_id", userID)
+logger.Fatal("服务启动失败", "error", err)  // Fatal 会调用 os.Exit(1)
+```
+
+### 14.4 结构化字段
+
+```go
+// 支持键值对字段，便于日志检索和分析
+logger.Info("消息发送成功",
+    "msg_id", msgID,
+    "conv_id", convID,
+    "sender_id", senderID,
+    "elapsed", time.Since(start),
+)
+// 输出: [2026-05-13 10:30:45.123] [INFO] [msg-core-service] 消息发送成功 | msg_id=42 | conv_id=5 | sender_id=1 | elapsed=3.2ms
+```
+
+---
+
+## 十五、输入校验与安全防护
+
+### 15.1 用户存在性校验
+
+```
+添加好友:
+  user-service.AddFriend()
+    → 先查询 friendID 对应的用户是否存在
+    → 不存在则返回错误，防止添加不存在的用户
+
+创建群组/邀请成员:
+  api-gateway.CreateGroup() / InviteMember()
+    → 遍历成员列表，逐个调用 UserClient.GetUserInfo()
+    → 任何成员不存在则拒绝操作
+
+创建会话:
+  api-gateway.CreateConversation()
+    → 遍历参与者列表，校验每个用户存在
+    → 不存在则返回错误
+
+发送消息:
+  api-gateway.SendMessage()
+    → 获取会话参与者
+    → 校验每个参与者仍然存在
+    → 已删除用户参与则拒绝发送
+```
+
+### 15.2 在线状态一致性
+
+```
+登录时:
+  user-service.Login()
+    → 更新用户状态为 online
+    → 刷新用户缓存
+    → 清除所有好友的好友列表缓存 → 强制好友重新加载（看到在线状态）
+
+登出时:
+  user-service.Logout()
+    → 更新用户状态为 offline
+    → 刷新用户缓存
+    → 清除好友的好友列表缓存
+
+WebSocket 断开时:
+  → Redis 中 online:user:{id} 的 TTL 自动过期（30秒）
+  → 下次好友查询时从 DB 读取最新状态
+```

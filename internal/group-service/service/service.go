@@ -45,6 +45,16 @@ func (s *groupServiceImpl) CreateGroup(ctx context.Context, name string, ownerID
 		return nil, errors.New("群名不能为空")
 	}
 
+	validMembers := make([]int64, 0)
+	for _, uid := range memberIDs {
+		if uid != ownerID && uid > 0 {
+			validMembers = append(validMembers, uid)
+		}
+	}
+	if len(validMembers) < 2 {
+		return nil, errors.New("群聊至少需要3人（包括创建者），2人请使用私聊")
+	}
+
 	group := &model.Group{
 		Name:    name,
 		OwnerID: ownerID,

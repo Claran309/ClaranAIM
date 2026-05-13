@@ -14,13 +14,15 @@ import (
 // 包含所有服务共用的配置项：MySQL、Redis、JWT、Etcd、Service、MinIO、Storage
 // 每个服务通过各自的YAML配置文件加载，环境变量可覆盖敏感信息
 type Config struct {
-	MySQL   MySQLConfig   `yaml:"mysql"`   // MySQL数据库配置
-	Redis   RedisConfig   `yaml:"redis"`   // Redis缓存配置
-	JWT     JWTConfig     `yaml:"jwt"`     // JWT认证配置
-	Etcd    EtcdConfig    `yaml:"etcd"`    // Etcd服务发现配置
-	Service ServiceConfig `yaml:"service"` // 服务自身配置
-	Minio   MinioConfig   `yaml:"minio"`   // MinIO对象存储配置
-	Storage StorageConfig `yaml:"storage"` // 本地文件存储配置
+	MySQL   MySQLConfig   `yaml:"mysql"`
+	Redis   RedisConfig   `yaml:"redis"`
+	JWT     JWTConfig     `yaml:"jwt"`
+	Etcd    EtcdConfig    `yaml:"etcd"`
+	Service ServiceConfig `yaml:"service"`
+	Minio   MinioConfig   `yaml:"minio"`
+	Storage StorageConfig `yaml:"storage"`
+	LLM     LLMConfig     `yaml:"llm"`
+	Agent   AgentConfig   `yaml:"agent"`
 }
 
 // MySQLConfig MySQL数据库配置
@@ -70,7 +72,21 @@ type MinioConfig struct {
 
 // StorageConfig 本地文件存储配置
 type StorageConfig struct {
-	Dir string `yaml:"dir"` // 本地存储目录路径
+	Dir string `yaml:"dir"`
+}
+
+type LLMConfig struct {
+	DefaultAPIKey  string `yaml:"default_api_key"`
+	DefaultBaseURL string `yaml:"default_base_url"`
+	DefaultModel   string `yaml:"default_model"`
+}
+
+type AgentConfig struct {
+	SessionDir    string `yaml:"session_dir"`
+	AgentRoot     string `yaml:"agent_root"`
+	CozeloopToken string `yaml:"cozeloop_api_token"`
+	CozeloopWSID  string `yaml:"cozeloop_workspace_id"`
+	SkillsDir     string `yaml:"skills_dir"`
 }
 
 // Load 加载配置文件
@@ -194,6 +210,32 @@ func applyEnvOverrides(cfg *Config) {
 		if v, err := strconv.ParseBool(useMinio); err == nil {
 			cfg.Minio.UseMinio = v
 		}
+	}
+
+	if apiKey := os.Getenv("LLM_DEFAULT_API_KEY"); apiKey != "" {
+		cfg.LLM.DefaultAPIKey = apiKey
+	}
+	if baseURL := os.Getenv("LLM_DEFAULT_BASE_URL"); baseURL != "" {
+		cfg.LLM.DefaultBaseURL = baseURL
+	}
+	if model := os.Getenv("LLM_DEFAULT_MODEL"); model != "" {
+		cfg.LLM.DefaultModel = model
+	}
+
+	if sessionDir := os.Getenv("AGENT_SESSION_DIR"); sessionDir != "" {
+		cfg.Agent.SessionDir = sessionDir
+	}
+	if agentRoot := os.Getenv("AGENT_ROOT"); agentRoot != "" {
+		cfg.Agent.AgentRoot = agentRoot
+	}
+	if token := os.Getenv("COZELOOP_API_TOKEN"); token != "" {
+		cfg.Agent.CozeloopToken = token
+	}
+	if wsID := os.Getenv("COZELOOP_WORKSPACE_ID"); wsID != "" {
+		cfg.Agent.CozeloopWSID = wsID
+	}
+	if skillsDir := os.Getenv("SKILLS_DIR"); skillsDir != "" {
+		cfg.Agent.SkillsDir = skillsDir
 	}
 }
 

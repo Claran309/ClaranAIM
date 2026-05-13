@@ -1,4 +1,5 @@
 let groupConversationMap = {};
+let conversationGroupMap = {};
 
 function switchAuthTab(tab) {
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
@@ -20,6 +21,7 @@ function switchSidebar(panel, btn) {
     if (panel === 'conversations') loadConversations();
     if (panel === 'friends') loadFriends();
     if (panel === 'groups') loadGroups();
+    if (panel === 'bots') loadBotSidebar();
 }
 
 function showToast(msg, type = 'info') {
@@ -35,14 +37,29 @@ function showToast(msg, type = 'info') {
     }, 2500);
 }
 
+let modalStack = [];
+
 function showModal(title, bodyHTML) {
+    const overlay = document.getElementById('modal-overlay');
+    if (overlay.style.display === 'flex') {
+        modalStack.push({
+            title: document.getElementById('modal-title').textContent,
+            body: document.getElementById('modal-body').innerHTML
+        });
+    }
     document.getElementById('modal-title').textContent = title;
     document.getElementById('modal-body').innerHTML = bodyHTML;
-    document.getElementById('modal-overlay').style.display = 'flex';
+    overlay.style.display = 'flex';
 }
 
 function closeModal() {
-    document.getElementById('modal-overlay').style.display = 'none';
+    if (modalStack.length > 0) {
+        const prev = modalStack.pop();
+        document.getElementById('modal-title').textContent = prev.title;
+        document.getElementById('modal-body').innerHTML = prev.body;
+    } else {
+        document.getElementById('modal-overlay').style.display = 'none';
+    }
 }
 
 async function login() {
@@ -91,6 +108,7 @@ async function logout() {
     currentConversationType = '';
     unreadMap = {};
     groupConversationMap = {};
+    conversationGroupMap = {};
     friendsCache = [];
     groupsCache = [];
     userNickCache = {};
@@ -98,6 +116,9 @@ async function logout() {
     localStorage.removeItem('claran_token');
     localStorage.removeItem('claran_user');
     localStorage.removeItem('claran_unread');
+    modalStack = [];
+    currentBotID = null;
+    botChatHistory = {};
     if (ws) {
         ws.close();
         ws = null;
@@ -139,9 +160,9 @@ async function enterMainPage() {
     }
 
     updateUnreadBadge();
+    await loadGroups();
     loadConversations();
     loadFriends();
-    loadGroups();
     connectWS();
 }
 
@@ -161,23 +182,66 @@ async function loadConversations() {
             if (c.last_sender_id && !userNickCache[c.last_sender_id]) {
                 senderIDs.push(c.last_sender_id);
             }
+            if (c.participant_ids) {
+                c.participant_ids.forEach(pid => {
+                    if (!userNickCache[pid]) senderIDs.push(pid);
+                });
+            }
         });
         if (senderIDs.length > 0) {
             await resolveUserNames([...new Set(senderIDs)]);
         }
+
+        convs.forEach(c => {
+            if (c.group_id && c.group_id > 0) {
+                groupConversationMap[c.group_id] = c.conversation_id;
+                conversationGroupMap[c.conversation_id] = c.group_id;
+                const group = groupsCache.find(g => g.id === parseInt(c.group_id));
+                if (group && group.is_pinned) {
+                    c._is_pinned = true;
+                }
+            }
+            if (c.type === 'private' && c.participant_ids) {
+                const otherID = c.participant_ids.find(id => id !== currentUser.id);
+                if (otherID) {
+                    const name = getUserName(otherID);
+                    if (name && name !== '用户' + otherID) {
+                        conversationNameCache[c.conversation_id] = name;
+                    }
+                }
+            }
+            if (c.target_name && !conversationNameCache[c.conversation_id]) {
+                conversationNameCache[c.conversation_id] = c.target_name;
+            }
+        });
+
+        convs.sort((a, b) => {
+            if (a._is_pinned && !b._is_pinned) return -1;
+            if (!a._is_pinned && b._is_pinned) return 1;
+            return 0;
+        });
 
         list.innerHTML = convs.map(c => {
             const unread = unreadMap[c.conversation_id] || 0;
             const isActive = currentConversationID === c.conversation_id;
             const typeIcon = c.type === 'private' ? '👤' : '👥';
             const typeLabel = c.type === 'private' ? '私聊' : '群聊';
-            const displayName = conversationNameCache[c.conversation_id] || c.target_name || '会话 #' + c.conversation_id;
+            const pinnedPrefix = c._is_pinned ? '📌 ' : '';
+            let displayName = conversationNameCache[c.conversation_id] || c.target_name;
+            if (!displayName || displayName.startsWith('用户') || displayName.startsWith('群聊#')) {
+                if (c.type === 'private' && c.participant_ids) {
+                    const otherID = c.participant_ids.find(id => id !== currentUser.id);
+                    if (otherID) displayName = getUserName(otherID);
+                }
+            }
+            if (!displayName) displayName = '会话 #' + c.conversation_id;
+            conversationNameCache[c.conversation_id] = displayName;
             return `
-                <div class="list-item ${isActive ? 'active' : ''}" onclick="openConversation(${c.conversation_id}, '${c.type}')">
+                <div class="list-item ${isActive ? 'active' : ''} ${c._is_pinned ? 'pinned' : ''}" onclick="openConversation(${c.conversation_id}, '${c.type}')">
                     <div class="avatar conv-avatar">${typeIcon}</div>
                     <div class="list-item-info">
                         <div class="list-item-top">
-                            <span class="list-item-name">${escapeHTML(displayName)}</span>
+                            <span class="list-item-name">${pinnedPrefix}${escapeHTML(displayName)}</span>
                             <span class="list-item-type">${typeLabel}</span>
                         </div>
                         <div class="list-item-msg">${escapeHTML(c.last_message || '暂无消息')}</div>
@@ -206,6 +270,9 @@ async function loadFriends() {
         friends.forEach(f => {
             if (f.friend_id) {
                 userNickCache[f.friend_id] = f.friend_name || f.remark || '用户' + f.friend_id;
+                if (f.friend_avatar) {
+                    userAvatarCache[f.friend_id] = f.friend_avatar;
+                }
             }
         });
 
@@ -276,38 +343,57 @@ async function resolveConversationName(conversationID, type) {
     }
 
     try {
-        const participantsResp = await messageAPI.getConversations();
         if (type === 'private') {
-            const convResp = await messageAPI.getHistory(conversationID, 1, 0);
-            if (convResp && convResp.code === 0 && convResp.data && convResp.data.messages && convResp.data.messages.length > 0) {
-                const otherSenderID = convResp.data.messages[0].sender_id;
-                const otherID = otherSenderID === currentUser.id ? convResp.data.messages[0].sender_id : otherSenderID;
-            }
-
             const convsResp = await messageAPI.getConversations();
             if (convsResp && convsResp.code === 0 && convsResp.data && convsResp.data.conversations) {
                 const conv = convsResp.data.conversations.find(c => c.conversation_id === conversationID);
-                if (conv && conv.participant_ids) {
-                    const otherID = conv.participant_ids.find(id => id !== currentUser.id);
-                    if (otherID) {
-                        await resolveUserNames([otherID]);
-                        const name = getUserName(otherID);
-                        conversationNameCache[conversationID] = name;
-                        return name;
+                if (conv) {
+                    if (conv.target_name && !conv.target_name.startsWith('用户')) {
+                        conversationNameCache[conversationID] = conv.target_name;
+                        return conv.target_name;
+                    }
+                    if (conv.participant_ids) {
+                        const otherID = conv.participant_ids.find(id => id !== currentUser.id);
+                        if (otherID) {
+                            await resolveUserNames([otherID]);
+                            const name = getUserName(otherID);
+                            conversationNameCache[conversationID] = name;
+                            return name;
+                        }
                     }
                 }
             }
-
-            const name = friendsCache.find(f => true)?.friend_name || '私聊';
+            const name = '私聊';
             conversationNameCache[conversationID] = name;
             return name;
         } else {
-            for (const [groupID, convID] of Object.entries(groupConversationMap)) {
-                if (convID === conversationID) {
-                    const group = groupsCache.find(g => g.id === parseInt(groupID));
-                    if (group) {
-                        conversationNameCache[conversationID] = group.name;
-                        return group.name;
+            const groupID = conversationGroupMap[conversationID];
+            if (groupID) {
+                const group = groupsCache.find(g => g.id === parseInt(groupID));
+                if (group) {
+                    conversationNameCache[conversationID] = group.name;
+                    return group.name;
+                }
+                const groupResp = await groupAPI.get(groupID);
+                if (groupResp && groupResp.code === 0 && groupResp.data && groupResp.data.group) {
+                    conversationNameCache[conversationID] = groupResp.data.group.name;
+                    return groupResp.data.group.name;
+                }
+            }
+            const convsResp = await messageAPI.getConversations();
+            if (convsResp && convsResp.code === 0 && convsResp.data && convsResp.data.conversations) {
+                const conv = convsResp.data.conversations.find(c => c.conversation_id === conversationID);
+                if (conv && conv.target_name) {
+                    conversationNameCache[conversationID] = conv.target_name;
+                    return conv.target_name;
+                }
+                if (conv && conv.group_id && conv.group_id > 0) {
+                    groupConversationMap[conv.group_id] = conversationID;
+                    conversationGroupMap[conversationID] = conv.group_id;
+                    const groupResp = await groupAPI.get(conv.group_id);
+                    if (groupResp && groupResp.code === 0 && groupResp.data && groupResp.data.group) {
+                        conversationNameCache[conversationID] = groupResp.data.group.name;
+                        return groupResp.data.group.name;
                     }
                 }
             }
@@ -323,6 +409,7 @@ async function resolveConversationName(conversationID, type) {
 async function openConversation(conversationID, type) {
     currentConversationID = conversationID;
     currentConversationType = type;
+    currentBotID = null;
 
     delete unreadMap[conversationID];
     saveUnreadMap();
@@ -331,11 +418,50 @@ async function openConversation(conversationID, type) {
     document.getElementById('welcome-area').style.display = 'none';
     document.getElementById('chat-area').style.display = 'flex';
 
+    const sendBtn = document.getElementById('send-btn');
+    sendBtn.setAttribute('onclick', 'sendMessage()');
+    document.getElementById('msg-input').placeholder = '输入消息...';
+
     const convName = await resolveConversationName(conversationID, type);
     document.getElementById('chat-title').textContent = convName;
     const typeLabel = type === 'private' ? '👤 私聊' : '👥 群聊';
     document.getElementById('chat-type-badge').textContent = typeLabel;
     document.getElementById('chat-type-badge').className = `chat-type-badge ${type}`;
+
+    const announcementBar = document.getElementById('group-announcement-bar');
+    if (type === 'group') {
+        let groupID = conversationGroupMap[conversationID];
+        if (!groupID) {
+            const convsResp = await messageAPI.getConversations();
+            if (convsResp && convsResp.code === 0 && convsResp.data && convsResp.data.conversations) {
+                const conv = convsResp.data.conversations.find(c => c.conversation_id === conversationID);
+                if (conv && conv.group_id && conv.group_id > 0) {
+                    groupID = conv.group_id;
+                    groupConversationMap[groupID] = conversationID;
+                    conversationGroupMap[conversationID] = groupID;
+                }
+            }
+        }
+        if (groupID) {
+            let group = groupsCache.find(g => g.id === parseInt(groupID));
+            if (!group) {
+                const groupResp = await groupAPI.get(groupID);
+                if (groupResp && groupResp.code === 0 && groupResp.data && groupResp.data.group) {
+                    group = groupResp.data.group;
+                }
+            }
+            if (group && group.announcement) {
+                document.getElementById('announcement-text').textContent = group.announcement;
+                announcementBar.style.display = 'flex';
+            } else {
+                announcementBar.style.display = 'none';
+            }
+        } else {
+            announcementBar.style.display = 'none';
+        }
+    } else {
+        announcementBar.style.display = 'none';
+    }
 
     const resp = await messageAPI.getHistory(conversationID);
     const msgList = document.getElementById('message-list');
@@ -355,24 +481,38 @@ async function openConversation(conversationID, type) {
 }
 
 function createMessageHTML(m) {
+    if (m.is_thinking) {
+        return `
+            <div class="message-item received bot-msg msg-thinking">
+                <div class="msg-avatar received">🤖</div>
+                <div class="msg-body">
+                    <div class="msg-meta">
+                        <span class="message-sender">🤖 AI助手</span>
+                    </div>
+                    <div class="message-bubble thinking"><div class="spinner"></div> AI思考中...</div>
+                </div>
+            </div>
+        `;
+    }
     const isSent = m.sender_id === currentUser.id;
-    const isBot = m.sender_id === 0;
+    const isBot = m.sender_id === 0 || m.is_bot;
     const senderName = isBot ? '🤖 AI助手' : (isSent ? '我' : getUserName(m.sender_id));
     const time = m.created_at || '';
-    const avatarChar = isBot ? '🤖' : (isSent
-        ? (currentUser.nickname || currentUser.username).charAt(0).toUpperCase()
-        : getUserAvatarChar(m.sender_id));
+    const avatarContent = isBot ? '🤖' : (isSent
+        ? (currentUser.avatar ? `<img src="${currentUser.avatar}" class="avatar-img">` : (currentUser.nickname || currentUser.username).charAt(0).toUpperCase())
+        : getUserAvatarHTML(m.sender_id));
     const avatarBg = isSent ? '' : 'received';
     const bubbleContent = renderMessageContent(m.content, m.msg_type);
+    const errorClass = m.is_error ? 'error-bubble' : '';
     return `
         <div class="message-item ${isSent ? 'sent' : 'received'} ${isBot ? 'bot-msg' : ''}">
-            <div class="msg-avatar ${avatarBg}">${avatarChar}</div>
+            <div class="msg-avatar ${avatarBg}">${avatarContent}</div>
             <div class="msg-body">
                 <div class="msg-meta">
                     <span class="message-sender">${escapeHTML(senderName)}</span>
                     <span class="message-time">${time}</span>
                 </div>
-                <div class="message-bubble">${bubbleContent}</div>
+                <div class="message-bubble ${errorClass}">${bubbleContent}</div>
             </div>
         </div>
     `;
@@ -420,7 +560,17 @@ async function sendMessage() {
     if (resp && resp.code === 0 && resp.data && resp.data.success) {
         // success
     } else {
-        showToast(resp?.data?.msg || '发送失败', 'error');
+        const errMsg = resp?.data?.msg || '发送失败';
+        showToast(errMsg, 'error');
+        if (errMsg.includes('禁言')) {
+            const msgContainer = document.getElementById('message-list');
+            if (msgContainer && msgContainer.lastChild) {
+                const lastMsg = msgContainer.lastChild;
+                if (lastMsg.querySelector('.msg-content')?.textContent === content) {
+                    lastMsg.remove();
+                }
+            }
+        }
     }
 }
 
@@ -451,7 +601,7 @@ async function openGroupConversation(groupID) {
     }
 
     const memberIDs = membersResp.data.members.map(m => m.user_id);
-    const resp = await messageAPI.createConversation('group', memberIDs);
+    const resp = await messageAPI.createConversation('group', memberIDs, groupID);
     if (resp && resp.code === 0 && resp.data) {
         const convId = resp.data.conversation_id;
         groupConversationMap[groupID] = convId;
@@ -565,9 +715,13 @@ function showCreateGroup() {
 async function createGroup() {
     const name = document.getElementById('create-group-name').value.trim();
     const membersStr = document.getElementById('create-group-members').value.trim();
-    const memberIDs = membersStr.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n));
+    const memberIDs = membersStr.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n) && n > 0);
     if (!name) {
         showToast('请输入群组名称', 'warning');
+        return;
+    }
+    if (memberIDs.length < 2) {
+        showToast('群聊至少需要3人（包括创建者），2人请使用私聊', 'warning');
         return;
     }
     const resp = await groupAPI.create(name, memberIDs);
@@ -738,6 +892,98 @@ function jumpToMessage(conversationID, messageID) {
     if (currentConversationID !== conversationID) {
         openConversation(conversationID, 'private');
     }
+}
+
+function toggleChatMenu() {
+    const menu = document.getElementById('chat-menu');
+    const isVisible = menu.style.display !== 'none';
+    menu.style.display = isVisible ? 'none' : 'block';
+
+    if (!isVisible && currentConversationType === 'group') {
+        document.getElementById('menu-group-manage').style.display = 'block';
+        document.getElementById('menu-group-members').style.display = 'block';
+    } else {
+        document.getElementById('menu-group-manage').style.display = 'none';
+        document.getElementById('menu-group-members').style.display = 'none';
+    }
+}
+
+document.addEventListener('click', function(e) {
+    const menu = document.getElementById('chat-menu');
+    if (menu && menu.style.display !== 'none') {
+        if (!e.target.closest('.dropdown-wrapper')) {
+            menu.style.display = 'none';
+        }
+    }
+});
+
+function showGroupManageFromMenu() {
+    document.getElementById('chat-menu').style.display = 'none';
+    const groupID = conversationGroupMap[currentConversationID];
+    if (groupID) {
+        showGroupManage(groupID);
+    } else {
+        showToast('无法获取群组信息', 'warning');
+    }
+}
+
+function showGroupMembersFromMenu() {
+    document.getElementById('chat-menu').style.display = 'none';
+    const groupID = conversationGroupMap[currentConversationID];
+    if (groupID) {
+        showGroupMembers(groupID);
+    } else {
+        showToast('无法获取群组信息', 'warning');
+    }
+}
+
+async function showGroupMembers(groupID) {
+    const resp = await groupAPI.getMembers(groupID);
+    if (resp && resp.code === 0 && resp.data && resp.data.members) {
+        const members = resp.data.members;
+        await resolveUserNames(members.map(m => m.user_id));
+        showModal('群成员列表', `
+            <div class="member-list">
+                ${members.map(m => {
+                    const roleLabel = m.role === 'owner' ? '👑' : (m.role === 'admin' ? '⭐' : '');
+                    return `<div class="member-item">
+                        <div class="msg-avatar received">${getUserAvatarChar(m.user_id)}</div>
+                        <span class="member-name">${roleLabel} ${getUserName(m.user_id)}</span>
+                        <span class="member-role">${m.role}</span>
+                    </div>`;
+                }).join('')}
+            </div>
+        `);
+    } else {
+        showToast('加载群成员失败', 'error');
+    }
+}
+
+async function pinConversation() {
+    document.getElementById('chat-menu').style.display = 'none';
+    if (currentConversationType !== 'group') {
+        showToast('仅群聊支持置顶', 'warning');
+        return;
+    }
+    const groupID = conversationGroupMap[currentConversationID];
+    if (!groupID) return;
+    let isPinned = false;
+    const group = groupsCache.find(g => g.id === parseInt(groupID));
+    if (group) {
+        isPinned = !group.is_pinned;
+    }
+    const resp = await groupAPI.pin(groupID, isPinned);
+    if (resp && resp.code === 0 && resp.data && resp.data.success) {
+        showToast(isPinned ? '已置顶' : '已取消置顶', 'success');
+        loadGroups();
+        loadConversations();
+    } else {
+        showToast(resp?.data?.msg || '置顶失败', 'error');
+    }
+}
+
+function closeAnnouncement() {
+    document.getElementById('group-announcement-bar').style.display = 'none';
 }
 
 function showConversationInfo() {
@@ -985,38 +1231,42 @@ async function uploadAndSendFile() {
 
         showToast('文件上传中...', 'info');
         const resp = await fileAPI.upload(file);
-        if (resp && resp.code === 0 && resp.data && resp.data.success) {
-            const fileURL = resp.data.file_url || '';
-            const fileID = resp.data.file_id || '';
-            let msgType = 'file';
-            if (file.type.startsWith('image/')) msgType = 'image';
-            else if (file.type.startsWith('audio/')) msgType = 'voice';
+        if (!resp) {
+            showToast('文件上传失败', 'error');
+            return;
+        }
+        if (resp.code !== 0 || !resp.data || !resp.data.success) {
+            showToast(resp?.data?.msg || resp?.message || '文件上传失败', 'error');
+            return;
+        }
+        const fileURL = resp.data.file_url || '';
+        const fileID = resp.data.file_id || '';
+        let msgType = 'file';
+        if (file.type.startsWith('image/')) msgType = 'image';
+        else if (file.type.startsWith('audio/')) msgType = 'voice';
 
-            let content = fileURL || fileID;
-            if (msgType === 'image') {
-                content = `[img]${fileURL || fileID}[/img]`;
-            } else if (msgType === 'voice') {
-                content = `[voice]${file.name}[/voice]`;
-            } else {
-                content = `[file]${file.name}[/file]`;
-            }
-
-            const sendResp = await messageAPI.send(currentConversationID, content, msgType);
-            if (sendResp && sendResp.code === 0 && sendResp.data && sendResp.data.success) {
-                const now = new Date();
-                const timeStr = now.getFullYear() + '-' +
-                    String(now.getMonth() + 1).padStart(2, '0') + '-' +
-                    String(now.getDate()).padStart(2, '0') + ' ' +
-                    String(now.getHours()).padStart(2, '0') + ':' +
-                    String(now.getMinutes()).padStart(2, '0') + ':' +
-                    String(now.getSeconds()).padStart(2, '0');
-                appendMessage({ sender_id: currentUser.id, content, created_at: timeStr });
-                showToast('文件发送成功', 'success');
-            } else {
-                showToast('消息发送失败', 'error');
-            }
+        let content = fileURL || fileID;
+        if (msgType === 'image') {
+            content = `[img]${fileURL || fileID}[/img]`;
+        } else if (msgType === 'voice') {
+            content = `[voice]${file.name}[/voice]`;
         } else {
-            showToast(resp?.data?.msg || '文件上传失败', 'error');
+            content = `[file]${file.name}[/file]`;
+        }
+
+        const sendResp = await messageAPI.send(currentConversationID, content, msgType);
+        if (sendResp && sendResp.code === 0 && sendResp.data && sendResp.data.success) {
+            const now = new Date();
+            const timeStr = now.getFullYear() + '-' +
+                String(now.getMonth() + 1).padStart(2, '0') + '-' +
+                String(now.getDate()).padStart(2, '0') + ' ' +
+                String(now.getHours()).padStart(2, '0') + ':' +
+                String(now.getMinutes()).padStart(2, '0') + ':' +
+                String(now.getSeconds()).padStart(2, '0');
+            appendMessage({ sender_id: currentUser.id, content, created_at: timeStr });
+            showToast('文件发送成功', 'success');
+        } else {
+            showToast('消息发送失败', 'error');
         }
     };
     input.click();
@@ -1041,21 +1291,49 @@ function renderMessageContent(content, msgType) {
     return escapeHTML(content);
 }
 
-function showBotPanel() {
-    showModal('AI 助手管理', `
-        <div class="section-label">我的 AI 助手</div>
-        <div id="bot-list-area" class="bot-list-area">加载中...</div>
-        <hr style="margin:16px 0;border-color:var(--border);">
-        <div class="section-label">创建新助手</div>
+async function loadBotSidebar() {
+    const list = document.getElementById('bot-list');
+    const resp = await botAPI.list();
+    if (resp && resp.code === 0 && resp.data && resp.data.bots) {
+        const bots = resp.data.bots;
+        if (bots.length === 0) {
+            list.innerHTML = '<div class="empty-tip">暂无AI助手<br><small>点击右上角「+ 创建」添加</small></div>';
+            return;
+        }
+        list.innerHTML = bots.map(b => `
+            <div class="list-item" onclick="chatWithBot(${b.id})">
+                <div class="avatar conv-avatar">🤖</div>
+                <div class="list-item-info">
+                    <div class="list-item-top">
+                        <span class="list-item-name">${escapeHTML(b.name)}</span>
+                        <span class="list-item-type ${b.type}">${b.type === 'internal' ? '内部' : '自部署'}</span>
+                    </div>
+                    <div class="list-item-msg">${escapeHTML(b.description || '无描述')}</div>
+                </div>
+                <div class="bot-item-actions" onclick="event.stopPropagation()">
+                    <button class="btn-icon-sm" onclick="showBotRoutes(${b.id}, '${escapeHTML(b.name)}')" title="路由管理">🔗</button>
+                    <button class="btn-icon-sm" onclick="showBotBilling(${b.id}, '${escapeHTML(b.name)}')" title="计费记录">💰</button>
+                    <button class="btn-icon-sm" onclick="toggleBot(${b.id}, ${!b.is_active})" title="${b.is_active ? '停用' : '启用'}">${b.is_active ? '⏸' : '▶'}</button>
+                    <button class="btn-icon-sm" onclick="deleteBot(${b.id})" title="删除">🗑</button>
+                </div>
+            </div>
+        `).join('');
+    } else {
+        list.innerHTML = '<div class="empty-tip">加载失败</div>';
+    }
+}
+
+function showCreateBotForm() {
+    showModal('创建 AI 助手', `
         <div class="form-group">
             <label>助手名称</label>
             <input type="text" id="bot-name" placeholder="例如: Amiya">
         </div>
         <div class="form-group">
             <label>类型</label>
-            <select id="bot-type" class="form-select">
-                <option value="internal">内部Bot</option>
-                <option value="custom">自部署Bot</option>
+            <select id="bot-type" class="form-select" onchange="onBotTypeChange()">
+                <option value="internal">内部Bot（使用系统默认API）</option>
+                <option value="custom">自部署Bot（需要自己的API Key）</option>
             </select>
         </div>
         <div class="form-group">
@@ -1064,15 +1342,17 @@ function showBotPanel() {
         </div>
         <div class="form-group">
             <label>模型名称</label>
-            <input type="text" id="bot-model" placeholder="例如: gpt-4o-mini" value="gpt-4o-mini">
+            <input type="text" id="bot-model" placeholder="例如: gpt-4o-mini（内部Bot留空使用默认）">
         </div>
-        <div class="form-group">
-            <label>API Key</label>
-            <input type="password" id="bot-apikey" placeholder="LLM API Key">
-        </div>
-        <div class="form-group">
-            <label>Base URL</label>
-            <input type="text" id="bot-baseurl" placeholder="例如: https://api.openai.com/v1">
+        <div id="custom-bot-fields" style="display:none;">
+            <div class="form-group">
+                <label>API Key <span style="color:var(--danger);">*必填</span></label>
+                <input type="password" id="bot-apikey" placeholder="你的 LLM API Key">
+            </div>
+            <div class="form-group">
+                <label>Base URL <span style="color:var(--danger);">*必填</span></label>
+                <input type="text" id="bot-baseurl" placeholder="例如: https://api.openai.com/v1">
+            </div>
         </div>
         <div class="form-group">
             <label>系统提示词</label>
@@ -1080,36 +1360,41 @@ function showBotPanel() {
         </div>
         <button class="btn-primary" onclick="createBot()">创建助手</button>
     `);
-    loadBotList();
 }
 
-async function loadBotList() {
-    const area = document.getElementById('bot-list-area');
-    const resp = await botAPI.list();
-    if (resp && resp.code === 0 && resp.data && resp.data.bots) {
-        const bots = resp.data.bots;
-        if (bots.length === 0) {
-            area.innerHTML = '<div class="empty-tip">暂无AI助手</div>';
-            return;
-        }
-        area.innerHTML = bots.map(b => `
-            <div class="bot-item">
-                <div class="bot-info">
-                    <span class="bot-name">🤖 ${escapeHTML(b.name)}</span>
-                    <span class="bot-type ${b.type}">${b.type === 'internal' ? '内部' : '自部署'}</span>
-                    <span class="bot-status ${b.is_active ? 'active' : 'inactive'}">${b.is_active ? '运行中' : '已停用'}</span>
-                </div>
-                <div class="bot-desc">${escapeHTML(b.description || '无描述')}</div>
-                <div class="bot-actions">
-                    <button class="btn-inline" onclick="chatWithBot(${b.id})">对话</button>
-                    <button class="btn-inline" onclick="toggleBot(${b.id}, ${!b.is_active})">${b.is_active ? '停用' : '启用'}</button>
-                    <button class="btn-inline btn-danger" onclick="deleteBot(${b.id})">删除</button>
-                </div>
+function onBotTypeChange() {
+    const type = document.getElementById('bot-type').value;
+    const customFields = document.getElementById('custom-bot-fields');
+    customFields.style.display = type === 'custom' ? 'block' : 'none';
+}
+
+function showBotRoutes(botID, botName) {
+    showModal(`路由管理 - ${botName}`, `
+        <div class="form-group" style="display:flex;gap:8px;align-items:flex-end;">
+            <div style="flex:2;">
+                <label>路由模式</label>
+                <input type="text" id="route-pattern" placeholder="例如: /chat/*">
             </div>
-        `).join('');
-    } else {
-        area.innerHTML = '<div class="empty-tip">加载失败</div>';
-    }
+            <div style="flex:1;">
+                <label>类型</label>
+                <select id="route-type" class="form-select">
+                    <option value="exact">精确匹配</option>
+                    <option value="prefix">前缀匹配</option>
+                    <option value="regex">正则匹配</option>
+                </select>
+            </div>
+            <button class="btn-primary" onclick="createBotRoute(${botID})">添加</button>
+        </div>
+        <div id="route-list-area" class="bot-list-area">加载中...</div>
+    `);
+    loadBotRoutes(botID);
+}
+
+function showBotBilling(botID, botName) {
+    showModal(`计费记录 - ${botName}`, `
+        <div id="billing-list-area" class="bot-list-area">加载中...</div>
+    `);
+    loadBotBilling(botID);
 }
 
 async function createBot() {
@@ -1117,14 +1402,17 @@ async function createBot() {
     const type = document.getElementById('bot-type').value;
     const description = document.getElementById('bot-desc').value.trim();
     const modelName = document.getElementById('bot-model').value.trim();
-    const apiKey = document.getElementById('bot-apikey').value.trim();
-    const baseURL = document.getElementById('bot-baseurl').value.trim();
+    const apiKey = document.getElementById('bot-apikey')?.value?.trim() || '';
+    const baseURL = document.getElementById('bot-baseurl')?.value?.trim() || '';
     const systemPrompt = document.getElementById('bot-prompt').value.trim();
-    if (!name || !modelName) { showToast('请填写助手名称和模型', 'warning'); return; }
+    if (!name) { showToast('请填写助手名称', 'warning'); return; }
+    if (type === 'custom' && !apiKey) { showToast('自部署Bot必须提供API Key', 'warning'); return; }
+    if (type === 'custom' && !baseURL) { showToast('自部署Bot必须提供Base URL', 'warning'); return; }
     const resp = await botAPI.create(name, type, description, modelName, apiKey, baseURL, systemPrompt, '', '');
     if (resp && resp.code === 0 && resp.data && resp.data.success) {
         showToast('助手创建成功', 'success');
-        loadBotList();
+        closeModal();
+        loadBotSidebar();
     } else {
         showToast(resp?.data?.msg || '创建失败', 'error');
     }
@@ -1134,7 +1422,7 @@ async function toggleBot(botID, isActive) {
     const resp = await botAPI.update(botID, { is_active: isActive });
     if (resp && resp.code === 0 && resp.data && resp.data.success) {
         showToast(isActive ? '已启用' : '已停用', 'success');
-        loadBotList();
+        loadBotSidebar();
     } else {
         showToast(resp?.data?.msg || '操作失败', 'error');
     }
@@ -1145,48 +1433,161 @@ async function deleteBot(botID) {
     const resp = await botAPI.delete(botID);
     if (resp && resp.code === 0 && resp.data && resp.data.success) {
         showToast('已删除', 'success');
-        loadBotList();
+        loadBotSidebar();
     } else {
         showToast(resp?.data?.msg || '删除失败', 'error');
     }
 }
 
+let currentBotID = null;
+let botChatHistory = {};
+
 function chatWithBot(botID) {
-    if (!currentConversationID) {
-        showToast('请先打开一个会话', 'warning');
-        return;
+    closeModal();
+    currentBotID = botID;
+    currentConversationID = null;
+
+    const botEl = document.querySelector(`[onclick="chatWithBot(${botID})"]`);
+    const botName = botEl ? botEl.querySelector('.list-item-name')?.textContent || 'AI助手' : 'AI助手';
+
+    document.getElementById('welcome-area').style.display = 'none';
+    document.getElementById('chat-area').style.display = 'flex';
+    document.getElementById('chat-title').textContent = `🤖 ${botName}`;
+    document.getElementById('chat-type-badge').textContent = '🤖 AI助手';
+    document.getElementById('chat-type-badge').className = 'chat-type-badge group';
+    document.getElementById('message-list').innerHTML = '';
+
+    if (botChatHistory[botID]) {
+        botChatHistory[botID].forEach(m => appendMessage(m));
     }
-    showModal('AI 助手对话', `
-        <div class="form-group">
-            <label>输入消息</label>
-            <input type="text" id="bot-chat-msg" placeholder="向AI助手提问..." onkeydown="if(event.key==='Enter')sendBotChat(${botID})">
-        </div>
-        <button class="btn-primary" onclick="sendBotChat(${botID})">发送</button>
-        <div id="bot-chat-reply" style="margin-top:12px;"></div>
-    `);
-    setTimeout(() => document.getElementById('bot-chat-msg')?.focus(), 100);
+
+    document.getElementById('msg-input').placeholder = `向 ${botName} 提问...`;
+
+    const sendBtn = document.getElementById('send-btn');
+    sendBtn.setAttribute('onclick', 'sendBotChatMsg()');
 }
 
-async function sendBotChat(botID) {
-    const msg = document.getElementById('bot-chat-msg').value.trim();
-    if (!msg) return;
-    const replyDiv = document.getElementById('bot-chat-reply');
-    replyDiv.innerHTML = '<div class="search-loading"><div class="spinner"></div>AI思考中...</div>';
-    const resp = await botAPI.chat(botID, msg, currentConversationID);
+async function sendBotChatMsg() {
+    const input = document.getElementById('msg-input');
+    const content = input.value.trim();
+    if (!content || !currentBotID) return;
+
+    input.value = '';
+
+    const now = new Date();
+    const timeStr = now.getFullYear() + '-' +
+        String(now.getMonth() + 1).padStart(2, '0') + '-' +
+        String(now.getDate()).padStart(2, '0') + ' ' +
+        String(now.getHours()).padStart(2, '0') + ':' +
+        String(now.getMinutes()).padStart(2, '0') + ':' +
+        String(now.getSeconds()).padStart(2, '0');
+
+    const userMsg = { sender_id: currentUser.id, content: content, created_at: timeStr };
+    appendMessage(userMsg);
+    if (!botChatHistory[currentBotID]) botChatHistory[currentBotID] = [];
+    botChatHistory[currentBotID].push(userMsg);
+
+    const thinkingMsg = { sender_id: 0, content: '🤔 AI思考中...', created_at: timeStr, is_thinking: true };
+    appendMessage(thinkingMsg);
+
+    const resp = await botAPI.chat(currentBotID, content, 0);
+    const container = document.getElementById('message-list');
+    const thinkingEl = container.querySelector('.msg-thinking');
+    if (thinkingEl) thinkingEl.remove();
+
     if (resp && resp.code === 0 && resp.data && resp.data.success) {
-        replyDiv.innerHTML = `<div class="bot-reply"><strong>AI回复:</strong><br>${escapeHTML(resp.data.reply)}</div>`;
-        if (resp.data.reply && currentConversationID) {
-            const now = new Date();
-            const timeStr = now.getFullYear() + '-' +
-                String(now.getMonth() + 1).padStart(2, '0') + '-' +
-                String(now.getDate()).padStart(2, '0') + ' ' +
-                String(now.getHours()).padStart(2, '0') + ':' +
-                String(now.getMinutes()).padStart(2, '0') + ':' +
-                String(now.getSeconds()).padStart(2, '0');
-            appendMessage({ sender_id: 0, content: `[AI] ${resp.data.reply}`, created_at: timeStr });
-        }
+        const replyTime = new Date();
+        const replyTimeStr = replyTime.getFullYear() + '-' +
+            String(replyTime.getMonth() + 1).padStart(2, '0') + '-' +
+            String(replyTime.getDate()).padStart(2, '0') + ' ' +
+            String(replyTime.getHours()).padStart(2, '0') + ':' +
+            String(replyTime.getMinutes()).padStart(2, '0') + ':' +
+            String(replyTime.getSeconds()).padStart(2, '0');
+
+        const botMsg = { sender_id: 0, content: resp.data.reply, created_at: replyTimeStr, is_bot: true };
+        appendMessage(botMsg);
+        botChatHistory[currentBotID].push(botMsg);
     } else {
-        replyDiv.innerHTML = `<div class="bot-reply error">对话失败: ${escapeHTML(resp?.data?.msg || '未知错误')}</div>`;
+        const errMsg = { sender_id: 0, content: `❌ 对话失败: ${resp?.data?.msg || '未知错误'}`, created_at: timeStr, is_error: true };
+        appendMessage(errMsg);
+    }
+}
+
+async function createBotRoute(botID) {
+    const pattern = document.getElementById('route-pattern').value.trim();
+    const routeType = document.getElementById('route-type').value;
+    if (!pattern) { showToast('请填写路由模式', 'warning'); return; }
+    const resp = await botAPI.createRoute(botID, pattern, routeType, 0);
+    if (resp && resp.code === 0 && resp.data && resp.data.success) {
+        showToast('路由添加成功', 'success');
+        loadBotRoutes(botID);
+    } else {
+        showToast(resp?.data?.msg || '添加失败', 'error');
+    }
+}
+
+async function loadBotRoutes(botID) {
+    const area = document.getElementById('route-list-area');
+    if (!botID) { area.innerHTML = '<div class="empty-tip">请输入Bot ID</div>'; return; }
+    area.innerHTML = '<div class="search-loading"><div class="spinner"></div>加载中...</div>';
+    const resp = await botAPI.listRoutes(botID);
+    if (resp && resp.code === 0 && resp.data && resp.data.routes) {
+        const routes = resp.data.routes;
+        if (routes.length === 0) {
+            area.innerHTML = '<div class="empty-tip">暂无路由</div>';
+            return;
+        }
+        area.innerHTML = routes.map(r => `
+            <div class="bot-item">
+                <div class="bot-info">
+                    <span class="bot-name">🔗 ${escapeHTML(r.route_pattern)}</span>
+                    <span class="bot-type ${r.route_type}">${r.route_type}</span>
+                    <span class="bot-status active">优先级: ${r.priority || 0}</span>
+                </div>
+                <div class="bot-actions">
+                    <button class="btn-inline btn-danger" onclick="deleteBotRoute(${r.id}, ${botID})">删除</button>
+                </div>
+            </div>
+        `).join('');
+    } else {
+        area.innerHTML = '<div class="empty-tip">加载失败</div>';
+    }
+}
+
+async function deleteBotRoute(routeID, botID) {
+    if (!confirm('确定删除该路由？')) return;
+    const resp = await botAPI.deleteRoute(routeID);
+    if (resp && resp.code === 0 && resp.data && resp.data.success) {
+        showToast('已删除', 'success');
+        loadBotRoutes(botID);
+    } else {
+        showToast(resp?.data?.msg || '删除失败', 'error');
+    }
+}
+
+async function loadBotBilling(botID) {
+    const area = document.getElementById('billing-list-area');
+    if (!botID) { area.innerHTML = '<div class="empty-tip">参数错误</div>'; return; }
+    area.innerHTML = '<div class="search-loading"><div class="spinner"></div>加载中...</div>';
+    const resp = await botAPI.getBilling(botID);
+    if (resp && resp.code === 0 && resp.data && resp.data.records) {
+        const records = resp.data.records;
+        if (records.length === 0) {
+            area.innerHTML = '<div class="empty-tip">暂无计费记录</div>';
+            return;
+        }
+        area.innerHTML = records.map(r => `
+            <div class="bot-item">
+                <div class="bot-info">
+                    <span class="bot-name">💰 ${escapeHTML(r.action_type || '对话')}</span>
+                    <span class="bot-status active">Token: ${r.token_count || 0}</span>
+                    <span class="bot-type internal">费用: ¥${(r.cost || 0).toFixed(6)}</span>
+                </div>
+                <div class="bot-desc">${escapeHTML(r.created_at || '')}</div>
+            </div>
+        `).join('');
+    } else {
+        area.innerHTML = '<div class="empty-tip">加载失败</div>';
     }
 }
 

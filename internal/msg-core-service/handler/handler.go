@@ -22,7 +22,7 @@ func NewMessageServiceImpl(svc service.MessageService) message.MessageService {
 // 接收会话类型和参与者ID列表，调用Service创建会话
 // 返回创建的会话ID，私聊时如果会话已存在则返回已有会话ID
 func (h *MessageServiceImpl) CreateConversation(ctx context.Context, req *message.CreateConversationReq) (resp *message.CreateConversationResp, err error) {
-	conv, err := h.svc.CreateConversation(ctx, req.Type, req.ParticipantIds)
+	conv, err := h.svc.CreateConversation(ctx, req.Type, req.ParticipantIds, req.GroupId)
 	if err != nil {
 		return &message.CreateConversationResp{Success: false, Msg: err.Error()}, nil
 	}
@@ -41,6 +41,7 @@ func (h *MessageServiceImpl) GetConversation(ctx context.Context, req *message.G
 		Conversation: &message.Conversation{
 			Id:        conv.ID,
 			Type:      conv.Type,
+			GroupId:   conv.GroupID,
 			CreatedAt: conv.CreatedAt.Format("2006-01-02 15:04:05"),
 			UpdatedAt: conv.UpdatedAt.Format("2006-01-02 15:04:05"),
 		},
@@ -58,12 +59,21 @@ func (h *MessageServiceImpl) GetUserConversations(ctx context.Context, req *mess
 
 	var list []*message.UserConversationInfo
 	for _, c := range convs {
-		list = append(list, &message.UserConversationInfo{
+		item := &message.UserConversationInfo{
 			ConversationId:  c.ConversationID,
 			Type:            c.Type,
 			LastMessage:     c.LastMessage,
 			LastMessageTime: c.LastMessageTime,
-		})
+			UnreadCount:     c.UnreadCount,
+			TargetName:      c.TargetName,
+			TargetAvatar:    c.TargetAvatar,
+			LastSenderId:    c.LastSenderID,
+			GroupId:         c.GroupID,
+		}
+		if len(c.ParticipantIDs) > 0 {
+			item.ParticipantIds = c.ParticipantIDs
+		}
+		list = append(list, item)
 	}
 	return &message.GetUserConversationsResp{Success: true, Conversations: list}, nil
 }

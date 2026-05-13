@@ -6,6 +6,7 @@ import (
 	"ClaranAIM/kitex_gen/message"
 	"ClaranAIM/pkg/response"
 	"context"
+	"fmt"
 	"strconv"
 
 	"github.com/cloudwego/hertz/pkg/app"
@@ -25,8 +26,9 @@ func NewMessageHandler() *MessageHandler {
 // 私聊会话自动去重：如果两人已有私聊会话，直接返回已有会话ID
 func (h *MessageHandler) CreateConversation(ctx context.Context, c *app.RequestContext) {
 	type createConvReq struct {
-		Type           string  `json:"type"`            // 会话类型：private(私聊) / group(群聊)
-		ParticipantIDs []int64 `json:"participant_ids"` // 参与者用户ID列表（至少2人）
+		Type           string  `json:"type"`
+		ParticipantIDs []int64 `json:"participant_ids"`
+		GroupID        int64   `json:"group_id"`
 	}
 	var req createConvReq
 	if err := c.BindJSON(&req); err != nil {
@@ -34,7 +36,15 @@ func (h *MessageHandler) CreateConversation(ctx context.Context, c *app.RequestC
 		return
 	}
 
-	resp, err := client.MessageClient.CreateConversation(ctx, client.NewCreateConversationReq(req.Type, req.ParticipantIDs))
+	for _, uid := range req.ParticipantIDs {
+		userResp, err := client.UserClient.GetUserInfo(ctx, client.NewGetUserInfoReq(uid))
+		if err != nil || !userResp.Success {
+			response.BadRequest(c, fmt.Sprintf("参与者用户 %d 不存在", uid))
+			return
+		}
+	}
+
+	resp, err := client.MessageClient.CreateConversation(ctx, client.NewCreateConversationReq(req.Type, req.ParticipantIDs, req.GroupID))
 	if err != nil {
 		response.Error(c, err.Error())
 		return
@@ -60,6 +70,20 @@ func (h *MessageHandler) SendMessage(ctx context.Context, c *app.RequestContext)
 
 	userID, _ := c.Get("userID")
 	id := userID.(int64)
+
+	participantsResp, err := client.MessageClient.GetConversationParticipants(ctx, &message.GetConversationParticipantsReq{ConversationId: req.ConversationID})
+	if err == nil && participantsResp != nil && participantsResp.UserIds != nil {
+		for _, pid := range participantsResp.UserIds {
+			if pid == id {
+				continue
+			}
+			userResp, userErr := client.UserClient.GetUserInfo(ctx, client.NewGetUserInfoReq(pid))
+			if userErr != nil || !userResp.Success {
+				response.Error(c, fmt.Sprintf("对方用户 %d 已不存在，无法发送消息", pid))
+				return
+			}
+		}
+	}
 
 	resp, err := client.MessageClient.SendMessage(ctx, client.NewSendMessageReq(req.ConversationID, id, req.Content, req.MsgType))
 	if err != nil {

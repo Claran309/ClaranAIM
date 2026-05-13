@@ -7,10 +7,11 @@ import "time"
 // 私聊(private)：两个用户之间的一对一会话
 // 群聊(group)：多个用户之间的多人会话
 type Conversation struct {
-	ID        int64     `json:"id" gorm:"primaryKey;autoIncrement"` // 会话ID，自增主键
-	Type      string    `json:"type" gorm:"size:20;not null"`       // 会话类型：private(私聊) / group(群聊)
-	CreatedAt time.Time `json:"created_at" gorm:"autoCreateTime"`   // 创建时间
-	UpdatedAt time.Time `json:"updated_at" gorm:"autoUpdateTime"`   // 更新时间（收到新消息时自动更新，用于排序）
+	ID        int64     `json:"id" gorm:"primaryKey;autoIncrement"`
+	Type      string    `json:"type" gorm:"size:20;not null"`
+	GroupID   int64     `json:"group_id" gorm:"default:0"`
+	CreatedAt time.Time `json:"created_at" gorm:"autoCreateTime"`
+	UpdatedAt time.Time `json:"updated_at" gorm:"autoUpdateTime"`
 }
 
 func (Conversation) TableName() string {

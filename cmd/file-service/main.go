@@ -6,7 +6,8 @@ import (
 	"ClaranAIM/internal/file-service/service"
 	"ClaranAIM/kitex_gen/file/fileservice"
 	"ClaranAIM/pkg/config"
-	"log"
+	"ClaranAIM/pkg/health"
+	"ClaranAIM/pkg/logger"
 	"net"
 
 	"github.com/cloudwego/kitex/pkg/rpcinfo"
@@ -16,16 +17,19 @@ import (
 )
 
 func main() {
+	logger.InitService("file-service")
+
 	cfg, err := config.Load("config/file-service.yaml")
 	if err != nil {
-		log.Fatal("加载配置失败:", err)
+		logger.Fatal("加载配置失败", "error", err)
 	}
 
 	db, err := dao.InitDB(cfg.MySQL.DSN)
 	if err != nil {
-		log.Fatal("初始化数据库失败:", err)
+		logger.Fatal("初始化数据库失败", "error", err)
 	}
-	log.Println("file-service 数据库初始化成功")
+	sqlDB, _ := db.DB()
+	health.CheckMySQL(sqlDB, "file-service")
 
 	fileRepo := dao.NewFileRepo(db)
 
@@ -47,12 +51,13 @@ func main() {
 
 	r, err := etcd.NewEtcdRegistry(cfg.Etcd.Endpoints)
 	if err != nil {
-		log.Fatal("创建etcd注册中心失败:", err)
+		logger.Fatal("创建etcd注册中心失败", "error", err)
 	}
+	health.CheckEtcd(cfg.Etcd.Endpoints, "file-service")
 
 	addr, err := net.ResolveTCPAddr("tcp", cfg.Service.Address)
 	if err != nil {
-		log.Fatal("解析服务地址失败:", err)
+		logger.Fatal("解析服务地址失败", "error", err)
 	}
 
 	svr := fileservice.NewServer(
@@ -65,8 +70,12 @@ func main() {
 		server.WithMetaHandler(transmeta.ServerTTHeaderHandler),
 	)
 
-	log.Printf("file-service 启动在 %s (MinIO: %v)", cfg.Service.Address, cfg.Minio.UseMinio)
+	health.LogStartup(health.ServiceInfo{
+		Name:    "file-service",
+		Version: "1.0.0",
+		Port:    cfg.Service.Address,
+	})
 	if err := svr.Run(); err != nil {
-		log.Fatal("file-service 启动失败:", err)
+		logger.Fatal("服务启动失败", "error", err)
 	}
 }

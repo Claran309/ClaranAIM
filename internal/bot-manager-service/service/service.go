@@ -17,8 +17,8 @@ import (
 )
 
 type BotService interface {
-	CreateBot(ctx context.Context, name, botType, description, modelName, apiKey, baseURL, systemPrompt, skillsDir, agentRoot string, ownerID int64) (*model.Bot, error)
-	UpdateBot(ctx context.Context, botID, operatorID int64, name, description, modelName, apiKey, baseURL, systemPrompt, skillsDir, agentRoot string, isActive bool) error
+	CreateBot(ctx context.Context, name, botType, description, modelName, apiKey, baseURL, systemPrompt, skillsDir, agentRoot string, ownerID int64, defaultAPIKey, defaultBaseURL, defaultModel string) (*model.Bot, error)
+	UpdateBot(ctx context.Context, botID, operatorID int64, name, description, modelName, apiKey, baseURL, systemPrompt, skillsDir, agentRoot string, isActive bool, defaultAPIKey, defaultBaseURL, defaultModel string) error
 	GetBot(ctx context.Context, botID int64) (*model.Bot, error)
 	ListBots(ctx context.Context, ownerID int64, botType string) ([]model.Bot, error)
 	DeleteBot(ctx context.Context, botID, operatorID int64) error
@@ -46,21 +46,44 @@ func NewBotService(botRepo dao.BotRepository, routeRepo dao.RouteRepository, bil
 	}
 }
 
-func (s *botServiceImpl) CreateBot(ctx context.Context, name, botType, description, modelName, apiKey, baseURL, systemPrompt, skillsDir, agentRoot string, ownerID int64) (*model.Bot, error) {
+func (s *botServiceImpl) CreateBot(ctx context.Context, name, botType, description, modelName, apiKey, baseURL, systemPrompt, skillsDir, agentRoot string, ownerID int64, defaultAPIKey, defaultBaseURL, defaultModel string) (*model.Bot, error) {
 	if name == "" {
 		return nil, errors.New("bot名称不能为空")
 	}
-	if modelName == "" {
-		return nil, errors.New("模型名称不能为空")
+
+	if botType == "" {
+		botType = "internal"
+	}
+
+	effectiveAPIKey := apiKey
+	effectiveBaseURL := baseURL
+	effectiveModel := modelName
+
+	if botType == "internal" {
+		effectiveAPIKey = defaultAPIKey
+		effectiveBaseURL = defaultBaseURL
+		if effectiveModel == "" {
+			effectiveModel = defaultModel
+		}
+	} else {
+		if apiKey == "" {
+			return nil, errors.New("自部署Bot必须提供API Key")
+		}
+		if baseURL == "" {
+			return nil, errors.New("自部署Bot必须提供Base URL")
+		}
+		if effectiveModel == "" {
+			effectiveModel = defaultModel
+		}
 	}
 
 	bot := &model.Bot{
 		Name:         name,
 		Type:         botType,
 		Description:  description,
-		ModelName:    modelName,
-		APIKey:       apiKey,
-		BaseURL:      baseURL,
+		ModelName:    effectiveModel,
+		APIKey:       effectiveAPIKey,
+		BaseURL:      effectiveBaseURL,
 		SystemPrompt: systemPrompt,
 		SkillsDir:    skillsDir,
 		AgentRoot:    agentRoot,
@@ -76,7 +99,7 @@ func (s *botServiceImpl) CreateBot(ctx context.Context, name, botType, descripti
 	return bot, nil
 }
 
-func (s *botServiceImpl) UpdateBot(ctx context.Context, botID, operatorID int64, name, description, modelName, apiKey, baseURL, systemPrompt, skillsDir, agentRoot string, isActive bool) error {
+func (s *botServiceImpl) UpdateBot(ctx context.Context, botID, operatorID int64, name, description, modelName, apiKey, baseURL, systemPrompt, skillsDir, agentRoot string, isActive bool, defaultAPIKey, defaultBaseURL, defaultModel string) error {
 	bot, err := s.botRepo.GetBotByID(ctx, botID)
 	if err != nil {
 		return err
@@ -97,11 +120,22 @@ func (s *botServiceImpl) UpdateBot(ctx context.Context, botID, operatorID int64,
 	if modelName != "" {
 		bot.ModelName = modelName
 	}
-	if apiKey != "" {
-		bot.APIKey = apiKey
-	}
-	if baseURL != "" {
-		bot.BaseURL = baseURL
+	if bot.Type == "internal" {
+		if apiKey != "" || baseURL != "" {
+			return errors.New("内部Bot不允许修改API Key和Base URL")
+		}
+		bot.APIKey = defaultAPIKey
+		bot.BaseURL = defaultBaseURL
+		if modelName == "" && defaultModel != "" {
+			bot.ModelName = defaultModel
+		}
+	} else {
+		if apiKey != "" {
+			bot.APIKey = apiKey
+		}
+		if baseURL != "" {
+			bot.BaseURL = baseURL
+		}
 	}
 	if systemPrompt != "" {
 		bot.SystemPrompt = systemPrompt
@@ -168,6 +202,12 @@ func (s *botServiceImpl) ChatWithBot(ctx context.Context, botID, userID, convers
 	}
 	if !botInfo.IsActive {
 		return "", conversationID, errors.New("bot已停用")
+	}
+	if botInfo.APIKey == "" {
+		return "", conversationID, errors.New("bot未配置API Key，请联系管理员或配置自部署Bot的API Key")
+	}
+	if botInfo.BaseURL == "" {
+		return "", conversationID, errors.New("bot未配置Base URL，请联系管理员或配置自部署Bot的Base URL")
 	}
 
 	ag, err := s.getOrCreateAgent(ctx, botInfo)

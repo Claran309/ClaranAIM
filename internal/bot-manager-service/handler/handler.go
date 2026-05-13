@@ -3,19 +3,26 @@ package handler
 import (
 	"ClaranAIM/internal/bot-manager-service/service"
 	"ClaranAIM/kitex_gen/bot"
+	"ClaranAIM/pkg/config"
 	"context"
 )
 
 type BotServiceImpl struct {
 	svc service.BotService
+	cfg *config.Config
 }
 
-func NewBotServiceImpl(svc service.BotService) bot.BotService {
-	return &BotServiceImpl{svc: svc}
+func NewBotServiceImpl(svc service.BotService, cfg *config.Config) bot.BotService {
+	return &BotServiceImpl{svc: svc, cfg: cfg}
+}
+
+func (h *BotServiceImpl) defaultLLM() (apiKey, baseURL, model string) {
+	return h.cfg.LLM.DefaultAPIKey, h.cfg.LLM.DefaultBaseURL, h.cfg.LLM.DefaultModel
 }
 
 func (h *BotServiceImpl) CreateBot(ctx context.Context, req *bot.CreateBotReq) (resp *bot.CreateBotResp, err error) {
-	b, err := h.svc.CreateBot(ctx, req.Name, req.Type, req.Description, req.ModelName, req.ApiKey, req.BaseUrl, req.SystemPrompt, req.SkillsDir, req.AgentRoot, req.OwnerId)
+	apiKey, baseURL, model := h.defaultLLM()
+	b, err := h.svc.CreateBot(ctx, req.Name, req.Type, req.Description, req.ModelName, req.ApiKey, req.BaseUrl, req.SystemPrompt, req.SkillsDir, req.AgentRoot, req.OwnerId, apiKey, baseURL, model)
 	if err != nil {
 		return &bot.CreateBotResp{Success: false, Msg: err.Error()}, nil
 	}
@@ -23,7 +30,8 @@ func (h *BotServiceImpl) CreateBot(ctx context.Context, req *bot.CreateBotReq) (
 }
 
 func (h *BotServiceImpl) UpdateBot(ctx context.Context, req *bot.UpdateBotReq) (resp *bot.UpdateBotResp, err error) {
-	err = h.svc.UpdateBot(ctx, req.BotId, req.OperatorId, req.Name, req.Description, req.ModelName, req.ApiKey, req.BaseUrl, req.SystemPrompt, req.SkillsDir, req.AgentRoot, req.IsActive)
+	apiKey, baseURL, model := h.defaultLLM()
+	err = h.svc.UpdateBot(ctx, req.BotId, req.OperatorId, req.Name, req.Description, req.ModelName, req.ApiKey, req.BaseUrl, req.SystemPrompt, req.SkillsDir, req.AgentRoot, req.IsActive, apiKey, baseURL, model)
 	if err != nil {
 		return &bot.UpdateBotResp{Success: false, Msg: err.Error()}, nil
 	}
@@ -38,6 +46,10 @@ func (h *BotServiceImpl) GetBot(ctx context.Context, req *bot.GetBotReq) (resp *
 	if b == nil {
 		return &bot.GetBotResp{Success: false, Msg: "bot不存在"}, nil
 	}
+	apiKey := b.APIKey
+	if b.Type == "internal" {
+		apiKey = "***"
+	}
 	return &bot.GetBotResp{
 		Success: true,
 		Bot: &bot.BotConfig{
@@ -46,7 +58,7 @@ func (h *BotServiceImpl) GetBot(ctx context.Context, req *bot.GetBotReq) (resp *
 			Type:         b.Type,
 			Description:  b.Description,
 			ModelName:    b.ModelName,
-			ApiKey:       b.APIKey,
+			ApiKey:       apiKey,
 			BaseUrl:      b.BaseURL,
 			SystemPrompt: b.SystemPrompt,
 			SkillsDir:    b.SkillsDir,
@@ -66,13 +78,17 @@ func (h *BotServiceImpl) ListBots(ctx context.Context, req *bot.ListBotsReq) (re
 	}
 	var botList []*bot.BotConfig
 	for _, b := range bots {
+		apiKey := b.APIKey
+		if b.Type == "internal" {
+			apiKey = "***"
+		}
 		botList = append(botList, &bot.BotConfig{
 			Id:           b.ID,
 			Name:         b.Name,
 			Type:         b.Type,
 			Description:  b.Description,
 			ModelName:    b.ModelName,
-			ApiKey:       b.APIKey,
+			ApiKey:       apiKey,
 			BaseUrl:      b.BaseURL,
 			SystemPrompt: b.SystemPrompt,
 			SkillsDir:    b.SkillsDir,

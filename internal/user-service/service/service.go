@@ -127,6 +127,11 @@ func (s *userServiceImpl) Login(ctx context.Context, username, pwd, jwtSecret st
 	s.cacheUserInfo(ctx, user)
 	if s.redis != nil {
 		s.redis.Set(ctx, "online:user:"+fmt.Sprintf("%d", user.ID), "1", 30*time.Minute)
+
+		friends, _ := s.repo.GetFriendList(ctx, user.ID)
+		for _, f := range friends {
+			s.redis.Del(ctx, fmt.Sprintf("user:friends:%d", f.FriendID))
+		}
 	}
 
 	return token, user, nil
@@ -244,6 +249,14 @@ func (s *userServiceImpl) AddFriend(ctx context.Context, userID, friendID, group
 		return errors.New("不能添加自己为好友")
 	}
 
+	friendUser, err := s.repo.GetUserByID(ctx, friendID)
+	if err != nil {
+		return fmt.Errorf("查询好友用户失败: %w", err)
+	}
+	if friendUser == nil {
+		return errors.New("目标用户不存在")
+	}
+
 	existing, err := s.repo.GetFriendByUserAndFriendID(ctx, userID, friendID)
 	if err != nil {
 		return err
@@ -326,6 +339,9 @@ func (s *userServiceImpl) GetFriendList(ctx context.Context, userID int64) ([]Fr
 		}
 		if friendUser != nil {
 			info.FriendName = friendUser.Nickname
+			if info.FriendName == "" {
+				info.FriendName = friendUser.Username
+			}
 			info.FriendAvatar = friendUser.Avatar
 			info.FriendStatus = friendUser.Status
 		}

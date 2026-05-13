@@ -3,8 +3,9 @@ namespace go message
 struct Conversation {
     1: i64 id
     2: string type
-    3: string created_at
-    4: string updated_at
+    3: i64 group_id
+    4: string created_at
+    5: string updated_at
 }
 
 struct Message {
@@ -19,6 +20,7 @@ struct Message {
 struct CreateConversationReq {
     1: string type
     2: list<i64> participant_ids
+    3: i64 group_id
 }
 
 struct CreateConversationResp {
@@ -49,6 +51,9 @@ struct UserConversationInfo {
     5: i64 unread_count
     6: string target_name
     7: string target_avatar
+    8: list<i64> participant_ids
+    9: i64 last_sender_id
+    10: i64 group_id
 }
 
 struct GetUserConversationsResp {

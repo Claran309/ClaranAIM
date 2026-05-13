@@ -12,15 +12,19 @@ ClaranAIM/
 │   ├── user-service/main.go      #   用户服务 (Kitex RPC, :9001)
 │   ├── group-service/main.go     #   群组服务 (Kitex RPC, :9002)
 │   ├── msg-core-service/main.go  #   消息核心服务 (Kitex RPC, :9003)
-│   └── msg-history-service/main.go#   消息历史服务 (Kitex RPC, :9004)
+│   ├── msg-history-service/main.go#  消息历史服务 (Kitex RPC, :9004)
+│   ├── file-service/main.go      #   文件服务 (Kitex RPC, :9005)
+│   └── bot-manager-service/main.go#  Bot管理服务 (Kitex RPC, :9006)
 │
 ├── internal/                     # 各服务内部实现（分层架构）
 │   ├── api-gateway/
-│   │   ├── client/rpc_client.go  #     RPC 客户端初始化
+│   │   ├── client/rpc_client.go  #     RPC 客户端初始化 (含 file/bot client)
 │   │   ├── handler/              #     HTTP 请求处理器
 │   │   │   ├── user_handler.go
 │   │   │   ├── group_handler.go
-│   │   │   └── message_handler.go
+│   │   │   ├── message_handler.go
+│   │   │   ├── file_handler.go
+│   │   │   └── bot_handler.go
 │   │   ├── middleware/middleware.go # JWT认证 + CORS中间件
 │   │   └── router/router.go      #     路由注册
 │   │
@@ -38,38 +42,66 @@ ClaranAIM/
 │   ├── group-service/
 │   │   ├── dao/dao.go
 │   │   ├── handler/handler.go
-│   │   ├── model/model.go
-│   │   └── service/service.go
+│   │   ├── model/model.go        #     含 IsPinned/IsMuted 等扩展字段
+│   │   └── service/service.go    #     含 Redis 缓存
 │   │
 │   ├── msg-core-service/
 │   │   ├── dao/dao.go
 │   │   ├── handler/handler.go
-│   │   ├── model/model.go
+│   │   ├── model/model.go        #     含 GroupID 字段 (关联群聊禁言)
 │   │   ├── push/push.go          #     WebSocket 推送客户端
-│   │   └── service/service.go    #     消息业务逻辑 (含 Redis 缓存)
+│   │   └── service/service.go    #     消息业务逻辑 (含 Redis 缓存 + 禁言校验)
 │   │
-│   └── msg-history-service/
-│       ├── dao/dao.go
+│   ├── msg-history-service/
+│   │   ├── dao/dao.go
+│   │   ├── handler/handler.go
+│   │   ├── model/model.go
+│   │   └── service/service.go
+│   │
+│   ├── file-service/
+│   │   ├── dao/dao.go            #     文件元数据持久化
+│   │   ├── handler/handler.go
+│   │   ├── model/model.go
+│   │   └── service/service.go    #     MinIO 对象存储集成
+│   │
+│   └── bot-manager-service/
+│       ├── agent/agent.go        #     ADK Agent 封装 (工作流 + 工具调用)
+│       ├── agent/prompt.go       #     系统 Prompt 模板
+│       ├── agent/tools.go        #     Agent 工具注册
+│       ├── component/model.go    #     OpenAI ChatModel 组件 (BaseURL 自动补全)
+│       ├── component/memory.go   #     对话记忆组件
+│       ├── component/middleware.go#    Agent 中间件
+│       ├── graphTool/rag.go      #     RAG 图工具
+│       ├── graphTool/websearch.go#     Web搜索 图工具
+│       ├── logic/tools.go        #     业务工具定义
+│       ├── dao/dao.go            #     Bot/路由/计费 数据访问
 │       ├── handler/handler.go
-│       ├── model/model.go
-│       └── service/service.go
+│       ├── model/model.go        #     Bot/BotRoute/BillingRecord 模型
+│       ├── service/service.go    #     内部Bot/自部署Bot 区分 + 计费记录
+│       └── skills/               #     预置技能模板
 │
 ├── pkg/                          # 公共包
 │   ├── cache/redis/redis.go      #   Redis 客户端封装 (JSON支持)
-│   ├── config/config.go          #   Viper 配置加载 (环境变量覆盖)
+│   ├── config/config.go          #   Viper 配置加载 (环境变量覆盖 + MinIO/LLM配置)
+│   ├── health/health.go          #   服务健康检查 (MySQL/Redis/Etcd)
 │   ├── jwt/jwt.go                #   JWT 工具 (生成/解析 Token)
+│   ├── logger/logger.go          #   统一结构化日志 (服务名/时间戳/级别)
 │   ├── password/password.go      #   bcrypt 密码加密
 │   └── response/response.go      #   统一响应格式
 │
 ├── kitex_gen/                    # Thrift IDL 自动生成代码
 │   ├── user/                     #   user.thrift → userservice
 │   ├── group/                    #   group.thrift → groupservice
-│   └── message/                  #   message.thrift → messageservice + historyservice
+│   ├── message/                  #   message.thrift → messageservice + historyservice
+│   ├── file/                     #   file.thrift → fileservice
+│   └── bot/                      #   bot.thrift → botservice
 │
 ├── idl/                          # Thrift IDL 定义文件
 │   ├── user.thrift
 │   ├── group.thrift
-│   └── message.thrift
+│   ├── message.thrift
+│   ├── file.thrift
+│   └── bot.thrift
 │
 ├── config/                       # 各服务 YAML 配置文件
 │   ├── api-gateway.yaml
@@ -77,19 +109,26 @@ ClaranAIM/
 │   ├── user-service.yaml
 │   ├── group-service.yaml
 │   ├── msg-core-service.yaml
-│   └── msg-history-service.yaml
+│   ├── msg-history-service.yaml
+│   ├── file-service.yaml
+│   └── bot-manager-service.yaml
 │
 ├── dist/                         # 前端静态文件
 │   ├── index.html                #   单页应用入口
 │   ├── css/style.css
-│   ├── js/api.js                 #   API 调用 + WebSocket 连接
-│   └── js/app.js                 #   页面交互逻辑
+│   ├── js/api.js                 #   API 调用 + WebSocket + 未读消息管理
+│   └── js/app.js                 #   页面交互 (群管理/Bot对话/文件上传)
+│
+├── docs/                         # 项目文档
+│   ├── APIdoc.md                 #   接口文档
+│   ├── APIdoc-plan.md            #   开发规划
+│   └── TechArch.md               #   技术实现原理
 │
 ├── scripts/                      # 辅助脚本
 │   ├── start.bat / start.sh      #   一键启动全部服务
 │   └── kitex_gen.bat / kitex_gen.sh # IDL 代码生成
 │
-├── docker-compose.yaml           # Docker 编排 (MySQL + Redis + Etcd)
+├── docker-compose.yaml           # Docker 编排 (MySQL + Redis + Etcd + MinIO)
 ├── .env / .env.example           # 敏感配置环境变量
 ├── go.mod / go.sum
 └── README.md
@@ -116,48 +155,56 @@ bash scripts/start.sh
 ```
 ## 注意事项
 
-- 缓存集成到service层而非dao层
+- 缓存集成到了service层而非dao层
 
-## To do list for tomorrow
-- 修改个人信息界面头像没居中
 
-- 添加不存在的用户为好友也能成功并创建聊天回话，这是非法的
 
-- 上传附件时显示上传文件失败
+## 待办事项
 
-- 最好统一输出失败信息日志以方便排查错误
+### fix
+- 会话切换还是有问题，会话范围后端应该没问题，能够正常收发消息，问题是前端无法正常显示不同会话的消息，会把所有消息杂糅在一个会话里
 
-- bot的计费管理、路由管理、配置管理都没有相应功能和前端页面
+- 群聊成员界面无法正常显示用户头像
 
-- 当用户创建一个未注册用户为好友时能成功，并且用户注册并占据用户ID后显示出非法创建者为好友，这是不合理的
+- 用户点击进入群聊后，除了正常的群聊会话列表外，会错误地生成两个额外的无群聊名的会话列表
 
-- 好友的在线状态不正常，现在登出后可以正常显示离线，但是重新登录后仍然显示离线
+- 群聊列表前端有很大问题
 
-- 在前端页面的二级输入框中，我鼠标一滑动窗口就会自己关闭
+- 转让群主后，新群主或管理员不能修改群聊信息
 
-- bot部分不正常，内部的bot怎么能让用户自己配置apikey和baseurl呢？直接调用我之前写好的agent就行了，只有自部署的bot才要用户自己提供相关信息
+- 无法点击会话列表切换会话，但是bot对话部分没有这个问题，请按照bot部分写
 
-- 对话失败: 对话失败: [NodeRunError] failed to create chat completion: invalid character '<' looking for beginning of value / node path: [node_1, ChatModel]
+- 由于会话部分有过多问题，导致前端无法正常显示会话列表，只能通过点击会话列表切换会话，但是会话列表会显示所有会话，包括群聊会话，导致用户无法正常切换会话
 
-- bot对话界面不应该放在会话中，应该视为一个单独会话或者用户
+- 群公告不显示
 
-- 群公告应在会话的最顶端常态显示（用户可以自己关掉）
+- 无法禁言他人
 
-- 群聊管理应该放在会话右上角的三点里
+- 私聊时会话列表应为对方用户头像
 
-- 群聊可以邀请不存在的用户进群
+- 切换bot会话后，再次进入用户会话会导致显示的消息记录消失
 
-- 群聊禁言功能未正常生效
+- bot正常对话没有问题，但是我之前写bot时有写过bot想请求某些工具时会要求用户在命令行审批的功能（toolcall），请你做相应的前端接口，或者对该功能进行修改
+> 详情：finish_reason: tool_calls
+>
+> usage: &{7473 {7466} 60 7533 {47}} map[] map[] [call_-7636677595769070032]}, LayerSpecificPayload=<nil>, SubsLen=1
+>
+> [trace] Graph/ReAct error: interrupt happened, info: &{State:0xc001a23c70 BeforeNodes:[] AfterNodes:[] RerunNodes:[ToolNode] RerunNodesExtra:map[ToolNode:0xc001a921e0] SubGraphs:map[] InterruptContexts:[]}
 
-- 可以和已删除用户对话，这是错误的
+- bot对话部分，当bot在思考时切换会话，bot是思考完后会错误地在其他会话里输出内容
 
-- 可以非法创建不合理的会话，如创建一个不存在的用户会话，这是不合理的
+- 检查一下，现在的agent好像没有记忆功能，我之前写过session的记忆功能，请在不同agent中实现对应记忆的功能，注意记忆不要弄混了，一个botid对应一个sessionid的记忆
 
-- 气泡位置不正确，应该贴合人物头像位置
+- 不同的bot应该对应不同的prompt或者skill等，如有必要请重构storage/bot中的文件，并完善不同bot的个性化功能
 
-- 聊天界面用户不显示头像，这是不正确的
+- 不应该有“创建新会话”按钮，会话只能由好友私聊或者创建群聊发起
 
-- 根据新增功能和接口扩写TechArch.md文件
+- 文件上传失败: 文件已上传但元数据保存失败: remote or network error[remote]: panic: [happened in biz handler, method=FileService.UploadFile, please check the panic at the server side] runtime error: invalid memory address or nil pointer 
+> 日志报错信息：
+>
+> [2026-05-13 23:33:12.837] [INFO] [api-gateway] 文件上传到MinIO成功 | object=file/bb052908-1440-4aa8-a98d-9fb633a99ca5.pdf | size=391644
+>
+> [2026-05-13 23:33:12.848] [ERROR] [api-gateway] 文件元数据RPC调用失败 | error=remote or network error[remote]: panic: [happened in biz handler, method=FileService.UploadFile, please check the panic at the server side] runtime error: invalid memory address or nil pointer dereference | filename=08 实验八 气缸装配体工程图.pdf
 
 ## 开发阶段
 
@@ -191,7 +238,7 @@ group-service
     - [x] 管理员
 msg-core-service
   - [x] 消息发送（文本）
-  - [ ] 消息发送（图片、文件、语音）
+  - [x] 消息发送（图片、文件、语音）
   - [x] 消息落库
   - [x] WebSocket 实时推送
   - [ ] 已读回执
@@ -206,13 +253,13 @@ msg-filter-service
   - [ ] 实时审核
   - [ ] 实时多语言翻译
 file-service
-  - [ ] 保存多媒体消息（图片、文件、语音）
-  - [ ] 传输多媒体消息
+  - [x] 保存多媒体消息（图片、文件、语音）
+  - [x] 传输多媒体消息
 bot-manager-service
   bot类型
-    - [ ] 内部bot
+    - [x] 内部bot
     - [x] 自部署bot
-  - [ ] 计费管理
+  - [x] 计费管理
   - [x] 配置管理
   - [x] 路由管理
 bot-runtime-service
@@ -245,7 +292,7 @@ memory-service
   OTel
     - [ ] Prometheus
     - [ ] Jaeger
-  - [ ] Zap
+  - [x] 统一结构化日志 (pkg/logger)
   - [ ] ELK
   - [ ] CozeLoop
   - [ ] Grafana
@@ -266,7 +313,8 @@ memory-service
   好友管理 → 群组管理 → 在线状态 → 多媒体消息
 
 - [ ] Phase 3 (AI 能力):
-  bot-runtime(基础对话) → bot-manager → memory-service → rag-service
+  bot-manager(配置/路由/计费/内部Bot/自部署Bot) → bot-runtime(基础对话) → memory-service → rag-service
+  - [x] bot-manager 基础功能 (配置/路由/计费/内部Bot/自部署Bot)
 
 - [ ] Phase 4 (进阶):
   MCP → 多Bot协作 → msg-filter → 多端同步 → 消息撤回/编辑

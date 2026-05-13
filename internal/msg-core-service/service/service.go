@@ -4,63 +4,76 @@ import (
 	"ClaranAIM/internal/msg-core-service/dao"
 	"ClaranAIM/internal/msg-core-service/model"
 	"ClaranAIM/internal/msg-core-service/push"
+	"ClaranAIM/kitex_gen/group"
+	"ClaranAIM/kitex_gen/group/groupservice"
 	"ClaranAIM/pkg/cache/redis"
 	"context"
 	"errors"
 	"fmt"
 	"log"
 	"time"
+
+	"github.com/cloudwego/kitex/client"
+	"github.com/cloudwego/kitex/transport"
+	etcd "github.com/kitex-contrib/registry-etcd"
 )
 
 // MessageService 消息核心服务接口
 // 提供会话管理和消息收发的核心业务逻辑
 type MessageService interface {
-	// CreateConversation 创建会话（私聊/群聊）
-	// 私聊会自动检查是否已存在，避免重复创建
-	CreateConversation(ctx context.Context, convType string, participantIDs []int64) (*model.Conversation, error)
-	// GetConversation 获取会话详情
+	CreateConversation(ctx context.Context, convType string, participantIDs []int64, groupID int64) (*model.Conversation, error)
 	GetConversation(ctx context.Context, conversationID int64) (*model.Conversation, error)
-	// GetUserConversations 获取用户的会话列表（含最后一条消息摘要）
 	GetUserConversations(ctx context.Context, userID int64) ([]UserConversationInfo, error)
-	// SendMessage 发送消息（核心方法：存储 + 缓存 + WebSocket推送）
 	SendMessage(ctx context.Context, conversationID, senderID int64, content, msgType string) (*model.Message, error)
-	// GetHistory 获取会话历史消息（支持游标分页）
 	GetHistory(ctx context.Context, conversationID, userID int64, limit, beforeID int64) ([]model.Message, error)
-	// SearchMessages 搜索消息（在用户参与的会话中搜索）
 	SearchMessages(ctx context.Context, userID int64, keyword string, limit int64) ([]model.Message, error)
-	// SearchMessagesInConversations 在指定会话中搜索消息
 	SearchMessagesInConversations(ctx context.Context, conversationIDs []int64, keyword string, limit int64) ([]model.Message, error)
-	// GetConversationParticipants 获取会话参与者ID列表
 	GetConversationParticipants(ctx context.Context, conversationID int64) ([]int64, error)
 }
 
 // UserConversationInfo 用户会话列表项
 // 包含会话基本信息和最后一条消息摘要，用于前端会话列表展示
 type UserConversationInfo struct {
-	ConversationID  int64  `json:"conversation_id"`   // 会话ID
-	Type            string `json:"type"`              // 会话类型：private/group
-	LastMessage     string `json:"last_message"`      // 最后一条消息内容
-	LastMessageTime string `json:"last_message_time"` // 最后一条消息时间
-	UnreadCount     int64  `json:"unread_count"`      // 未读消息数（预留字段）
-	TargetName      string `json:"target_name"`       // 对方用户名（私聊时使用，预留）
-	TargetAvatar    string `json:"target_avatar"`     // 对方头像（预留字段）
+	ConversationID  int64   `json:"conversation_id"`
+	Type            string  `json:"type"`
+	LastMessage     string  `json:"last_message"`
+	LastMessageTime string  `json:"last_message_time"`
+	UnreadCount     int64   `json:"unread_count"`
+	TargetName      string  `json:"target_name"`
+	TargetAvatar    string  `json:"target_avatar"`
+	ParticipantIDs  []int64 `json:"participant_ids"`
+	LastSenderID    int64   `json:"last_sender_id"`
+	GroupID         int64   `json:"group_id"`
 }
 
 type messageServiceImpl struct {
-	repo       dao.MessageRepository // 数据访问层
-	pushClient *push.PushClient      // WebSocket推送客户端
-	redis      *redis.RedisClient    // Redis缓存客户端
+	repo        dao.MessageRepository
+	pushClient  *push.PushClient
+	redis       *redis.RedisClient
+	groupClient groupservice.Client
 }
 
-func NewMessageService(repo dao.MessageRepository, pushClient *push.PushClient, r *redis.RedisClient) MessageService {
-	return &messageServiceImpl{repo: repo, pushClient: pushClient, redis: r}
+func NewMessageService(repo dao.MessageRepository, pushClient *push.PushClient, redisClient *redis.RedisClient, etcdEndpoints []string) MessageService {
+	var groupClient groupservice.Client
+	etcdResolver, err := etcd.NewEtcdResolver(etcdEndpoints)
+	if err != nil {
+		log.Printf("创建etcd resolver失败，禁言检查将不可用: %v", err)
+	} else {
+		groupClient, err = groupservice.NewClient("group-service",
+			client.WithResolver(etcdResolver),
+			client.WithTransportProtocol(transport.TTHeader),
+		)
+		if err != nil {
+			log.Printf("创建group-service客户端失败，禁言检查将不可用: %v", err)
+		}
+	}
+	return &messageServiceImpl{repo: repo, pushClient: pushClient, redis: redisClient, groupClient: groupClient}
 }
 
 // CreateConversation 创建会话
 // 流程：校验参数 → 私聊查重 → 创建会话记录 → 添加参与者 → 清除缓存
 // 私聊类型会自动检查两个用户之间是否已有会话，避免重复创建
-func (s *messageServiceImpl) CreateConversation(ctx context.Context, convType string, participantIDs []int64) (*model.Conversation, error) {
-	// 参数校验
+func (s *messageServiceImpl) CreateConversation(ctx context.Context, convType string, participantIDs []int64, groupID int64) (*model.Conversation, error) {
 	if convType != "private" && convType != "group" {
 		return nil, errors.New("无效的会话类型")
 	}
@@ -68,7 +81,6 @@ func (s *messageServiceImpl) CreateConversation(ctx context.Context, convType st
 		return nil, errors.New("参与者至少为2人")
 	}
 
-	// 私聊查重：如果两个用户之间已有私聊会话，直接返回已有会话
 	if convType == "private" && len(participantIDs) == 2 {
 		existing, err := s.repo.FindPrivateConversation(ctx, participantIDs[0], participantIDs[1])
 		if err != nil {
@@ -79,9 +91,9 @@ func (s *messageServiceImpl) CreateConversation(ctx context.Context, convType st
 		}
 	}
 
-	// 第1步：创建会话记录
 	conv := &model.Conversation{
-		Type: convType,
+		Type:    convType,
+		GroupID: groupID,
 	}
 	if err := s.repo.CreateConversation(ctx, conv); err != nil {
 		return nil, err
@@ -147,16 +159,35 @@ func (s *messageServiceImpl) GetUserConversations(ctx context.Context, userID in
 			continue
 		}
 
+		allParticipants, _ := s.repo.GetParticipants(ctx, conv.ID)
+
 		info := UserConversationInfo{
 			ConversationID: conv.ID,
 			Type:           conv.Type,
+			GroupID:        conv.GroupID,
+			ParticipantIDs: make([]int64, 0),
 		}
 
-		// 获取该会话的最后一条消息
+		for _, ap := range allParticipants {
+			info.ParticipantIDs = append(info.ParticipantIDs, ap.UserID)
+		}
+
 		msgs, _ := s.repo.GetMessages(ctx, conv.ID, 1, 0)
 		if len(msgs) > 0 {
 			info.LastMessage = msgs[0].Content
 			info.LastMessageTime = msgs[0].CreatedAt.Format("2006-01-02 15:04:05")
+			info.LastSenderID = msgs[0].SenderID
+		}
+
+		if conv.Type == "private" {
+			for _, ap := range allParticipants {
+				if ap.UserID != userID {
+					info.TargetName = fmt.Sprintf("用户%d", ap.UserID)
+					break
+				}
+			}
+		} else if conv.Type == "group" && conv.GroupID > 0 {
+			info.TargetName = fmt.Sprintf("群聊#%d", conv.GroupID)
 		}
 
 		result = append(result, info)
@@ -188,7 +219,20 @@ func (s *messageServiceImpl) SendMessage(ctx context.Context, conversationID, se
 		return nil, errors.New("会话不存在")
 	}
 
-	// 默认消息类型为文本
+	if conv.Type == "group" && conv.GroupID > 0 && s.groupClient != nil {
+		membersResp, err := s.groupClient.GetGroupMembers(ctx, &group.GetGroupMembersReq{GroupId: conv.GroupID})
+		if err == nil && membersResp.Success {
+			for _, m := range membersResp.Members {
+				if m.UserId == senderID && m.MutedUntil != "" {
+					mutedUntil, parseErr := time.Parse("2006-01-02 15:04:05", m.MutedUntil)
+					if parseErr == nil && time.Now().Before(mutedUntil) {
+						return nil, fmt.Errorf("你已被禁言，解除时间: %s", m.MutedUntil)
+					}
+				}
+			}
+		}
+	}
+
 	if msgType == "" {
 		msgType = "text"
 	}

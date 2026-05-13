@@ -10,8 +10,9 @@ import (
 type Conversation struct {
 	Id        int64  `thrift:"id,1" frugal:"1,default,i64" json:"id"`
 	Type      string `thrift:"type,2" frugal:"2,default,string" json:"type"`
-	CreatedAt string `thrift:"created_at,3" frugal:"3,default,string" json:"created_at"`
-	UpdatedAt string `thrift:"updated_at,4" frugal:"4,default,string" json:"updated_at"`
+	GroupId   int64  `thrift:"group_id,3" frugal:"3,default,i64" json:"group_id"`
+	CreatedAt string `thrift:"created_at,4" frugal:"4,default,string" json:"created_at"`
+	UpdatedAt string `thrift:"updated_at,5" frugal:"5,default,string" json:"updated_at"`
 }
 
 func NewConversation() *Conversation {
@@ -29,6 +30,10 @@ func (p *Conversation) GetType() (v string) {
 	return p.Type
 }
 
+func (p *Conversation) GetGroupId() (v int64) {
+	return p.GroupId
+}
+
 func (p *Conversation) GetCreatedAt() (v string) {
 	return p.CreatedAt
 }
@@ -41,6 +46,9 @@ func (p *Conversation) SetId(val int64) {
 }
 func (p *Conversation) SetType(val string) {
 	p.Type = val
+}
+func (p *Conversation) SetGroupId(val int64) {
+	p.GroupId = val
 }
 func (p *Conversation) SetCreatedAt(val string) {
 	p.CreatedAt = val
@@ -59,8 +67,9 @@ func (p *Conversation) String() string {
 var fieldIDToName_Conversation = map[int16]string{
 	1: "id",
 	2: "type",
-	3: "created_at",
-	4: "updated_at",
+	3: "group_id",
+	4: "created_at",
+	5: "updated_at",
 }
 
 type Message struct {
@@ -140,6 +149,7 @@ var fieldIDToName_Message = map[int16]string{
 type CreateConversationReq struct {
 	Type           string  `thrift:"type,1" frugal:"1,default,string" json:"type"`
 	ParticipantIds []int64 `thrift:"participant_ids,2" frugal:"2,default,list<i64>" json:"participant_ids"`
+	GroupId        int64   `thrift:"group_id,3" frugal:"3,default,i64" json:"group_id"`
 }
 
 func NewCreateConversationReq() *CreateConversationReq {
@@ -156,11 +166,18 @@ func (p *CreateConversationReq) GetType() (v string) {
 func (p *CreateConversationReq) GetParticipantIds() (v []int64) {
 	return p.ParticipantIds
 }
+
+func (p *CreateConversationReq) GetGroupId() (v int64) {
+	return p.GroupId
+}
 func (p *CreateConversationReq) SetType(val string) {
 	p.Type = val
 }
 func (p *CreateConversationReq) SetParticipantIds(val []int64) {
 	p.ParticipantIds = val
+}
+func (p *CreateConversationReq) SetGroupId(val int64) {
+	p.GroupId = val
 }
 
 func (p *CreateConversationReq) String() string {
@@ -173,6 +190,7 @@ func (p *CreateConversationReq) String() string {
 var fieldIDToName_CreateConversationReq = map[int16]string{
 	1: "type",
 	2: "participant_ids",
+	3: "group_id",
 }
 
 type CreateConversationResp struct {
@@ -337,13 +355,16 @@ var fieldIDToName_GetUserConversationsReq = map[int16]string{
 }
 
 type UserConversationInfo struct {
-	ConversationId  int64  `thrift:"conversation_id,1" frugal:"1,default,i64" json:"conversation_id"`
-	Type            string `thrift:"type,2" frugal:"2,default,string" json:"type"`
-	LastMessage     string `thrift:"last_message,3" frugal:"3,default,string" json:"last_message"`
-	LastMessageTime string `thrift:"last_message_time,4" frugal:"4,default,string" json:"last_message_time"`
-	UnreadCount     int64  `thrift:"unread_count,5" frugal:"5,default,i64" json:"unread_count"`
-	TargetName      string `thrift:"target_name,6" frugal:"6,default,string" json:"target_name"`
-	TargetAvatar    string `thrift:"target_avatar,7" frugal:"7,default,string" json:"target_avatar"`
+	ConversationId  int64   `thrift:"conversation_id,1" frugal:"1,default,i64" json:"conversation_id"`
+	Type            string  `thrift:"type,2" frugal:"2,default,string" json:"type"`
+	LastMessage     string  `thrift:"last_message,3" frugal:"3,default,string" json:"last_message"`
+	LastMessageTime string  `thrift:"last_message_time,4" frugal:"4,default,string" json:"last_message_time"`
+	UnreadCount     int64   `thrift:"unread_count,5" frugal:"5,default,i64" json:"unread_count"`
+	TargetName      string  `thrift:"target_name,6" frugal:"6,default,string" json:"target_name"`
+	TargetAvatar    string  `thrift:"target_avatar,7" frugal:"7,default,string" json:"target_avatar"`
+	ParticipantIds  []int64 `thrift:"participant_ids,8" frugal:"8,default,list<i64>" json:"participant_ids"`
+	LastSenderId    int64   `thrift:"last_sender_id,9" frugal:"9,default,i64" json:"last_sender_id"`
+	GroupId         int64   `thrift:"group_id,10" frugal:"10,default,i64" json:"group_id"`
 }
 
 func NewUserConversationInfo() *UserConversationInfo {
@@ -380,6 +401,18 @@ func (p *UserConversationInfo) GetTargetName() (v string) {
 func (p *UserConversationInfo) GetTargetAvatar() (v string) {
 	return p.TargetAvatar
 }
+
+func (p *UserConversationInfo) GetParticipantIds() (v []int64) {
+	return p.ParticipantIds
+}
+
+func (p *UserConversationInfo) GetLastSenderId() (v int64) {
+	return p.LastSenderId
+}
+
+func (p *UserConversationInfo) GetGroupId() (v int64) {
+	return p.GroupId
+}
 func (p *UserConversationInfo) SetConversationId(val int64) {
 	p.ConversationId = val
 }
@@ -401,6 +434,15 @@ func (p *UserConversationInfo) SetTargetName(val string) {
 func (p *UserConversationInfo) SetTargetAvatar(val string) {
 	p.TargetAvatar = val
 }
+func (p *UserConversationInfo) SetParticipantIds(val []int64) {
+	p.ParticipantIds = val
+}
+func (p *UserConversationInfo) SetLastSenderId(val int64) {
+	p.LastSenderId = val
+}
+func (p *UserConversationInfo) SetGroupId(val int64) {
+	p.GroupId = val
+}
 
 func (p *UserConversationInfo) String() string {
 	if p == nil {
@@ -410,13 +452,16 @@ func (p *UserConversationInfo) String() string {
 }
 
 var fieldIDToName_UserConversationInfo = map[int16]string{
-	1: "conversation_id",
-	2: "type",
-	3: "last_message",
-	4: "last_message_time",
-	5: "unread_count",
-	6: "target_name",
-	7: "target_avatar",
+	1:  "conversation_id",
+	2:  "type",
+	3:  "last_message",
+	4:  "last_message_time",
+	5:  "unread_count",
+	6:  "target_name",
+	7:  "target_avatar",
+	8:  "participant_ids",
+	9:  "last_sender_id",
+	10: "group_id",
 }
 
 type GetUserConversationsResp struct {

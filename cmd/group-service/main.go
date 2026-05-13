@@ -7,7 +7,8 @@ import (
 	"ClaranAIM/kitex_gen/group/groupservice"
 	"ClaranAIM/pkg/cache/redis"
 	"ClaranAIM/pkg/config"
-	"log"
+	"ClaranAIM/pkg/health"
+	"ClaranAIM/pkg/logger"
 	"net"
 
 	"github.com/cloudwego/kitex/pkg/rpcinfo"
@@ -17,25 +18,28 @@ import (
 )
 
 func main() {
+	logger.InitService("group-service")
+
 	cfg, err := config.Load("config/group-service.yaml")
 	if err != nil {
-		log.Fatal("加载配置失败:", err)
+		logger.Fatal("加载配置失败", "error", err)
 	}
 
 	db, err := dao.InitDB(cfg.MySQL.DSN)
 	if err != nil {
-		log.Fatal("初始化数据库失败:", err)
+		logger.Fatal("初始化数据库失败", "error", err)
 	}
-	log.Println("group-service 数据库初始化成功")
+	sqlDB, _ := db.DB()
+	health.CheckMySQL(sqlDB, "group-service")
 
 	var redisClient *redis.RedisClient
 	if cfg.Redis.Addr != "" {
 		redisClient, err = redis.NewRedisClient(cfg.Redis.Addr, cfg.Redis.Password, cfg.Redis.DB)
 		if err != nil {
-			log.Printf("Redis连接失败，将不使用缓存: %v", err)
+			logger.Warn("Redis连接失败，将不使用缓存", "error", err)
 			redisClient = nil
 		} else {
-			log.Println("group-service Redis连接成功")
+			health.CheckRedis(redisClient.GetInnerClient(), "group-service")
 		}
 	}
 
@@ -45,12 +49,13 @@ func main() {
 
 	r, err := etcd.NewEtcdRegistry(cfg.Etcd.Endpoints)
 	if err != nil {
-		log.Fatal("创建etcd注册中心失败:", err)
+		logger.Fatal("创建etcd注册中心失败", "error", err)
 	}
+	health.CheckEtcd(cfg.Etcd.Endpoints, "group-service")
 
 	addr, err := net.ResolveTCPAddr("tcp", cfg.Service.Address)
 	if err != nil {
-		log.Fatal("解析服务地址失败:", err)
+		logger.Fatal("解析服务地址失败", "error", err)
 	}
 
 	svr := groupservice.NewServer(
@@ -63,8 +68,12 @@ func main() {
 		server.WithMetaHandler(transmeta.ServerTTHeaderHandler),
 	)
 
-	log.Printf("group-service 启动在 %s", cfg.Service.Address)
+	health.LogStartup(health.ServiceInfo{
+		Name:    "group-service",
+		Version: "1.0.0",
+		Port:    cfg.Service.Address,
+	})
 	if err := svr.Run(); err != nil {
-		log.Fatal("group-service 启动失败:", err)
+		logger.Fatal("服务启动失败", "error", err)
 	}
 }

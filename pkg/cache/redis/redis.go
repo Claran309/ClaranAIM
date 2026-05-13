@@ -44,8 +44,10 @@ func NewRedisClient(addr, password string, db int) (*RedisClient, error) {
 	return &RedisClient{client: client}, nil
 }
 
-// Get 获取字符串值
-// key不存在时返回空字符串和nil（不视为错误）
+func (r *RedisClient) GetInnerClient() *redis.Client {
+	return r.client
+}
+
 func (r *RedisClient) Get(ctx context.Context, key string) (string, error) {
 	result, err := r.client.Get(ctx, key).Result()
 	if err == redis.Nil {

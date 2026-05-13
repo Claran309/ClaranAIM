@@ -173,8 +173,12 @@ func NewSetRoleReq(groupID, operatorID, userID int64, role string) *group.SetRol
 	return &group.SetRoleReq{GroupId: groupID, OperatorId: operatorID, UserId: userID, Role: role}
 }
 
-func NewCreateConversationReq(convType string, participantIDs []int64) *message.CreateConversationReq {
-	return &message.CreateConversationReq{Type: convType, ParticipantIds: participantIDs}
+func NewCheckMemberReq(groupID, userID int64) *group.CheckMemberReq {
+	return &group.CheckMemberReq{GroupId: groupID, UserId: userID}
+}
+
+func NewCreateConversationReq(convType string, participantIDs []int64, groupID int64) *message.CreateConversationReq {
+	return &message.CreateConversationReq{Type: convType, ParticipantIds: participantIDs, GroupId: groupID}
 }
 
 func NewSendMessageReq(conversationID, senderID int64, content, msgType string) *message.SendMessageReq {
