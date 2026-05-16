@@ -1,9 +1,0 @@
-./client_options.go
-./client_provider.go
-./header_trailer.go
-./server_provider.go
-./stream.go
-./stream_args.go
-./stream_handler.go
-./stream_middleware.go
-./stream_middleware_internal.go

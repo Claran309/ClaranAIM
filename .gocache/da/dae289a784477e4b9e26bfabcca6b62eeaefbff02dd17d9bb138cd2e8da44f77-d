@@ -1,6 +1,0 @@
-./flag.go
-./oparray.go
-./skipmap.go
-./types.go
-./util.go
-./asm.s

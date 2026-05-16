@@ -1,8 +1,0 @@
-./accum_amd64.go
-./accum_scalar.go
-./consts.go
-./hash.go
-./hash128.go
-./util.go
-./avx2_amd64.s
-./sse2_amd64.s

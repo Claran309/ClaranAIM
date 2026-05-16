@@ -1,5 +1,0 @@
-./consts.go
-./error.go
-./finish_event.go
-./span_key.go
-./vars.go

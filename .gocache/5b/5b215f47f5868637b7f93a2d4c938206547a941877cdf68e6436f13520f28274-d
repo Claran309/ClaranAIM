@@ -1,9 +1,0 @@
-./consist.go
-./dummy_picker.go
-./interleaved_weighted_round_robin.go
-./iterator.go
-./loadbalancer.go
-./weighted_balancer.go
-./weighted_random.go
-./weighted_random_with_alias_method.go
-./weighted_round_robin.go

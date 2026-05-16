@@ -1,9 +1,0 @@
-./client.go
-./const.go
-./error.go
-./logger.go
-./noop.go
-./prompt.go
-./span.go
-./trace.go
-./version.go

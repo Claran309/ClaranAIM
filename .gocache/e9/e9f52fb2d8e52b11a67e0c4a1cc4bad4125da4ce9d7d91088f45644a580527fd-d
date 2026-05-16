@@ -1,5 +1,0 @@
-./bytebuf_util.go
-./default_codec.go
-./header_codec.go
-./util.go
-./validate.go

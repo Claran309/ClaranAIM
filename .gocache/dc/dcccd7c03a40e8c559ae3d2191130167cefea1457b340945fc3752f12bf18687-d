@@ -1,6 +1,0 @@
-./anno_mapping.go
-./http_mapping.go
-./key_mapping.go
-./option_mapping.go
-./register.go
-./value_mapping.go

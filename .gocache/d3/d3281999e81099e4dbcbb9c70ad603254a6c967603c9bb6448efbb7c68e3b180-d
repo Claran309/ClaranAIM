@@ -1,9 +1,0 @@
-./builtin.go
-./callback.go
-./convert.go
-./data_parser.go
-./option.go
-./signature.go
-./span_context.go
-./trace_handler.go
-./utils.go

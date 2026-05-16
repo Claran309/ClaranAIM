@@ -1,8 +1,0 @@
-./binary_protocol.go
-./bootstrap.go
-./debug_protocol.go
-./memory_transport.go
-./meta.go
-./protocol.go
-./register.go
-./transport.go

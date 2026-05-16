@@ -1,5 +1,0 @@
-./bot_handler.go
-./file_handler.go
-./group_handler.go
-./message_handler.go
-./user_handler.go

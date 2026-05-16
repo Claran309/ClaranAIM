@@ -1,5 +1,0 @@
-./linkname.go
-./pool.go
-./poolqueue.go
-./rwmutex.go
-./asm.s

@@ -1,6 +1,0 @@
-./codec.go
-./codec_apache.go
-./codec_fast.go
-./codec_frugal.go
-./thrift.go
-./thrift_data.go

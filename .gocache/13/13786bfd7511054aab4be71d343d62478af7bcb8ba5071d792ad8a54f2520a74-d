@@ -1,4 +1,0 @@
-./api_compat.go
-./decode.go
-./encoding.go
-./error.go

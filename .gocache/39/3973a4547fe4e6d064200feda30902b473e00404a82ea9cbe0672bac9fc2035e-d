@@ -1,6 +1,0 @@
-./exporter.go
-./noop_span.go
-./queue_manager.go
-./span.go
-./span_processor.go
-./trace.go
