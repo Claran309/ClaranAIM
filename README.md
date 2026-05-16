@@ -37,7 +37,7 @@ ClaranAIM/
 ├── dist/                          # 前端静态文件
 ├── docs/                          # 项目文档
 ├── scripts/                       # 启动与代码生成脚本
-├── docker-compose.yaml            # MySQL、Redis、Etcd、MinIO
+├── docker-compose.yaml            # MySQL、Redis、Etcd&MinIO
 └── README.md
 ```
 
@@ -57,7 +57,7 @@ scripts\start.bat
 # 4. 打开前端
 # 浏览器打开 dist/index.html
 ```
-
+ 
 ## 注意事项
 
 - 缓存逻辑主要集成在 service 层，而不是 DAO 层。
