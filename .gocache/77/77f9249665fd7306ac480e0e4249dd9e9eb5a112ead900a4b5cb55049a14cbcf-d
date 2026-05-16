@@ -1,0 +1,4 @@
+./filesystem.go
+./loader.go
+./memory.go
+./shifted.go

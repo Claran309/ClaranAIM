@@ -126,6 +126,7 @@ struct UpdateFriendRemarkReq {
     1: i64 user_id
     2: i64 friend_id
     3: string remark
+    4: i64 group_id
 }
 
 struct UpdateFriendRemarkResp {

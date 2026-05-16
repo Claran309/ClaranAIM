@@ -1,5 +1,276 @@
 let groupConversationMap = {};
 let conversationGroupMap = {};
+let conversationOpenSeq = 0;
+let botChatSeq = 0;
+let localPinnedConversations = JSON.parse(localStorage.getItem('claran_pinned_conversations') || '{}');
+let localHiddenConversations = JSON.parse(localStorage.getItem('claran_hidden_conversations') || '{}');
+let voiceRecorder = null;
+let voiceRecordChunks = [];
+let voiceRecordStream = null;
+let voiceRecordStartedAt = 0;
+let voiceRecordTimer = null;
+let mediaObjectURLs = {};
+let mediaPayloadCache = {};
+let currentMessages = [];
+let pendingReplyMessage = null;
+
+function sameID(a, b) {
+    return String(a) === String(b);
+}
+
+function getPinnedKey(conversationID) {
+    return currentUser && currentUser.id ? `${currentUser.id}:${conversationID}` : String(conversationID);
+}
+
+function isConversationPinned(conversationID) {
+    return !!localPinnedConversations[getPinnedKey(conversationID)];
+}
+
+function setConversationPinned(conversationID, pinned) {
+    const key = getPinnedKey(conversationID);
+    if (pinned) {
+        localPinnedConversations[key] = true;
+    } else {
+        delete localPinnedConversations[key];
+    }
+    localStorage.setItem('claran_pinned_conversations', JSON.stringify(localPinnedConversations));
+}
+
+function isConversationHidden(conversationID) {
+    return !!localHiddenConversations[getPinnedKey(conversationID)];
+}
+
+function setConversationHidden(conversationID, hidden) {
+    const key = getPinnedKey(conversationID);
+    if (hidden) {
+        localHiddenConversations[key] = true;
+    } else {
+        delete localHiddenConversations[key];
+    }
+    localStorage.setItem('claran_hidden_conversations', JSON.stringify(localHiddenConversations));
+}
+
+function makeMediaPayload(url, id, name) {
+    return [url || '', id || '', name || ''].map(part => encodeURIComponent(part)).join('|');
+}
+
+function parseMediaPayload(content, tag) {
+    const match = (content || '').match(new RegExp(`\\[${tag}\\]([\\s\\S]*?)\\[\\/${tag}\\]`));
+    const raw = match ? match[1] : (content || '');
+    const parts = raw.split('|');
+    if (parts.length >= 3) {
+        return {
+            url: decodeURIComponent(parts[0] || ''),
+            id: decodeURIComponent(parts[1] || ''),
+            name: decodeURIComponent(parts.slice(2).join('|') || '')
+        };
+    }
+    return {
+        url: raw,
+        id: '',
+        name: raw.split('/').pop() || '文件'
+    };
+}
+
+function resolveMediaURL(media) {
+    if (!media) return '';
+    if (media.url && media.url.startsWith('/')) return `http://localhost:8080${media.url}`;
+    if (media.url) return media.url;
+    if (media.id) return fileAPI.previewURL(media.id);
+    return media.url || '';
+}
+
+function resolveDownloadURL(media) {
+    if (!media) return '';
+    if (media.id) return fileAPI.downloadURL(media.id);
+    return resolveMediaURL(media);
+}
+
+function mediaKey(media) {
+    return media && media.id ? media.id : (media && media.url ? media.url : '');
+}
+
+function rememberMedia(media) {
+    const key = mediaKey(media);
+    if (key) {
+        mediaPayloadCache[key] = media;
+    }
+    return key;
+}
+
+function publicMediaURL(media) {
+    if (!media || !media.url) return '';
+    if (media.url.startsWith('/files/')) return `http://localhost:8080${media.url}`;
+    if (media.url.startsWith('http://') || media.url.startsWith('https://')) return media.url;
+    return '';
+}
+
+async function loadAuthedMedia(el, media) {
+    const key = mediaKey(media);
+    if (!key || !media || !media.id) return;
+    const fallbackURL = publicMediaURL(media);
+    if (mediaObjectURLs[key]) {
+        el.src = mediaObjectURLs[key];
+        return;
+    }
+    try {
+        const blob = await fileAPI.fetchBlob(media.id);
+        const objectURL = URL.createObjectURL(blob);
+        mediaObjectURLs[key] = objectURL;
+        el.src = objectURL;
+    } catch (err) {
+        if (fallbackURL) {
+            el.src = fallbackURL;
+            return;
+        }
+        if (el.tagName === 'IMG') {
+            el.outerHTML = '<span class="media-error">图片加载失败</span>';
+        } else {
+            showToast(err.message || '媒体加载失败', 'error');
+        }
+    }
+}
+
+async function downloadMedia(fileID, filename, mediaKeyValue = '') {
+    const media = mediaPayloadCache[mediaKeyValue] || mediaPayloadCache[fileID] || null;
+    try {
+        const blob = await fileAPI.fetchBlob(fileID);
+        const objectURL = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = objectURL;
+        a.download = filename || 'download';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(objectURL), 3000);
+    } catch (err) {
+        const fallbackURL = publicMediaURL(media);
+        if (fallbackURL) {
+            const a = document.createElement('a');
+            a.href = fallbackURL;
+            a.download = filename || 'download';
+            a.target = '_blank';
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            return;
+        }
+        showToast(err.message || '文件下载失败', 'error');
+    }
+}
+
+function hydrateMedia(container) {
+    container.querySelectorAll('[data-media-id]').forEach(el => {
+        const media = {
+            id: el.dataset.mediaId,
+            url: el.dataset.mediaUrl || '',
+            name: el.dataset.mediaName || ''
+        };
+        const fallbackURL = publicMediaURL(media);
+        if (fallbackURL && el.src) {
+            return;
+        }
+        loadAuthedMedia(el, media);
+    });
+}
+
+function formatRecordDuration(ms) {
+    const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+    const minutes = String(Math.floor(totalSeconds / 60)).padStart(2, '0');
+    const seconds = String(totalSeconds % 60).padStart(2, '0');
+    return `${minutes}:${seconds}`;
+}
+
+function getMessageByID(messageID) {
+    return currentMessages.find(m => sameID(m.id || m.msg_id, messageID));
+}
+
+function renderCurrentMessages() {
+    const msgList = document.getElementById('message-list');
+    msgList.innerHTML = currentMessages.map(m => createMessageHTML(m)).join('');
+    hydrateMedia(msgList);
+    msgList.scrollTop = msgList.scrollHeight;
+}
+
+function clearPendingReply() {
+    pendingReplyMessage = null;
+    const bar = document.getElementById('reply-preview-bar');
+    if (bar) bar.remove();
+}
+
+function setPendingReply(messageID) {
+    const msg = getMessageByID(messageID);
+    if (!msg) return;
+    pendingReplyMessage = msg;
+    let bar = document.getElementById('reply-preview-bar');
+    if (!bar) {
+        bar = document.createElement('div');
+        bar.id = 'reply-preview-bar';
+        bar.className = 'reply-preview-bar';
+        const input = document.querySelector('.chat-input');
+        input.parentNode.insertBefore(bar, input);
+    }
+    bar.innerHTML = `
+        <div>
+            <strong>回复 ${escapeHTML(getUserName(msg.sender_id))}</strong>
+            <span>${escapeHTML((msg.content || '[媒体消息]').slice(0, 80))}</span>
+        </div>
+        <button type="button" onclick="clearPendingReply()">取消</button>
+    `;
+    document.getElementById('msg-input')?.focus();
+}
+
+function extractMentions(content) {
+    const ids = [];
+    const re = /@(\d+)/g;
+    let match;
+    while ((match = re.exec(content || '')) !== null) {
+        ids.push(parseInt(match[1], 10));
+    }
+    return ids.filter(n => !Number.isNaN(n));
+}
+
+function applyMessageStateUpdate(data) {
+    const messageID = data.id || data.msg_id;
+    const idx = currentMessages.findIndex(m => sameID(m.id || m.msg_id, messageID));
+    if (idx >= 0) {
+        currentMessages[idx] = {
+            ...currentMessages[idx],
+            ...data,
+            id: currentMessages[idx].id || data.msg_id,
+            content: data.content,
+            status: data.status,
+            is_edited: data.is_edited,
+            edited_at: data.edited_at,
+        };
+        renderCurrentMessages();
+    }
+}
+
+function getVoiceMimeType() {
+    if (!window.MediaRecorder) return '';
+    const candidates = [
+        'audio/webm;codecs=opus',
+        'audio/webm',
+        'audio/mp4',
+        'audio/ogg;codecs=opus'
+    ];
+    return candidates.find(type => MediaRecorder.isTypeSupported(type)) || '';
+}
+
+function setVoiceRecordingUI(isRecording) {
+    const btn = document.getElementById('voice-record-btn');
+    const panel = document.getElementById('voice-record-panel');
+    if (btn) btn.classList.toggle('recording', isRecording);
+    if (panel) panel.style.display = isRecording ? 'flex' : 'none';
+}
+
+function updateVoiceRecordTime() {
+    const timeEl = document.getElementById('voice-record-time');
+    if (timeEl) {
+        timeEl.textContent = formatRecordDuration(Date.now() - voiceRecordStartedAt);
+    }
+}
 
 function switchAuthTab(tab) {
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
@@ -113,6 +384,7 @@ async function logout() {
     groupsCache = [];
     userNickCache = {};
     conversationNameCache = {};
+    friendRemarkCache = {};
     localStorage.removeItem('claran_token');
     localStorage.removeItem('claran_user');
     localStorage.removeItem('claran_unread');
@@ -171,7 +443,10 @@ async function loadConversations() {
     const list = document.getElementById('conversation-list');
 
     if (resp && resp.code === 0 && resp.data && resp.data.conversations) {
-        const convs = resp.data.conversations;
+        const convs = resp.data.conversations.filter(c =>
+            (!isConversationHidden(c.conversation_id) || c.is_deleted_group) &&
+            (c.type !== 'group' || (c.group_id && parseInt(c.group_id) > 0))
+        );
         if (convs.length === 0) {
             list.innerHTML = '<div class="empty-tip">暂无会话<br><small>点击好友列表的「聊天」或群组的「进入」开始对话</small></div>';
             return;
@@ -179,12 +454,12 @@ async function loadConversations() {
 
         const senderIDs = [];
         convs.forEach(c => {
-            if (c.last_sender_id && !userNickCache[c.last_sender_id]) {
+            if (c.last_sender_id) {
                 senderIDs.push(c.last_sender_id);
             }
             if (c.participant_ids) {
                 c.participant_ids.forEach(pid => {
-                    if (!userNickCache[pid]) senderIDs.push(pid);
+                    senderIDs.push(pid);
                 });
             }
         });
@@ -197,12 +472,15 @@ async function loadConversations() {
                 groupConversationMap[c.group_id] = c.conversation_id;
                 conversationGroupMap[c.conversation_id] = c.group_id;
                 const group = groupsCache.find(g => g.id === parseInt(c.group_id));
+                if (group && group.name) {
+                    conversationNameCache[c.conversation_id] = group.name;
+                }
                 if (group && group.is_pinned) {
                     c._is_pinned = true;
                 }
             }
             if (c.type === 'private' && c.participant_ids) {
-                const otherID = c.participant_ids.find(id => id !== currentUser.id);
+                const otherID = c.participant_ids.find(id => !sameID(id, currentUser.id));
                 if (otherID) {
                     const name = getUserName(otherID);
                     if (name && name !== '用户' + otherID) {
@@ -212,6 +490,9 @@ async function loadConversations() {
             }
             if (c.target_name && !conversationNameCache[c.conversation_id]) {
                 conversationNameCache[c.conversation_id] = c.target_name;
+            }
+            if (isConversationPinned(c.conversation_id)) {
+                c._is_pinned = true;
             }
         });
 
@@ -223,22 +504,34 @@ async function loadConversations() {
 
         list.innerHTML = convs.map(c => {
             const unread = unreadMap[c.conversation_id] || 0;
-            const isActive = currentConversationID === c.conversation_id;
-            const typeIcon = c.type === 'private' ? '👤' : '👥';
-            const typeLabel = c.type === 'private' ? '私聊' : '群聊';
+            const isActive = sameID(currentConversationID, c.conversation_id);
+            const typeLabel = c.is_deleted_group ? '已解散' : (c.type === 'private' ? '私聊' : '群聊');
             const pinnedPrefix = c._is_pinned ? '📌 ' : '';
             let displayName = conversationNameCache[c.conversation_id] || c.target_name;
             if (!displayName || displayName.startsWith('用户') || displayName.startsWith('群聊#')) {
                 if (c.type === 'private' && c.participant_ids) {
-                    const otherID = c.participant_ids.find(id => id !== currentUser.id);
+                    const otherID = c.participant_ids.find(id => !sameID(id, currentUser.id));
                     if (otherID) displayName = getUserName(otherID);
                 }
             }
             if (!displayName) displayName = '会话 #' + c.conversation_id;
             conversationNameCache[c.conversation_id] = displayName;
+
+            let avatarHTML;
+            if (c.type === 'private' && c.participant_ids) {
+                const otherID = c.participant_ids.find(id => !sameID(id, currentUser.id));
+                if (otherID) {
+                    avatarHTML = getUserAvatarHTML(otherID, 'conv-avatar');
+                } else {
+                    avatarHTML = '👤';
+                }
+            } else {
+                avatarHTML = '👥';
+            }
+
             return `
-                <div class="list-item ${isActive ? 'active' : ''} ${c._is_pinned ? 'pinned' : ''}" onclick="openConversation(${c.conversation_id}, '${c.type}')">
-                    <div class="avatar conv-avatar">${typeIcon}</div>
+                <div class="list-item ${isActive ? 'active' : ''} ${c._is_pinned ? 'pinned' : ''} ${c.is_deleted_group ? 'deleted-group' : ''}" onclick="openConversation(${c.conversation_id}, '${c.type}', ${c.is_deleted_group ? 'true' : 'false'})">
+                    <div class="avatar conv-avatar">${avatarHTML}</div>
                     <div class="list-item-info">
                         <div class="list-item-top">
                             <span class="list-item-name">${pinnedPrefix}${escapeHTML(displayName)}</span>
@@ -246,6 +539,7 @@ async function loadConversations() {
                         </div>
                         <div class="list-item-msg">${escapeHTML(c.last_message || '暂无消息')}</div>
                     </div>
+                    <button class="btn-icon-sm" onclick="event.stopPropagation(); hideConversation(${c.conversation_id})" title="删除会话">删除</button>
                     ${unread > 0 ? `<span class="item-unread">${unread > 99 ? '99+' : unread}</span>` : ''}
                 </div>
             `;
@@ -253,6 +547,36 @@ async function loadConversations() {
     } else {
         list.innerHTML = '<div class="empty-tip">暂无会话</div>';
     }
+}
+
+function resetChatView(message = '已删除会话，可通过搜索历史消息继续查找内容') {
+    currentConversationID = null;
+    currentConversationType = '';
+    currentBotID = null;
+    currentMessages = [];
+    clearPendingReply();
+    conversationOpenSeq++;
+    botChatSeq++;
+    document.getElementById('chat-area').style.display = 'none';
+    document.getElementById('welcome-area').style.display = 'flex';
+    document.getElementById('message-list').innerHTML = '';
+    document.getElementById('group-announcement-bar').style.display = 'none';
+    if (message) showToast(message, 'success');
+}
+
+function hideConversation(conversationID) {
+    if (!confirm('确定从会话列表删除这个会话吗？历史消息仍可搜索。')) return;
+    setConversationHidden(conversationID, true);
+    delete unreadMap[conversationID];
+    saveUnreadMap();
+    updateUnreadBadge();
+    if (sameID(currentConversationID, conversationID)) {
+        resetChatView();
+    } else {
+        const msgList = document.getElementById('message-list');
+        if (msgList) msgList.innerHTML = '';
+    }
+    loadConversations();
 }
 
 async function loadFriends() {
@@ -269,7 +593,12 @@ async function loadFriends() {
 
         friends.forEach(f => {
             if (f.friend_id) {
-                userNickCache[f.friend_id] = f.friend_name || f.remark || '用户' + f.friend_id;
+                userNickCache[f.friend_id] = f.friend_name || '用户' + f.friend_id;
+                if (f.remark) {
+                    friendRemarkCache[f.friend_id] = f.remark;
+                } else {
+                    delete friendRemarkCache[f.friend_id];
+                }
                 if (f.friend_avatar) {
                     userAvatarCache[f.friend_id] = f.friend_avatar;
                 }
@@ -290,6 +619,7 @@ async function loadFriends() {
                         <div class="list-item-msg ${statusClass}">${statusDot} ${statusText}</div>
                     </div>
                     <div class="friend-actions">
+                        <button class="btn-chat" onclick="showEditFriend(${f.friend_id}, '${escapeHTML(displayName)}', '${escapeHTML(f.remark || '')}')">修改</button>
                         <button class="btn-chat" onclick="startPrivateChat(${f.friend_id})">聊天</button>
                         <button class="btn-delete-friend" onclick="deleteFriend(${f.friend_id}, '${escapeHTML(displayName)}')" title="删除好友">✕</button>
                     </div>
@@ -315,7 +645,7 @@ async function loadGroups() {
 
         list.innerHTML = groups.map(g => {
             const avatarHTML = renderAvatarHTML(g.avatar, '👥', 'group-avatar');
-            const ownerName = userNickCache[g.owner_id] || '用户' + g.owner_id;
+            const ownerName = getUserName(g.owner_id);
             const isPinned = g.is_pinned;
             return `
                 <div class="list-item group-item ${isPinned ? 'pinned' : ''}">
@@ -346,14 +676,14 @@ async function resolveConversationName(conversationID, type) {
         if (type === 'private') {
             const convsResp = await messageAPI.getConversations();
             if (convsResp && convsResp.code === 0 && convsResp.data && convsResp.data.conversations) {
-                const conv = convsResp.data.conversations.find(c => c.conversation_id === conversationID);
+                const conv = convsResp.data.conversations.find(c => sameID(c.conversation_id, conversationID));
                 if (conv) {
                     if (conv.target_name && !conv.target_name.startsWith('用户')) {
                         conversationNameCache[conversationID] = conv.target_name;
                         return conv.target_name;
                     }
                     if (conv.participant_ids) {
-                        const otherID = conv.participant_ids.find(id => id !== currentUser.id);
+                        const otherID = conv.participant_ids.find(id => !sameID(id, currentUser.id));
                         if (otherID) {
                             await resolveUserNames([otherID]);
                             const name = getUserName(otherID);
@@ -375,14 +705,14 @@ async function resolveConversationName(conversationID, type) {
                     return group.name;
                 }
                 const groupResp = await groupAPI.get(groupID);
-                if (groupResp && groupResp.code === 0 && groupResp.data && groupResp.data.group) {
+                if (groupResp && groupResp.code === 0 && groupResp.data && groupResp.data.group && groupResp.data.group.success !== false) {
                     conversationNameCache[conversationID] = groupResp.data.group.name;
                     return groupResp.data.group.name;
                 }
             }
             const convsResp = await messageAPI.getConversations();
             if (convsResp && convsResp.code === 0 && convsResp.data && convsResp.data.conversations) {
-                const conv = convsResp.data.conversations.find(c => c.conversation_id === conversationID);
+                const conv = convsResp.data.conversations.find(c => sameID(c.conversation_id, conversationID));
                 if (conv && conv.target_name) {
                     conversationNameCache[conversationID] = conv.target_name;
                     return conv.target_name;
@@ -391,7 +721,7 @@ async function resolveConversationName(conversationID, type) {
                     groupConversationMap[conv.group_id] = conversationID;
                     conversationGroupMap[conversationID] = conv.group_id;
                     const groupResp = await groupAPI.get(conv.group_id);
-                    if (groupResp && groupResp.code === 0 && groupResp.data && groupResp.data.group) {
+                    if (groupResp && groupResp.code === 0 && groupResp.data && groupResp.data.group && groupResp.data.group.success !== false) {
                         conversationNameCache[conversationID] = groupResp.data.group.name;
                         return groupResp.data.group.name;
                     }
@@ -406,10 +736,15 @@ async function resolveConversationName(conversationID, type) {
     }
 }
 
-async function openConversation(conversationID, type) {
+async function openConversation(conversationID, type, isDeletedGroup = false) {
+    const openSeq = ++conversationOpenSeq;
+    botChatSeq++;
+    const targetConversationID = conversationID;
     currentConversationID = conversationID;
     currentConversationType = type;
     currentBotID = null;
+    currentMessages = [];
+    clearPendingReply();
 
     delete unreadMap[conversationID];
     saveUnreadMap();
@@ -420,13 +755,27 @@ async function openConversation(conversationID, type) {
 
     const sendBtn = document.getElementById('send-btn');
     sendBtn.setAttribute('onclick', 'sendMessage()');
+    document.getElementById('msg-input').disabled = false;
+    sendBtn.disabled = false;
+    document.getElementById('voice-record-btn').disabled = false;
     document.getElementById('msg-input').placeholder = '输入消息...';
 
     const convName = await resolveConversationName(conversationID, type);
+    if (openSeq !== conversationOpenSeq || !sameID(currentConversationID, targetConversationID) || currentBotID !== null) return;
     document.getElementById('chat-title').textContent = convName;
-    const typeLabel = type === 'private' ? '👤 私聊' : '👥 群聊';
+    const typeLabel = isDeletedGroup ? '群聊已解散' : (type === 'private' ? '👤 私聊' : '👥 群聊');
     document.getElementById('chat-type-badge').textContent = typeLabel;
     document.getElementById('chat-type-badge').className = `chat-type-badge ${type}`;
+    document.getElementById('msg-input').disabled = !!isDeletedGroup;
+    document.getElementById('send-btn').disabled = !!isDeletedGroup;
+    document.getElementById('voice-record-btn').disabled = !!isDeletedGroup;
+
+    if (isDeletedGroup) {
+        document.getElementById('group-announcement-bar').style.display = 'none';
+        const msgList = document.getElementById('message-list');
+        msgList.innerHTML = '<div class="empty-tip deleted-group-tip">此群聊已解散，不能继续发送消息。</div>';
+        return;
+    }
 
     const announcementBar = document.getElementById('group-announcement-bar');
     if (type === 'group') {
@@ -434,7 +783,7 @@ async function openConversation(conversationID, type) {
         if (!groupID) {
             const convsResp = await messageAPI.getConversations();
             if (convsResp && convsResp.code === 0 && convsResp.data && convsResp.data.conversations) {
-                const conv = convsResp.data.conversations.find(c => c.conversation_id === conversationID);
+                const conv = convsResp.data.conversations.find(c => sameID(c.conversation_id, conversationID));
                 if (conv && conv.group_id && conv.group_id > 0) {
                     groupID = conv.group_id;
                     groupConversationMap[groupID] = conversationID;
@@ -446,7 +795,8 @@ async function openConversation(conversationID, type) {
             let group = groupsCache.find(g => g.id === parseInt(groupID));
             if (!group) {
                 const groupResp = await groupAPI.get(groupID);
-                if (groupResp && groupResp.code === 0 && groupResp.data && groupResp.data.group) {
+                if (openSeq !== conversationOpenSeq || !sameID(currentConversationID, targetConversationID) || currentBotID !== null) return;
+                if (groupResp && groupResp.code === 0 && groupResp.data && groupResp.data.group && groupResp.data.group.success !== false) {
                     group = groupResp.data.group;
                 }
             }
@@ -465,16 +815,25 @@ async function openConversation(conversationID, type) {
 
     const resp = await messageAPI.getHistory(conversationID);
     const msgList = document.getElementById('message-list');
+    if (openSeq !== conversationOpenSeq || !sameID(currentConversationID, targetConversationID) || currentBotID !== null) return;
 
     if (resp && resp.code === 0 && resp.data && resp.data.messages) {
         const messages = resp.data.messages;
+        currentMessages = messages;
         const senderIDs = [...new Set(messages.map(m => m.sender_id))];
         await resolveUserNames(senderIDs);
+        if (openSeq !== conversationOpenSeq || !sameID(currentConversationID, targetConversationID) || currentBotID !== null) return;
 
         msgList.innerHTML = messages.map(m => createMessageHTML(m)).join('');
+        hydrateMedia(msgList);
         msgList.scrollTop = msgList.scrollHeight;
+        const lastMsg = messages[messages.length - 1];
+        if (lastMsg && lastMsg.id) {
+            messageAPI.markRead(conversationID, lastMsg.id);
+        }
     } else {
-        msgList.innerHTML = '<div class="empty-tip">暂无消息，发送第一条消息吧 💬</div>';
+        currentMessages = [];
+        msgList.innerHTML = '<div class="empty-tip">暂无消息，发送第一条消息吧</div>';
     }
 
     loadConversations();
@@ -482,8 +841,9 @@ async function openConversation(conversationID, type) {
 
 function createMessageHTML(m) {
     if (m.is_thinking) {
+        const thinkingIDAttr = m._thinkingID ? ` data-thinking-id="${m._thinkingID}"` : '';
         return `
-            <div class="message-item received bot-msg msg-thinking">
+            <div class="message-item received bot-msg msg-thinking"${thinkingIDAttr}>
                 <div class="msg-avatar received">🤖</div>
                 <div class="msg-body">
                     <div class="msg-meta">
@@ -494,42 +854,68 @@ function createMessageHTML(m) {
             </div>
         `;
     }
-    const isSent = m.sender_id === currentUser.id;
-    const isBot = m.sender_id === 0 || m.is_bot;
+    const isSent = sameID(m.sender_id, currentUser.id);
+    const isBot = sameID(m.sender_id, 0) || m.is_bot;
     const senderName = isBot ? '🤖 AI助手' : (isSent ? '我' : getUserName(m.sender_id));
     const time = m.created_at || '';
     const avatarContent = isBot ? '🤖' : (isSent
         ? (currentUser.avatar ? `<img src="${currentUser.avatar}" class="avatar-img">` : (currentUser.nickname || currentUser.username).charAt(0).toUpperCase())
         : getUserAvatarHTML(m.sender_id));
     const avatarBg = isSent ? '' : 'received';
-    const bubbleContent = renderMessageContent(m.content, m.msg_type);
+    const messageID = m.id || m.msg_id || 0;
+    const status = m.status || 'sent';
+    const originalContent = status === 'recalled' ? '[消息已撤回]' : (m.content || '');
+    const replyMsg = m.reply_to_id ? getMessageByID(m.reply_to_id) : null;
+    const replyHTML = replyMsg ? `
+        <div class="reply-card">
+            <strong>${escapeHTML(getUserName(replyMsg.sender_id))}</strong>
+            <span>${escapeHTML((replyMsg.content || '[媒体消息]').slice(0, 80))}</span>
+        </div>
+    ` : '';
+    const editedHTML = m.is_edited ? '<span class="message-edited">已编辑</span>' : '';
+    const actionsHTML = (!isBot && status !== 'recalled' && messageID) ? `
+        <div class="message-actions">
+            <button type="button" onclick="setPendingReply(${messageID})">回复</button>
+            ${isSent ? `<button type="button" onclick="editMessage(${messageID})">编辑</button><button type="button" onclick="recallMessage(${messageID})">撤回</button>` : ''}
+        </div>
+    ` : '';
+    const bubbleContent = status === 'recalled' ? escapeHTML(originalContent) : renderMessageContent(originalContent, m.msg_type);
     const errorClass = m.is_error ? 'error-bubble' : '';
     return `
-        <div class="message-item ${isSent ? 'sent' : 'received'} ${isBot ? 'bot-msg' : ''}">
+        <div class="message-item ${isSent ? 'sent' : 'received'} ${isBot ? 'bot-msg' : ''}" data-message-id="${messageID}">
             <div class="msg-avatar ${avatarBg}">${avatarContent}</div>
             <div class="msg-body">
                 <div class="msg-meta">
                     <span class="message-sender">${escapeHTML(senderName)}</span>
                     <span class="message-time">${time}</span>
+                    ${editedHTML}
                 </div>
-                <div class="message-bubble ${errorClass}">${bubbleContent}</div>
+                <div class="message-bubble ${errorClass} ${status === 'recalled' ? 'recalled-bubble' : ''}">${replyHTML}${bubbleContent}</div>
+                ${actionsHTML}
             </div>
         </div>
     `;
 }
 
 function appendMessage(m) {
+    if (m.conversation_id && currentConversationID && !sameID(m.conversation_id, currentConversationID)) {
+        return;
+    }
     const msgList = document.getElementById('message-list');
     if (msgList.querySelector('.empty-tip')) {
         msgList.innerHTML = '';
     }
     if (m.sender_id && !userNickCache[m.sender_id]) {
         resolveUserNames([m.sender_id]).then(() => {
+            currentMessages.push(m);
             msgList.innerHTML += createMessageHTML(m);
+            hydrateMedia(msgList);
             msgList.scrollTop = msgList.scrollHeight;
         });
     } else {
+        currentMessages.push(m);
         msgList.innerHTML += createMessageHTML(m);
+        hydrateMedia(msgList);
         msgList.scrollTop = msgList.scrollHeight;
     }
 }
@@ -539,6 +925,10 @@ async function sendMessage() {
     const content = input.value.trim();
     if (!content || !currentConversationID) return;
 
+    const sendConversationID = currentConversationID;
+    const replyToID = pendingReplyMessage ? (pendingReplyMessage.id || pendingReplyMessage.msg_id || 0) : 0;
+    const mentionUserIDs = extractMentions(content);
+    const mentionAll = content.includes('@all') || content.includes('@所有人');
     input.value = '';
 
     const now = new Date();
@@ -551,26 +941,66 @@ async function sendMessage() {
 
     const optimisticMsg = {
         sender_id: currentUser.id,
+        conversation_id: sendConversationID,
         content: content,
         created_at: timeStr,
+        reply_to_id: replyToID,
+        mention_user_ids: mentionUserIDs,
+        mention_all: mentionAll,
     };
-    appendMessage(optimisticMsg);
 
-    const resp = await messageAPI.send(currentConversationID, content);
+    const resp = await messageAPI.send(sendConversationID, content, 'text', {
+        reply_to_id: replyToID,
+        mention_user_ids: mentionUserIDs,
+        mention_all: mentionAll,
+    });
     if (resp && resp.code === 0 && resp.data && resp.data.success) {
-        // success
+        optimisticMsg.id = resp.data.msg_id;
+        clearPendingReply();
+        appendMessage(optimisticMsg);
+        setConversationHidden(sendConversationID, false);
     } else {
         const errMsg = resp?.data?.msg || '发送失败';
         showToast(errMsg, 'error');
-        if (errMsg.includes('禁言')) {
-            const msgContainer = document.getElementById('message-list');
-            if (msgContainer && msgContainer.lastChild) {
-                const lastMsg = msgContainer.lastChild;
-                if (lastMsg.querySelector('.msg-content')?.textContent === content) {
-                    lastMsg.remove();
-                }
+        if (errMsg.includes('群组不存在') || errMsg.includes('无权访问')) {
+            const groupID = conversationGroupMap[sendConversationID];
+            if (groupID) {
+                delete groupConversationMap[groupID];
+                delete conversationGroupMap[sendConversationID];
             }
+            await loadGroups();
+            loadConversations();
         }
+    }
+}
+
+async function editMessage(messageID) {
+    const msg = getMessageByID(messageID);
+    if (!msg || msg.status === 'recalled') return;
+    const next = prompt('编辑消息', msg.content || '');
+    if (next === null) return;
+    const content = next.trim();
+    if (!content) {
+        showToast('消息内容不能为空', 'warning');
+        return;
+    }
+    const resp = await messageAPI.edit(messageID, content);
+    if (resp && resp.code === 0 && resp.data && resp.data.success) {
+        applyMessageStateUpdate(resp.data.message || { msg_id: messageID, content, is_edited: true });
+        showToast('消息已编辑', 'success');
+    } else {
+        showToast(resp?.data?.msg || '编辑失败', 'error');
+    }
+}
+
+async function recallMessage(messageID) {
+    if (!confirm('确定撤回这条消息吗？')) return;
+    const resp = await messageAPI.recall(messageID);
+    if (resp && resp.code === 0 && resp.data && resp.data.success) {
+        applyMessageStateUpdate({ msg_id: messageID, content: '', status: 'recalled' });
+        showToast('消息已撤回', 'success');
+    } else {
+        showToast(resp?.data?.msg || '撤回失败', 'error');
     }
 }
 
@@ -589,9 +1019,25 @@ async function startPrivateChat(friendID) {
 
 async function openGroupConversation(groupID) {
     if (groupConversationMap[groupID]) {
+        const group = groupsCache.find(g => sameID(g.id, groupID));
+        if (group) conversationNameCache[groupConversationMap[groupID]] = group.name;
         openConversation(groupConversationMap[groupID], 'group');
         switchSidebar('conversations', document.querySelector('.sidebar-tab:first-child'));
         return;
+    }
+
+    const convsResp = await messageAPI.getConversations();
+    if (convsResp && convsResp.code === 0 && convsResp.data && convsResp.data.conversations) {
+        const existing = convsResp.data.conversations.find(c => c.type === 'group' && sameID(c.group_id, groupID));
+        if (existing) {
+            groupConversationMap[groupID] = existing.conversation_id;
+            conversationGroupMap[existing.conversation_id] = groupID;
+            const group = groupsCache.find(g => sameID(g.id, groupID));
+            if (group) conversationNameCache[existing.conversation_id] = group.name;
+            openConversation(existing.conversation_id, 'group');
+            switchSidebar('conversations', document.querySelector('.sidebar-tab:first-child'));
+            return;
+        }
     }
 
     const membersResp = await groupAPI.getMembers(groupID);
@@ -605,8 +1051,9 @@ async function openGroupConversation(groupID) {
     if (resp && resp.code === 0 && resp.data) {
         const convId = resp.data.conversation_id;
         groupConversationMap[groupID] = convId;
+        conversationGroupMap[convId] = groupID;
 
-        const group = groupsCache.find(g => g.id === groupID);
+        const group = groupsCache.find(g => sameID(g.id, groupID));
         if (group) {
             conversationNameCache[convId] = group.name;
         }
@@ -629,41 +1076,37 @@ async function deleteFriend(friendID, name) {
     }
 }
 
-function showCreateConversation() {
-    showModal('创建新会话', `
+function showEditFriend(friendID, displayName, currentRemark) {
+    showModal(`修改好友 - ${escapeHTML(displayName)}`, `
         <div class="form-group">
-            <label>会话类型</label>
-            <select id="conv-type" class="form-select">
-                <option value="private">私聊</option>
-                <option value="group">群聊</option>
-            </select>
+            <label>好友备注</label>
+            <input type="text" id="edit-friend-remark" value="${escapeHTML(currentRemark || displayName || '')}" placeholder="留空则显示好友昵称">
         </div>
-        <div class="form-group">
-            <label>对方用户ID（多个用逗号分隔）</label>
-            <input type="text" id="conv-participants" placeholder="例如: 1,2,3">
-        </div>
-        <button class="btn-primary" onclick="createConversation()">创建</button>
+        <button class="btn-primary" onclick="saveFriendRemark(${friendID})">保存</button>
     `);
 }
 
-async function createConversation() {
-    const type = document.getElementById('conv-type').value;
-    const participantsStr = document.getElementById('conv-participants').value.trim();
-    const participantIDs = participantsStr.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n));
-
-    if (participantIDs.length === 0) {
-        showToast('请输入有效的用户ID', 'warning');
-        return;
-    }
-
-    const allIDs = type === 'private' ? participantIDs : [currentUser.id, ...participantIDs];
-    const resp = await messageAPI.createConversation(type, allIDs);
-    if (resp && resp.code === 0 && resp.data) {
+async function saveFriendRemark(friendID) {
+    const remark = document.getElementById('edit-friend-remark').value.trim();
+    const resp = await userAPI.updateFriendRemark(friendID, 0, remark);
+    if (resp && resp.code === 0 && resp.data && resp.data.success) {
+        const friend = friendsCache.find(f => sameID(f.friend_id, friendID));
+        const fallbackName = friend?.friend_name || userNickCache[friendID] || '用户' + friendID;
+        userNickCache[friendID] = fallbackName;
+        if (remark) {
+            friendRemarkCache[friendID] = remark;
+        } else {
+            delete friendRemarkCache[friendID];
+        }
+        Object.keys(conversationNameCache).forEach(convID => {
+            delete conversationNameCache[convID];
+        });
+        showToast('好友信息已更新', 'success');
         closeModal();
-        openConversation(resp.data.conversation_id, type);
-        showToast('会话创建成功', 'success');
+        loadFriends();
+        loadConversations();
     } else {
-        showToast(resp?.data?.msg || '创建失败', 'error');
+        showToast(resp?.data?.msg || '更新好友信息失败', 'error');
     }
 }
 
@@ -740,9 +1183,11 @@ async function showGroupMembers(groupID) {
 
     let groupName = '群组';
     let isOwner = false;
+    let isAdmin = false;
+    let myRole = '';
     if (groupResp && groupResp.code === 0 && groupResp.data && groupResp.data.group) {
         groupName = groupResp.data.group.name;
-        isOwner = groupResp.data.group.owner_id === currentUser.id;
+        isOwner = sameID(groupResp.data.group.owner_id, currentUser.id);
     }
 
     let membersHTML = '<div class="empty-tip">加载中...</div>';
@@ -753,6 +1198,19 @@ async function showGroupMembers(groupID) {
         } else {
             const memberIDs = members.map(m => m.user_id);
             await resolveUserNames(memberIDs);
+            members.forEach(m => {
+                if ((m.username || m.nickname) && !friendRemarkCache[m.user_id]) {
+                    userNickCache[m.user_id] = m.nickname || m.username;
+                }
+                if (m.avatar) {
+                    userAvatarCache[m.user_id] = m.avatar;
+                }
+            });
+
+            const myMember = members.find(m => sameID(m.user_id, currentUser.id));
+            myRole = myMember ? myMember.role : '';
+            isAdmin = myRole === 'admin';
+            const canManage = isOwner || isAdmin;
 
             membersHTML = `
                 <div class="section-label">群成员 (${members.length})</div>
@@ -760,19 +1218,24 @@ async function showGroupMembers(groupID) {
                     ${members.map(m => {
                         const roleClass = m.role === 'owner' ? 'owner' : (m.role === 'admin' ? 'admin' : '');
                         const roleLabel = m.role === 'owner' ? '群主' : (m.role === 'admin' ? '管理员' : '成员');
-                        const canKick = currentUser.id !== m.user_id && m.role !== 'owner';
-                        const canManage = isOwner && m.role !== 'owner';
+                        const canKick = !sameID(currentUser.id, m.user_id) && m.role !== 'owner' && (isOwner || (isAdmin && m.role === 'member'));
+                        const canMute = canManage && !sameID(currentUser.id, m.user_id) && m.role !== 'owner';
+                        const canSetRole = isOwner && m.role !== 'owner';
                         const memberName = getUserName(m.user_id);
+                        const avatarHTML = getUserAvatarHTML(m.user_id, 'small');
+                        const isMuted = m.muted_until && m.muted_until !== '';
                         return `
-                            <div class="member-item">
-                                <div class="avatar small">${memberName.charAt(0).toUpperCase()}</div>
+                            <div class="member-item ${isMuted ? 'muted' : ''}">
+                                <div class="avatar small">${avatarHTML}</div>
                                 <div class="member-info">
                                     <span class="member-name">${escapeHTML(memberName)}</span>
                                     <span class="member-tag ${roleClass}">${roleLabel}</span>
+                                    ${isMuted ? '<span class="member-tag muted-tag">🔇 禁言中</span>' : ''}
                                 </div>
                                 <div class="member-actions">
-                                    ${canManage ? `<button class="btn-kick" onclick="showMuteMember(${groupID}, ${m.user_id}, '${escapeHTML(memberName)}')">禁言</button>` : ''}
-                                    ${canManage ? `<button class="btn-kick" onclick="showSetRole(${groupID}, ${m.user_id}, '${escapeHTML(memberName)}')">角色</button>` : ''}
+                                    ${canMute && !isMuted ? `<button class="btn-kick" onclick="showMuteMember(${groupID}, ${m.user_id}, '${escapeHTML(memberName)}')">禁言</button>` : ''}
+                                    ${canMute && isMuted ? `<button class="btn-kick" onclick="unmuteMember(${groupID}, ${m.user_id})">解禁</button>` : ''}
+                                    ${canSetRole ? `<button class="btn-kick" onclick="showSetRole(${groupID}, ${m.user_id}, '${escapeHTML(memberName)}')">角色</button>` : ''}
                                     ${canKick ? `<button class="btn-kick" onclick="kickMember(${groupID}, ${m.user_id})">移除</button>` : ''}
                                 </div>
                             </div>
@@ -839,6 +1302,10 @@ function showSearchMessages() {
             </div>
             <button class="btn-inline btn-primary" onclick="doSearch()">搜索</button>
         </div>
+        <div class="search-filter-row">
+            <input type="date" id="search-start-date">
+            <input type="date" id="search-end-date">
+        </div>
         <div id="search-results" class="search-results"></div>
     `);
     setTimeout(() => document.getElementById('search-keyword')?.focus(), 100);
@@ -853,8 +1320,10 @@ async function doSearch() {
     }
 
     resultsDiv.innerHTML = '<div class="search-loading"><div class="spinner"></div>搜索中...</div>';
+    const startAt = document.getElementById('search-start-date')?.value || '';
+    const endAt = document.getElementById('search-end-date')?.value || '';
 
-    const resp = await messageAPI.search(keyword, currentConversationID);
+    const resp = await messageAPI.search(keyword, currentConversationID, 20, startAt, endAt);
     if (resp && resp.code === 0 && resp.data && resp.data.messages) {
         const messages = resp.data.messages;
         if (messages.length === 0) {
@@ -889,7 +1358,7 @@ async function doSearch() {
 
 function jumpToMessage(conversationID, messageID) {
     closeModal();
-    if (currentConversationID !== conversationID) {
+    if (!sameID(currentConversationID, conversationID)) {
         openConversation(conversationID, 'private');
     }
 }
@@ -921,7 +1390,7 @@ function showGroupManageFromMenu() {
     document.getElementById('chat-menu').style.display = 'none';
     const groupID = conversationGroupMap[currentConversationID];
     if (groupID) {
-        showGroupManage(groupID);
+        showGroupManage(groupID, true);
     } else {
         showToast('无法获取群组信息', 'warning');
     }
@@ -937,53 +1406,48 @@ function showGroupMembersFromMenu() {
     }
 }
 
-async function showGroupMembers(groupID) {
-    const resp = await groupAPI.getMembers(groupID);
-    if (resp && resp.code === 0 && resp.data && resp.data.members) {
-        const members = resp.data.members;
-        await resolveUserNames(members.map(m => m.user_id));
-        showModal('群成员列表', `
-            <div class="member-list">
-                ${members.map(m => {
-                    const roleLabel = m.role === 'owner' ? '👑' : (m.role === 'admin' ? '⭐' : '');
-                    return `<div class="member-item">
-                        <div class="msg-avatar received">${getUserAvatarChar(m.user_id)}</div>
-                        <span class="member-name">${roleLabel} ${getUserName(m.user_id)}</span>
-                        <span class="member-role">${m.role}</span>
-                    </div>`;
-                }).join('')}
-            </div>
-        `);
-    } else {
-        showToast('加载群成员失败', 'error');
-    }
-}
-
 async function pinConversation() {
     document.getElementById('chat-menu').style.display = 'none';
-    if (currentConversationType !== 'group') {
-        showToast('仅群聊支持置顶', 'warning');
-        return;
+    if (!currentConversationID) return;
+
+    const nextPinned = !isConversationPinned(currentConversationID);
+    setConversationPinned(currentConversationID, nextPinned);
+
+    if (currentConversationType === 'group') {
+        const groupID = conversationGroupMap[currentConversationID];
+        if (groupID) {
+            const resp = await groupAPI.pin(groupID, nextPinned);
+            if (resp && resp.code === 0 && resp.data && resp.data.success) {
+                await loadGroups();
+            }
+        }
     }
-    const groupID = conversationGroupMap[currentConversationID];
-    if (!groupID) return;
-    let isPinned = false;
-    const group = groupsCache.find(g => g.id === parseInt(groupID));
-    if (group) {
-        isPinned = !group.is_pinned;
-    }
-    const resp = await groupAPI.pin(groupID, isPinned);
-    if (resp && resp.code === 0 && resp.data && resp.data.success) {
-        showToast(isPinned ? '已置顶' : '已取消置顶', 'success');
-        loadGroups();
-        loadConversations();
-    } else {
-        showToast(resp?.data?.msg || '置顶失败', 'error');
-    }
+
+    showToast(nextPinned ? '已置顶' : '已取消置顶', 'success');
+    loadConversations();
 }
 
 function closeAnnouncement() {
     document.getElementById('group-announcement-bar').style.display = 'none';
+}
+
+function clearCurrentConversationMessages() {
+    document.getElementById('chat-menu').style.display = 'none';
+    if (!currentConversationID && !currentBotID) {
+        showToast('当前没有打开的会话', 'warning');
+        return;
+    }
+    if (!confirm('只清空当前窗口里的消息，后端历史不会删除。继续吗？')) return;
+    const msgList = document.getElementById('message-list');
+    if (msgList) {
+        msgList.innerHTML = '<div class="empty-tip">当前窗口消息已清空</div>';
+    }
+    if (currentBotID) {
+        botChatHistory[currentBotID] = [];
+        delete botPendingReplies[currentBotID];
+        botChatSeq++;
+    }
+    showToast('已清空当前窗口消息', 'success');
 }
 
 function showConversationInfo() {
@@ -1064,6 +1528,11 @@ async function saveProfile() {
 
     closeModal();
     showToast('个人信息已更新', 'success');
+    loadFriends();
+    loadConversations();
+    if (currentConversationID) {
+        openConversation(currentConversationID, currentConversationType || 'private');
+    }
 }
 
 function escapeHTML(str) {
@@ -1073,26 +1542,49 @@ function escapeHTML(str) {
     return div.innerHTML;
 }
 
-function showGroupManage(groupID) {
-    const group = groupsCache.find(g => g.id === groupID);
-    if (!group) return;
-    const isOwner = group.owner_id === currentUser.id;
-    const isAdmin = isOwner;
+async function showGroupManage(groupID, openedFromMenu = false) {
+    let group = groupsCache.find(g => sameID(g.id, groupID));
+    if (!group) {
+        const groupResp = await groupAPI.get(groupID);
+        if (groupResp && groupResp.code === 0 && groupResp.data && groupResp.data.group && groupResp.data.group.success !== false) {
+            group = groupResp.data.group;
+        }
+    }
+    if (!group) {
+        showToast('无法获取群组信息，可能已被解散或你已不在群中', 'warning');
+        return;
+    }
+    const isOwner = sameID(group.owner_id, currentUser.id);
+    let isAdmin = false;
+    try {
+        const membersResp = await groupAPI.getMembers(groupID);
+        if (membersResp && membersResp.code === 0 && membersResp.data && membersResp.data.members) {
+            const myMember = membersResp.data.members.find(m => sameID(m.user_id, currentUser.id));
+            isAdmin = myMember && myMember.role === 'admin';
+        }
+    } catch (e) {}
+    const canEdit = isOwner || isAdmin;
+
+    if (openedFromMenu && !canEdit) {
+        showToast('只有群主或管理员可以管理群聊', 'warning');
+    }
 
     showModal(`群组管理 - ${escapeHTML(group.name)}`, `
         <div class="form-group">
             <label>群名称</label>
-            <input type="text" id="mg-name" value="${escapeHTML(group.name)}" ${!isAdmin ? 'disabled' : ''}>
+            <input type="text" id="mg-name" value="${escapeHTML(group.name)}" ${!canEdit ? 'disabled' : ''}>
         </div>
         <div class="form-group">
             <label>群公告</label>
-            <textarea id="mg-announcement" rows="3" ${!isAdmin ? 'disabled' : ''}>${escapeHTML(group.announcement || '')}</textarea>
+            <textarea id="mg-announcement" rows="3" ${!canEdit ? 'disabled' : ''}>${escapeHTML(group.announcement || '')}</textarea>
         </div>
-        ${isAdmin ? `
+        ${canEdit ? `
         <div class="btn-row">
             <button class="btn-primary" onclick="saveGroupInfo(${groupID})">保存修改</button>
             <button class="btn-inline" onclick="pinGroup(${groupID}, ${group.is_pinned ? 'false' : 'true'})">${group.is_pinned ? '取消置顶' : '置顶群聊'}</button>
         </div>
+        ` : ''}
+        ${isOwner ? `
         <hr style="margin:16px 0;border-color:var(--border);">
         <div class="section-label">高级管理</div>
         <div class="btn-row">
@@ -1111,7 +1603,21 @@ async function saveGroupInfo(groupID) {
     if (resp && resp.code === 0 && resp.data && resp.data.success) {
         showToast('群信息已更新', 'success');
         closeModal();
-        loadGroups();
+        await loadGroups();
+        const group = groupsCache.find(g => sameID(g.id, groupID));
+        if (group) {
+            conversationNameCache[groupConversationMap[groupID]] = group.name;
+            if (currentConversationType === 'group' && sameID(conversationGroupMap[currentConversationID], groupID)) {
+                document.getElementById('chat-title').textContent = group.name;
+                if (group.announcement) {
+                    document.getElementById('announcement-text').textContent = group.announcement;
+                    document.getElementById('group-announcement-bar').style.display = 'flex';
+                } else {
+                    document.getElementById('group-announcement-bar').style.display = 'none';
+                }
+            }
+        }
+        loadConversations();
     } else {
         showToast(resp?.data?.msg || '更新失败', 'error');
     }
@@ -1122,7 +1628,8 @@ async function pinGroup(groupID, isPinned) {
     if (resp && resp.code === 0 && resp.data && resp.data.success) {
         showToast(isPinned ? '已置顶' : '已取消置顶', 'success');
         closeModal();
-        loadGroups();
+        await loadGroups();
+        loadConversations();
     } else {
         showToast(resp?.data?.msg || '操作失败', 'error');
     }
@@ -1146,7 +1653,20 @@ async function transferOwner(groupID) {
     if (resp && resp.code === 0 && resp.data && resp.data.success) {
         showToast('群主已转让', 'success');
         closeModal();
-        loadGroups();
+        await loadGroups();
+        if (currentConversationID && currentConversationType === 'group') {
+            const convGroupID = conversationGroupMap[currentConversationID];
+            if (sameID(convGroupID, groupID)) {
+                const groupResp = await groupAPI.get(groupID);
+                if (groupResp && groupResp.code === 0 && groupResp.data && groupResp.data.group) {
+                    const group = groupResp.data.group;
+                    if (group.announcement) {
+                        document.getElementById('announcement-text').textContent = group.announcement;
+                        document.getElementById('group-announcement-bar').style.display = 'flex';
+                    }
+                }
+            }
+        }
     } else {
         showToast(resp?.data?.msg || '转让失败', 'error');
     }
@@ -1156,9 +1676,21 @@ async function deleteGroup(groupID) {
     if (!confirm('确定要解散群组吗？此操作不可撤销！')) return;
     const resp = await groupAPI.deleteGroup(groupID);
     if (resp && resp.code === 0 && resp.data && resp.data.success) {
-        showToast('群组已解散', 'success');
         closeModal();
-        loadGroups();
+        const convID = groupConversationMap[groupID];
+        if (convID) {
+            delete conversationGroupMap[convID];
+            delete conversationNameCache[convID];
+            setConversationHidden(convID, true);
+        }
+        delete groupConversationMap[groupID];
+        await loadGroups();
+        loadConversations();
+        if (convID && sameID(currentConversationID, convID)) {
+            resetChatView('群组已解散');
+        } else {
+            showToast('群组已解散', 'success');
+        }
     } else {
         showToast(resp?.data?.msg || '解散失败', 'error');
     }
@@ -1181,6 +1713,7 @@ async function muteMember(groupID, userID) {
     if (resp && resp.code === 0 && resp.data && resp.data.success) {
         showToast('已禁言', 'success');
         closeModal();
+        showGroupMembers(groupID);
     } else {
         showToast(resp?.data?.msg || '禁言失败', 'error');
     }
@@ -1190,6 +1723,7 @@ async function unmuteMember(groupID, userID) {
     const resp = await groupAPI.unmute(groupID, userID);
     if (resp && resp.code === 0 && resp.data && resp.data.success) {
         showToast('已解除禁言', 'success');
+        showGroupMembers(groupID);
     } else {
         showToast(resp?.data?.msg || '解除禁言失败', 'error');
     }
@@ -1245,13 +1779,14 @@ async function uploadAndSendFile() {
         if (file.type.startsWith('image/')) msgType = 'image';
         else if (file.type.startsWith('audio/')) msgType = 'voice';
 
-        let content = fileURL || fileID;
+        const payload = makeMediaPayload(fileURL, fileID, file.name);
+        let content = payload;
         if (msgType === 'image') {
-            content = `[img]${fileURL || fileID}[/img]`;
+            content = `[img]${payload}[/img]`;
         } else if (msgType === 'voice') {
-            content = `[voice]${file.name}[/voice]`;
+            content = `[voice]${payload}[/voice]`;
         } else {
-            content = `[file]${file.name}[/file]`;
+            content = `[file]${payload}[/file]`;
         }
 
         const sendResp = await messageAPI.send(currentConversationID, content, msgType);
@@ -1272,21 +1807,146 @@ async function uploadAndSendFile() {
     input.click();
 }
 
+async function sendVoiceBlob(blob, durationMs) {
+    // Voice messages use the same media contract as images/files: upload the
+    // binary first, then send a lightweight [voice]url|id|name[/voice] message.
+    if (!currentConversationID) {
+        showToast('请先打开一个会话', 'warning');
+        return;
+    }
+    if (!blob || blob.size === 0) {
+        showToast('录音内容为空', 'warning');
+        return;
+    }
+
+    const ext = blob.type.includes('mp4') ? 'm4a' : blob.type.includes('ogg') ? 'ogg' : 'webm';
+    const file = new File([blob], `voice-${Date.now()}.${ext}`, { type: blob.type || 'audio/webm' });
+    showToast('语音上传中...', 'info');
+
+    const uploadResp = await fileAPI.upload(file, 'voice');
+    if (!uploadResp || uploadResp.code !== 0 || !uploadResp.data || !uploadResp.data.success) {
+        showToast(uploadResp?.data?.msg || uploadResp?.message || '语音上传失败', 'error');
+        return;
+    }
+
+    const fileURL = uploadResp.data.file_url || '';
+    const fileID = uploadResp.data.file_id || '';
+    const name = `${formatRecordDuration(durationMs)} voice.${ext}`;
+    const payload = makeMediaPayload(fileURL, fileID, name);
+    const content = `[voice]${payload}[/voice]`;
+    const sendConversationID = currentConversationID;
+    const sendResp = await messageAPI.send(sendConversationID, content, 'voice');
+    if (sendResp && sendResp.code === 0 && sendResp.data && sendResp.data.success) {
+        const now = new Date();
+        const timeStr = now.getFullYear() + '-' +
+            String(now.getMonth() + 1).padStart(2, '0') + '-' +
+            String(now.getDate()).padStart(2, '0') + ' ' +
+            String(now.getHours()).padStart(2, '0') + ':' +
+            String(now.getMinutes()).padStart(2, '0') + ':' +
+            String(now.getSeconds()).padStart(2, '0');
+        appendMessage({ conversation_id: sendConversationID, sender_id: currentUser.id, content, msg_type: 'voice', created_at: timeStr });
+        showToast('语音已发送', 'success');
+    } else {
+        showToast(sendResp?.data?.msg || '语音消息发送失败', 'error');
+    }
+}
+
+async function startVoiceRecording(e) {
+    // Long-press recording mirrors mobile chat apps. MediaRecorder streams audio
+    // chunks locally until mouse/touch release, then the final Blob is uploaded.
+    if (e) e.preventDefault();
+    if (!currentConversationID) {
+        showToast('请先打开一个会话', 'warning');
+        return;
+    }
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.MediaRecorder) {
+        showToast('当前浏览器不支持录音', 'error');
+        return;
+    }
+    if (voiceRecorder && voiceRecorder.state === 'recording') return;
+
+    try {
+        voiceRecordStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const mimeType = getVoiceMimeType();
+        voiceRecordChunks = [];
+        voiceRecorder = new MediaRecorder(voiceRecordStream, mimeType ? { mimeType } : undefined);
+        voiceRecordStartedAt = Date.now();
+        voiceRecorder.ondataavailable = event => {
+            if (event.data && event.data.size > 0) {
+                voiceRecordChunks.push(event.data);
+            }
+        };
+        voiceRecorder.onstop = async () => {
+            const durationMs = Date.now() - voiceRecordStartedAt;
+            const type = voiceRecorder.mimeType || mimeType || 'audio/webm';
+            const blob = new Blob(voiceRecordChunks, { type });
+            voiceRecordChunks = [];
+            if (voiceRecordStream) {
+                voiceRecordStream.getTracks().forEach(track => track.stop());
+                voiceRecordStream = null;
+            }
+            setVoiceRecordingUI(false);
+            clearInterval(voiceRecordTimer);
+            voiceRecordTimer = null;
+            if (durationMs < 700) {
+                showToast('录音时间太短', 'warning');
+                return;
+            }
+            await sendVoiceBlob(blob, durationMs);
+        };
+        voiceRecorder.start();
+        updateVoiceRecordTime();
+        setVoiceRecordingUI(true);
+        voiceRecordTimer = setInterval(updateVoiceRecordTime, 250);
+    } catch (err) {
+        setVoiceRecordingUI(false);
+        showToast('无法访问麦克风: ' + err.message, 'error');
+    }
+}
+
+function stopVoiceRecording(e) {
+    if (e) e.preventDefault();
+    if (voiceRecorder && voiceRecorder.state === 'recording') {
+        voiceRecorder.stop();
+    }
+}
+
+function bindVoiceRecorder() {
+    // Bind once on page load. Release listeners live on window so sending still
+    // happens if the pointer leaves the circular record button before mouseup.
+    const btn = document.getElementById('voice-record-btn');
+    if (!btn || btn.dataset.bound === '1') return;
+    btn.dataset.bound = '1';
+    btn.addEventListener('mousedown', startVoiceRecording);
+    btn.addEventListener('touchstart', startVoiceRecording, { passive: false });
+    window.addEventListener('mouseup', stopVoiceRecording);
+    window.addEventListener('touchend', stopVoiceRecording, { passive: false });
+    window.addEventListener('touchcancel', stopVoiceRecording, { passive: false });
+}
+
 function renderMessageContent(content, msgType) {
     if (msgType === 'image' || (content && content.startsWith('[img]'))) {
-        const urlMatch = content.match(/\[img\](.*?)\[\/img\]/);
-        const url = urlMatch ? urlMatch[1] : content;
-        return `<img src="${escapeHTML(url)}" style="max-width:260px;max-height:200px;border-radius:8px;cursor:pointer;" onclick="window.open('${escapeHTML(url)}','_blank')" onerror="this.outerHTML='[图片加载失败]'">`;
+        const media = parseMediaPayload(content, 'img');
+        const key = rememberMedia(media);
+        const url = publicMediaURL(media) || (media.id ? '' : resolveMediaURL(media));
+        const dataAttrs = media.id ? ` data-media-id="${escapeHTML(media.id)}" data-media-key="${escapeHTML(key)}" data-media-url="${escapeHTML(media.url || '')}" data-media-name="${escapeHTML(media.name || '')}"` : '';
+        return `<div class="image-msg-wrap"><img src="${escapeHTML(url)}"${dataAttrs} alt="${escapeHTML(media.name || '图片')}" class="chat-image" onclick="window.open(this.src,'_blank')" onerror="this.closest('.image-msg-wrap').querySelector('.media-error').style.display='inline';"><span class="media-error" style="display:none;">图片加载失败</span></div>`;
     }
     if (msgType === 'voice' || (content && content.startsWith('[voice]'))) {
-        const nameMatch = content.match(/\[voice\](.*?)\[\/voice\]/);
-        const name = nameMatch ? nameMatch[1] : '语音消息';
-        return `<div class="media-msg voice-msg">🎤 ${escapeHTML(name)}</div>`;
+        const media = parseMediaPayload(content, 'voice');
+        const key = rememberMedia(media);
+        const url = publicMediaURL(media) || (media.id ? '' : resolveMediaURL(media));
+        const dataAttrs = media.id ? ` data-media-id="${escapeHTML(media.id)}" data-media-key="${escapeHTML(key)}" data-media-url="${escapeHTML(media.url || '')}" data-media-name="${escapeHTML(media.name || '')}"` : '';
+        return `<div class="media-msg voice-msg"><span class="voice-icon">VOICE</span><audio controls preload="metadata" src="${escapeHTML(url)}"${dataAttrs}></audio><button type="button" class="voice-download" onclick="downloadMedia('${escapeHTML(media.id || '')}', '${escapeHTML(media.name || 'voice.webm')}', '${escapeHTML(key)}')">下载</button><span class="voice-name">${escapeHTML(media.name || 'voice message')}</span></div>`;
     }
     if (msgType === 'file' || (content && content.startsWith('[file]'))) {
-        const nameMatch = content.match(/\[file\](.*?)\[\/file\]/);
-        const name = nameMatch ? nameMatch[1] : '文件';
-        return `<div class="media-msg file-msg">📎 ${escapeHTML(name)}</div>`;
+        const media = parseMediaPayload(content, 'file');
+        const url = resolveDownloadURL(media);
+        const key = rememberMedia(media);
+        if (media.id) {
+            return `<button type="button" class="media-msg file-msg file-download-btn" onclick="downloadMedia('${escapeHTML(media.id)}', '${escapeHTML(media.name || 'download')}', '${escapeHTML(key)}')">文件 ${escapeHTML(media.name || '未命名文件')}</button>`;
+        }
+        return `<a class="media-msg file-msg" href="${escapeHTML(url)}" target="_blank" rel="noopener" download="${escapeHTML(media.name || '')}">文件 ${escapeHTML(media.name || '未命名文件')}</a>`;
     }
     return escapeHTML(content);
 }
@@ -1441,11 +2101,17 @@ async function deleteBot(botID) {
 
 let currentBotID = null;
 let botChatHistory = {};
+let botThinkingID = null;
+let botPendingReplies = {};
 
 function chatWithBot(botID) {
     closeModal();
+    conversationOpenSeq++;
+    botChatSeq++;
+    document.querySelectorAll('.msg-thinking').forEach(el => el.remove());
     currentBotID = botID;
     currentConversationID = null;
+    currentConversationType = '';
 
     const botEl = document.querySelector(`[onclick="chatWithBot(${botID})"]`);
     const botName = botEl ? botEl.querySelector('.list-item-name')?.textContent || 'AI助手' : 'AI助手';
@@ -1455,10 +2121,18 @@ function chatWithBot(botID) {
     document.getElementById('chat-title').textContent = `🤖 ${botName}`;
     document.getElementById('chat-type-badge').textContent = '🤖 AI助手';
     document.getElementById('chat-type-badge').className = 'chat-type-badge group';
+    document.getElementById('group-announcement-bar').style.display = 'none';
     document.getElementById('message-list').innerHTML = '';
 
     if (botChatHistory[botID]) {
-        botChatHistory[botID].forEach(m => appendMessage(m));
+        botChatHistory[botID].forEach(m => {
+            document.getElementById('message-list').innerHTML += createMessageHTML(m);
+        });
+        document.getElementById('message-list').scrollTop = document.getElementById('message-list').scrollHeight;
+    }
+    if (botPendingReplies[botID]) {
+        document.getElementById('message-list').innerHTML += createMessageHTML(botPendingReplies[botID]);
+        document.getElementById('message-list').scrollTop = document.getElementById('message-list').scrollHeight;
     }
 
     document.getElementById('msg-input').placeholder = `向 ${botName} 提问...`;
@@ -1473,6 +2147,9 @@ async function sendBotChatMsg() {
     if (!content || !currentBotID) return;
 
     input.value = '';
+    const activeBotID = currentBotID;
+    const activeBotSeq = botChatSeq;
+    const botConversationID = Number(currentUser.id) * 1000000 + Number(activeBotID);
 
     const now = new Date();
     const timeStr = now.getFullYear() + '-' +
@@ -1484,16 +2161,24 @@ async function sendBotChatMsg() {
 
     const userMsg = { sender_id: currentUser.id, content: content, created_at: timeStr };
     appendMessage(userMsg);
-    if (!botChatHistory[currentBotID]) botChatHistory[currentBotID] = [];
-    botChatHistory[currentBotID].push(userMsg);
+    if (!botChatHistory[activeBotID]) botChatHistory[activeBotID] = [];
+    botChatHistory[activeBotID].push(userMsg);
 
-    const thinkingMsg = { sender_id: 0, content: '🤔 AI思考中...', created_at: timeStr, is_thinking: true };
+    const thinkingID = 'thinking-' + Date.now();
+    botThinkingID = thinkingID;
+    const thinkingMsg = { sender_id: 0, content: '🤔 AI思考中...', created_at: timeStr, is_thinking: true, _thinkingID: thinkingID };
     appendMessage(thinkingMsg);
+    botPendingReplies[activeBotID] = thinkingMsg;
 
-    const resp = await botAPI.chat(currentBotID, content, 0);
-    const container = document.getElementById('message-list');
-    const thinkingEl = container.querySelector('.msg-thinking');
-    if (thinkingEl) thinkingEl.remove();
+    const resp = await botAPI.chat(activeBotID, content, botConversationID);
+
+    delete botPendingReplies[activeBotID];
+    const isStillActive = currentBotID === activeBotID && activeBotSeq === botChatSeq;
+    if (isStillActive) {
+        const container = document.getElementById('message-list');
+        const thinkingEl = container.querySelector(`[data-thinking-id="${thinkingID}"]`) || container.querySelector('.msg-thinking');
+        if (thinkingEl) thinkingEl.remove();
+    }
 
     if (resp && resp.code === 0 && resp.data && resp.data.success) {
         const replyTime = new Date();
@@ -1505,11 +2190,19 @@ async function sendBotChatMsg() {
             String(replyTime.getSeconds()).padStart(2, '0');
 
         const botMsg = { sender_id: 0, content: resp.data.reply, created_at: replyTimeStr, is_bot: true };
-        appendMessage(botMsg);
-        botChatHistory[currentBotID].push(botMsg);
+        botChatHistory[activeBotID].push(botMsg);
+        if (isStillActive) {
+            appendMessage(botMsg);
+        }
     } else {
         const errMsg = { sender_id: 0, content: `❌ 对话失败: ${resp?.data?.msg || '未知错误'}`, created_at: timeStr, is_error: true };
-        appendMessage(errMsg);
+        botChatHistory[activeBotID].push(errMsg);
+        if (isStillActive) {
+            appendMessage(errMsg);
+        }
+    }
+    if (isStillActive) {
+        botThinkingID = null;
     }
 }
 
@@ -1579,11 +2272,11 @@ async function loadBotBilling(botID) {
         area.innerHTML = records.map(r => `
             <div class="bot-item">
                 <div class="bot-info">
-                    <span class="bot-name">💰 ${escapeHTML(r.action_type || '对话')}</span>
-                    <span class="bot-status active">Token: ${r.token_count || 0}</span>
+                    <span class="bot-name">计费 ${escapeHTML(r.model_name || '')}</span>
+                    <span class="bot-status active">Token: ${(r.input_tokens || 0) + (r.output_tokens || 0)}</span>
                     <span class="bot-type internal">费用: ¥${(r.cost || 0).toFixed(6)}</span>
                 </div>
-                <div class="bot-desc">${escapeHTML(r.created_at || '')}</div>
+                <div class="bot-desc">输入 ${r.input_tokens || 0} / 输出 ${r.output_tokens || 0} · ${escapeHTML(r.created_at || '')}</div>
             </div>
         `).join('');
     } else {
@@ -1592,6 +2285,7 @@ async function loadBotBilling(botID) {
 }
 
 window.onload = function () {
+    bindVoiceRecorder();
     if (token && currentUser) {
         enterMainPage();
     }

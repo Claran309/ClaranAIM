@@ -1,0 +1,12 @@
+./base.go
+./binary.go
+./http.go
+./http_pb.go
+./json.go
+./parse.go
+./parse_option.go
+./read.go
+./struct.go
+./thrift.go
+./util.go
+./write.go

@@ -25,12 +25,15 @@ func RegisterRoutes(r *route.Engine) {
 	auth := r.Group("/api/v1")
 	auth.Use(middleware.JWTAuthMiddleware())
 	{
+		// Authenticated REST facade. Handlers keep HTTP concerns here and delegate
+		// business rules to Kitex services through internal/api-gateway/client.
 		auth.GET("/user/info", userHandler.GetUserInfo)
 		auth.PUT("/user/info", userHandler.UpdateUserInfo)
 		auth.POST("/user/avatar", userHandler.UpdateAvatar)
 		auth.POST("/user/logout", userHandler.Logout)
 		auth.POST("/user/friend/add", userHandler.AddFriend)
 		auth.POST("/user/friend/delete", userHandler.DeleteFriend)
+		auth.PUT("/user/friend/remark", userHandler.UpdateFriendRemark)
 		auth.GET("/user/friend/list", userHandler.GetFriendList)
 		auth.POST("/user/friend/group", userHandler.CreateFriendGroup)
 		auth.GET("/user/friend/groups", userHandler.GetFriendGroups)
@@ -52,11 +55,15 @@ func RegisterRoutes(r *route.Engine) {
 
 		auth.POST("/message/conversation", messageHandler.CreateConversation)
 		auth.POST("/message/send", messageHandler.SendMessage)
+		auth.POST("/message/read", messageHandler.MarkConversationRead)
+		auth.PUT("/message/edit", messageHandler.EditMessage)
+		auth.POST("/message/recall", messageHandler.RecallMessage)
 		auth.GET("/message/history/:id", messageHandler.GetHistory)
 		auth.GET("/message/search", messageHandler.SearchMessages)
 		auth.GET("/message/conversations", messageHandler.GetUserConversations)
 
 		auth.POST("/file/upload", fileHandler.UploadFile)
+		auth.GET("/file/download/:id", fileHandler.DownloadFile)
 		auth.GET("/file/:id", fileHandler.GetFile)
 		auth.DELETE("/file/:id", fileHandler.DeleteFile)
 		auth.GET("/file/list", fileHandler.ListFiles)
@@ -72,4 +79,9 @@ func RegisterRoutes(r *route.Engine) {
 		auth.DELETE("/bot/route/delete", botHandler.DeleteRoute)
 		auth.GET("/bot/:id/billing", botHandler.GetBilling)
 	}
+
+	// Local object preview endpoint for files stored by the gateway. Metadata
+	// access remains authenticated through /api/v1/file/*.
+	r.GET("/files/*filepath", fileHandler.ServeLocalFile)
+	r.GET("/file/preview/:id", fileHandler.PreviewFile)
 }

@@ -59,7 +59,7 @@ echo ========================================
 echo.
 echo   API Gateway:          http://localhost:8080
 echo   WebSocket Gateway:    ws://localhost:8081
-echo   MinIO Console:        http://localhost:9001
+echo   MinIO Console:        http://localhost:9009
 echo   Frontend:             Open dist/index.html in browser
 echo.
 echo   Press any key to exit (services keep running)

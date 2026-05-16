@@ -1,0 +1,13 @@
+./ast.go
+./descriptor_protos.go
+./doc.go
+./errors.go
+./lexer.go
+./linker.go
+./options.go
+./parser.go
+./proto.y.go
+./resolve_files.go
+./source_code_info.go
+./std_imports.go
+./validate.go

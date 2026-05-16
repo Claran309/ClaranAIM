@@ -1,6 +1,258 @@
-# ClaranAIM 技术实现原理
+# ClaranAIM 技术设计与实现原理
 
-本文档从架构设计、数据流、核心机制三个维度，逐层拆解 ClaranAIM 的完整技术实现逻辑。
+本文档作为 ClaranAIM 的唯一技术设计与实现原理文档。它从项目定位、总体架构、服务职责、核心数据模型、分布式数据协作、数据流和关键机制等维度，逐层拆解 ClaranAIM 的完整技术实现逻辑。
+
+## 项目定位与技术设计总览
+
+ClaranAIM 是一个面向多人在线场景的 AIM 系统：AIM = Agent + Instant Messaging。IM 是基础聊天室能力，负责用户、好友、群聊、文本/图片/文件/语音消息、历史消息、实时推送、多端同步和消息治理；Agent 是增强层，负责将可配置 Bot、会话记忆、工具调用、RAG、多 Agent 协作嵌入到真实聊天体验中。
+
+这个项目的核心不是单独做一个聊天工具，也不是单独做一个 Bot 平台，而是让 Agent 能在真实 IM 会话上下文里工作：用户可以和人聊天，也可以把 Agent 作为可管理、可路由、可计费、可扩展的智能参与者接入聊天室。
+
+当前系统采用微服务架构，HTTP 网关、WebSocket 网关和多个 Kitex RPC 服务共同组成后端。服务发现使用 Etcd，配置加载使用 Viper，业务数据落 MySQL，热点数据和在线状态落 Redis，图片、文件、语音等对象落本地存储或 MinIO。
+
+![alt text](Struct.png)
+
+## Agent-Native AIM 设计
+
+### 1. Agent 在 IM 中的基础定位
+
+- 会话理解者：持续理解私聊、群聊、文件、语音和上下文变化。
+- 信息整理者：自动总结群聊消息，提取结论、待办、风险和关键分歧。
+- 知识沉淀者：把高价值聊天内容整理成 RAG 知识库条目，而不是让信息沉没在历史消息中。
+- 协作执行者：根据会话意图调用 Tool、Skill、MCP 或业务 API，完成查询、创建、同步、通知、文档生成等动作。
+- 个体助手：理解单个用户的表达习惯、偏好、长期目标和历史行为，提供个性化建议。
+- 群体助手：理解群体协作模式，发现会议低效、信息遗漏、重复争论、责任不清等问题。
+
+### 2. 真实会话中的 Agent 能力
+
+#### 群聊总结
+
+Agent 可以对群聊进行多层总结：
+
+- 即时总结：用户离线后回来，生成“错过了什么”。
+- 日总结/周总结：按时间窗口总结项目进展、结论、阻塞项。
+- 主题总结：围绕某个议题聚合跨时间消息。
+- 决策总结：提取谁提出了什么方案、最终倾向是什么、还有什么未确认。
+- 待办提取：把“我来做”“明天给你”“需要改一下”转成结构化任务。
+
+#### 群聊到 RAG 知识库
+
+IM 中大量知识隐藏在聊天里，例如接口约定、业务规则、部署经验、故障复盘、客户反馈。Agent 可以将这些内容沉淀为知识库：
+
+- 自动识别高价值片段：方案、规则、FAQ、经验、问题解决过程。
+- 生成知识卡片：标题、摘要、来源消息、相关人员、标签、可信度。
+- 支持人工确认：先进入候选区，由群主、管理员或知识负责人确认入库。
+- 维护知识生命周期：过期提醒、冲突检测、相似知识合并。
+- RAG 回流会话：当群里再次讨论相关问题时，Agent 主动引用已有知识。
+
+#### 用户发言习惯点评
+
+Agent 可以作为个人沟通教练，而不是简单评价用户：
+
+- 表达风格分析：是否清晰、是否过长、是否缺少背景。
+- 协作习惯分析：是否经常提出问题但不补充上下文，是否经常遗漏结论。
+- 情绪与语气反馈：提示过激表达、误解风险、可以更温和的改写。
+- 会议/群聊贡献分析：总结用户常贡献的主题、擅长方向和协作盲点。
+- 私密性边界：这类分析默认只对本人可见，避免变成监控工具。
+
+#### Agent 主动工作流
+
+Agent 不应该只被动等待 @，还可以在明确授权下主动工作：
+
+- 自动生成群公告草稿。
+- 从聊天中生成日报、周报、会议纪要。
+- 对接日历创建会议。
+- 对接项目管理工具创建任务。
+- 对接代码仓库总结 PR、Issue、发布记录。
+- 对接文件系统整理上传资料。
+- 对接搜索、RAG、数据库、内部 API 做事实查询。
+- 在关键节点提醒负责人，例如“这个问题讨论了三次但没有 owner”。
+
+### 3. Tool、Skill、MCP 与 Agent 运行时
+
+AIM 需要一个可配置的 Agent 能力层，而不是写死几个 Bot：
+
+- Tool：具体可调用能力，例如搜索、查数据库、创建任务、读文件、发通知。
+- Skill：面向场景的流程能力，例如群聊总结、故障复盘、会议纪要、知识入库。
+- MCP：连接外部工具生态，让 Agent 能接入更多第三方或本地能力。
+- Memory：保存用户偏好、群聊背景、长期项目状态和历史互动模式。
+- RAG：把聊天知识、文档知识、组织知识变成可检索上下文。
+- Policy：控制 Agent 能看什么、能做什么、什么时候需要用户确认。
+
+未来 bot-manager-service 更偏管理面，bot-runtime-service 更偏执行面。manager 负责 Bot 配置、路由、权限、计费和审计；runtime 负责 Agent 会话、工具调用、长期任务、流式事件、多 Agent 协作。
+
+### 4. Agent 在 IM 中为什么重要
+
+Agent 的价值来自真实上下文。IM 是上下文密度最高的软件形态之一：
+
+- 有人：用户、好友、群成员、角色、组织关系。
+- 有事：讨论、决策、任务、冲突、计划、文件。
+- 有时间：消息流天然记录过程。
+- 有语气：表达方式、情绪、协作风格都在其中。
+- 有资料：图片、文件、语音、链接和未来的知识库。
+
+因此 Agent 在 IM 中不是“附加功能”，而可能成为下一代 IM 的核心层。传统 IM 解决“把人连接起来”，AIM 要解决“让人和 Agent 在同一个上下文中协作”。当 Agent 能理解群聊、沉淀知识、调用工具、执行任务后，聊天室就不再只是消息容器，而会变成轻量工作台、生活助理、知识系统和自动化入口。
+
+### 5. 产品形态规划
+
+- Agent 作为群成员：可以被 @，也可以根据规则主动出现。
+- Agent 作为个人助手：只服务本人，处理私密总结、提醒、改写、个人记忆。
+- Agent 作为群助手：服务群空间，负责公告、总结、任务、知识库和协作质量。
+- Agent 作为工作流入口：从一句聊天触发工具链，例如“把这段讨论整理成 PRD 并建任务”。
+- Agent 作为知识管家：把长期聊天沉淀为可搜索、可引用、可更新的知识资产。
+- Agent 作为多角色团队：产品、研发、测试、运维、设计等 Agent 在群中协作。
+- Agent 群聊创新：联想gstack，在群聊中产生多个不同身份的Agent（如CEO，工程师），并让这些Agent互相协作
+
+### 6. 技术演进规划
+
+- Phase A：会话感知 Agent
+  - 群聊总结、私聊总结、未读摘要、上下文问答。
+  - 支持按会话、时间、主题拉取消息上下文。
+
+- Phase B：记忆与知识沉淀
+  - memory-service 保存用户偏好、群背景、长期项目状态。
+  - rag-service 支持聊天内容自动入库、文档入库、知识检索。
+  - 增加人工审核队列，避免错误知识污染知识库。
+
+- Phase C：工具调用与工作流
+  - bot-runtime-service 支持 Tool、Skill、MCP。
+  - 支持异步任务、长任务进度、失败重试和用户确认。
+  - 将 Agent 行为写入审计日志。
+
+- Phase D：多 Agent 协作
+  - 多 Bot 路由和角色分工。
+  - Agent 之间可交接任务、互相补充上下文。
+  - 群聊中支持“召集团队”式智能协作。
+
+- Phase E：安全、权限与治理
+  - 精细化权限：会话可见性、文件可见性、工具调用权限。
+  - 敏感信息识别与脱敏。
+  - Agent 行为审计、成本控制、管理员策略。
+  - 用户可查看、编辑、删除自己的记忆。
+
+### 7. 设计原则
+
+- Agent 必须基于真实 IM 上下文工作，而不是孤立问答。
+- Agent 的主动性必须可配置、可审计、可关闭。
+- 知识入库必须有人类确认或可回滚机制。
+- 用户画像和发言点评必须默认私密，不能变成组织监控。
+- 工具调用必须有权限边界，高风险动作必须确认。
+- AIM 的长期目标不是“在聊天里加一个 AI 按钮”，而是让 Agent 成为 IM 的原生协作层。
+
+## 核心数据模型与分布式数据协作总览
+
+### 用户与好友
+
+主要表：
+
+- `users`：账号、昵称、头像、邮箱、手机号、在线状态。
+- `friendships`：用户与好友之间的关系、备注、分组。
+- `friend_groups`：好友分组。
+
+数据传递：
+
+1. 用户登录后 api-gateway 生成 JWT。
+2. 前端带 JWT 请求好友列表。
+3. user-service 从 MySQL 读取好友关系，并可结合 Redis 缓存返回。
+4. 前端点击好友时调用 msg-core-service 创建或复用私聊 conversation。
+
+### 群与群成员
+
+主要表：
+
+- `groups`：群名、群主、公告、是否置顶等。
+- `group_members`：群成员、角色、禁言到期时间、加入时间。
+
+数据传递：
+
+1. 创建群时 group-service 写入群和成员。
+2. api-gateway 在群创建成功后调用 msg-core-service 创建 group conversation。
+3. 邀请成员成功后，api-gateway 读取最新群成员并再次调用创建会话接口。
+4. msg-core-service 复用旧会话并补齐新成员。
+5. msg-core-service 发送群消息时会再次查询群成员，保证旧会话也能同步新成员和禁言状态。
+
+### 会话与消息
+
+主要表：
+
+- `conversations`：会话 ID、类型、群 ID、更新时间。
+- `conversation_participants`：会话参与者，用于私聊/群聊会话列表和推送目标。
+- `messages`：消息 ID、会话 ID、发送者、消息内容、消息类型、引用消息、消息状态、编辑标记、@ 列表、创建时间。
+- `message_edit_records`：消息编辑历史，保存原内容、新内容、编辑人和编辑时间。
+- `conversation_participants`：会话参与者，同时保存 per-user 已读游标、草稿、置顶和通知设置。
+
+消息发送链路：
+
+```mermaid
+sequenceDiagram
+    participant Web as Web 前端
+    participant API as api-gateway
+    participant Msg as msg-core-service
+    participant Group as group-service
+    participant DB as MySQL
+    participant WS as websocket-gateway
+
+    Web->>API: POST /message/send
+    API->>Msg: SendMessage RPC
+    Msg->>DB: 读取 conversation
+    Msg->>DB: 校验 conversation_participants
+    alt 群聊
+        Msg->>Group: GetGroupMembers
+        Group-->>Msg: 成员与禁言状态
+        Msg->>DB: 同步缺失参与者
+    end
+    Msg->>DB: 写入 messages
+    Msg->>DB: 更新 conversations.updated_at
+    Msg->>WS: 推送 new_message
+    WS-->>Web: WebSocket 消息
+```
+
+### 文件、图片、语音
+
+主要表：
+
+- `file_records` / `file_metas`：文件 ID、文件名、类型、大小、Content-Type、文件 URL、上传者、时间。
+
+数据传递：
+
+1. 前端选择图片、文件或录制语音。
+2. api-gateway 接收 multipart 文件。
+3. 网关把二进制写入本地 `storage/source` 或 MinIO。
+4. 网关调用 file-service 保存元数据。
+5. file-service 返回真实 `file_id`。
+6. 前端把 `[img]url|id|name[/img]`、`[file]url|id|name[/file]` 或 `[voice]url|id|name[/voice]` 作为消息内容发送给 msg-core-service。
+7. 会话渲染时根据 `file_id` 生成下载 URL，图片直接预览，语音直接播放。
+
+### Bot 与 Agent
+
+主要表：
+
+- `bots`：Bot 名称、类型、模型名、BaseURL、系统提示词、技能目录、所有者、启停状态。
+- `bot_routes`：Bot 路由规则，用于未来按群、关键词、意图分发。
+- `billing_records`：对话、错误、空回复等计费记录。
+
+AI 对话链路：
+
+1. 前端选择 AI 助手或创建 Bot。
+2. api-gateway 调用 bot-manager-service。
+3. bot-manager-service 根据 Bot 配置创建或复用 Agent。
+4. Agent 读取会话记忆，调用 OpenAI-compatible LLM。
+5. 回复返回前端，同时写入 session store 和计费表。
+
+### 为什么会同时存在 group_members 和 conversation_participants
+
+`group_members` 表达“谁属于这个群”，属于群管理领域；`conversation_participants` 表达“谁能在这个会话列表中看到该会话、谁是消息推送目标”，属于消息领域。
+
+两者不合并，是因为：
+
+- 私聊没有 group_members，但仍需要 conversation_participants。
+- 群成员变化是 group-service 的事实来源。
+- 消息推送需要快速获取会话参与者。
+- 未来支持频道、临时会话、AI 参与者时，conversation_participants 更通用。
+
+### 消息中的文件为什么不直接存二进制
+
+消息表只保存引用，因为图片、文件、语音体积大，直接写入消息表会影响查询、分页、备份和冷热分层。对象存储负责二进制，file-service 负责元数据，msg-core-service 负责消息引用。
 
 ---
 
@@ -255,6 +507,22 @@ msg-core-service: messageServiceImpl.SendMessage()
   ▼
 返回 SendMessageResp{success: true, msg_id: 42, send_time: "..."}
 ```
+
+### 3.4 Phase 1 高级消息状态
+
+Phase 1 将消息从“纯文本记录”扩展为可协作的 IM 事件：
+
+| 能力 | 存储位置 | 对外接口 | 实时事件 |
+|------|----------|----------|----------|
+| 已读游标 | `conversation_participants.last_read_message_id/last_read_at` | `POST /message/read` | 后续可扩展 `message_read` |
+| 引用/回复 | `messages.reply_to_id` | `POST /message/send` 的 `reply_to_id` | `new_message` 携带 `reply_to_id` |
+| 编辑 | `messages.is_edited/edited_at` + `message_edit_records` | `PUT /message/edit` | `message_edited` |
+| 撤回 | `messages.status=recalled` | `POST /message/recall` | `message_recalled` |
+| @ 提及 | `messages.mention_user_ids/mention_all` | `POST /message/send` | `new_message` 携带 mention 字段 |
+| 广播消息 | `messages.msg_type=broadcast` | `POST /message/send` | `new_message` |
+| 时间范围搜索 | `messages.created_at` | `GET /message/search?start_at=&end_at=` | 无 |
+
+撤回默认窗口为 2 分钟，由 msg-core-service 校验。编辑只允许消息发送者操作，已撤回消息不能继续编辑。会话列表 unread_count 由用户在该会话的 read cursor 和消息 ID 计算，前端打开会话后会上报最新消息已读。
 
 ### 3.4 WebSocket 连接建立流程
 
@@ -717,7 +985,7 @@ services:
   mysql:        # 数据库 - 端口 3306
   redis:        # 缓存 - 端口 6379
   etcd:         # 服务注册发现 - 端口 2379
-  minio:        # 对象存储 - 端口 9000(API) + 9001(控制台)
+  minio:        # 对象存储 - 端口 9000(API) + 9009(控制台)
 ```
 
 ### 7.2 服务连接方式
@@ -1124,3 +1392,43 @@ WebSocket 断开时:
   → Redis 中 online:user:{id} 的 TTL 自动过期（30秒）
   → 下次好友查询时从 DB 读取最新状态
 ```
+
+---
+
+## 十六、未来功能规划与演进路线
+
+### 16.1 IM 增强
+
+- 已读回执：新增 per-user message read cursor，支持“已读到哪一条”。
+- 消息引用与回复：消息表增加 reply_to_id，前端显示引用卡片。
+- 限时撤回与编辑：新增消息状态和编辑记录。
+- 离线推送与上线同步：msg-history-service 维护离线游标。
+- 多端同步：同一用户多设备共享已读、草稿、置顶、通知设置。
+- 实时审核与多语言翻译：由未来 msg-filter-service 承载。
+
+### 16.2 Agent 与 AI 增强
+
+- bot-runtime-service：承载更复杂的 Agent 运行时，与 bot-manager-service 分离。
+- memory-service：沉淀用户偏好、群聊摘要、跨会话长期记忆。
+- rag-service：支持知识库、文档上传、向量检索、私有/公共知识范围。
+- MCP 工具集成：让 Agent 能调用外部工具、数据库、浏览器或业务系统。
+- 多 Agent 协作：不同角色 Agent 在同一群中协同处理问题。
+- 上下文摘要与待办提取：从历史聊天中生成要点、行动项和回复建议。
+
+### 16.3 安全与治理
+
+- msg-filter-service：敏感内容检测、实时审核、多语言翻译。
+- 服务降级与重试：RPC 调用超时、熔断、幂等重试。
+- Kafka：将消息落库、推送、搜索索引、AI 后处理解耦为事件流。
+- 可观测性：Prometheus、Jaeger、Grafana、ELK。
+- 压测：K6 场景覆盖登录、会话列表、群聊消息、文件上传、Bot 对话。
+- 部署：Kubernetes、滚动升级、配置中心、灰度发布。
+
+### 16.4 总体演进路线
+
+1. 稳定 IM 核心：会话、历史、未读、多媒体、群权限。
+2. 补齐高级 IM：已读、引用、撤回、编辑、离线、多端、审核、翻译。
+3. 完善 Agent 助手：Bot 管理、路由、记忆、计费、上下文总结。
+4. 引入事件总线：将消息、文件、AI 后处理、搜索索引异步化。
+5. 构建知识与记忆层：RAG、memory-service、长期偏好。
+6. 工程化上线：可观测性、压测、K8s、服务治理、安全审计。

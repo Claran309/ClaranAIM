@@ -41,6 +41,27 @@ var serviceMethods = map[string]kitex.MethodInfo{
 		false,
 		kitex.WithStreamingMode(kitex.StreamingNone),
 	),
+	"MarkConversationRead": kitex.NewMethodInfo(
+		markConversationReadHandler,
+		newMessageServiceMarkConversationReadArgs,
+		newMessageServiceMarkConversationReadResult,
+		false,
+		kitex.WithStreamingMode(kitex.StreamingNone),
+	),
+	"EditMessage": kitex.NewMethodInfo(
+		editMessageHandler,
+		newMessageServiceEditMessageArgs,
+		newMessageServiceEditMessageResult,
+		false,
+		kitex.WithStreamingMode(kitex.StreamingNone),
+	),
+	"RecallMessage": kitex.NewMethodInfo(
+		recallMessageHandler,
+		newMessageServiceRecallMessageArgs,
+		newMessageServiceRecallMessageResult,
+		false,
+		kitex.WithStreamingMode(kitex.StreamingNone),
+	),
 	"GetHistory": kitex.NewMethodInfo(
 		getHistoryHandler,
 		newMessageServiceGetHistoryArgs,
@@ -200,6 +221,60 @@ func newMessageServiceSendMessageResult() interface{} {
 	return message.NewMessageServiceSendMessageResult()
 }
 
+func markConversationReadHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
+	realArg := arg.(*message.MessageServiceMarkConversationReadArgs)
+	realResult := result.(*message.MessageServiceMarkConversationReadResult)
+	success, err := handler.(message.MessageService).MarkConversationRead(ctx, realArg.Req)
+	if err != nil {
+		return err
+	}
+	realResult.Success = success
+	return nil
+}
+func newMessageServiceMarkConversationReadArgs() interface{} {
+	return message.NewMessageServiceMarkConversationReadArgs()
+}
+
+func newMessageServiceMarkConversationReadResult() interface{} {
+	return message.NewMessageServiceMarkConversationReadResult()
+}
+
+func editMessageHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
+	realArg := arg.(*message.MessageServiceEditMessageArgs)
+	realResult := result.(*message.MessageServiceEditMessageResult)
+	success, err := handler.(message.MessageService).EditMessage(ctx, realArg.Req)
+	if err != nil {
+		return err
+	}
+	realResult.Success = success
+	return nil
+}
+func newMessageServiceEditMessageArgs() interface{} {
+	return message.NewMessageServiceEditMessageArgs()
+}
+
+func newMessageServiceEditMessageResult() interface{} {
+	return message.NewMessageServiceEditMessageResult()
+}
+
+func recallMessageHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
+	realArg := arg.(*message.MessageServiceRecallMessageArgs)
+	realResult := result.(*message.MessageServiceRecallMessageResult)
+	success, err := handler.(message.MessageService).RecallMessage(ctx, realArg.Req)
+	if err != nil {
+		return err
+	}
+	realResult.Success = success
+	return nil
+}
+func newMessageServiceRecallMessageArgs() interface{} {
+	return message.NewMessageServiceRecallMessageArgs()
+}
+
+func newMessageServiceRecallMessageResult() interface{} {
+	return message.NewMessageServiceRecallMessageResult()
+}
+
 func getHistoryHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
 	realArg := arg.(*message.MessageServiceGetHistoryArgs)
 	realResult := result.(*message.MessageServiceGetHistoryResult)
@@ -299,6 +374,36 @@ func (p *kClient) SendMessage(ctx context.Context, req *message.SendMessageReq) 
 	_args.Req = req
 	var _result message.MessageServiceSendMessageResult
 	if err = p.c.Call(ctx, "SendMessage", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
+
+func (p *kClient) MarkConversationRead(ctx context.Context, req *message.MarkConversationReadReq) (r *message.MarkConversationReadResp, err error) {
+	var _args message.MessageServiceMarkConversationReadArgs
+	_args.Req = req
+	var _result message.MessageServiceMarkConversationReadResult
+	if err = p.c.Call(ctx, "MarkConversationRead", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
+
+func (p *kClient) EditMessage(ctx context.Context, req *message.EditMessageReq) (r *message.EditMessageResp, err error) {
+	var _args message.MessageServiceEditMessageArgs
+	_args.Req = req
+	var _result message.MessageServiceEditMessageResult
+	if err = p.c.Call(ctx, "EditMessage", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
+
+func (p *kClient) RecallMessage(ctx context.Context, req *message.RecallMessageReq) (r *message.RecallMessageResp, err error) {
+	var _args message.MessageServiceRecallMessageArgs
+	_args.Req = req
+	var _result message.MessageServiceRecallMessageResult
+	if err = p.c.Call(ctx, "RecallMessage", &_args, &_result); err != nil {
 		return
 	}
 	return _result.GetSuccess(), nil

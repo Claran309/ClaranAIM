@@ -1,0 +1,9 @@
+./annotation.go
+./binary.go
+./binary_skip.go
+./binary_skip_other.go
+./descriptor.go
+./idl.go
+./stubs.go
+./test_util.go
+./utils.go

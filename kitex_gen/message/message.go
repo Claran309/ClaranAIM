@@ -73,12 +73,18 @@ var fieldIDToName_Conversation = map[int16]string{
 }
 
 type Message struct {
-	Id             int64  `thrift:"id,1" frugal:"1,default,i64" json:"id"`
-	ConversationId int64  `thrift:"conversation_id,2" frugal:"2,default,i64" json:"conversation_id"`
-	SenderId       int64  `thrift:"sender_id,3" frugal:"3,default,i64" json:"sender_id"`
-	Content        string `thrift:"content,4" frugal:"4,default,string" json:"content"`
-	MsgType        string `thrift:"msg_type,5" frugal:"5,default,string" json:"msg_type"`
-	CreatedAt      string `thrift:"created_at,6" frugal:"6,default,string" json:"created_at"`
+	Id             int64   `thrift:"id,1" frugal:"1,default,i64" json:"id"`
+	ConversationId int64   `thrift:"conversation_id,2" frugal:"2,default,i64" json:"conversation_id"`
+	SenderId       int64   `thrift:"sender_id,3" frugal:"3,default,i64" json:"sender_id"`
+	Content        string  `thrift:"content,4" frugal:"4,default,string" json:"content"`
+	MsgType        string  `thrift:"msg_type,5" frugal:"5,default,string" json:"msg_type"`
+	CreatedAt      string  `thrift:"created_at,6" frugal:"6,default,string" json:"created_at"`
+	ReplyToId      int64   `thrift:"reply_to_id,7" frugal:"7,default,i64" json:"reply_to_id"`
+	Status         string  `thrift:"status,8" frugal:"8,default,string" json:"status"`
+	IsEdited       bool    `thrift:"is_edited,9" frugal:"9,default,bool" json:"is_edited"`
+	EditedAt       string  `thrift:"edited_at,10" frugal:"10,default,string" json:"edited_at"`
+	MentionUserIds []int64 `thrift:"mention_user_ids,11" frugal:"11,default,list<i64>" json:"mention_user_ids"`
+	MentionAll     bool    `thrift:"mention_all,12" frugal:"12,default,bool" json:"mention_all"`
 }
 
 func NewMessage() *Message {
@@ -111,6 +117,30 @@ func (p *Message) GetMsgType() (v string) {
 func (p *Message) GetCreatedAt() (v string) {
 	return p.CreatedAt
 }
+
+func (p *Message) GetReplyToId() (v int64) {
+	return p.ReplyToId
+}
+
+func (p *Message) GetStatus() (v string) {
+	return p.Status
+}
+
+func (p *Message) GetIsEdited() (v bool) {
+	return p.IsEdited
+}
+
+func (p *Message) GetEditedAt() (v string) {
+	return p.EditedAt
+}
+
+func (p *Message) GetMentionUserIds() (v []int64) {
+	return p.MentionUserIds
+}
+
+func (p *Message) GetMentionAll() (v bool) {
+	return p.MentionAll
+}
 func (p *Message) SetId(val int64) {
 	p.Id = val
 }
@@ -129,6 +159,24 @@ func (p *Message) SetMsgType(val string) {
 func (p *Message) SetCreatedAt(val string) {
 	p.CreatedAt = val
 }
+func (p *Message) SetReplyToId(val int64) {
+	p.ReplyToId = val
+}
+func (p *Message) SetStatus(val string) {
+	p.Status = val
+}
+func (p *Message) SetIsEdited(val bool) {
+	p.IsEdited = val
+}
+func (p *Message) SetEditedAt(val string) {
+	p.EditedAt = val
+}
+func (p *Message) SetMentionUserIds(val []int64) {
+	p.MentionUserIds = val
+}
+func (p *Message) SetMentionAll(val bool) {
+	p.MentionAll = val
+}
 
 func (p *Message) String() string {
 	if p == nil {
@@ -138,12 +186,18 @@ func (p *Message) String() string {
 }
 
 var fieldIDToName_Message = map[int16]string{
-	1: "id",
-	2: "conversation_id",
-	3: "sender_id",
-	4: "content",
-	5: "msg_type",
-	6: "created_at",
+	1:  "id",
+	2:  "conversation_id",
+	3:  "sender_id",
+	4:  "content",
+	5:  "msg_type",
+	6:  "created_at",
+	7:  "reply_to_id",
+	8:  "status",
+	9:  "is_edited",
+	10: "edited_at",
+	11: "mention_user_ids",
+	12: "mention_all",
 }
 
 type CreateConversationReq struct {
@@ -365,6 +419,7 @@ type UserConversationInfo struct {
 	ParticipantIds  []int64 `thrift:"participant_ids,8" frugal:"8,default,list<i64>" json:"participant_ids"`
 	LastSenderId    int64   `thrift:"last_sender_id,9" frugal:"9,default,i64" json:"last_sender_id"`
 	GroupId         int64   `thrift:"group_id,10" frugal:"10,default,i64" json:"group_id"`
+	IsDeletedGroup  bool    `thrift:"is_deleted_group,11" frugal:"11,default,bool" json:"is_deleted_group"`
 }
 
 func NewUserConversationInfo() *UserConversationInfo {
@@ -413,6 +468,10 @@ func (p *UserConversationInfo) GetLastSenderId() (v int64) {
 func (p *UserConversationInfo) GetGroupId() (v int64) {
 	return p.GroupId
 }
+
+func (p *UserConversationInfo) GetIsDeletedGroup() (v bool) {
+	return p.IsDeletedGroup
+}
 func (p *UserConversationInfo) SetConversationId(val int64) {
 	p.ConversationId = val
 }
@@ -443,6 +502,9 @@ func (p *UserConversationInfo) SetLastSenderId(val int64) {
 func (p *UserConversationInfo) SetGroupId(val int64) {
 	p.GroupId = val
 }
+func (p *UserConversationInfo) SetIsDeletedGroup(val bool) {
+	p.IsDeletedGroup = val
+}
 
 func (p *UserConversationInfo) String() string {
 	if p == nil {
@@ -462,6 +524,7 @@ var fieldIDToName_UserConversationInfo = map[int16]string{
 	8:  "participant_ids",
 	9:  "last_sender_id",
 	10: "group_id",
+	11: "is_deleted_group",
 }
 
 type GetUserConversationsResp struct {
@@ -512,10 +575,13 @@ var fieldIDToName_GetUserConversationsResp = map[int16]string{
 }
 
 type SendMessageReq struct {
-	ConversationId int64  `thrift:"conversation_id,1" frugal:"1,default,i64" json:"conversation_id"`
-	SenderId       int64  `thrift:"sender_id,2" frugal:"2,default,i64" json:"sender_id"`
-	Content        string `thrift:"content,3" frugal:"3,default,string" json:"content"`
-	MsgType        string `thrift:"msg_type,4" frugal:"4,default,string" json:"msg_type"`
+	ConversationId int64   `thrift:"conversation_id,1" frugal:"1,default,i64" json:"conversation_id"`
+	SenderId       int64   `thrift:"sender_id,2" frugal:"2,default,i64" json:"sender_id"`
+	Content        string  `thrift:"content,3" frugal:"3,default,string" json:"content"`
+	MsgType        string  `thrift:"msg_type,4" frugal:"4,default,string" json:"msg_type"`
+	ReplyToId      int64   `thrift:"reply_to_id,5" frugal:"5,default,i64" json:"reply_to_id"`
+	MentionUserIds []int64 `thrift:"mention_user_ids,6" frugal:"6,default,list<i64>" json:"mention_user_ids"`
+	MentionAll     bool    `thrift:"mention_all,7" frugal:"7,default,bool" json:"mention_all"`
 }
 
 func NewSendMessageReq() *SendMessageReq {
@@ -540,6 +606,18 @@ func (p *SendMessageReq) GetContent() (v string) {
 func (p *SendMessageReq) GetMsgType() (v string) {
 	return p.MsgType
 }
+
+func (p *SendMessageReq) GetReplyToId() (v int64) {
+	return p.ReplyToId
+}
+
+func (p *SendMessageReq) GetMentionUserIds() (v []int64) {
+	return p.MentionUserIds
+}
+
+func (p *SendMessageReq) GetMentionAll() (v bool) {
+	return p.MentionAll
+}
 func (p *SendMessageReq) SetConversationId(val int64) {
 	p.ConversationId = val
 }
@@ -551,6 +629,15 @@ func (p *SendMessageReq) SetContent(val string) {
 }
 func (p *SendMessageReq) SetMsgType(val string) {
 	p.MsgType = val
+}
+func (p *SendMessageReq) SetReplyToId(val int64) {
+	p.ReplyToId = val
+}
+func (p *SendMessageReq) SetMentionUserIds(val []int64) {
+	p.MentionUserIds = val
+}
+func (p *SendMessageReq) SetMentionAll(val bool) {
+	p.MentionAll = val
 }
 
 func (p *SendMessageReq) String() string {
@@ -565,6 +652,9 @@ var fieldIDToName_SendMessageReq = map[int16]string{
 	2: "sender_id",
 	3: "content",
 	4: "msg_type",
+	5: "reply_to_id",
+	6: "mention_user_ids",
+	7: "mention_all",
 }
 
 type SendMessageResp struct {
@@ -731,6 +821,8 @@ type SearchMessagesReq struct {
 	ConversationIds []int64 `thrift:"conversation_ids,2" frugal:"2,default,list<i64>" json:"conversation_ids"`
 	Keyword         string  `thrift:"keyword,3" frugal:"3,default,string" json:"keyword"`
 	Limit           int64   `thrift:"limit,4" frugal:"4,default,i64" json:"limit"`
+	StartAt         string  `thrift:"start_at,5" frugal:"5,default,string" json:"start_at"`
+	EndAt           string  `thrift:"end_at,6" frugal:"6,default,string" json:"end_at"`
 }
 
 func NewSearchMessagesReq() *SearchMessagesReq {
@@ -755,6 +847,14 @@ func (p *SearchMessagesReq) GetKeyword() (v string) {
 func (p *SearchMessagesReq) GetLimit() (v int64) {
 	return p.Limit
 }
+
+func (p *SearchMessagesReq) GetStartAt() (v string) {
+	return p.StartAt
+}
+
+func (p *SearchMessagesReq) GetEndAt() (v string) {
+	return p.EndAt
+}
 func (p *SearchMessagesReq) SetUserId(val int64) {
 	p.UserId = val
 }
@@ -766,6 +866,12 @@ func (p *SearchMessagesReq) SetKeyword(val string) {
 }
 func (p *SearchMessagesReq) SetLimit(val int64) {
 	p.Limit = val
+}
+func (p *SearchMessagesReq) SetStartAt(val string) {
+	p.StartAt = val
+}
+func (p *SearchMessagesReq) SetEndAt(val string) {
+	p.EndAt = val
 }
 
 func (p *SearchMessagesReq) String() string {
@@ -780,6 +886,8 @@ var fieldIDToName_SearchMessagesReq = map[int16]string{
 	2: "conversation_ids",
 	3: "keyword",
 	4: "limit",
+	5: "start_at",
+	6: "end_at",
 }
 
 type SearchMessagesResp struct {
@@ -903,6 +1011,270 @@ var fieldIDToName_GetConversationParticipantsResp = map[int16]string{
 	1: "success",
 	2: "user_ids",
 	3: "msg",
+}
+
+type MarkConversationReadReq struct {
+	ConversationId int64 `thrift:"conversation_id,1" frugal:"1,default,i64" json:"conversation_id"`
+	UserId         int64 `thrift:"user_id,2" frugal:"2,default,i64" json:"user_id"`
+	MessageId      int64 `thrift:"message_id,3" frugal:"3,default,i64" json:"message_id"`
+}
+
+func NewMarkConversationReadReq() *MarkConversationReadReq {
+	return &MarkConversationReadReq{}
+}
+
+func (p *MarkConversationReadReq) InitDefault() {
+}
+
+func (p *MarkConversationReadReq) GetConversationId() (v int64) {
+	return p.ConversationId
+}
+
+func (p *MarkConversationReadReq) GetUserId() (v int64) {
+	return p.UserId
+}
+
+func (p *MarkConversationReadReq) GetMessageId() (v int64) {
+	return p.MessageId
+}
+func (p *MarkConversationReadReq) SetConversationId(val int64) {
+	p.ConversationId = val
+}
+func (p *MarkConversationReadReq) SetUserId(val int64) {
+	p.UserId = val
+}
+func (p *MarkConversationReadReq) SetMessageId(val int64) {
+	p.MessageId = val
+}
+
+func (p *MarkConversationReadReq) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("MarkConversationReadReq(%+v)", *p)
+}
+
+var fieldIDToName_MarkConversationReadReq = map[int16]string{
+	1: "conversation_id",
+	2: "user_id",
+	3: "message_id",
+}
+
+type MarkConversationReadResp struct {
+	Success bool   `thrift:"success,1" frugal:"1,default,bool" json:"success"`
+	Msg     string `thrift:"msg,2" frugal:"2,default,string" json:"msg"`
+}
+
+func NewMarkConversationReadResp() *MarkConversationReadResp {
+	return &MarkConversationReadResp{}
+}
+
+func (p *MarkConversationReadResp) InitDefault() {
+}
+
+func (p *MarkConversationReadResp) GetSuccess() (v bool) {
+	return p.Success
+}
+
+func (p *MarkConversationReadResp) GetMsg() (v string) {
+	return p.Msg
+}
+func (p *MarkConversationReadResp) SetSuccess(val bool) {
+	p.Success = val
+}
+func (p *MarkConversationReadResp) SetMsg(val string) {
+	p.Msg = val
+}
+
+func (p *MarkConversationReadResp) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("MarkConversationReadResp(%+v)", *p)
+}
+
+var fieldIDToName_MarkConversationReadResp = map[int16]string{
+	1: "success",
+	2: "msg",
+}
+
+type EditMessageReq struct {
+	MessageId int64  `thrift:"message_id,1" frugal:"1,default,i64" json:"message_id"`
+	EditorId  int64  `thrift:"editor_id,2" frugal:"2,default,i64" json:"editor_id"`
+	Content   string `thrift:"content,3" frugal:"3,default,string" json:"content"`
+}
+
+func NewEditMessageReq() *EditMessageReq {
+	return &EditMessageReq{}
+}
+
+func (p *EditMessageReq) InitDefault() {
+}
+
+func (p *EditMessageReq) GetMessageId() (v int64) {
+	return p.MessageId
+}
+
+func (p *EditMessageReq) GetEditorId() (v int64) {
+	return p.EditorId
+}
+
+func (p *EditMessageReq) GetContent() (v string) {
+	return p.Content
+}
+func (p *EditMessageReq) SetMessageId(val int64) {
+	p.MessageId = val
+}
+func (p *EditMessageReq) SetEditorId(val int64) {
+	p.EditorId = val
+}
+func (p *EditMessageReq) SetContent(val string) {
+	p.Content = val
+}
+
+func (p *EditMessageReq) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("EditMessageReq(%+v)", *p)
+}
+
+var fieldIDToName_EditMessageReq = map[int16]string{
+	1: "message_id",
+	2: "editor_id",
+	3: "content",
+}
+
+type EditMessageResp struct {
+	Success bool     `thrift:"success,1" frugal:"1,default,bool" json:"success"`
+	Message *Message `thrift:"message,2" frugal:"2,default,Message" json:"message"`
+	Msg     string   `thrift:"msg,3" frugal:"3,default,string" json:"msg"`
+}
+
+func NewEditMessageResp() *EditMessageResp {
+	return &EditMessageResp{}
+}
+
+func (p *EditMessageResp) InitDefault() {
+}
+
+func (p *EditMessageResp) GetSuccess() (v bool) {
+	return p.Success
+}
+
+var EditMessageResp_Message_DEFAULT *Message
+
+func (p *EditMessageResp) GetMessage() (v *Message) {
+	if !p.IsSetMessage() {
+		return EditMessageResp_Message_DEFAULT
+	}
+	return p.Message
+}
+
+func (p *EditMessageResp) GetMsg() (v string) {
+	return p.Msg
+}
+func (p *EditMessageResp) SetSuccess(val bool) {
+	p.Success = val
+}
+func (p *EditMessageResp) SetMessage(val *Message) {
+	p.Message = val
+}
+func (p *EditMessageResp) SetMsg(val string) {
+	p.Msg = val
+}
+
+func (p *EditMessageResp) IsSetMessage() bool {
+	return p.Message != nil
+}
+
+func (p *EditMessageResp) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("EditMessageResp(%+v)", *p)
+}
+
+var fieldIDToName_EditMessageResp = map[int16]string{
+	1: "success",
+	2: "message",
+	3: "msg",
+}
+
+type RecallMessageReq struct {
+	MessageId  int64 `thrift:"message_id,1" frugal:"1,default,i64" json:"message_id"`
+	OperatorId int64 `thrift:"operator_id,2" frugal:"2,default,i64" json:"operator_id"`
+}
+
+func NewRecallMessageReq() *RecallMessageReq {
+	return &RecallMessageReq{}
+}
+
+func (p *RecallMessageReq) InitDefault() {
+}
+
+func (p *RecallMessageReq) GetMessageId() (v int64) {
+	return p.MessageId
+}
+
+func (p *RecallMessageReq) GetOperatorId() (v int64) {
+	return p.OperatorId
+}
+func (p *RecallMessageReq) SetMessageId(val int64) {
+	p.MessageId = val
+}
+func (p *RecallMessageReq) SetOperatorId(val int64) {
+	p.OperatorId = val
+}
+
+func (p *RecallMessageReq) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("RecallMessageReq(%+v)", *p)
+}
+
+var fieldIDToName_RecallMessageReq = map[int16]string{
+	1: "message_id",
+	2: "operator_id",
+}
+
+type RecallMessageResp struct {
+	Success bool   `thrift:"success,1" frugal:"1,default,bool" json:"success"`
+	Msg     string `thrift:"msg,2" frugal:"2,default,string" json:"msg"`
+}
+
+func NewRecallMessageResp() *RecallMessageResp {
+	return &RecallMessageResp{}
+}
+
+func (p *RecallMessageResp) InitDefault() {
+}
+
+func (p *RecallMessageResp) GetSuccess() (v bool) {
+	return p.Success
+}
+
+func (p *RecallMessageResp) GetMsg() (v string) {
+	return p.Msg
+}
+func (p *RecallMessageResp) SetSuccess(val bool) {
+	p.Success = val
+}
+func (p *RecallMessageResp) SetMsg(val string) {
+	p.Msg = val
+}
+
+func (p *RecallMessageResp) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("RecallMessageResp(%+v)", *p)
+}
+
+var fieldIDToName_RecallMessageResp = map[int16]string{
+	1: "success",
+	2: "msg",
 }
 
 type SaveMessageReq struct {
@@ -1319,6 +1691,12 @@ type MessageService interface {
 
 	SendMessage(ctx context.Context, req *SendMessageReq) (r *SendMessageResp, err error)
 
+	MarkConversationRead(ctx context.Context, req *MarkConversationReadReq) (r *MarkConversationReadResp, err error)
+
+	EditMessage(ctx context.Context, req *EditMessageReq) (r *EditMessageResp, err error)
+
+	RecallMessage(ctx context.Context, req *RecallMessageReq) (r *RecallMessageResp, err error)
+
 	GetHistory(ctx context.Context, req *GetHistoryReq) (r *GetHistoryResp, err error)
 
 	SearchMessages(ctx context.Context, req *SearchMessagesReq) (r *SearchMessagesResp, err error)
@@ -1627,6 +2005,234 @@ func (p *MessageServiceSendMessageResult) String() string {
 }
 
 var fieldIDToName_MessageServiceSendMessageResult = map[int16]string{
+	0: "success",
+}
+
+type MessageServiceMarkConversationReadArgs struct {
+	Req *MarkConversationReadReq `thrift:"req,1" frugal:"1,default,MarkConversationReadReq" json:"req"`
+}
+
+func NewMessageServiceMarkConversationReadArgs() *MessageServiceMarkConversationReadArgs {
+	return &MessageServiceMarkConversationReadArgs{}
+}
+
+func (p *MessageServiceMarkConversationReadArgs) InitDefault() {
+}
+
+var MessageServiceMarkConversationReadArgs_Req_DEFAULT *MarkConversationReadReq
+
+func (p *MessageServiceMarkConversationReadArgs) GetReq() (v *MarkConversationReadReq) {
+	if !p.IsSetReq() {
+		return MessageServiceMarkConversationReadArgs_Req_DEFAULT
+	}
+	return p.Req
+}
+func (p *MessageServiceMarkConversationReadArgs) SetReq(val *MarkConversationReadReq) {
+	p.Req = val
+}
+
+func (p *MessageServiceMarkConversationReadArgs) IsSetReq() bool {
+	return p.Req != nil
+}
+
+func (p *MessageServiceMarkConversationReadArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("MessageServiceMarkConversationReadArgs(%+v)", *p)
+}
+
+var fieldIDToName_MessageServiceMarkConversationReadArgs = map[int16]string{
+	1: "req",
+}
+
+type MessageServiceMarkConversationReadResult struct {
+	Success *MarkConversationReadResp `thrift:"success,0,optional" frugal:"0,optional,MarkConversationReadResp" json:"success,omitempty"`
+}
+
+func NewMessageServiceMarkConversationReadResult() *MessageServiceMarkConversationReadResult {
+	return &MessageServiceMarkConversationReadResult{}
+}
+
+func (p *MessageServiceMarkConversationReadResult) InitDefault() {
+}
+
+var MessageServiceMarkConversationReadResult_Success_DEFAULT *MarkConversationReadResp
+
+func (p *MessageServiceMarkConversationReadResult) GetSuccess() (v *MarkConversationReadResp) {
+	if !p.IsSetSuccess() {
+		return MessageServiceMarkConversationReadResult_Success_DEFAULT
+	}
+	return p.Success
+}
+func (p *MessageServiceMarkConversationReadResult) SetSuccess(x interface{}) {
+	p.Success = x.(*MarkConversationReadResp)
+}
+
+func (p *MessageServiceMarkConversationReadResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *MessageServiceMarkConversationReadResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("MessageServiceMarkConversationReadResult(%+v)", *p)
+}
+
+var fieldIDToName_MessageServiceMarkConversationReadResult = map[int16]string{
+	0: "success",
+}
+
+type MessageServiceEditMessageArgs struct {
+	Req *EditMessageReq `thrift:"req,1" frugal:"1,default,EditMessageReq" json:"req"`
+}
+
+func NewMessageServiceEditMessageArgs() *MessageServiceEditMessageArgs {
+	return &MessageServiceEditMessageArgs{}
+}
+
+func (p *MessageServiceEditMessageArgs) InitDefault() {
+}
+
+var MessageServiceEditMessageArgs_Req_DEFAULT *EditMessageReq
+
+func (p *MessageServiceEditMessageArgs) GetReq() (v *EditMessageReq) {
+	if !p.IsSetReq() {
+		return MessageServiceEditMessageArgs_Req_DEFAULT
+	}
+	return p.Req
+}
+func (p *MessageServiceEditMessageArgs) SetReq(val *EditMessageReq) {
+	p.Req = val
+}
+
+func (p *MessageServiceEditMessageArgs) IsSetReq() bool {
+	return p.Req != nil
+}
+
+func (p *MessageServiceEditMessageArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("MessageServiceEditMessageArgs(%+v)", *p)
+}
+
+var fieldIDToName_MessageServiceEditMessageArgs = map[int16]string{
+	1: "req",
+}
+
+type MessageServiceEditMessageResult struct {
+	Success *EditMessageResp `thrift:"success,0,optional" frugal:"0,optional,EditMessageResp" json:"success,omitempty"`
+}
+
+func NewMessageServiceEditMessageResult() *MessageServiceEditMessageResult {
+	return &MessageServiceEditMessageResult{}
+}
+
+func (p *MessageServiceEditMessageResult) InitDefault() {
+}
+
+var MessageServiceEditMessageResult_Success_DEFAULT *EditMessageResp
+
+func (p *MessageServiceEditMessageResult) GetSuccess() (v *EditMessageResp) {
+	if !p.IsSetSuccess() {
+		return MessageServiceEditMessageResult_Success_DEFAULT
+	}
+	return p.Success
+}
+func (p *MessageServiceEditMessageResult) SetSuccess(x interface{}) {
+	p.Success = x.(*EditMessageResp)
+}
+
+func (p *MessageServiceEditMessageResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *MessageServiceEditMessageResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("MessageServiceEditMessageResult(%+v)", *p)
+}
+
+var fieldIDToName_MessageServiceEditMessageResult = map[int16]string{
+	0: "success",
+}
+
+type MessageServiceRecallMessageArgs struct {
+	Req *RecallMessageReq `thrift:"req,1" frugal:"1,default,RecallMessageReq" json:"req"`
+}
+
+func NewMessageServiceRecallMessageArgs() *MessageServiceRecallMessageArgs {
+	return &MessageServiceRecallMessageArgs{}
+}
+
+func (p *MessageServiceRecallMessageArgs) InitDefault() {
+}
+
+var MessageServiceRecallMessageArgs_Req_DEFAULT *RecallMessageReq
+
+func (p *MessageServiceRecallMessageArgs) GetReq() (v *RecallMessageReq) {
+	if !p.IsSetReq() {
+		return MessageServiceRecallMessageArgs_Req_DEFAULT
+	}
+	return p.Req
+}
+func (p *MessageServiceRecallMessageArgs) SetReq(val *RecallMessageReq) {
+	p.Req = val
+}
+
+func (p *MessageServiceRecallMessageArgs) IsSetReq() bool {
+	return p.Req != nil
+}
+
+func (p *MessageServiceRecallMessageArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("MessageServiceRecallMessageArgs(%+v)", *p)
+}
+
+var fieldIDToName_MessageServiceRecallMessageArgs = map[int16]string{
+	1: "req",
+}
+
+type MessageServiceRecallMessageResult struct {
+	Success *RecallMessageResp `thrift:"success,0,optional" frugal:"0,optional,RecallMessageResp" json:"success,omitempty"`
+}
+
+func NewMessageServiceRecallMessageResult() *MessageServiceRecallMessageResult {
+	return &MessageServiceRecallMessageResult{}
+}
+
+func (p *MessageServiceRecallMessageResult) InitDefault() {
+}
+
+var MessageServiceRecallMessageResult_Success_DEFAULT *RecallMessageResp
+
+func (p *MessageServiceRecallMessageResult) GetSuccess() (v *RecallMessageResp) {
+	if !p.IsSetSuccess() {
+		return MessageServiceRecallMessageResult_Success_DEFAULT
+	}
+	return p.Success
+}
+func (p *MessageServiceRecallMessageResult) SetSuccess(x interface{}) {
+	p.Success = x.(*RecallMessageResp)
+}
+
+func (p *MessageServiceRecallMessageResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *MessageServiceRecallMessageResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("MessageServiceRecallMessageResult(%+v)", *p)
+}
+
+var fieldIDToName_MessageServiceRecallMessageResult = map[int16]string{
 	0: "success",
 }
 

@@ -10,7 +10,7 @@ import (
 )
 
 // InitDB 初始化数据库连接并自动迁移表结构
-// 采用安全迁移策略：如果表已存在则先删除再重建，避免字段冲突
+// AutoMigrate 只做非破坏性迁移，避免服务重启清空已有数据。
 // dsn: MySQL数据源连接字符串
 func InitDB(dsn string) (*gorm.DB, error) {
 	db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{})
@@ -25,13 +25,6 @@ func InitDB(dsn string) (*gorm.DB, error) {
 	}
 
 	for _, m := range models {
-		// 安全迁移：先检查表是否存在，存在则删除
-		if db.Migrator().HasTable(m) {
-			if err := db.Migrator().DropTable(m); err != nil {
-				return nil, err
-			}
-		}
-		// 重新创建表
 		if err := db.AutoMigrate(m); err != nil {
 			return nil, err
 		}

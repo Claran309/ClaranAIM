@@ -8,9 +8,11 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/google/uuid"
@@ -24,6 +26,9 @@ var useMinio bool
 var minioEndpoint string
 var storageDir string
 
+// InitFileStorage prepares the binary object store used by the HTTP gateway.
+// Metadata is persisted through file-service; the gateway owns the streaming
+// boundary because browser uploads arrive here as multipart data.
 func InitFileStorage(cfg *config.Config) {
 	storageDir = cfg.Storage.Dir
 	if storageDir == "" {
@@ -73,6 +78,9 @@ func NewFileHandler() *FileHandler {
 	return &FileHandler{}
 }
 
+// UploadFile stores the binary payload first, then asks file-service to persist
+// the metadata record. The returned file_id must come from file-service, because
+// that is the ID later used by /file/download/:id and message media payloads.
 func (h *FileHandler) UploadFile(ctx context.Context, c *app.RequestContext) {
 	file, err := c.FormFile("file")
 	if err != nil {
@@ -140,7 +148,7 @@ func (h *FileHandler) UploadFile(ctx context.Context, c *app.RequestContext) {
 		logger.Info("文件上传到本地成功", "path", fullPath, "size", actualSize)
 	}
 
-	resp, err := client.FileClient.UploadFile(ctx, client.NewUploadFileReq(file.Filename, fileType, actualSize, file.Header.Get("Content-Type"), id))
+	resp, err := client.FileClient.UploadFile(ctx, client.NewUploadFileReq(file.Filename, fileType, actualSize, file.Header.Get("Content-Type"), fileURL, id))
 	if err != nil {
 		logger.Error("文件元数据RPC调用失败", "error", err, "filename", file.Filename)
 		response.Error(c, fmt.Sprintf("文件已上传但元数据保存失败: %v", err))
@@ -156,7 +164,7 @@ func (h *FileHandler) UploadFile(ctx context.Context, c *app.RequestContext) {
 	logger.Info("文件上传完成", "file_id", fileID, "filename", file.Filename, "size", actualSize)
 	response.Success(c, map[string]interface{}{
 		"success":  true,
-		"file_id":  fileID,
+		"file_id":  resp.FileId,
 		"file_url": fileURL,
 		"filename": file.Filename,
 		"size":     actualSize,
@@ -176,6 +184,78 @@ func (h *FileHandler) GetFile(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 	response.Success(c, resp)
+}
+
+func (h *FileHandler) DownloadFile(ctx context.Context, c *app.RequestContext) {
+	h.serveFileByID(ctx, c, true)
+}
+
+func (h *FileHandler) PreviewFile(ctx context.Context, c *app.RequestContext) {
+	h.serveFileByID(ctx, c, false)
+}
+
+func (h *FileHandler) serveFileByID(ctx context.Context, c *app.RequestContext, attachment bool) {
+	fileID := c.Param("id")
+	resp, err := client.FileClient.GetFile(ctx, client.NewGetFileReq(fileID))
+	if err != nil {
+		response.Error(c, err.Error())
+		return
+	}
+	if !resp.Success {
+		response.Error(c, resp.Msg)
+		return
+	}
+	if strings.HasPrefix(resp.FileUrl, "http://") || strings.HasPrefix(resp.FileUrl, "https://") {
+		c.Redirect(http.StatusFound, []byte(resp.FileUrl))
+		return
+	}
+	if !strings.HasPrefix(resp.FileUrl, "/files/") {
+		response.BadRequest(c, "不支持的文件地址")
+		return
+	}
+
+	// Local file URLs are stored as /files/<type>/<object>. Clean the path before
+	// joining it with storageDir so a crafted URL cannot escape the storage root.
+	relativePath := strings.TrimPrefix(resp.FileUrl, "/files/")
+	cleanPath := filepath.Clean(filepath.FromSlash(relativePath))
+	if cleanPath == "." || strings.HasPrefix(cleanPath, ".."+string(os.PathSeparator)) || filepath.IsAbs(cleanPath) {
+		response.BadRequest(c, "无效的文件路径")
+		return
+	}
+
+	fullPath := filepath.Join(storageDir, cleanPath)
+	if _, err := os.Stat(fullPath); err != nil {
+		response.Error(c, "文件不存在或已被删除")
+		return
+	}
+	if resp.ContentType != "" {
+		c.SetContentType(resp.ContentType)
+	}
+	disposition := "inline"
+	if attachment {
+		disposition = "attachment"
+	}
+	c.Header("Content-Disposition", fmt.Sprintf(`%s; filename="%s"`, disposition, resp.FileName))
+	c.File(fullPath)
+}
+
+func (h *FileHandler) ServeLocalFile(ctx context.Context, c *app.RequestContext) {
+	// Public inline preview for local images/audio. The same path guard used by
+	// DownloadFile keeps requests inside storageDir.
+	relativePath := c.Param("filepath")
+	relativePath = strings.TrimPrefix(relativePath, "/")
+	cleanPath := filepath.Clean(filepath.FromSlash(relativePath))
+	if cleanPath == "." || strings.HasPrefix(cleanPath, ".."+string(os.PathSeparator)) || filepath.IsAbs(cleanPath) {
+		response.BadRequest(c, "无效的文件路径")
+		return
+	}
+
+	fullPath := filepath.Join(storageDir, cleanPath)
+	if _, err := os.Stat(fullPath); err != nil {
+		response.Error(c, "文件不存在或已被删除")
+		return
+	}
+	c.File(fullPath)
 }
 
 func (h *FileHandler) DeleteFile(ctx context.Context, c *app.RequestContext) {

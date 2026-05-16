@@ -1,0 +1,5 @@
+./fastmem.go
+./fastvalue.go
+./growslice_go120.go
+./int48.go
+./table.go

@@ -221,6 +221,33 @@ func (h *UserHandler) DeleteFriend(ctx context.Context, c *app.RequestContext) {
 // GetFriendList 获取好友列表
 // GET /api/v1/user/friend/list
 // 返回当前用户的所有好友，包含好友昵称、头像、在线状态、分组、备注
+func (h *UserHandler) UpdateFriendRemark(ctx context.Context, c *app.RequestContext) {
+	type updateFriendRemarkReq struct {
+		FriendID int64  `json:"friend_id"`
+		GroupID  int64  `json:"group_id"`
+		Remark   string `json:"remark"`
+	}
+	var req updateFriendRemarkReq
+	if err := c.BindJSON(&req); err != nil {
+		response.BadRequest(c, "参数错误")
+		return
+	}
+	if req.FriendID <= 0 {
+		response.BadRequest(c, "friend_id不能为空")
+		return
+	}
+
+	userID, _ := c.Get("userID")
+	id := userID.(int64)
+
+	resp, err := client.UserClient.UpdateFriendRemark(ctx, client.NewUpdateFriendRemarkReq(id, req.FriendID, req.GroupID, req.Remark))
+	if err != nil {
+		response.Error(c, err.Error())
+		return
+	}
+	response.Success(c, resp)
+}
+
 func (h *UserHandler) GetFriendList(ctx context.Context, c *app.RequestContext) {
 	userID, _ := c.Get("userID")
 	id := userID.(int64)

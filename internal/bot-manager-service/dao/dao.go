@@ -21,11 +21,6 @@ func InitDB(dsn string) (*gorm.DB, error) {
 	}
 
 	for _, m := range models {
-		if db.Migrator().HasTable(m) {
-			if err := db.Migrator().DropTable(m); err != nil {
-				return nil, err
-			}
-		}
 		if err := db.AutoMigrate(m); err != nil {
 			return nil, err
 		}

@@ -1,0 +1,4 @@
+./descriptor.go
+./idl.go
+./test_util.go
+./type.go

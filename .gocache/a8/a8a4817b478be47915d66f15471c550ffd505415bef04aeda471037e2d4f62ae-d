@@ -1,0 +1,4 @@
+./common.go
+./etcd_registry.go
+./etcd_resolver.go
+./option.go

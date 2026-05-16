@@ -58,9 +58,12 @@ func (h *MessageHandler) CreateConversation(ctx context.Context, c *app.RequestC
 // 完整流程：消息落库 → 更新会话时间戳 → 缓存更新 → WebSocket 实时推送
 func (h *MessageHandler) SendMessage(ctx context.Context, c *app.RequestContext) {
 	type sendMsgReq struct {
-		ConversationID int64  `json:"conversation_id"` // 会话ID
-		Content        string `json:"content"`         // 消息内容
-		MsgType        string `json:"msg_type"`        // 消息类型：text(文本)，默认 text
+		ConversationID int64   `json:"conversation_id"`  // 会话ID
+		Content        string  `json:"content"`          // 消息内容
+		MsgType        string  `json:"msg_type"`         // 消息类型：text(文本)，默认 text
+		ReplyToID      int64   `json:"reply_to_id"`      // 引用消息ID
+		MentionUserIDs []int64 `json:"mention_user_ids"` // @用户列表
+		MentionAll     bool    `json:"mention_all"`      // 是否@所有人
 	}
 	var req sendMsgReq
 	if err := c.BindJSON(&req); err != nil {
@@ -85,7 +88,77 @@ func (h *MessageHandler) SendMessage(ctx context.Context, c *app.RequestContext)
 		}
 	}
 
-	resp, err := client.MessageClient.SendMessage(ctx, client.NewSendMessageReq(req.ConversationID, id, req.Content, req.MsgType))
+	resp, err := client.MessageClient.SendMessage(ctx, client.NewSendMessageExtReq(req.ConversationID, id, req.Content, req.MsgType, req.ReplyToID, req.MentionUserIDs, req.MentionAll))
+	if err != nil {
+		response.Error(c, err.Error())
+		return
+	}
+	response.Success(c, resp)
+}
+
+func (h *MessageHandler) MarkConversationRead(ctx context.Context, c *app.RequestContext) {
+	type markReadReq struct {
+		ConversationID int64 `json:"conversation_id"`
+		MessageID      int64 `json:"message_id"`
+	}
+	var req markReadReq
+	if err := c.BindJSON(&req); err != nil {
+		response.BadRequest(c, "参数错误")
+		return
+	}
+	userID, _ := c.Get("userID")
+	id := userID.(int64)
+	resp, err := client.MessageClient.MarkConversationRead(ctx, &message.MarkConversationReadReq{
+		ConversationId: req.ConversationID,
+		UserId:         id,
+		MessageId:      req.MessageID,
+	})
+	if err != nil {
+		response.Error(c, err.Error())
+		return
+	}
+	response.Success(c, resp)
+}
+
+func (h *MessageHandler) EditMessage(ctx context.Context, c *app.RequestContext) {
+	type editReq struct {
+		MessageID int64  `json:"message_id"`
+		Content   string `json:"content"`
+	}
+	var req editReq
+	if err := c.BindJSON(&req); err != nil {
+		response.BadRequest(c, "参数错误")
+		return
+	}
+	userID, _ := c.Get("userID")
+	id := userID.(int64)
+	resp, err := client.MessageClient.EditMessage(ctx, &message.EditMessageReq{
+		MessageId: req.MessageID,
+		EditorId:  id,
+		Content:   req.Content,
+	})
+	if err != nil {
+		response.Error(c, err.Error())
+		return
+	}
+	response.Success(c, resp)
+}
+
+func (h *MessageHandler) RecallMessage(ctx context.Context, c *app.RequestContext) {
+	type recallReq struct {
+		MessageID int64 `json:"message_id"`
+	}
+	var req recallReq
+	if err := c.BindJSON(&req); err != nil {
+		response.BadRequest(c, "参数错误")
+		return
+	}
+	userID, _ := c.Get("userID")
+	id := userID.(int64)
+	resp, err := client.MessageClient.RecallMessage(ctx, &message.RecallMessageReq{
+		MessageId:  req.MessageID,
+		OperatorId: id,
+	})
 	if err != nil {
 		response.Error(c, err.Error())
 		return
@@ -140,14 +213,16 @@ func (h *MessageHandler) SearchMessages(ctx context.Context, c *app.RequestConte
 
 	conversationIDStr := c.DefaultQuery("conversation_id", "0")
 	conversationID, _ := strconv.ParseInt(conversationIDStr, 10, 64)
+	startAt := c.Query("start_at")
+	endAt := c.Query("end_at")
 
 	var resp interface{}
 	var err error
 
 	if conversationID > 0 {
-		resp, err = client.MessageClient.SearchMessages(ctx, client.NewSearchMessagesInConvReq([]int64{conversationID}, keyword, limit))
+		resp, err = client.MessageClient.SearchMessages(ctx, client.NewSearchMessagesAdvancedReq(id, []int64{conversationID}, keyword, limit, startAt, endAt))
 	} else {
-		resp, err = client.MessageClient.SearchMessages(ctx, client.NewSearchMessagesReq(id, keyword, limit))
+		resp, err = client.MessageClient.SearchMessages(ctx, client.NewSearchMessagesAdvancedReq(id, nil, keyword, limit, startAt, endAt))
 	}
 
 	if err != nil {

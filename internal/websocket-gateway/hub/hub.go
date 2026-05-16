@@ -8,8 +8,8 @@ import (
 // 每个WebSocket连接在Hub中对应一个Client实例
 // Hub通过Client的Send通道向客户端推送消息
 type Client struct {
-	UserID int64     // 用户ID，用于按用户分组管理连接
-	Hub    *Hub      // 所属Hub实例的引用
+	UserID int64       // 用户ID，用于按用户分组管理连接
+	Hub    *Hub        // 所属Hub实例的引用
 	Send   chan []byte // 消息发送通道，Hub通过此通道向客户端推送数据
 }
 
@@ -24,7 +24,7 @@ type Client struct {
 // clients 结构: map[userID] -> map[*Client]bool
 type Hub struct {
 	clients    map[int64]map[*Client]bool // 在线用户连接表：用户ID -> 该用户的所有连接
-	broadcast  chan *BroadcastMessage      // 广播消息通道，接收待推送的消息
+	broadcast  chan *BroadcastMessage     // 广播消息通道，接收待推送的消息
 	register   chan *Client               // 注册通道，新连接建立时发送
 	unregister chan *Client               // 注销通道，连接断开时发送
 	mu         sync.RWMutex               // 读写锁，保护clients并发访问
@@ -54,6 +54,10 @@ func NewHub() *Hub {
 //   - 新连接注册：将Client添加到clients表
 //   - 连接注销：从clients表移除Client并关闭Send通道
 //   - 消息广播：向目标用户的所有连接发送消息
+//
+// Run serializes all connection mutations through channels. This keeps the
+// public Register/Unregister/Broadcast methods simple and avoids callers
+// touching the clients map directly.
 func (h *Hub) Run() {
 	for {
 		select {

@@ -35,7 +35,7 @@ func main() {
 	routeRepo := dao.NewRouteRepo(db)
 	billingRepo := dao.NewBillingRepo(db)
 
-	botService := service.NewBotService(botRepo, routeRepo, billingRepo)
+	botService := service.NewBotService(botRepo, routeRepo, billingRepo, cfg.Agent.SessionDir)
 	botHandler := handler.NewBotServiceImpl(botService, cfg)
 
 	r, err := etcd.NewEtcdRegistry(cfg.Etcd.Endpoints)

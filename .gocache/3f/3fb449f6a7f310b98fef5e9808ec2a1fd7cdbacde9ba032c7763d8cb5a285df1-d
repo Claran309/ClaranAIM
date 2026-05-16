@@ -1,0 +1,3 @@
+./botservice.go
+./client.go
+./server.go

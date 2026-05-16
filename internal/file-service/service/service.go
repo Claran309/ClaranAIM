@@ -19,6 +19,7 @@ import (
 
 type FileService interface {
 	UploadFile(ctx context.Context, fileName, fileType string, fileSize int64, contentType string, uploaderID int64, fileData io.Reader) (*model.FileRecord, error)
+	SaveFileRecord(ctx context.Context, fileName, fileType string, fileSize int64, contentType, fileURL string, uploaderID int64) (*model.FileRecord, error)
 	GetFile(ctx context.Context, fileID string) (*model.FileRecord, error)
 	DeleteFile(ctx context.Context, fileID string, operatorID int64) error
 	ListFiles(ctx context.Context, uploaderID int64, fileType string, limit, offset int64) ([]model.FileRecord, int64, error)
@@ -216,4 +217,32 @@ func (s *fileServiceImpl) GetFileReader(ctx context.Context, fileID string) (io.
 
 func GeneratePresignedURL(endpoint, bucket, objectName string, expiry time.Duration) string {
 	return fmt.Sprintf("http://%s/%s/%s", endpoint, bucket, objectName)
+}
+
+func (s *fileServiceImpl) SaveFileRecord(ctx context.Context, fileName, fileType string, fileSize int64, contentType, fileURL string, uploaderID int64) (*model.FileRecord, error) {
+	if fileName == "" {
+		return nil, errors.New("文件名不能为空")
+	}
+	if fileType == "" {
+		fileType = "file"
+	}
+
+	fileID := uuid.New().String()
+
+	record := &model.FileRecord{
+		FileID:      fileID,
+		FileName:    fileName,
+		FileType:    fileType,
+		FileSize:    fileSize,
+		ContentType: contentType,
+		FileURL:     fileURL,
+		UploaderID:  uploaderID,
+	}
+
+	if err := s.repo.CreateFile(ctx, record); err != nil {
+		return nil, err
+	}
+
+	log.Printf("文件记录保存成功: %s (%d bytes), file_id=%s", fileName, fileSize, fileID)
+	return record, nil
 }

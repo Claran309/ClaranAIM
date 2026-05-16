@@ -14,6 +14,7 @@ let friendsCache = [];
 let groupsCache = [];
 let userNickCache = {};
 let userAvatarCache = {};
+let friendRemarkCache = {};
 let conversationNameCache = {};
 
 if (currentUser && currentUser.id) {
@@ -58,6 +59,8 @@ const userAPI = {
         request('POST', '/user/friend/add', { friend_id: friendID, group_id: groupID || 0, remark: remark || '' }),
     deleteFriend: (friendID) =>
         request('POST', '/user/friend/delete', { friend_id: friendID }),
+    updateFriendRemark: (friendID, groupID, remark) =>
+        request('PUT', '/user/friend/remark', { friend_id: friendID, group_id: groupID || 0, remark: remark || '' }),
     getFriendList: () => request('GET', '/user/friend/list'),
     getFriendGroups: () => request('GET', '/user/friend/groups'),
     batchGetInfo: (ids) => request('GET', `/user/batch?ids=${ids.join(',')}`),
@@ -92,12 +95,25 @@ const groupAPI = {
 const messageAPI = {
     createConversation: (type, participantIDs, groupID = 0) =>
         request('POST', '/message/conversation', { type, participant_ids: participantIDs, group_id: groupID }),
-    send: (conversationID, content, msgType = 'text') =>
-        request('POST', '/message/send', { conversation_id: conversationID, content, msg_type: msgType }),
+    send: (conversationID, content, msgType = 'text', options = {}) =>
+        request('POST', '/message/send', {
+            conversation_id: conversationID,
+            content,
+            msg_type: msgType,
+            reply_to_id: options.reply_to_id || 0,
+            mention_user_ids: options.mention_user_ids || [],
+            mention_all: !!options.mention_all,
+        }),
+    markRead: (conversationID, messageID = 0) =>
+        request('POST', '/message/read', { conversation_id: conversationID, message_id: messageID }),
+    edit: (messageID, content) =>
+        request('PUT', '/message/edit', { message_id: messageID, content }),
+    recall: (messageID) =>
+        request('POST', '/message/recall', { message_id: messageID }),
     getHistory: (conversationID, limit = 50, beforeID = 0) =>
         request('GET', `/message/history/${conversationID}?limit=${limit}&before_id=${beforeID}`),
-    search: (keyword, conversationID = 0, limit = 20) =>
-        request('GET', `/message/search?keyword=${encodeURIComponent(keyword)}&limit=${limit}&conversation_id=${conversationID}`),
+    search: (keyword, conversationID = 0, limit = 20, startAt = '', endAt = '') =>
+        request('GET', `/message/search?keyword=${encodeURIComponent(keyword)}&limit=${limit}&conversation_id=${conversationID}&start_at=${encodeURIComponent(startAt)}&end_at=${encodeURIComponent(endAt)}`),
     getConversations: () => request('GET', '/message/conversations'),
 };
 
@@ -133,6 +149,22 @@ const fileAPI = {
         }
     },
     get: (id) => request('GET', `/file/${id}`),
+    previewURL: (id) => `${API_BASE}/file/download/${id}`,
+    downloadURL: (id) => `${API_BASE}/file/download/${id}`,
+    fetchBlob: async (id) => {
+        const headers = {};
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+        const resp = await fetch(`${API_BASE}/file/download/${id}`, { headers });
+        if (!resp.ok) {
+            let errMsg = '文件加载失败';
+            try {
+                const result = await resp.json();
+                errMsg = result.message || errMsg;
+            } catch (e) {}
+            throw new Error(errMsg);
+        }
+        return await resp.blob();
+    },
     delete: (id) => request('DELETE', `/file/${id}`, { file_id: id }),
     list: (fileType = '', limit = 20, offset = 0) =>
         request('GET', `/file/list?file_type=${fileType}&limit=${limit}&offset=${offset}`),
@@ -201,14 +233,18 @@ function handleWSMessage(msg) {
             return;
         }
 
-        if (data.conversation_id === currentConversationID) {
+        if (String(data.conversation_id) === String(currentConversationID)) {
             appendMessage(data);
         } else {
             const convId = data.conversation_id;
+            setConversationHidden(convId, false);
             unreadMap[convId] = (unreadMap[convId] || 0) + 1;
             saveUnreadMap();
             updateUnreadBadge();
         }
+        loadConversations();
+    } else if ((msg.type === 'message_edited' || msg.type === 'message_recalled') && msg.data) {
+        applyMessageStateUpdate(msg.data);
         loadConversations();
     }
 }
@@ -249,6 +285,9 @@ async function resolveUserNames(userIDs) {
 function getUserName(userID) {
     if (userID === currentUser.id) {
         return currentUser.nickname || currentUser.username || '我';
+    }
+    if (friendRemarkCache[userID]) {
+        return friendRemarkCache[userID];
     }
     return userNickCache[userID] || '用户' + userID;
 }

@@ -1,0 +1,4 @@
+./acronyms.go
+./camel.go
+./doc.go
+./snake.go

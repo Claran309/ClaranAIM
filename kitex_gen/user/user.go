@@ -978,6 +978,7 @@ type UpdateFriendRemarkReq struct {
 	UserId   int64  `thrift:"user_id,1" frugal:"1,default,i64" json:"user_id"`
 	FriendId int64  `thrift:"friend_id,2" frugal:"2,default,i64" json:"friend_id"`
 	Remark   string `thrift:"remark,3" frugal:"3,default,string" json:"remark"`
+	GroupId  int64  `thrift:"group_id,4" frugal:"4,default,i64" json:"group_id"`
 }
 
 func NewUpdateFriendRemarkReq() *UpdateFriendRemarkReq {
@@ -998,6 +999,10 @@ func (p *UpdateFriendRemarkReq) GetFriendId() (v int64) {
 func (p *UpdateFriendRemarkReq) GetRemark() (v string) {
 	return p.Remark
 }
+
+func (p *UpdateFriendRemarkReq) GetGroupId() (v int64) {
+	return p.GroupId
+}
 func (p *UpdateFriendRemarkReq) SetUserId(val int64) {
 	p.UserId = val
 }
@@ -1006,6 +1011,9 @@ func (p *UpdateFriendRemarkReq) SetFriendId(val int64) {
 }
 func (p *UpdateFriendRemarkReq) SetRemark(val string) {
 	p.Remark = val
+}
+func (p *UpdateFriendRemarkReq) SetGroupId(val int64) {
+	p.GroupId = val
 }
 
 func (p *UpdateFriendRemarkReq) String() string {
@@ -1019,6 +1027,7 @@ var fieldIDToName_UpdateFriendRemarkReq = map[int16]string{
 	1: "user_id",
 	2: "friend_id",
 	3: "remark",
+	4: "group_id",
 }
 
 type UpdateFriendRemarkResp struct {

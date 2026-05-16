@@ -15,7 +15,7 @@ const (
 	writeWait      = 10 * time.Second  // 写操作超时时间
 	pongWait       = 60 * time.Second  // 等待Pong响应的超时时间（超过此时间未收到Pong则断开）
 	pingPeriod     = (pongWait * 9) / 10 // Ping发送间隔（必须小于pongWait）
-	maxMessageSize = 512               // 单条消息最大字节数
+	maxMessageSize = 4096              // 单条消息最大字节数
 )
 
 // Upgrader WebSocket升级器

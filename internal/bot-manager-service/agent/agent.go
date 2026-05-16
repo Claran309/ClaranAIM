@@ -21,7 +21,7 @@ import (
 	"github.com/coze-dev/cozeloop-go"
 )
 
-func NewDeepAgent(ctx context.Context, model *openai.ChatModel, agentRoot string,cozeloopApiToken string,cozeloopWorkspaceID string, skillDir string) (adk.Agent, error) {
+func NewDeepAgent(ctx context.Context, model *openai.ChatModel, agentRoot string, cozeloopApiToken string, cozeloopWorkspaceID string, skillDir string, agentName string, agentDescription string, systemPrompt string, includeDomainTools bool) (adk.Agent, error) {
 	// 创建LocalBackend Tools 后端工具实例
 	backend, err := local.NewBackend(ctx, &local.Config{})
 	if err != nil {
@@ -29,40 +29,39 @@ func NewDeepAgent(ctx context.Context, model *openai.ChatModel, agentRoot string
 	}
 
 	// handler := callbacks.NewHandlerHelper().
-    // OnStart(func(ctx context.Context, info *callbacks.RunInfo, input callbacks.CallbackInput) context.Context {
-    //     log.Printf("[trace] %s/%s start", info.Component, info.Name)
-    //     return ctx
-    // }).
-    // OnEnd(func(ctx context.Context, info *callbacks.RunInfo, output callbacks.CallbackOutput) context.Context {
-    //     log.Printf("[trace] %s/%s end", info.Component, info.Name)
-    //     return ctx
-    // }).
-    // OnError(func(ctx context.Context, info *callbacks.RunInfo, err error) context.Context {
-    //     log.Printf("[trace] %s/%s error: %v", info.Component, info.Name, err)
-    //     return ctx
-    // }).
-    // Handler()
+	// OnStart(func(ctx context.Context, info *callbacks.RunInfo, input callbacks.CallbackInput) context.Context {
+	//     log.Printf("[trace] %s/%s start", info.Component, info.Name)
+	//     return ctx
+	// }).
+	// OnEnd(func(ctx context.Context, info *callbacks.RunInfo, output callbacks.CallbackOutput) context.Context {
+	//     log.Printf("[trace] %s/%s end", info.Component, info.Name)
+	//     return ctx
+	// }).
+	// OnError(func(ctx context.Context, info *callbacks.RunInfo, err error) context.Context {
+	//     log.Printf("[trace] %s/%s error: %v", info.Component, info.Name, err)
+	//     return ctx
+	// }).
+	// Handler()
 
 	// // 注册为全局 Callback
 	// callbacks.AppendGlobalHandlers(handler)
 
 	handler := callbacks.NewHandlerBuilder().
-	OnStartFn(func(ctx context.Context, info *callbacks.RunInfo, input callbacks.CallbackInput) context.Context {
-		log.Printf("[trace] %s/%s start", info.Component, info.Name) 
-		 return ctx 
-	}).
-		OnEndFn(func(ctx context.Context, info *callbacks.RunInfo, output callbacks.CallbackOutput) context.Context { 
-			log.Printf("[trace] %s/%s end", info.Component, info.Name) 
-			return ctx 
-	}).
-		OnErrorFn(func(ctx context.Context, info *callbacks.RunInfo, err error) context.Context { 
-			log.Printf("[trace] %s/%s error: %v", info.Component, info.Name, err) 
-			return ctx 
-	}).Build()
+		OnStartFn(func(ctx context.Context, info *callbacks.RunInfo, input callbacks.CallbackInput) context.Context {
+			log.Printf("[trace] %s/%s start", info.Component, info.Name)
+			return ctx
+		}).
+		OnEndFn(func(ctx context.Context, info *callbacks.RunInfo, output callbacks.CallbackOutput) context.Context {
+			log.Printf("[trace] %s/%s end", info.Component, info.Name)
+			return ctx
+		}).
+		OnErrorFn(func(ctx context.Context, info *callbacks.RunInfo, err error) context.Context {
+			log.Printf("[trace] %s/%s error: %v", info.Component, info.Name, err)
+			return ctx
+		}).Build()
 
-	
 	callbacks.AppendGlobalHandlers(handler)
-	
+
 	// 配制 CozeLoop 追踪
 	if cozeloopApiToken != "" && cozeloopWorkspaceID != "" {
 		client, err := cozeloop.NewClient(
@@ -83,7 +82,7 @@ func NewDeepAgent(ctx context.Context, model *openai.ChatModel, agentRoot string
 	}
 
 	// 创建自定义工具集
-	tools := InitTools(ctx, model)
+	tools := InitTools(ctx, model, includeDomainTools)
 	toolsConfig := adk.ToolsConfig{
 		ToolsNodeConfig: compose.ToolsNodeConfig{
 			Tools: tools,
@@ -127,25 +126,40 @@ func NewDeepAgent(ctx context.Context, model *openai.ChatModel, agentRoot string
 		}
 		handlers = append(handlers, skillMiddleware)
 	}
-	// 注册审批中间件和安全工具调用中间件
-	handlers = append(handlers, &component.ApprovalMiddleware{}, &component.SafeToolMiddleware{})
+	// 注册安全工具调用中间件
+	handlers = append(handlers, &component.SafeToolMiddleware{})
 
 	// 创建DeepAgent类型的Agent实例
+	effectiveName := agentName
+	if effectiveName == "" {
+		effectiveName = AmiyaName
+	}
+	effectiveDesc := agentDescription
+	if effectiveDesc == "" {
+		effectiveDesc = AmiyaDescription
+	}
+
+	instruction := systemPrompt
+	if instruction == "" {
+		instruction = AmiyaInstruction
+	}
+	instruction = instruction + "\n\n" + extInstruction
+
 	agentConfig := &deep.Config{
-		Name:           AmiyaName,
-		Description:    AmiyaDescription,
-		Instruction:    AmiyaInstruction + "\n\n" + extInstruction, // 将文件操作说明添加到系统提示词中
+		Name:           effectiveName,
+		Description:    effectiveDesc,
+		Instruction:    instruction,
 		ChatModel:      model,
 		ToolsConfig:    toolsConfig,
 		Backend:        backend, // 注入LocalBackend工具集
 		StreamingShell: backend, // 支持流式 Shell 输出
 		MaxIteration:   50,      // 最大思考/工具调用循环次数
 		// 注册中间件
-		Handlers:       handlers,
+		Handlers: handlers,
 		// 配置模型重试策略，处理速率限制错误
 		ModelRetryConfig: &adk.ModelRetryConfig{
 			MaxRetries: 5,
-			IsRetryAble: func (_ context.Context,err error) bool{
+			IsRetryAble: func(_ context.Context, err error) bool {
 				return strings.Contains(err.Error(), "429") ||
 					strings.Contains(err.Error(), "Too Many Requests") ||
 					strings.Contains(err.Error(), "qpm limit")
