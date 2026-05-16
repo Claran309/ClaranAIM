@@ -1,0 +1,5 @@
+./api_compat.go
+./conv.go
+./decode.go
+./error.go
+./impl.go

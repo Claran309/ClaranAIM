@@ -1,0 +1,13 @@
+./builder.go
+./countrycode_to_region_bin.go
+./insertablebuffer.go
+./matcher.go
+./metadata_bin.go
+./metadata_util.go
+./phonemetadata.pb.go
+./phonenumber.pb.go
+./phonenumbers.go
+./prefix_to_carriers_bin.go
+./prefix_to_geocodings_bin.go
+./prefix_to_timezone_bin.go
+./serialize.go

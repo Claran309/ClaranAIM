@@ -161,11 +161,15 @@ func (h *BotServiceImpl) GetBilling(ctx context.Context, req *bot.GetBillingReq)
 	var billingList []*bot.BillingRecord
 	for _, r := range records {
 		billingList = append(billingList, &bot.BillingRecord{
-			Id:        r.ID,
-			BotId:     r.BotID,
-			UserId:    r.UserID,
-			Cost:      r.Cost,
-			CreatedAt: r.CreatedAt.Format("2006-01-02 15:04:05"),
+			Id:             r.ID,
+			BotId:          r.BotID,
+			UserId:         r.UserID,
+			ConversationId: r.ConversationID,
+			InputTokens:    r.InputTokens,
+			OutputTokens:   r.OutputTokens,
+			Cost:           r.Cost,
+			ModelName:      r.ModelName,
+			CreatedAt:      r.CreatedAt.Format("2006-01-02 15:04:05"),
 		})
 	}
 	return &bot.GetBillingResp{Success: true, Records: billingList, Total: total}, nil

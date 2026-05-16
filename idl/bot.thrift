@@ -95,8 +95,10 @@ struct ChatWithBotReq {
 struct ChatWithBotResp {
     1: bool success
     2: string reply
-    3: i64 conversation_id
-    4: string msg
+    3: i64 input_tokens
+    4: i64 output_tokens
+    5: double cost
+    6: string msg
 }
 
 struct CreateRouteReq {
@@ -152,10 +154,12 @@ struct BillingRecord {
     1: i64 id
     2: i64 bot_id
     3: i64 user_id
-    4: string action
-    5: i64 token_count
-    6: double cost
-    7: string created_at
+    4: i64 conversation_id
+    5: i64 input_tokens
+    6: i64 output_tokens
+    7: double cost
+    8: string model_name
+    9: string created_at
 }
 
 struct GetBillingResp {

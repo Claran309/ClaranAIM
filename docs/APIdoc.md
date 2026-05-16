@@ -752,6 +752,7 @@
 | ---------------- | -------- | -- | -------------------------------- |
 | type             | string   | 是  | 会话类型：`private`(私聊) / `group`(群聊) |
 | participant_ids  | []int64  | 是  | 参与者用户ID列表（至少2人）                  |
+| group_id         | int64    | 群聊必填 | 群ID，群聊会话用于和 group-service 对齐成员关系 |
 
 请求示例：
 
@@ -779,7 +780,7 @@
 核心逻辑：
 
 - 私聊去重：如果两人已有私聊会话，直接返回已有会话ID
-- 群聊不去重，每次创建新会话
+- 群聊按 group_id 复用会话，并同步新增成员到 conversation_participants 表
 - 创建会话后添加所有参与者到 conversation_participants 表
 - 清除所有参与者的会话列表缓存
 
@@ -791,19 +792,25 @@
 
 需要认证。
 
-| 参数               | 类型     | 必填 | 说明                           |
-| ---------------- | ------ | -- | ---------------------------- |
-| conversation_id  | int64  | 是  | 会话ID                         |
-| content          | string | 是  | 消息内容                         |
-| msg_type         | string | 否  | 消息类型，默认 `text`，可选 `image`/`voice`/`file` |
+| 参数               | 类型       | 必填 | 说明                           |
+| ---------------- | -------- | -- | ---------------------------- |
+| conversation_id  | int64    | 是  | 会话ID                         |
+| content          | string   | 是  | 消息内容                         |
+| msg_type         | string   | 否  | 默认 `text`，可选 `image`/`voice`/`file`/`broadcast` |
+| reply_to_id      | int64    | 否  | 被引用/回复的消息ID                  |
+| mention_user_ids | []int64  | 否  | @ 的用户ID列表                     |
+| mention_all      | bool     | 否  | 是否 @ 所有人                      |
 
 请求示例（文本消息）：
 
 ```json
 {
   "conversation_id": 1,
-  "content": "你好！",
-  "msg_type": "text"
+  "content": "@2 收到，我回复这条",
+  "msg_type": "text",
+  "reply_to_id": 41,
+  "mention_user_ids": [2],
+  "mention_all": false
 }
 ```
 
@@ -812,7 +819,7 @@
 ```json
 {
   "conversation_id": 1,
-  "content": "[img]http://localhost:9000/claran-files/image/abc123.jpg[/img]",
+  "content": "[img]%2Ffiles%2Fimage%2Fabc123.png|file-id|abc123.png[/img]",
   "msg_type": "image"
 }
 ```
@@ -822,7 +829,7 @@
 ```json
 {
   "conversation_id": 1,
-  "content": "[file]项目文档.pdf[/file]",
+  "content": "[file]%2Ffiles%2Ffile%2Fdoc.pdf|file-id|项目文档.pdf[/file]",
   "msg_type": "file"
 }
 ```
@@ -832,7 +839,7 @@
 ```json
 {
   "conversation_id": 1,
-  "content": "[voice]语音消息.amr[/voice]",
+  "content": "[voice]%2Ffiles%2Fvoice%2Fvoice.webm|file-id|00:03 voice.webm[/voice]",
   "msg_type": "voice"
 }
 ```
@@ -855,15 +862,73 @@
 核心逻辑（完整流程）：
 
 1. 校验消息内容非空 + 会话存在
-2. 消息写入 MySQL（messages 表）
-3. 更新会话的 updated_at 为消息创建时间
-4. 缓存最近消息到 Redis（key: `conversation:recent:{id}`，TTL 10min）
-5. 清除所有参与者的会话列表缓存
-6. **WebSocket 实时推送**：获取会话所有参与者ID → 调用 pushClient.PushMessage() → websocket-gateway 的 `/push` API → Hub.Broadcast() → 所有在线参与者浏览器实时收到消息
+2. 校验发送者是会话参与者；群聊会额外校验群成员与禁言状态
+3. 如果 reply_to_id > 0，校验引用消息属于当前会话
+4. 消息写入 MySQL（messages 表），包含 reply_to_id、status、mention_user_ids、mention_all
+5. 更新会话的 updated_at 为消息创建时间
+6. 缓存最近消息到 Redis（key: `conversation:recent:{id}`，TTL 10min）
+7. 清除所有参与者的会话列表缓存
+8. **WebSocket 实时推送**：获取会话所有参与者ID → 调用 pushClient.PushMessage() → websocket-gateway 的 `/push` API → Hub.Broadcast() → 所有在线参与者浏览器实时收到消息
 
 ***
 
-### 3.3 获取消息历史
+### 3.3 标记会话已读
+
+**POST** `/message/read`
+
+需要认证。
+
+| 参数              | 类型    | 必填 | 说明                         |
+| ---------------- | ----- | -- | ---------------------------- |
+| conversation_id  | int64 | 是  | 会话ID                       |
+| message_id       | int64 | 否  | 已读到的消息ID；为空时默认最新消息 |
+
+请求示例：
+
+```json
+{
+  "conversation_id": 1,
+  "message_id": 42
+}
+```
+
+核心逻辑：
+
+- 更新 conversation_participants 的 `last_read_message_id` 和 `last_read_at`
+- 会话列表的 unread_count 基于该游标计算
+
+***
+
+### 3.4 编辑消息
+
+**PUT** `/message/edit`
+
+需要认证。仅消息发送者可编辑，已撤回消息不能编辑。
+
+| 参数       | 类型     | 必填 | 说明     |
+| ---------- | ------ | -- | -------- |
+| message_id | int64  | 是  | 消息ID   |
+| content    | string | 是  | 新消息内容 |
+
+编辑成功后写入 `message_edit_records`，并通过 WebSocket 推送 `message_edited`。
+
+***
+
+### 3.5 撤回消息
+
+**POST** `/message/recall`
+
+需要认证。仅消息发送者可撤回，默认限时 2 分钟。
+
+| 参数       | 类型    | 必填 | 说明   |
+| ---------- | ----- | -- | ------ |
+| message_id | int64 | 是  | 消息ID |
+
+撤回成功后消息 `status` 更新为 `recalled`，正文清空，并通过 WebSocket 推送 `message_recalled`。
+
+***
+
+### 3.6 获取消息历史
 
 **GET** `/message/history/:id`
 
@@ -892,6 +957,12 @@
         "sender_id": 1,
         "content": "你好！",
         "msg_type": "text",
+        "reply_to_id": 0,
+        "status": "sent",
+        "is_edited": false,
+        "edited_at": "",
+        "mention_user_ids": [],
+        "mention_all": false,
         "created_at": "2026-05-11 23:15:30"
       }
     ]
@@ -906,7 +977,7 @@
 
 ***
 
-### 3.4 搜索消息
+### 3.7 搜索消息
 
 **GET** `/message/search`
 
@@ -917,16 +988,19 @@
 | keyword         | string | 是  | 搜索关键词                 |
 | conversation_id | int64  | 否  | 会话ID，指定后仅在当前会话搜索     |
 | limit           | int64  | 否  | 返回条数，默认 20            |
+| start_at        | string | 否  | 起始时间，支持 `YYYY-MM-DD`、`YYYY-MM-DD HH:mm:ss`、RFC3339 |
+| end_at          | string | 否  | 结束时间，格式同 start_at     |
 
 核心逻辑：
 
 - 指定 conversation_id 时仅搜索该会话的消息
 - 未指定时搜索用户所在所有会话的消息
+- start_at/end_at 用于时间范围过滤
 - 使用 MySQL LIKE 模糊匹配
 
 ***
 
-### 3.5 获取用户会话列表
+### 3.8 获取用户会话列表
 
 **GET** `/message/conversations`
 
@@ -945,7 +1019,12 @@
         "conversation_id": 1,
         "type": "private",
         "last_message": "你好！",
-        "last_message_time": "2026-05-11 23:15:30"
+        "last_message_time": "2026-05-11 23:15:30",
+        "unread_count": 0,
+        "participant_ids": [1, 2],
+        "last_sender_id": 1,
+        "group_id": 0,
+        "is_deleted_group": false
       }
     ]
   }
@@ -956,6 +1035,7 @@
 
 - 优先从 Redis 缓存读取（key: `user:conversations:{id}`，TTL 5min）
 - 查询用户参与的所有会话，附带最后一条消息
+- 群聊已解散时保留会话项并标记 `is_deleted_group=true`
 
 ***
 
@@ -1735,7 +1815,7 @@ curl -X POST http://localhost:8080/api/v1/file/upload \
 | api-gateway         | 8080 | HTTP      | API 网关     |
 | websocket-gateway   | 8081 | HTTP/WS   | WebSocket 网关 |
 | MinIO               | 9000 | HTTP      | 对象存储       |
-| MinIO Console       | 9001 | HTTP      | MinIO 管理界面 |
+| MinIO Console       | 9009 | HTTP      | MinIO 管理界面 |
 | MySQL               | 3306 | TCP       | 数据库        |
 | Redis               | 6379 | TCP       | 缓存         |
 | Etcd                | 2379 | gRPC      | 服务注册与发现    |

@@ -13,6 +13,7 @@ type UploadFileReq struct {
 	FileSize    int64  `thrift:"file_size,3" frugal:"3,default,i64" json:"file_size"`
 	ContentType string `thrift:"content_type,4" frugal:"4,default,string" json:"content_type"`
 	UploaderId  int64  `thrift:"uploader_id,5" frugal:"5,default,i64" json:"uploader_id"`
+	FileUrl     string `thrift:"file_url,6" frugal:"6,default,string" json:"file_url"`
 }
 
 func NewUploadFileReq() *UploadFileReq {
@@ -41,6 +42,10 @@ func (p *UploadFileReq) GetContentType() (v string) {
 func (p *UploadFileReq) GetUploaderId() (v int64) {
 	return p.UploaderId
 }
+
+func (p *UploadFileReq) GetFileUrl() (v string) {
+	return p.FileUrl
+}
 func (p *UploadFileReq) SetFileName(val string) {
 	p.FileName = val
 }
@@ -56,6 +61,9 @@ func (p *UploadFileReq) SetContentType(val string) {
 func (p *UploadFileReq) SetUploaderId(val int64) {
 	p.UploaderId = val
 }
+func (p *UploadFileReq) SetFileUrl(val string) {
+	p.FileUrl = val
+}
 
 func (p *UploadFileReq) String() string {
 	if p == nil {
@@ -70,6 +78,7 @@ var fieldIDToName_UploadFileReq = map[int16]string{
 	3: "file_size",
 	4: "content_type",
 	5: "uploader_id",
+	6: "file_url",
 }
 
 type UploadFileResp struct {

@@ -6,6 +6,7 @@ struct UploadFileReq {
     3: i64 file_size
     4: string content_type
     5: i64 uploader_id
+    6: string file_url
 }
 
 struct UploadFileResp {

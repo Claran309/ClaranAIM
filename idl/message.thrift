@@ -15,6 +15,12 @@ struct Message {
     4: string content
     5: string msg_type
     6: string created_at
+    7: i64 reply_to_id
+    8: string status
+    9: bool is_edited
+    10: string edited_at
+    11: list<i64> mention_user_ids
+    12: bool mention_all
 }
 
 struct CreateConversationReq {
@@ -54,6 +60,7 @@ struct UserConversationInfo {
     8: list<i64> participant_ids
     9: i64 last_sender_id
     10: i64 group_id
+    11: bool is_deleted_group
 }
 
 struct GetUserConversationsResp {
@@ -67,6 +74,9 @@ struct SendMessageReq {
     2: i64 sender_id
     3: string content
     4: string msg_type
+    5: i64 reply_to_id
+    6: list<i64> mention_user_ids
+    7: bool mention_all
 }
 
 struct SendMessageResp {
@@ -94,6 +104,8 @@ struct SearchMessagesReq {
     2: list<i64> conversation_ids
     3: string keyword
     4: i64 limit
+    5: string start_at
+    6: string end_at
 }
 
 struct SearchMessagesResp {
@@ -112,12 +124,48 @@ struct GetConversationParticipantsResp {
     3: string msg
 }
 
+struct MarkConversationReadReq {
+    1: i64 conversation_id
+    2: i64 user_id
+    3: i64 message_id
+}
+
+struct MarkConversationReadResp {
+    1: bool success
+    2: string msg
+}
+
+struct EditMessageReq {
+    1: i64 message_id
+    2: i64 editor_id
+    3: string content
+}
+
+struct EditMessageResp {
+    1: bool success
+    2: Message message
+    3: string msg
+}
+
+struct RecallMessageReq {
+    1: i64 message_id
+    2: i64 operator_id
+}
+
+struct RecallMessageResp {
+    1: bool success
+    2: string msg
+}
+
 // 消息核心服务
 service MessageService {
     CreateConversationResp CreateConversation(1: CreateConversationReq req)
     GetConversationResp GetConversation(1: GetConversationReq req)
     GetUserConversationsResp GetUserConversations(1: GetUserConversationsReq req)
     SendMessageResp SendMessage(1: SendMessageReq req)
+    MarkConversationReadResp MarkConversationRead(1: MarkConversationReadReq req)
+    EditMessageResp EditMessage(1: EditMessageReq req)
+    RecallMessageResp RecallMessage(1: RecallMessageReq req)
     GetHistoryResp GetHistory(1: GetHistoryReq req)
     SearchMessagesResp SearchMessages(1: SearchMessagesReq req)
     GetConversationParticipantsResp GetConversationParticipants(1: GetConversationParticipantsReq req)

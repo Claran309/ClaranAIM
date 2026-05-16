@@ -15,6 +15,9 @@ type Client interface {
 	GetConversation(ctx context.Context, req *message.GetConversationReq, callOptions ...callopt.Option) (r *message.GetConversationResp, err error)
 	GetUserConversations(ctx context.Context, req *message.GetUserConversationsReq, callOptions ...callopt.Option) (r *message.GetUserConversationsResp, err error)
 	SendMessage(ctx context.Context, req *message.SendMessageReq, callOptions ...callopt.Option) (r *message.SendMessageResp, err error)
+	MarkConversationRead(ctx context.Context, req *message.MarkConversationReadReq, callOptions ...callopt.Option) (r *message.MarkConversationReadResp, err error)
+	EditMessage(ctx context.Context, req *message.EditMessageReq, callOptions ...callopt.Option) (r *message.EditMessageResp, err error)
+	RecallMessage(ctx context.Context, req *message.RecallMessageReq, callOptions ...callopt.Option) (r *message.RecallMessageResp, err error)
 	GetHistory(ctx context.Context, req *message.GetHistoryReq, callOptions ...callopt.Option) (r *message.GetHistoryResp, err error)
 	SearchMessages(ctx context.Context, req *message.SearchMessagesReq, callOptions ...callopt.Option) (r *message.SearchMessagesResp, err error)
 	GetConversationParticipants(ctx context.Context, req *message.GetConversationParticipantsReq, callOptions ...callopt.Option) (r *message.GetConversationParticipantsResp, err error)
@@ -67,6 +70,21 @@ func (p *kMessageServiceClient) GetUserConversations(ctx context.Context, req *m
 func (p *kMessageServiceClient) SendMessage(ctx context.Context, req *message.SendMessageReq, callOptions ...callopt.Option) (r *message.SendMessageResp, err error) {
 	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
 	return p.kClient.SendMessage(ctx, req)
+}
+
+func (p *kMessageServiceClient) MarkConversationRead(ctx context.Context, req *message.MarkConversationReadReq, callOptions ...callopt.Option) (r *message.MarkConversationReadResp, err error) {
+	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
+	return p.kClient.MarkConversationRead(ctx, req)
+}
+
+func (p *kMessageServiceClient) EditMessage(ctx context.Context, req *message.EditMessageReq, callOptions ...callopt.Option) (r *message.EditMessageResp, err error) {
+	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
+	return p.kClient.EditMessage(ctx, req)
+}
+
+func (p *kMessageServiceClient) RecallMessage(ctx context.Context, req *message.RecallMessageReq, callOptions ...callopt.Option) (r *message.RecallMessageResp, err error) {
+	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
+	return p.kClient.RecallMessage(ctx, req)
 }
 
 func (p *kMessageServiceClient) GetHistory(ctx context.Context, req *message.GetHistoryReq, callOptions ...callopt.Option) (r *message.GetHistoryResp, err error) {

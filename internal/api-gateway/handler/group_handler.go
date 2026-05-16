@@ -106,6 +106,17 @@ func (h *GroupHandler) InviteMember(ctx context.Context, c *app.RequestContext) 
 		response.Error(c, err.Error())
 		return
 	}
+	if resp.Success {
+		if membersResp, membersErr := client.GroupClient.GetGroupMembers(ctx, client.NewGetGroupMembersReq(req.GroupID)); membersErr == nil && membersResp.Success {
+			memberIDs := make([]int64, 0, len(membersResp.Members))
+			for _, m := range membersResp.Members {
+				memberIDs = append(memberIDs, m.UserId)
+			}
+			if len(memberIDs) >= 2 {
+				_, _ = client.MessageClient.CreateConversation(ctx, client.NewCreateConversationReq("group", memberIDs, req.GroupID))
+			}
+		}
+	}
 	response.Success(c, resp)
 }
 
@@ -141,7 +152,34 @@ func (h *GroupHandler) GetGroupMembers(ctx context.Context, c *app.RequestContex
 		response.Error(c, err.Error())
 		return
 	}
-	response.Success(c, resp)
+	if resp == nil || !resp.Success {
+		response.Success(c, resp)
+		return
+	}
+
+	members := make([]map[string]interface{}, 0, len(resp.Members))
+	for _, m := range resp.Members {
+		item := map[string]interface{}{
+			"id":          m.Id,
+			"group_id":    m.GroupId,
+			"user_id":     m.UserId,
+			"role":        m.Role,
+			"muted_until": m.MutedUntil,
+			"joined_at":   m.JoinedAt,
+		}
+		if userResp, userErr := client.UserClient.GetUserInfo(ctx, client.NewGetUserInfoReq(m.UserId)); userErr == nil && userResp != nil && userResp.Success && userResp.User != nil {
+			item["username"] = userResp.User.Username
+			item["nickname"] = userResp.User.Nickname
+			item["avatar"] = userResp.User.Avatar
+		}
+		members = append(members, item)
+	}
+
+	response.Success(c, map[string]interface{}{
+		"success": true,
+		"members": members,
+		"msg":     resp.Msg,
+	})
 }
 
 func (h *GroupHandler) TransferOwner(ctx context.Context, c *app.RequestContext) {

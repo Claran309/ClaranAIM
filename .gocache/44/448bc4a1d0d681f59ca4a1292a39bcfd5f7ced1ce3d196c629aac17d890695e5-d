@@ -1,0 +1,10 @@
+./AST-extend-category.go
+./AST-extend.go
+./AST.go
+./circle_detect.go
+./const.go
+./iterator.go
+./keyword_detect.go
+./parser.go
+./thrift.peg.go
+./util.go

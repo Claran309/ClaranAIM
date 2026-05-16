@@ -59,13 +59,19 @@ func main() {
 		var pushReq struct {
 			TargetUserIDs []int64 `json:"target_user_ids"`
 			Data          struct {
-				Type           string `json:"type"`
-				ConversationID int64  `json:"conversation_id"`
-				SenderID       int64  `json:"sender_id"`
-				Content        string `json:"content"`
-				MsgType        string `json:"msg_type"`
-				MsgID          int64  `json:"msg_id"`
-				CreatedAt      string `json:"created_at"`
+				Type           string  `json:"type"`
+				ConversationID int64   `json:"conversation_id"`
+				SenderID       int64   `json:"sender_id"`
+				Content        string  `json:"content"`
+				MsgType        string  `json:"msg_type"`
+				MsgID          int64   `json:"msg_id"`
+				CreatedAt      string  `json:"created_at"`
+				ReplyToID      int64   `json:"reply_to_id"`
+				Status         string  `json:"status"`
+				IsEdited       bool    `json:"is_edited"`
+				EditedAt       string  `json:"edited_at"`
+				MentionUserIDs []int64 `json:"mention_user_ids"`
+				MentionAll     bool    `json:"mention_all"`
 			} `json:"data"`
 		}
 

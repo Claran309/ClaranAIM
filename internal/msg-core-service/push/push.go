@@ -35,13 +35,19 @@ type PushMessage struct {
 // MessageData 推送消息数据
 // 包含消息的完整信息，用于前端展示新消息通知
 type MessageData struct {
-	Type           string `json:"type"`            // 消息类型标识：new_message(新消息)
-	ConversationID int64  `json:"conversation_id"` // 所属会话ID
-	SenderID       int64  `json:"sender_id"`       // 发送者用户ID
-	Content        string `json:"content"`         // 消息内容
-	MsgType        string `json:"msg_type"`        // 消息类型：text/image等
-	MsgID          int64  `json:"msg_id"`          // 消息ID
-	CreatedAt      string `json:"created_at"`      // 发送时间
+	Type           string  `json:"type"`             // 消息类型标识：new_message/message_edited/message_recalled
+	ConversationID int64   `json:"conversation_id"`  // 所属会话ID
+	SenderID       int64   `json:"sender_id"`        // 发送者用户ID
+	Content        string  `json:"content"`          // 消息内容
+	MsgType        string  `json:"msg_type"`         // 消息类型：text/image等
+	MsgID          int64   `json:"msg_id"`           // 消息ID
+	CreatedAt      string  `json:"created_at"`       // 发送时间
+	ReplyToID      int64   `json:"reply_to_id"`      // 引用消息ID
+	Status         string  `json:"status"`           // sent/recalled
+	IsEdited       bool    `json:"is_edited"`        // 是否编辑过
+	EditedAt       string  `json:"edited_at"`        // 编辑时间
+	MentionUserIDs []int64 `json:"mention_user_ids"` // @用户列表
+	MentionAll     bool    `json:"mention_all"`      // 是否 @所有人
 }
 
 // PushMessage 向 websocket-gateway 推送消息

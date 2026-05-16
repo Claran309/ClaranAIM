@@ -1,0 +1,5 @@
+./config.go
+./option.go
+./register_option.go
+./remote_option_windows.go
+./streamx_config.go

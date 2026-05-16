@@ -151,7 +151,7 @@ func (h *UserServiceImpl) GetFriendList(ctx context.Context, req *user.GetFriend
 
 // UpdateFriendRemark 更新好友备注 RPC 方法
 func (h *UserServiceImpl) UpdateFriendRemark(ctx context.Context, req *user.UpdateFriendRemarkReq) (resp *user.UpdateFriendRemarkResp, err error) {
-	err = h.svc.UpdateFriendRemark(ctx, req.UserId, req.FriendId, 0, req.Remark)
+	err = h.svc.UpdateFriendRemark(ctx, req.UserId, req.FriendId, req.GroupId, req.Remark)
 	if err != nil {
 		return &user.UpdateFriendRemarkResp{Success: false, Msg: err.Error()}, nil
 	}

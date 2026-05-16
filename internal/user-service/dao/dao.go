@@ -13,8 +13,8 @@ import (
 )
 
 // InitDB 初始化数据库连接并自动迁移表结构
-// 开发阶段使用 DropTable + AutoMigrate 策略：先删后建
-// 生产环境应使用增量迁移工具（如 golang-migrate）
+// AutoMigrate 只做非破坏性迁移，避免服务重启清空已有数据。
+// 生产环境复杂变更应使用增量迁移工具（如 golang-migrate）。
 func InitDB(dsn string) (*gorm.DB, error) {
 	db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{})
 	if err != nil {
@@ -28,13 +28,7 @@ func InitDB(dsn string) (*gorm.DB, error) {
 		&model.FriendGroup{},
 	}
 
-	// 开发阶段：先删除已有表，再根据模型重新建表
 	for _, m := range models {
-		if db.Migrator().HasTable(m) {
-			if err := db.Migrator().DropTable(m); err != nil {
-				return nil, err
-			}
-		}
 		if err := db.AutoMigrate(m); err != nil {
 			return nil, err
 		}

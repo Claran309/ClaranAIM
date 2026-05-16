@@ -4,6 +4,7 @@ import (
 	"ClaranAIM/internal/file-service/service"
 	"ClaranAIM/kitex_gen/file"
 	"context"
+	"errors"
 )
 
 type FileServiceImpl struct {
@@ -15,7 +16,19 @@ func NewFileServiceImpl(svc service.FileService) file.FileService {
 }
 
 func (h *FileServiceImpl) UploadFile(ctx context.Context, req *file.UploadFileReq) (resp *file.UploadFileResp, err error) {
-	record, err := h.svc.UploadFile(ctx, req.FileName, req.FileType, req.FileSize, req.ContentType, req.UploaderId, nil)
+	if req == nil {
+		return &file.UploadFileResp{Success: false, Msg: "upload request is nil"}, nil
+	}
+	if h.svc == nil {
+		return &file.UploadFileResp{Success: false, Msg: "file service is not initialized"}, nil
+	}
+	if req.FileName == "" {
+		return &file.UploadFileResp{Success: false, Msg: "file name is required"}, nil
+	}
+	if req.FileUrl == "" {
+		return &file.UploadFileResp{Success: false, Msg: "file url is required"}, nil
+	}
+	record, err := h.svc.SaveFileRecord(ctx, req.FileName, req.FileType, req.FileSize, req.ContentType, req.FileUrl, req.UploaderId)
 	if err != nil {
 		return &file.UploadFileResp{Success: false, Msg: err.Error()}, nil
 	}
@@ -23,11 +36,17 @@ func (h *FileServiceImpl) UploadFile(ctx context.Context, req *file.UploadFileRe
 		Success: true,
 		FileUrl: record.FileURL,
 		FileId:  record.FileID,
-		Msg:     "上传成功",
+		Msg:     "保存成功",
 	}, nil
 }
 
 func (h *FileServiceImpl) GetFile(ctx context.Context, req *file.GetFileReq) (resp *file.GetFileResp, err error) {
+	if req == nil {
+		return &file.GetFileResp{Success: false, Msg: "get file request is nil"}, nil
+	}
+	if h.svc == nil {
+		return &file.GetFileResp{Success: false, Msg: "file service is not initialized"}, nil
+	}
 	record, err := h.svc.GetFile(ctx, req.FileId)
 	if err != nil {
 		return &file.GetFileResp{Success: false, Msg: err.Error()}, nil
@@ -44,6 +63,15 @@ func (h *FileServiceImpl) GetFile(ctx context.Context, req *file.GetFileReq) (re
 }
 
 func (h *FileServiceImpl) DeleteFile(ctx context.Context, req *file.DeleteFileReq) (resp *file.DeleteFileResp, err error) {
+	if req == nil {
+		return &file.DeleteFileResp{Success: false, Msg: "delete file request is nil"}, nil
+	}
+	if h.svc == nil {
+		return &file.DeleteFileResp{Success: false, Msg: "file service is not initialized"}, nil
+	}
+	if req.FileId == "" {
+		return &file.DeleteFileResp{Success: false, Msg: errors.New("file id is required").Error()}, nil
+	}
 	err = h.svc.DeleteFile(ctx, req.FileId, req.OperatorId)
 	if err != nil {
 		return &file.DeleteFileResp{Success: false, Msg: err.Error()}, nil
@@ -52,6 +80,12 @@ func (h *FileServiceImpl) DeleteFile(ctx context.Context, req *file.DeleteFileRe
 }
 
 func (h *FileServiceImpl) ListFiles(ctx context.Context, req *file.ListFilesReq) (resp *file.ListFilesResp, err error) {
+	if req == nil {
+		return &file.ListFilesResp{Success: false, Msg: "list files request is nil"}, nil
+	}
+	if h.svc == nil {
+		return &file.ListFilesResp{Success: false, Msg: "file service is not initialized"}, nil
+	}
 	limit := req.Limit
 	offset := req.Offset
 	if limit <= 0 {

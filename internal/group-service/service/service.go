@@ -288,7 +288,12 @@ func (s *groupServiceImpl) MuteMember(ctx context.Context, groupID, operatorID, 
 	}
 
 	mutedUntil := time.Now().Add(time.Duration(durationMinutes) * time.Minute)
-	return s.repo.UpdateMuteStatus(ctx, groupID, userID, &mutedUntil)
+	if err := s.repo.UpdateMuteStatus(ctx, groupID, userID, &mutedUntil); err != nil {
+		return err
+	}
+
+	s.invalidateGroupMembersCache(ctx, groupID)
+	return nil
 }
 
 // SetRole 设置群组成员角色
@@ -307,11 +312,24 @@ func (s *groupServiceImpl) SetRole(ctx context.Context, groupID, operatorID, use
 		return errors.New("只有群主才能设置角色")
 	}
 
-	return s.repo.UpdateMemberRole(ctx, groupID, userID, role)
+	if err := s.repo.UpdateMemberRole(ctx, groupID, userID, role); err != nil {
+		return err
+	}
+
+	s.invalidateGroupMembersCache(ctx, groupID)
+	return nil
 }
 
 // GetGroupMembers 获取群组成员列表
 func (s *groupServiceImpl) GetGroupMembers(ctx context.Context, groupID int64) ([]model.GroupMember, error) {
+	group, err := s.repo.GetGroupByID(ctx, groupID)
+	if err != nil {
+		return nil, err
+	}
+	if group == nil {
+		return nil, errors.New("群组不存在")
+	}
+
 	if s.redis != nil {
 		cacheKey := fmt.Sprintf("group:members:%d", groupID)
 		var cached []model.GroupMember
@@ -337,6 +355,14 @@ func (s *groupServiceImpl) GetGroupMembers(ctx context.Context, groupID int64) (
 // CheckMember 检查用户是否为群组成员，并返回其角色
 // 返回值：(是否成员, 角色, 错误)
 func (s *groupServiceImpl) CheckMember(ctx context.Context, groupID, userID int64) (bool, string, error) {
+	group, err := s.repo.GetGroupByID(ctx, groupID)
+	if err != nil {
+		return false, "", err
+	}
+	if group == nil {
+		return false, "", errors.New("群组不存在")
+	}
+
 	member, err := s.repo.GetMember(ctx, groupID, userID)
 	if err != nil {
 		return false, "", err
@@ -382,6 +408,8 @@ func (s *groupServiceImpl) TransferOwner(ctx context.Context, groupID, operatorI
 
 	s.invalidateGroupCache(ctx, groupID)
 	s.invalidateGroupMembersCache(ctx, groupID)
+	s.invalidateUserGroupsCache(ctx, operatorID)
+	s.invalidateUserGroupsCache(ctx, newOwnerID)
 
 	return nil
 }
@@ -396,7 +424,12 @@ func (s *groupServiceImpl) UnmuteMember(ctx context.Context, groupID, operatorID
 	if member == nil || (member.Role != "owner" && member.Role != "admin") {
 		return errors.New("权限不足")
 	}
-	return s.repo.UpdateMuteStatus(ctx, groupID, userID, nil)
+	if err := s.repo.UpdateMuteStatus(ctx, groupID, userID, nil); err != nil {
+		return err
+	}
+
+	s.invalidateGroupMembersCache(ctx, groupID)
+	return nil
 }
 
 // PinGroup 置顶/取消置顶群组

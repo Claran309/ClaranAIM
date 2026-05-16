@@ -113,6 +113,10 @@ func NewDeleteFriendReq(userID, friendID int64) *user.DeleteFriendReq {
 	return &user.DeleteFriendReq{UserId: userID, FriendId: friendID}
 }
 
+func NewUpdateFriendRemarkReq(userID, friendID, groupID int64, remark string) *user.UpdateFriendRemarkReq {
+	return &user.UpdateFriendRemarkReq{UserId: userID, FriendId: friendID, Remark: remark, GroupId: groupID}
+}
+
 func NewGetFriendListReq(userID int64) *user.GetFriendListReq {
 	return &user.GetFriendListReq{UserId: userID}
 }
@@ -182,7 +186,19 @@ func NewCreateConversationReq(convType string, participantIDs []int64, groupID i
 }
 
 func NewSendMessageReq(conversationID, senderID int64, content, msgType string) *message.SendMessageReq {
-	return &message.SendMessageReq{ConversationId: conversationID, SenderId: senderID, Content: content, MsgType: msgType}
+	return NewSendMessageExtReq(conversationID, senderID, content, msgType, 0, nil, false)
+}
+
+func NewSendMessageExtReq(conversationID, senderID int64, content, msgType string, replyToID int64, mentionUserIDs []int64, mentionAll bool) *message.SendMessageReq {
+	return &message.SendMessageReq{
+		ConversationId:  conversationID,
+		SenderId:        senderID,
+		Content:         content,
+		MsgType:         msgType,
+		ReplyToId:       replyToID,
+		MentionUserIds:  mentionUserIDs,
+		MentionAll:      mentionAll,
+	}
 }
 
 func NewGetHistoryReq(conversationID, userID, limit, beforeID int64) *message.GetHistoryReq {
@@ -197,8 +213,12 @@ func NewSearchMessagesInConvReq(conversationIDs []int64, keyword string, limit i
 	return &message.SearchMessagesReq{ConversationIds: conversationIDs, Keyword: keyword, Limit: limit}
 }
 
-func NewUploadFileReq(fileName, fileType string, fileSize int64, contentType string, uploaderID int64) *file.UploadFileReq {
-	return &file.UploadFileReq{FileName: fileName, FileType: fileType, FileSize: fileSize, ContentType: contentType, UploaderId: uploaderID}
+func NewSearchMessagesAdvancedReq(userID int64, conversationIDs []int64, keyword string, limit int64, startAt, endAt string) *message.SearchMessagesReq {
+	return &message.SearchMessagesReq{UserId: userID, ConversationIds: conversationIDs, Keyword: keyword, Limit: limit, StartAt: startAt, EndAt: endAt}
+}
+
+func NewUploadFileReq(fileName, fileType string, fileSize int64, contentType, fileURL string, uploaderID int64) *file.UploadFileReq {
+	return &file.UploadFileReq{FileName: fileName, FileType: fileType, FileSize: fileSize, ContentType: contentType, FileUrl: fileURL, UploaderId: uploaderID}
 }
 
 func NewGetFileReq(fileID string) *file.GetFileReq {
