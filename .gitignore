@@ -1,0 +1,7 @@
+.env
+.cph
+tmp.go
+SessionStore/*
+!SessionStore/5e6b3a7e-8a35-40dc-9a48-4c1ba0cce4fc.jsonl.example
+ChatHistoryWithAI.md
+.gocache
