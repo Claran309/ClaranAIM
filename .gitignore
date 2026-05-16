@@ -1,4 +1,5 @@
 .env
+.gitignore
 .cph
 tmp.go
 SessionStore/*
