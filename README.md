@@ -30,14 +30,14 @@ ClaranAIM/
 │   ├── msg-history-service/       # 历史消息查询
 │   ├── file-service/              # 文件元数据、MinIO/本地存储
 │   └── bot-manager-service/       # Bot 配置、Agent、工具、记忆、计费
-├── pkg/                           # 公共包：配置、JWT、Redis、日志、响应等
+├── pkg/                           # 公共包：配置、JWT、Redis、日志、响应、事件总线等
 ├── kitex_gen/                     # Kitex/Thrift 生成代码
 ├── idl/                           # Thrift IDL 定义
 ├── config/                        # 各服务配置
 ├── dist/                          # 前端静态文件
 ├── docs/                          # 项目文档
 ├── scripts/                       # 启动与代码生成脚本
-├── docker-compose.yaml            # MySQL、Redis、Etcd&MinIO
+├── docker-compose.yaml            # MySQL、Redis、Etcd、MinIO、Kafka、DTM
 └── README.md
 ```
 
@@ -57,18 +57,21 @@ scripts\start.bat
 # 4. 打开前端
 # 浏览器打开 dist/index.html
 ```
- 
-## 注意事项
-
-- 缓存逻辑主要集成在 service 层，而不是 DAO 层。
-- 文件二进制存储在本地目录或 MinIO，消息表只保存媒体引用。
-- 群成员关系由 group-service 管理，消息推送目标由 msg-core-service 的 conversation_participants 管理。
-- Agent 能力未来应拆分为管理面 bot-manager-service 和执行面 bot-runtime-service。
 
 ## to fix list
 
 - 暂无
 
+
 ## future to fix
 
+- 管理层
+- 文本翻译功能：需要查询相应api或用llm
+- 多端消息同步怎么实现？
+- 离线推送与上线同步怎么实现？
+- 消息本地存储与云端漫游是否实现？怎么实现？
+- 审核机制：针对图片视频等媒体，将这些文件放入管理层的特定页面，由管理人员负责统一验收等
+
 - 把bot更改作为用户实例，创建后可以正常加好友（有特殊id）和邀请群聊。可以在私聊/群聊里对话，记忆机制等就像现在这样就行，也就是说不同机器人的记忆独立，对不同用户的记忆独立，但是同一机器人在不同会话中对同一用户的记忆保持
+- 添加表情包功能，可以把图片快速保存为表情包并快速发送
+- 搜索历史消息支持按时间搜索

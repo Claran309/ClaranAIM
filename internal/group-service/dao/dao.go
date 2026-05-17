@@ -4,6 +4,7 @@ package dao
 
 import (
 	"ClaranAIM/internal/group-service/model"
+	"ClaranAIM/pkg/outbox"
 	"context"
 	"errors"
 	"time"
@@ -29,6 +30,9 @@ func InitDB(dsn string) (*gorm.DB, error) {
 			return nil, err
 		}
 	}
+	if err := outbox.AutoMigrate(db); err != nil {
+		return nil, err
+	}
 
 	return db, nil
 }
@@ -48,6 +52,8 @@ type GroupRepository interface {
 	UpdateMuteStatus(ctx context.Context, groupID, userID int64, mutedUntil *time.Time) error
 	UpdateOwner(ctx context.Context, groupID, newOwnerID int64) error
 	PinGroup(ctx context.Context, groupID int64, isPinned bool) error
+	WithTransaction(ctx context.Context, fn func(tx GroupRepository) error) error
+	SaveOutboxEvent(ctx context.Context, event outbox.Event) error
 }
 
 // groupRepositoryImpl 基于 GORM 的 GroupRepository 实现
@@ -58,6 +64,18 @@ type groupRepositoryImpl struct {
 // NewGroupRepo 创建 GroupRepository 实例
 func NewGroupRepo(db *gorm.DB) GroupRepository {
 	return &groupRepositoryImpl{db: db}
+}
+
+// WithTransaction executes group repository operations inside one DB transaction.
+func (r *groupRepositoryImpl) WithTransaction(ctx context.Context, fn func(tx GroupRepository) error) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		return fn(&groupRepositoryImpl{db: tx})
+	})
+}
+
+// SaveOutboxEvent stores a group-domain event for transactional outbox delivery.
+func (r *groupRepositoryImpl) SaveOutboxEvent(ctx context.Context, event outbox.Event) error {
+	return r.db.WithContext(ctx).Create(&event).Error
 }
 
 // CreateGroup 创建群组记录

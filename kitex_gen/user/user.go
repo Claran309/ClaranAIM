@@ -17,6 +17,14 @@ type User struct {
 	Status    string `thrift:"status,7" frugal:"7,default,string" json:"status"`
 	CreatedAt string `thrift:"created_at,8" frugal:"8,default,string" json:"created_at"`
 	UpdatedAt string `thrift:"updated_at,9" frugal:"9,default,string" json:"updated_at"`
+	Cover     string `thrift:"cover,10" frugal:"10,default,string" json:"cover"`
+	Signature string `thrift:"signature,11" frugal:"11,default,string" json:"signature"`
+	Bio       string `thrift:"bio,12" frugal:"12,default,string" json:"bio"`
+	Location  string `thrift:"location,13" frugal:"13,default,string" json:"location"`
+	Website   string `thrift:"website,14" frugal:"14,default,string" json:"website"`
+	Gender    string `thrift:"gender,15" frugal:"15,default,string" json:"gender"`
+	Birthday  string `thrift:"birthday,16" frugal:"16,default,string" json:"birthday"`
+	Role      string `thrift:"role,17" frugal:"17,default,string" json:"role"`
 }
 
 func NewUser() *User {
@@ -61,6 +69,37 @@ func (p *User) GetCreatedAt() (v string) {
 func (p *User) GetUpdatedAt() (v string) {
 	return p.UpdatedAt
 }
+
+func (p *User) GetCover() (v string) {
+	return p.Cover
+}
+
+func (p *User) GetSignature() (v string) {
+	return p.Signature
+}
+
+func (p *User) GetBio() (v string) {
+	return p.Bio
+}
+
+func (p *User) GetLocation() (v string) {
+	return p.Location
+}
+
+func (p *User) GetWebsite() (v string) {
+	return p.Website
+}
+
+func (p *User) GetGender() (v string) {
+	return p.Gender
+}
+
+func (p *User) GetBirthday() (v string) {
+	return p.Birthday
+}
+func (p *User) GetRole() (v string) {
+	return p.Role
+}
 func (p *User) SetId(val int64) {
 	p.Id = val
 }
@@ -88,6 +127,30 @@ func (p *User) SetCreatedAt(val string) {
 func (p *User) SetUpdatedAt(val string) {
 	p.UpdatedAt = val
 }
+func (p *User) SetCover(val string) {
+	p.Cover = val
+}
+func (p *User) SetSignature(val string) {
+	p.Signature = val
+}
+func (p *User) SetBio(val string) {
+	p.Bio = val
+}
+func (p *User) SetLocation(val string) {
+	p.Location = val
+}
+func (p *User) SetWebsite(val string) {
+	p.Website = val
+}
+func (p *User) SetGender(val string) {
+	p.Gender = val
+}
+func (p *User) SetBirthday(val string) {
+	p.Birthday = val
+}
+func (p *User) SetRole(val string) {
+	p.Role = val
+}
 
 func (p *User) String() string {
 	if p == nil {
@@ -97,15 +160,23 @@ func (p *User) String() string {
 }
 
 var fieldIDToName_User = map[int16]string{
-	1: "id",
-	2: "username",
-	3: "nickname",
-	4: "avatar",
-	5: "email",
-	6: "phone",
-	7: "status",
-	8: "created_at",
-	9: "updated_at",
+	1:  "id",
+	2:  "username",
+	3:  "nickname",
+	4:  "avatar",
+	5:  "email",
+	6:  "phone",
+	7:  "status",
+	8:  "created_at",
+	9:  "updated_at",
+	10: "cover",
+	11: "signature",
+	12: "bio",
+	13: "location",
+	14: "website",
+	15: "gender",
+	16: "birthday",
+	17: "role",
 }
 
 type RegisterReq struct {
@@ -241,10 +312,13 @@ var fieldIDToName_LoginReq = map[int16]string{
 }
 
 type LoginResp struct {
-	Success bool   `thrift:"success,1" frugal:"1,default,bool" json:"success"`
-	Token   string `thrift:"token,2" frugal:"2,default,string" json:"token"`
-	UserId  int64  `thrift:"user_id,3" frugal:"3,default,i64" json:"user_id"`
-	Msg     string `thrift:"msg,4" frugal:"4,default,string" json:"msg"`
+	Success      bool   `thrift:"success,1" frugal:"1,default,bool" json:"success"`
+	Token        string `thrift:"token,2" frugal:"2,default,string" json:"token"`
+	UserId       int64  `thrift:"user_id,3" frugal:"3,default,i64" json:"user_id"`
+	Msg          string `thrift:"msg,4" frugal:"4,default,string" json:"msg"`
+	AccessToken  string `thrift:"access_token,5" frugal:"5,default,string" json:"access_token"`
+	RefreshToken string `thrift:"refresh_token,6" frugal:"6,default,string" json:"refresh_token"`
+	Role         string `thrift:"role,7" frugal:"7,default,string" json:"role"`
 }
 
 func NewLoginResp() *LoginResp {
@@ -269,6 +343,15 @@ func (p *LoginResp) GetUserId() (v int64) {
 func (p *LoginResp) GetMsg() (v string) {
 	return p.Msg
 }
+func (p *LoginResp) GetAccessToken() (v string) {
+	return p.AccessToken
+}
+func (p *LoginResp) GetRefreshToken() (v string) {
+	return p.RefreshToken
+}
+func (p *LoginResp) GetRole() (v string) {
+	return p.Role
+}
 func (p *LoginResp) SetSuccess(val bool) {
 	p.Success = val
 }
@@ -280,6 +363,15 @@ func (p *LoginResp) SetUserId(val int64) {
 }
 func (p *LoginResp) SetMsg(val string) {
 	p.Msg = val
+}
+func (p *LoginResp) SetAccessToken(val string) {
+	p.AccessToken = val
+}
+func (p *LoginResp) SetRefreshToken(val string) {
+	p.RefreshToken = val
+}
+func (p *LoginResp) SetRole(val string) {
+	p.Role = val
 }
 
 func (p *LoginResp) String() string {
@@ -294,6 +386,9 @@ var fieldIDToName_LoginResp = map[int16]string{
 	2: "token",
 	3: "user_id",
 	4: "msg",
+	5: "access_token",
+	6: "refresh_token",
+	7: "role",
 }
 
 type GetUserInfoReq struct {
@@ -382,10 +477,19 @@ var fieldIDToName_GetUserInfoResp = map[int16]string{
 }
 
 type UpdateUserInfoReq struct {
-	UserId   int64  `thrift:"user_id,1" frugal:"1,default,i64" json:"user_id"`
-	Nickname string `thrift:"nickname,2" frugal:"2,default,string" json:"nickname"`
-	Email    string `thrift:"email,3" frugal:"3,default,string" json:"email"`
-	Phone    string `thrift:"phone,4" frugal:"4,default,string" json:"phone"`
+	UserId     int64  `thrift:"user_id,1" frugal:"1,default,i64" json:"user_id"`
+	Nickname   string `thrift:"nickname,2" frugal:"2,default,string" json:"nickname"`
+	Email      string `thrift:"email,3" frugal:"3,default,string" json:"email"`
+	Phone      string `thrift:"phone,4" frugal:"4,default,string" json:"phone"`
+	Avatar     string `thrift:"avatar,5" frugal:"5,default,string" json:"avatar"`
+	Cover      string `thrift:"cover,6" frugal:"6,default,string" json:"cover"`
+	Signature  string `thrift:"signature,7" frugal:"7,default,string" json:"signature"`
+	Bio        string `thrift:"bio,8" frugal:"8,default,string" json:"bio"`
+	Location   string `thrift:"location,9" frugal:"9,default,string" json:"location"`
+	Website    string `thrift:"website,10" frugal:"10,default,string" json:"website"`
+	Gender     string `thrift:"gender,11" frugal:"11,default,string" json:"gender"`
+	Birthday   string `thrift:"birthday,12" frugal:"12,default,string" json:"birthday"`
+	FullUpdate bool   `thrift:"full_update,13" frugal:"13,default,bool" json:"full_update"`
 }
 
 func NewUpdateUserInfoReq() *UpdateUserInfoReq {
@@ -410,6 +514,42 @@ func (p *UpdateUserInfoReq) GetEmail() (v string) {
 func (p *UpdateUserInfoReq) GetPhone() (v string) {
 	return p.Phone
 }
+
+func (p *UpdateUserInfoReq) GetAvatar() (v string) {
+	return p.Avatar
+}
+
+func (p *UpdateUserInfoReq) GetCover() (v string) {
+	return p.Cover
+}
+
+func (p *UpdateUserInfoReq) GetSignature() (v string) {
+	return p.Signature
+}
+
+func (p *UpdateUserInfoReq) GetBio() (v string) {
+	return p.Bio
+}
+
+func (p *UpdateUserInfoReq) GetLocation() (v string) {
+	return p.Location
+}
+
+func (p *UpdateUserInfoReq) GetWebsite() (v string) {
+	return p.Website
+}
+
+func (p *UpdateUserInfoReq) GetGender() (v string) {
+	return p.Gender
+}
+
+func (p *UpdateUserInfoReq) GetBirthday() (v string) {
+	return p.Birthday
+}
+
+func (p *UpdateUserInfoReq) GetFullUpdate() (v bool) {
+	return p.FullUpdate
+}
 func (p *UpdateUserInfoReq) SetUserId(val int64) {
 	p.UserId = val
 }
@@ -422,6 +562,33 @@ func (p *UpdateUserInfoReq) SetEmail(val string) {
 func (p *UpdateUserInfoReq) SetPhone(val string) {
 	p.Phone = val
 }
+func (p *UpdateUserInfoReq) SetAvatar(val string) {
+	p.Avatar = val
+}
+func (p *UpdateUserInfoReq) SetCover(val string) {
+	p.Cover = val
+}
+func (p *UpdateUserInfoReq) SetSignature(val string) {
+	p.Signature = val
+}
+func (p *UpdateUserInfoReq) SetBio(val string) {
+	p.Bio = val
+}
+func (p *UpdateUserInfoReq) SetLocation(val string) {
+	p.Location = val
+}
+func (p *UpdateUserInfoReq) SetWebsite(val string) {
+	p.Website = val
+}
+func (p *UpdateUserInfoReq) SetGender(val string) {
+	p.Gender = val
+}
+func (p *UpdateUserInfoReq) SetBirthday(val string) {
+	p.Birthday = val
+}
+func (p *UpdateUserInfoReq) SetFullUpdate(val bool) {
+	p.FullUpdate = val
+}
 
 func (p *UpdateUserInfoReq) String() string {
 	if p == nil {
@@ -431,10 +598,19 @@ func (p *UpdateUserInfoReq) String() string {
 }
 
 var fieldIDToName_UpdateUserInfoReq = map[int16]string{
-	1: "user_id",
-	2: "nickname",
-	3: "email",
-	4: "phone",
+	1:  "user_id",
+	2:  "nickname",
+	3:  "email",
+	4:  "phone",
+	5:  "avatar",
+	6:  "cover",
+	7:  "signature",
+	8:  "bio",
+	9:  "location",
+	10: "website",
+	11: "gender",
+	12: "birthday",
+	13: "full_update",
 }
 
 type UpdateUserInfoResp struct {

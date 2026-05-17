@@ -21,16 +21,19 @@ import (
 	"github.com/cloudwego/eino-examples/compose/batch/batch"
 )
 
+// WebSearchInput 是联网搜索工具的输入参数。
 type WebSearchInput struct {
 	Query string `json:"query" jsonschema:"description=需要搜索的问题或关键词"`
 }
 
+// WebSearchOutput 是联网搜索工具返回给模型的结构化结果。
 type WebSearchOutput struct {
 	Answer     string   `json:"answer"`
 	Sources    []string `json:"sources"`
 	SearchTime string   `json:"search_time"`
 }
 
+// SearchResult 表示搜索引擎返回的一条候选网页。
 type SearchResult struct {
 	Title   string `json:"title"`
 	Link    string `json:"link"`
@@ -62,6 +65,10 @@ type scoredPage struct {
 	Score int
 }
 
+// BuildWebSearchTool 构建 Eino 可调用的联网搜索 GraphTool。
+//
+// 工具内部流程是：搜索候选网页 -> 并发抓取页面 -> 调用模型打分和摘要 ->
+// 综合生成带来源的答案。外层 agent 只看到一个普通工具调用接口。
 func BuildWebSearchTool(ctx context.Context, cm model.BaseChatModel) (tool.BaseTool, error) {
 	wf := buildWebSearchWorkflow(cm)
 	return graphtool.NewInvokableGraphTool[WebSearchInput, WebSearchOutput](

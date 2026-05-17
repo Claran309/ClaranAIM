@@ -4,20 +4,31 @@
 package handler
 
 import (
+	"ClaranAIM/internal/user-service/model"
 	"ClaranAIM/internal/user-service/service"
 	"ClaranAIM/kitex_gen/user"
 	"context"
 )
 
 var (
-	jwtSecret     string // JWT 签名密钥，由 main.go 通过 InitJWTConfig 注入
-	jwtExpiration int64  // JWT 过期时间（小时），由 main.go 通过 InitJWTConfig 注入
+	jwtSecret            string
+	jwtAccessExpiration  int64
+	jwtRefreshExpiration int64
 )
 
 // InitJWTConfig 初始化 JWT 配置，在服务启动时调用
 func InitJWTConfig(secret string, expiration int64) {
+	InitJWTConfigWithRefresh(secret, expiration, 0)
+}
+
+// InitJWTConfigWithRefresh 初始化 access token 与 refresh token 的签发配置。
+//
+// user-service 登录接口签发 token 时会使用这里保存的密钥和有效期；refreshExpiration
+// 为 0 时由 jwt 包内的默认刷新 token 有效期兜底。
+func InitJWTConfigWithRefresh(secret string, accessExpiration, refreshExpiration int64) {
 	jwtSecret = secret
-	jwtExpiration = expiration
+	jwtAccessExpiration = accessExpiration
+	jwtRefreshExpiration = refreshExpiration
 }
 
 // UserServiceImpl 实现 Kitex 生成的 user.UserService 接口
@@ -44,11 +55,19 @@ func (h *UserServiceImpl) Register(ctx context.Context, req *user.RegisterReq) (
 // Login 用户登录 RPC 方法
 // 流程：校验参数 → Service 登录（bcrypt 校验 + 生成 JWT + 更新在线状态 + 缓存）→ 返回 Token
 func (h *UserServiceImpl) Login(ctx context.Context, req *user.LoginReq) (resp *user.LoginResp, err error) {
-	token, u, err := h.svc.Login(ctx, req.Username, req.Password, jwtSecret, jwtExpiration)
+	tokens, u, err := h.svc.Login(ctx, req.Username, req.Password, jwtSecret, jwtAccessExpiration, jwtRefreshExpiration)
 	if err != nil {
 		return &user.LoginResp{Success: false, Msg: err.Error()}, nil
 	}
-	return &user.LoginResp{Success: true, Token: token, UserId: u.ID, Msg: "登录成功"}, nil
+	return &user.LoginResp{
+		Success:      true,
+		Token:        tokens.AccessToken,
+		AccessToken:  tokens.AccessToken,
+		RefreshToken: tokens.RefreshToken,
+		UserId:       u.ID,
+		Role:         u.Role,
+		Msg:          "登录成功",
+	}, nil
 }
 
 // GetUserInfo 获取用户信息 RPC 方法
@@ -60,24 +79,27 @@ func (h *UserServiceImpl) GetUserInfo(ctx context.Context, req *user.GetUserInfo
 	}
 	return &user.GetUserInfoResp{
 		Success: true,
-		User: &user.User{
-			Id:        u.ID,
-			Username:  u.Username,
-			Nickname:  u.Nickname,
-			Avatar:    u.Avatar,
-			Email:     u.Email,
-			Phone:     u.Phone,
-			Status:    u.Status,
-			CreatedAt: u.CreatedAt.Format("2006-01-02 15:04:05"),
-			UpdatedAt: u.UpdatedAt.Format("2006-01-02 15:04:05"),
-		},
+		User:    toRPCUser(*u),
 	}, nil
 }
 
 // UpdateUserInfo 更新用户信息 RPC 方法
 // 只更新非空字段，更新后刷新 Redis 缓存
 func (h *UserServiceImpl) UpdateUserInfo(ctx context.Context, req *user.UpdateUserInfoReq) (resp *user.UpdateUserInfoResp, err error) {
-	err = h.svc.UpdateUserInfo(ctx, req.UserId, req.Nickname, req.Email, req.Phone)
+	err = h.svc.UpdateUserInfo(ctx, req.UserId, service.UserProfileUpdate{
+		Nickname:   req.Nickname,
+		Email:      req.Email,
+		Phone:      req.Phone,
+		Avatar:     req.Avatar,
+		Cover:      req.Cover,
+		Signature:  req.Signature,
+		Bio:        req.Bio,
+		Location:   req.Location,
+		Website:    req.Website,
+		Gender:     req.Gender,
+		Birthday:   req.Birthday,
+		FullUpdate: req.FullUpdate,
+	})
 	if err != nil {
 		return &user.UpdateUserInfoResp{Success: false, Msg: err.Error()}, nil
 	}
@@ -204,17 +226,29 @@ func (h *UserServiceImpl) BatchGetUserInfo(ctx context.Context, req *user.BatchG
 
 	var userList []*user.User
 	for _, u := range users {
-		userList = append(userList, &user.User{
-			Id:        u.ID,
-			Username:  u.Username,
-			Nickname:  u.Nickname,
-			Avatar:    u.Avatar,
-			Email:     u.Email,
-			Phone:     u.Phone,
-			Status:    u.Status,
-			CreatedAt: u.CreatedAt.Format("2006-01-02 15:04:05"),
-			UpdatedAt: u.UpdatedAt.Format("2006-01-02 15:04:05"),
-		})
+		userList = append(userList, toRPCUser(u))
 	}
 	return &user.BatchGetUserInfoResp{Success: true, Users: userList}, nil
+}
+
+func toRPCUser(u model.User) *user.User {
+	return &user.User{
+		Id:        u.ID,
+		Username:  u.Username,
+		Nickname:  u.Nickname,
+		Avatar:    u.Avatar,
+		Email:     u.Email,
+		Phone:     u.Phone,
+		Role:      u.Role,
+		Status:    u.Status,
+		CreatedAt: u.CreatedAt.Format("2006-01-02 15:04:05"),
+		UpdatedAt: u.UpdatedAt.Format("2006-01-02 15:04:05"),
+		Cover:     u.Cover,
+		Signature: u.Signature,
+		Bio:       u.Bio,
+		Location:  u.Location,
+		Website:   u.Website,
+		Gender:    u.Gender,
+		Birthday:  u.Birthday,
+	}
 }

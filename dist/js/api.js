@@ -1,7 +1,26 @@
 const API_BASE = 'http://localhost:8080/api/v1';
 const WS_BASE = 'ws://localhost:8081/ws';
+const API_LOG_KEY = 'claran_frontend_logs';
+const API_LOG_LIMIT = 500;
+
+function apiLocalLog(level, message, details = null) {
+    const entry = {
+        time: new Date().toISOString(),
+        level,
+        message: String(message || ''),
+        details
+    };
+    try {
+        const logs = JSON.parse(localStorage.getItem(API_LOG_KEY) || '[]');
+        logs.push(entry);
+        localStorage.setItem(API_LOG_KEY, JSON.stringify(logs.slice(-API_LOG_LIMIT)));
+    } catch (err) {
+        console.warn('写入API本地日志失败:', err);
+    }
+}
 
 let token = localStorage.getItem('claran_token') || '';
+let refreshToken = localStorage.getItem('claran_refresh_token') || '';
 let currentUser = JSON.parse(localStorage.getItem('claran_user') || 'null');
 let currentConversationID = null;
 let currentConversationType = '';
@@ -16,6 +35,11 @@ let userNickCache = {};
 let userAvatarCache = {};
 let friendRemarkCache = {};
 let conversationNameCache = {};
+let refreshPromise = null;
+
+function parseJSONSafeInt(text) {
+    return JSON.parse(text.replace(/:\s*(-?\d{16,})(?=[,}\]])/g, ':"$1"'));
+}
 
 if (currentUser && currentUser.id) {
     userNickCache[currentUser.id] = currentUser.nickname || currentUser.username;
@@ -25,7 +49,65 @@ function saveUnreadMap() {
     localStorage.setItem('claran_unread', JSON.stringify(unreadMap));
 }
 
-async function request(method, path, data = null, auth = true) {
+function saveAuthTokens(accessToken, nextRefreshToken) {
+    if (accessToken) {
+        token = accessToken;
+        localStorage.setItem('claran_token', token);
+    }
+    if (nextRefreshToken !== undefined) {
+        refreshToken = nextRefreshToken || '';
+        if (refreshToken) {
+            localStorage.setItem('claran_refresh_token', refreshToken);
+        } else {
+            localStorage.removeItem('claran_refresh_token');
+        }
+    }
+}
+
+function clearAuthTokens() {
+    token = '';
+    refreshToken = '';
+    localStorage.removeItem('claran_token');
+    localStorage.removeItem('claran_refresh_token');
+}
+
+async function refreshAccessToken() {
+    if (!refreshToken) return false;
+    if (refreshPromise) return refreshPromise;
+    refreshPromise = (async () => {
+        try {
+            const resp = await fetch(`${API_BASE}/user/token/refresh`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ refresh_token: refreshToken }),
+            });
+            const text = await resp.text();
+            const result = text ? parseJSONSafeInt(text) : null;
+            const accessToken = result?.data?.access_token || result?.data?.token || '';
+            if (resp.ok && result?.code === 0 && accessToken) {
+                saveAuthTokens(accessToken, refreshToken);
+                return true;
+            }
+        } catch (err) {
+            console.warn('刷新Token失败:', err);
+        }
+        clearAuthTokens();
+        return false;
+    })();
+    try {
+        return await refreshPromise;
+    } finally {
+        refreshPromise = null;
+    }
+}
+
+function authHeaders(extra = {}) {
+    const headers = { ...extra };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    return headers;
+}
+
+async function requestOnce(method, path, data = null, auth = true) {
     const headers = { 'Content-Type': 'application/json' };
     if (auth && token) {
         headers['Authorization'] = `Bearer ${token}`;
@@ -34,14 +116,42 @@ async function request(method, path, data = null, auth = true) {
     if (data && method !== 'GET') {
         options.body = JSON.stringify(data);
     }
+    apiLocalLog('info', 'HTTP请求', { method, path, auth });
+    const resp = await fetch(`${API_BASE}${path}`, options);
+    const text = await resp.text();
+    const result = text ? parseJSONSafeInt(text) : null;
+    if (!resp.ok || result?.code !== 0) {
+        apiLocalLog('warn', 'HTTP响应异常', {
+            method,
+            path,
+            status: resp.status,
+            code: result?.code,
+            message: result?.message || result?.data?.msg || ''
+        });
+    }
+    return result;
+}
+
+async function request(method, path, data = null, auth = true) {
     try {
-        const resp = await fetch(`${API_BASE}${path}`, options);
-        const result = await resp.json();
+        let result = await requestOnce(method, path, data, auth);
+        if (auth && result?.code === 401 && path !== '/user/token/refresh' && await refreshAccessToken()) {
+            result = await requestOnce(method, path, data, auth);
+        }
         return result;
     } catch (err) {
+        apiLocalLog('error', 'HTTP请求失败', { method, path, message: err.message, stack: err.stack || '' });
         showToast('网络请求失败: ' + err.message, 'error');
         return null;
     }
+}
+
+function apiID(value) {
+    return value === undefined || value === null || value === '' ? 0 : String(value);
+}
+
+function apiIDs(values) {
+    return (values || []).map(apiID);
 }
 
 const userAPI = {
@@ -49,18 +159,20 @@ const userAPI = {
         request('POST', '/user/register', { username, password, nickname }, false),
     login: (username, password) =>
         request('POST', '/user/login', { username, password }, false),
+    refreshToken: () =>
+        request('POST', '/user/token/refresh', { refresh_token: refreshToken }, false),
     getInfo: () => request('GET', '/user/info'),
-    updateInfo: (nickname, email, phone) =>
-        request('PUT', '/user/info', { nickname, email, phone }),
+    updateInfo: (profile) =>
+        request('PUT', '/user/info', profile),
     updateAvatar: (avatar) =>
         request('POST', '/user/avatar', { avatar }),
     logout: () => request('POST', '/user/logout'),
     addFriend: (friendID, groupID, remark) =>
-        request('POST', '/user/friend/add', { friend_id: friendID, group_id: groupID || 0, remark: remark || '' }),
+        request('POST', '/user/friend/add', { friend_id: apiID(friendID), group_id: apiID(groupID || 0), remark: remark || '' }),
     deleteFriend: (friendID) =>
-        request('POST', '/user/friend/delete', { friend_id: friendID }),
+        request('POST', '/user/friend/delete', { friend_id: apiID(friendID) }),
     updateFriendRemark: (friendID, groupID, remark) =>
-        request('PUT', '/user/friend/remark', { friend_id: friendID, group_id: groupID || 0, remark: remark || '' }),
+        request('PUT', '/user/friend/remark', { friend_id: apiID(friendID), group_id: apiID(groupID || 0), remark: remark || '' }),
     getFriendList: () => request('GET', '/user/friend/list'),
     getFriendGroups: () => request('GET', '/user/friend/groups'),
     batchGetInfo: (ids) => request('GET', `/user/batch?ids=${ids.join(',')}`),
@@ -68,48 +180,48 @@ const userAPI = {
 
 const groupAPI = {
     create: (name, memberIDs) =>
-        request('POST', '/group/create', { name, member_ids: memberIDs }),
+        request('POST', '/group/create', { name, member_ids: apiIDs(memberIDs) }),
     get: (id) => request('GET', `/group/${id}`),
     list: () => request('GET', '/group/list'),
     invite: (groupID, userIDs) =>
-        request('POST', '/group/invite', { group_id: groupID, user_ids: userIDs }),
+        request('POST', '/group/invite', { group_id: apiID(groupID), user_ids: apiIDs(userIDs) }),
     kick: (groupID, userID) =>
-        request('POST', '/group/kick', { group_id: groupID, user_id: userID }),
+        request('POST', '/group/kick', { group_id: apiID(groupID), user_id: apiID(userID) }),
     getMembers: (id) => request('GET', `/group/${id}/members`),
     transfer: (groupID, newOwnerID) =>
-        request('POST', '/group/transfer', { group_id: groupID, new_owner_id: newOwnerID }),
+        request('POST', '/group/transfer', { group_id: apiID(groupID), new_owner_id: apiID(newOwnerID) }),
     updateInfo: (groupID, name, announcement) =>
-        request('PUT', '/group/info', { group_id: groupID, name, announcement }),
+        request('PUT', '/group/info', { group_id: apiID(groupID), name, announcement }),
     pin: (groupID, isPinned) =>
-        request('POST', '/group/pin', { group_id: groupID, is_pinned: isPinned }),
+        request('POST', '/group/pin', { group_id: apiID(groupID), is_pinned: isPinned }),
     mute: (groupID, userID, durationMinutes) =>
-        request('POST', '/group/mute', { group_id: groupID, user_id: userID, duration_minutes: durationMinutes }),
+        request('POST', '/group/mute', { group_id: apiID(groupID), user_id: apiID(userID), duration_minutes: durationMinutes }),
     unmute: (groupID, userID) =>
-        request('POST', '/group/unmute', { group_id: groupID, user_id: userID }),
+        request('POST', '/group/unmute', { group_id: apiID(groupID), user_id: apiID(userID) }),
     setRole: (groupID, userID, role) =>
-        request('POST', '/group/role', { group_id: groupID, user_id: userID, role }),
+        request('POST', '/group/role', { group_id: apiID(groupID), user_id: apiID(userID), role }),
     deleteGroup: (groupID) =>
-        request('POST', '/group/delete', { group_id: groupID }),
+        request('POST', '/group/delete', { group_id: apiID(groupID) }),
 };
 
 const messageAPI = {
     createConversation: (type, participantIDs, groupID = 0) =>
-        request('POST', '/message/conversation', { type, participant_ids: participantIDs, group_id: groupID }),
+        request('POST', '/message/conversation', { type, participant_ids: apiIDs(participantIDs), group_id: apiID(groupID) }),
     send: (conversationID, content, msgType = 'text', options = {}) =>
         request('POST', '/message/send', {
-            conversation_id: conversationID,
+            conversation_id: apiID(conversationID),
             content,
             msg_type: msgType,
-            reply_to_id: options.reply_to_id || 0,
-            mention_user_ids: options.mention_user_ids || [],
+            reply_to_id: apiID(options.reply_to_id || 0),
+            mention_user_ids: (options.mention_user_ids || []).map(apiID),
             mention_all: !!options.mention_all,
         }),
     markRead: (conversationID, messageID = 0) =>
-        request('POST', '/message/read', { conversation_id: conversationID, message_id: messageID }),
+        request('POST', '/message/read', { conversation_id: apiID(conversationID), message_id: apiID(messageID) }),
     edit: (messageID, content) =>
-        request('PUT', '/message/edit', { message_id: messageID, content }),
+        request('PUT', '/message/edit', { message_id: apiID(messageID), content }),
     recall: (messageID) =>
-        request('POST', '/message/recall', { message_id: messageID }),
+        request('POST', '/message/recall', { message_id: apiID(messageID) }),
     getHistory: (conversationID, limit = 50, beforeID = 0) =>
         request('GET', `/message/history/${conversationID}?limit=${limit}&before_id=${beforeID}`),
     search: (keyword, conversationID = 0, limit = 20, startAt = '', endAt = '') =>
@@ -122,43 +234,51 @@ const fileAPI = {
         const formData = new FormData();
         formData.append('file', file);
         formData.append('file_type', fileType);
-        const headers = {};
-        if (token) headers['Authorization'] = `Bearer ${token}`;
+        const uploadOnce = () => fetch(`${API_BASE}/file/upload`, {
+            method: 'POST',
+            headers: authHeaders(),
+            body: formData,
+        });
         try {
-            const resp = await fetch(`${API_BASE}/file/upload`, {
-                method: 'POST',
-                headers,
-                body: formData,
-            });
+            apiLocalLog('info', '文件上传请求', { fileType, filename: file && file.name, size: file && file.size });
+            let resp = await uploadOnce();
+            if (resp.status === 401 && await refreshAccessToken()) {
+                resp = await uploadOnce();
+            }
             if (!resp.ok) {
                 const text = await resp.text();
                 let errMsg = '上传失败';
-                try { errMsg = JSON.parse(text).message || errMsg; } catch(e) {}
+                try { errMsg = parseJSONSafeInt(text).message || errMsg; } catch(e) {}
+                apiLocalLog('warn', '文件上传响应异常', { status: resp.status, message: errMsg });
                 showToast('文件上传失败: ' + errMsg, 'error');
                 return null;
             }
-            const result = await resp.json();
+            const result = parseJSONSafeInt(await resp.text());
             if (result.code !== 0) {
+                apiLocalLog('warn', '文件上传业务失败', { code: result.code, message: result.message || '' });
                 showToast('文件上传失败: ' + (result.message || '未知错误'), 'error');
                 return result;
             }
             return result;
         } catch (err) {
+            apiLocalLog('error', '文件上传网络错误', { message: err.message, stack: err.stack || '' });
             showToast('文件上传网络错误: ' + err.message, 'error');
             return null;
         }
     },
     get: (id) => request('GET', `/file/${id}`),
-    previewURL: (id) => `${API_BASE}/file/download/${id}`,
+    previewURL: (id) => `http://localhost:8080/file/preview/${id}`,
     downloadURL: (id) => `${API_BASE}/file/download/${id}`,
     fetchBlob: async (id) => {
-        const headers = {};
-        if (token) headers['Authorization'] = `Bearer ${token}`;
-        const resp = await fetch(`${API_BASE}/file/download/${id}`, { headers });
+        const downloadOnce = () => fetch(`${API_BASE}/file/download/${id}`, { headers: authHeaders() });
+        let resp = await downloadOnce();
+        if (resp.status === 401 && await refreshAccessToken()) {
+            resp = await downloadOnce();
+        }
         if (!resp.ok) {
             let errMsg = '文件加载失败';
             try {
-                const result = await resp.json();
+                const result = parseJSONSafeInt(await resp.text());
                 errMsg = result.message || errMsg;
             } catch (e) {}
             throw new Error(errMsg);
@@ -174,21 +294,24 @@ const botAPI = {
     create: (name, type, description, modelName, apiKey, baseURL, systemPrompt, skillsDir, agentRoot) =>
         request('POST', '/bot/create', { name, type, description, model_name: modelName, api_key: apiKey, base_url: baseURL, system_prompt: systemPrompt, skills_dir: skillsDir, agent_root: agentRoot }),
     update: (botID, data) =>
-        request('PUT', '/bot/update', { bot_id: botID, ...data }),
+        request('PUT', '/bot/update', { bot_id: apiID(botID), ...data }),
     get: (id) => request('GET', `/bot/${id}`),
     list: (type = '') => request('GET', `/bot/list?type=${type}`),
-    delete: (botID) => request('DELETE', '/bot/delete', { bot_id: botID }),
+    delete: (botID) => request('DELETE', '/bot/delete', { bot_id: apiID(botID) }),
     chat: (botID, message, conversationID = 0) =>
-        request('POST', '/bot/chat', { bot_id: botID, message, conversation_id: conversationID }),
+        request('POST', '/bot/chat', { bot_id: apiID(botID), message, conversation_id: apiID(conversationID) }),
     createRoute: (botID, routePattern, routeType, priority) =>
-        request('POST', '/bot/route/create', { bot_id: botID, route_pattern: routePattern, route_type: routeType, priority }),
+        request('POST', '/bot/route/create', { bot_id: apiID(botID), route_pattern: routePattern, route_type: routeType, priority }),
     listRoutes: (botID) => request('GET', `/bot/${botID}/routes`),
-    deleteRoute: (routeID) => request('DELETE', '/bot/route/delete', { route_id: routeID }),
+    deleteRoute: (routeID) => request('DELETE', '/bot/route/delete', { route_id: apiID(routeID) }),
     getBilling: (botID, limit = 20, offset = 0) =>
         request('GET', `/bot/${botID}/billing?limit=${limit}&offset=${offset}`),
 };
 
-function connectWS() {
+async function connectWS() {
+    if (!token && refreshToken) {
+        await refreshAccessToken();
+    }
     if (!token) return;
     if (ws) {
         ws.close();
@@ -207,7 +330,7 @@ function connectWS() {
 
     ws.onmessage = (event) => {
         try {
-            const msg = JSON.parse(event.data);
+            const msg = parseJSONSafeInt(event.data);
             handleWSMessage(msg);
         } catch (e) {
             console.log('收到消息:', event.data);
@@ -246,6 +369,8 @@ function handleWSMessage(msg) {
     } else if ((msg.type === 'message_edited' || msg.type === 'message_recalled') && msg.data) {
         applyMessageStateUpdate(msg.data);
         loadConversations();
+    } else if (msg.type === 'message_read' && msg.data) {
+        updateMessageReadReceipt(msg.data);
     }
 }
 

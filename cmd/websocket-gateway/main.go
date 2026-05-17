@@ -1,10 +1,13 @@
 package main
 
 import (
+	"ClaranAIM/internal/websocket-gateway/eventconsumer"
 	"ClaranAIM/internal/websocket-gateway/handler"
 	"ClaranAIM/internal/websocket-gateway/hub"
 	"ClaranAIM/pkg/cache/redis"
 	"ClaranAIM/pkg/config"
+	"ClaranAIM/pkg/eventbus"
+	"ClaranAIM/pkg/events"
 	"ClaranAIM/pkg/health"
 	"ClaranAIM/pkg/jwt"
 	"ClaranAIM/pkg/logger"
@@ -42,6 +45,13 @@ func main() {
 	wsHandler := handler.NewWSHandler(h, redisClient)
 
 	http.Handle("/ws", wsHandler)
+
+	if cfg.Kafka.Enabled && len(cfg.Kafka.Brokers) > 0 {
+		consumer := eventbus.NewKafkaConsumer(cfg.Kafka.Brokers, events.TopicMessageEvents, "websocket-gateway")
+		defer consumer.Close()
+		eventconsumer.StartMessageEventConsumer(context.Background(), consumer, h)
+		logger.Info("Kafka消息事件消费已启用", "topic", events.TopicMessageEvents)
+	}
 
 	http.HandleFunc("/push", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -142,7 +152,7 @@ func syncOnlineStatusToRedis(redisClient *redis.RedisClient, h *hub.Hub) {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		ids := h.GetOnlineUserIDs()
 		for _, uid := range ids {
-			redisClient.Set(ctx, "online:user:"+strconv.FormatInt(uid, 10), "1", 30*time.Second)
+			redisClient.SetWithJitter(ctx, "online:user:"+strconv.FormatInt(uid, 10), "1", 30*time.Second, 5*time.Second)
 		}
 		cancel()
 	}

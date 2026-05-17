@@ -1,3 +1,4 @@
+// Package health contains simple startup health checks and service banner logs.
 package health
 
 import (
@@ -10,6 +11,7 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+// CheckMySQL verifies that MySQL is reachable and logs server version when available.
 func CheckMySQL(db *sql.DB, serviceName string) bool {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -28,6 +30,7 @@ func CheckMySQL(db *sql.DB, serviceName string) bool {
 	return true
 }
 
+// CheckRedis verifies that Redis is reachable.
 func CheckRedis(rdb *redis.Client, serviceName string) bool {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -47,17 +50,21 @@ func CheckRedis(rdb *redis.Client, serviceName string) bool {
 	return true
 }
 
+// CheckEtcd logs configured Etcd endpoints. Kitex service registration performs
+// the real connectivity check during service startup.
 func CheckEtcd(endpoints []string, serviceName string) bool {
 	logger.Info("Etcd注册地址", "service", serviceName, "endpoints", fmt.Sprintf("%v", endpoints))
 	return true
 }
 
+// ServiceInfo describes one service for startup logging.
 type ServiceInfo struct {
 	Name    string
 	Version string
 	Port    string
 }
 
+// LogStartup writes a consistent service-start banner.
 func LogStartup(info ServiceInfo) {
 	logger.Info("========================================")
 	logger.Info("服务启动完成", "service", info.Name, "version", info.Version, "port", info.Port)

@@ -13,9 +13,120 @@ let mediaObjectURLs = {};
 let mediaPayloadCache = {};
 let currentMessages = [];
 let pendingReplyMessage = null;
+let currentConversationRecipientCount = 0;
+const LOCAL_LOG_KEY = 'claran_frontend_logs';
+const LOCAL_LOG_LIMIT = 500;
+
+function writeLocalLog(level, message, details = null) {
+    const entry = {
+        time: new Date().toISOString(),
+        level,
+        message: String(message || ''),
+        details
+    };
+    try {
+        const logs = JSON.parse(localStorage.getItem(LOCAL_LOG_KEY) || '[]');
+        logs.push(entry);
+        localStorage.setItem(LOCAL_LOG_KEY, JSON.stringify(logs.slice(-LOCAL_LOG_LIMIT)));
+    } catch (err) {
+        console.warn('写入本地日志失败:', err);
+    }
+    const consoleFn = level === 'error' ? console.error : (level === 'warn' ? console.warn : console.log);
+    consoleFn('[ClaranAIM]', entry.message, entry.details || '');
+}
+
+function readLocalLogs() {
+    try {
+        return JSON.parse(localStorage.getItem(LOCAL_LOG_KEY) || '[]');
+    } catch (err) {
+        return [];
+    }
+}
+
+function clearClaranLogs() {
+    localStorage.removeItem(LOCAL_LOG_KEY);
+    showToast('本地日志已清空', 'info');
+}
+
+function downloadClaranLogs() {
+    const logs = readLocalLogs();
+    const lines = logs.map(item => {
+        const details = item.details ? ` ${JSON.stringify(item.details)}` : '';
+        return `[${item.time}] [${item.level}] ${item.message}${details}`;
+    });
+    const blob = new Blob([lines.join('\n') || '暂无日志'], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `claran-frontend-${new Date().toISOString().replace(/[:.]/g, '-')}.log`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+window.downloadClaranLogs = downloadClaranLogs;
+window.clearClaranLogs = clearClaranLogs;
+
+window.addEventListener('error', event => {
+    writeLocalLog('error', '未捕获前端错误', {
+        message: event.message,
+        source: event.filename,
+        line: event.lineno,
+        column: event.colno,
+        stack: event.error && event.error.stack
+    });
+});
+
+window.addEventListener('unhandledrejection', event => {
+    const reason = event.reason || {};
+    writeLocalLog('error', '未处理Promise异常', {
+        message: reason.message || String(reason),
+        stack: reason.stack || ''
+    });
+});
+
+document.addEventListener('click', event => {
+    const target = event.target.closest('button,[onclick],a');
+    if (!target) return;
+    writeLocalLog('info', '点击元素', {
+        tag: target.tagName,
+        text: (target.textContent || '').trim().slice(0, 80),
+        id: target.id || '',
+        className: target.className || '',
+        onclick: target.getAttribute('onclick') || '',
+    });
+}, true);
+
+document.addEventListener('keydown', event => {
+    if (!event.ctrlKey || !event.shiftKey) return;
+    const key = event.key.toLowerCase();
+    if (key === 'l') {
+        event.preventDefault();
+        downloadClaranLogs();
+    } else if (key === 'k') {
+        event.preventDefault();
+        clearClaranLogs();
+    }
+});
 
 function sameID(a, b) {
     return String(a) === String(b);
+}
+
+function jsArg(value) {
+    return JSON.stringify(String(value ?? '')).replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function jsStringArg(value) {
+    return jsArg(value);
+}
+
+function parseIDList(value) {
+    return (value || '')
+        .split(',')
+        .map(s => s.trim())
+        .filter(s => /^\d+$/.test(s));
 }
 
 function getPinnedKey(conversationID) {
@@ -74,9 +185,9 @@ function parseMediaPayload(content, tag) {
 
 function resolveMediaURL(media) {
     if (!media) return '';
+    if (media.id) return fileAPI.previewURL(media.id);
     if (media.url && media.url.startsWith('/')) return `http://localhost:8080${media.url}`;
     if (media.url) return media.url;
-    if (media.id) return fileAPI.previewURL(media.id);
     return media.url || '';
 }
 
@@ -101,7 +212,6 @@ function rememberMedia(media) {
 function publicMediaURL(media) {
     if (!media || !media.url) return '';
     if (media.url.startsWith('/files/')) return `http://localhost:8080${media.url}`;
-    if (media.url.startsWith('http://') || media.url.startsWith('https://')) return media.url;
     return '';
 }
 
@@ -192,6 +302,12 @@ function renderCurrentMessages() {
     msgList.scrollTop = msgList.scrollHeight;
 }
 
+function setActiveConversationHighlight(conversationID) {
+    document.querySelectorAll('#conversation-list .list-item').forEach(item => {
+        item.classList.toggle('active', sameID(item.dataset.conversationId, conversationID));
+    });
+}
+
 function clearPendingReply() {
     pendingReplyMessage = null;
     const bar = document.getElementById('reply-preview-bar');
@@ -225,9 +341,9 @@ function extractMentions(content) {
     const re = /@(\d+)/g;
     let match;
     while ((match = re.exec(content || '')) !== null) {
-        ids.push(parseInt(match[1], 10));
+        ids.push(match[1]);
     }
-    return ids.filter(n => !Number.isNaN(n));
+    return [...new Set(ids)];
 }
 
 function applyMessageStateUpdate(data) {
@@ -238,12 +354,46 @@ function applyMessageStateUpdate(data) {
             ...currentMessages[idx],
             ...data,
             id: currentMessages[idx].id || data.msg_id,
-            content: data.content,
-            status: data.status,
-            is_edited: data.is_edited,
-            edited_at: data.edited_at,
+            content: data.content !== undefined ? data.content : currentMessages[idx].content,
+            status: data.status !== undefined ? data.status : currentMessages[idx].status,
+            is_edited: data.is_edited !== undefined ? data.is_edited : currentMessages[idx].is_edited,
+            edited_at: data.edited_at !== undefined ? data.edited_at : currentMessages[idx].edited_at,
         };
         renderCurrentMessages();
+    }
+}
+
+async function updateMessageReadReceipt(data) {
+    if (!data) return;
+    if (sameID(data.conversation_id, currentConversationID)) {
+        const resp = await messageAPI.getHistory(currentConversationID);
+        if (resp && resp.code === 0 && resp.data && resp.data.messages) {
+            currentMessages = resp.data.messages;
+            renderCurrentMessages();
+        }
+    }
+    loadConversations();
+}
+
+function readReceiptHTML(m) {
+    if (!currentUser || !sameID(m.sender_id, currentUser.id) || !(m.id || m.msg_id)) return '';
+    const readCount = Number(m.read_count || 0);
+    const recipientCount = Number(m.recipient_count || currentConversationRecipientCount || 0);
+    if (recipientCount <= 0) return '';
+    if (currentConversationType === 'group') {
+        return `<span class="message-read-state ${readCount > 0 ? 'read' : 'unread'}">已读 ${readCount}/${recipientCount}</span>`;
+    }
+    const read = readCount >= recipientCount;
+    return `<span class="message-read-state ${read ? 'read' : 'unread'}">${read ? '已读' : '未读'}</span>`;
+}
+
+async function updateCurrentRecipientCount(conversationID) {
+    currentConversationRecipientCount = 0;
+    const resp = await messageAPI.getConversations();
+    if (!resp || resp.code !== 0 || !resp.data || !resp.data.conversations) return;
+    const conv = resp.data.conversations.find(c => sameID(c.conversation_id, conversationID));
+    if (conv && conv.participant_ids) {
+        currentConversationRecipientCount = Math.max(0, conv.participant_ids.filter(id => !sameID(id, currentUser.id)).length);
     }
 }
 
@@ -342,10 +492,10 @@ async function login() {
     }
     const resp = await userAPI.login(username, password);
     if (resp && resp.code === 0 && resp.data && resp.data.success) {
-        token = resp.data.token;
-        currentUser = { id: resp.data.user_id, username };
+        const accessToken = resp.data.access_token || resp.data.token || '';
+        saveAuthTokens(accessToken, resp.data.refresh_token || '');
+        currentUser = { id: resp.data.user_id, username, role: resp.data.role || 'user' };
         userNickCache[currentUser.id] = username;
-        localStorage.setItem('claran_token', token);
         localStorage.setItem('claran_user', JSON.stringify(currentUser));
         showToast('登录成功', 'success');
         enterMainPage();
@@ -373,7 +523,7 @@ async function register() {
 
 async function logout() {
     await userAPI.logout();
-    token = '';
+    clearAuthTokens();
     currentUser = null;
     currentConversationID = null;
     currentConversationType = '';
@@ -385,7 +535,6 @@ async function logout() {
     userNickCache = {};
     conversationNameCache = {};
     friendRemarkCache = {};
-    localStorage.removeItem('claran_token');
     localStorage.removeItem('claran_user');
     localStorage.removeItem('claran_unread');
     modalStack = [];
@@ -444,8 +593,8 @@ async function loadConversations() {
 
     if (resp && resp.code === 0 && resp.data && resp.data.conversations) {
         const convs = resp.data.conversations.filter(c =>
-            (!isConversationHidden(c.conversation_id) || c.is_deleted_group) &&
-            (c.type !== 'group' || (c.group_id && parseInt(c.group_id) > 0))
+            !isConversationHidden(c.conversation_id) &&
+            (c.type !== 'group' || (c.group_id && String(c.group_id) !== '0'))
         );
         if (convs.length === 0) {
             list.innerHTML = '<div class="empty-tip">暂无会话<br><small>点击好友列表的「聊天」或群组的「进入」开始对话</small></div>';
@@ -471,7 +620,7 @@ async function loadConversations() {
             if (c.group_id && c.group_id > 0) {
                 groupConversationMap[c.group_id] = c.conversation_id;
                 conversationGroupMap[c.conversation_id] = c.group_id;
-                const group = groupsCache.find(g => g.id === parseInt(c.group_id));
+                const group = groupsCache.find(g => sameID(g.id, c.group_id));
                 if (group && group.name) {
                     conversationNameCache[c.conversation_id] = group.name;
                 }
@@ -530,7 +679,7 @@ async function loadConversations() {
             }
 
             return `
-                <div class="list-item ${isActive ? 'active' : ''} ${c._is_pinned ? 'pinned' : ''} ${c.is_deleted_group ? 'deleted-group' : ''}" onclick="openConversation(${c.conversation_id}, '${c.type}', ${c.is_deleted_group ? 'true' : 'false'})">
+                <div class="list-item ${isActive ? 'active' : ''} ${c._is_pinned ? 'pinned' : ''} ${c.is_deleted_group ? 'deleted-group' : ''}" data-conversation-id="${escapeHTML(String(c.conversation_id))}" onclick="openConversation(${jsArg(c.conversation_id)}, ${jsStringArg(c.type)}, ${c.is_deleted_group ? 'true' : 'false'})">
                     <div class="avatar conv-avatar">${avatarHTML}</div>
                     <div class="list-item-info">
                         <div class="list-item-top">
@@ -539,7 +688,7 @@ async function loadConversations() {
                         </div>
                         <div class="list-item-msg">${escapeHTML(c.last_message || '暂无消息')}</div>
                     </div>
-                    <button class="btn-icon-sm" onclick="event.stopPropagation(); hideConversation(${c.conversation_id})" title="删除会话">删除</button>
+                    <button class="btn-icon-sm" onclick="event.stopPropagation(); hideConversation(${jsArg(c.conversation_id)})" title="删除会话">删除</button>
                     ${unread > 0 ? `<span class="item-unread">${unread > 99 ? '99+' : unread}</span>` : ''}
                 </div>
             `;
@@ -554,6 +703,7 @@ function resetChatView(message = '已删除会话，可通过搜索历史消息�
     currentConversationType = '';
     currentBotID = null;
     currentMessages = [];
+    currentConversationRecipientCount = 0;
     clearPendingReply();
     conversationOpenSeq++;
     botChatSeq++;
@@ -619,9 +769,9 @@ async function loadFriends() {
                         <div class="list-item-msg ${statusClass}">${statusDot} ${statusText}</div>
                     </div>
                     <div class="friend-actions">
-                        <button class="btn-chat" onclick="showEditFriend(${f.friend_id}, '${escapeHTML(displayName)}', '${escapeHTML(f.remark || '')}')">修改</button>
-                        <button class="btn-chat" onclick="startPrivateChat(${f.friend_id})">聊天</button>
-                        <button class="btn-delete-friend" onclick="deleteFriend(${f.friend_id}, '${escapeHTML(displayName)}')" title="删除好友">✕</button>
+                        <button class="btn-chat" onclick="showEditFriend(${jsArg(f.friend_id)}, ${jsStringArg(displayName)}, ${jsStringArg(f.remark || '')})">修改</button>
+                        <button class="btn-chat" onclick="startPrivateChat(${jsArg(f.friend_id)})">聊天</button>
+                        <button class="btn-delete-friend" onclick="deleteFriend(${jsArg(f.friend_id)}, ${jsStringArg(displayName)})" title="删除好友">✕</button>
                     </div>
                 </div>
             `;
@@ -655,9 +805,9 @@ async function loadGroups() {
                         <div class="list-item-msg">群主: ${escapeHTML(ownerName)}</div>
                     </div>
                     <div class="group-actions">
-                        <button class="btn-chat" onclick="openGroupConversation(${g.id})">进入</button>
-                        <button class="btn-small-outline" onclick="showGroupMembers(${g.id})">成员</button>
-                        <button class="btn-small-outline" onclick="showGroupManage(${g.id})">管理</button>
+                        <button class="btn-chat" onclick="openGroupConversation(${jsArg(g.id)})">进入</button>
+                        <button class="btn-small-outline" onclick="showGroupMembers(${jsArg(g.id)})">成员</button>
+                        <button class="btn-small-outline" onclick="showGroupManage(${jsArg(g.id)})">管理</button>
                     </div>
                 </div>
             `;
@@ -699,7 +849,7 @@ async function resolveConversationName(conversationID, type) {
         } else {
             const groupID = conversationGroupMap[conversationID];
             if (groupID) {
-                const group = groupsCache.find(g => g.id === parseInt(groupID));
+                const group = groupsCache.find(g => sameID(g.id, groupID));
                 if (group) {
                     conversationNameCache[conversationID] = group.name;
                     return group.name;
@@ -744,7 +894,9 @@ async function openConversation(conversationID, type, isDeletedGroup = false) {
     currentConversationType = type;
     currentBotID = null;
     currentMessages = [];
+    currentConversationRecipientCount = 0;
     clearPendingReply();
+    setActiveConversationHighlight(conversationID);
 
     delete unreadMap[conversationID];
     saveUnreadMap();
@@ -759,6 +911,7 @@ async function openConversation(conversationID, type, isDeletedGroup = false) {
     sendBtn.disabled = false;
     document.getElementById('voice-record-btn').disabled = false;
     document.getElementById('msg-input').placeholder = '输入消息...';
+    document.getElementById('broadcast-btn').style.display = type === 'group' ? 'inline-flex' : 'none';
 
     const convName = await resolveConversationName(conversationID, type);
     if (openSeq !== conversationOpenSeq || !sameID(currentConversationID, targetConversationID) || currentBotID !== null) return;
@@ -777,6 +930,9 @@ async function openConversation(conversationID, type, isDeletedGroup = false) {
         return;
     }
 
+    await updateCurrentRecipientCount(conversationID);
+    if (openSeq !== conversationOpenSeq || !sameID(currentConversationID, targetConversationID) || currentBotID !== null) return;
+
     const announcementBar = document.getElementById('group-announcement-bar');
     if (type === 'group') {
         let groupID = conversationGroupMap[conversationID];
@@ -792,7 +948,7 @@ async function openConversation(conversationID, type, isDeletedGroup = false) {
             }
         }
         if (groupID) {
-            let group = groupsCache.find(g => g.id === parseInt(groupID));
+            let group = groupsCache.find(g => sameID(g.id, groupID));
             if (!group) {
                 const groupResp = await groupAPI.get(groupID);
                 if (openSeq !== conversationOpenSeq || !sameID(currentConversationID, targetConversationID) || currentBotID !== null) return;
@@ -829,8 +985,15 @@ async function openConversation(conversationID, type, isDeletedGroup = false) {
         msgList.scrollTop = msgList.scrollHeight;
         const lastMsg = messages[messages.length - 1];
         if (lastMsg && lastMsg.id) {
-            messageAPI.markRead(conversationID, lastMsg.id);
+            await messageAPI.markRead(conversationID, lastMsg.id);
+            loadConversations();
         }
+        const refreshed = await messageAPI.getHistory(conversationID);
+        if (refreshed && refreshed.code === 0 && refreshed.data && refreshed.data.messages) {
+            currentMessages = refreshed.data.messages;
+        }
+        if (openSeq !== conversationOpenSeq || !sameID(currentConversationID, targetConversationID) || currentBotID !== null) return;
+        renderCurrentMessages();
     } else {
         currentMessages = [];
         msgList.innerHTML = '<div class="empty-tip">暂无消息，发送第一条消息吧</div>';
@@ -875,8 +1038,8 @@ function createMessageHTML(m) {
     const editedHTML = m.is_edited ? '<span class="message-edited">已编辑</span>' : '';
     const actionsHTML = (!isBot && status !== 'recalled' && messageID) ? `
         <div class="message-actions">
-            <button type="button" onclick="setPendingReply(${messageID})">回复</button>
-            ${isSent ? `<button type="button" onclick="editMessage(${messageID})">编辑</button><button type="button" onclick="recallMessage(${messageID})">撤回</button>` : ''}
+            <button type="button" onclick="setPendingReply(${jsArg(messageID)})">回复</button>
+            ${isSent ? `<button type="button" onclick="editMessage(${jsArg(messageID)})">编辑</button><button type="button" onclick="recallMessage(${jsArg(messageID)})">撤回</button>` : ''}
         </div>
     ` : '';
     const bubbleContent = status === 'recalled' ? escapeHTML(originalContent) : renderMessageContent(originalContent, m.msg_type);
@@ -889,6 +1052,7 @@ function createMessageHTML(m) {
                     <span class="message-sender">${escapeHTML(senderName)}</span>
                     <span class="message-time">${time}</span>
                     ${editedHTML}
+                    ${readReceiptHTML(m)}
                 </div>
                 <div class="message-bubble ${errorClass} ${status === 'recalled' ? 'recalled-bubble' : ''}">${replyHTML}${bubbleContent}</div>
                 ${actionsHTML}
@@ -898,6 +1062,9 @@ function createMessageHTML(m) {
 }
 
 function appendMessage(m) {
+    if (m.msg_id && !m.id) {
+        m.id = m.msg_id;
+    }
     if (m.conversation_id && currentConversationID && !sameID(m.conversation_id, currentConversationID)) {
         return;
     }
@@ -943,10 +1110,13 @@ async function sendMessage() {
         sender_id: currentUser.id,
         conversation_id: sendConversationID,
         content: content,
+        msg_type: 'text',
         created_at: timeStr,
         reply_to_id: replyToID,
         mention_user_ids: mentionUserIDs,
         mention_all: mentionAll,
+        read_count: 0,
+        recipient_count: currentConversationRecipientCount,
     };
 
     const resp = await messageAPI.send(sendConversationID, content, 'text', {
@@ -959,6 +1129,7 @@ async function sendMessage() {
         clearPendingReply();
         appendMessage(optimisticMsg);
         setConversationHidden(sendConversationID, false);
+        loadConversations();
     } else {
         const errMsg = resp?.data?.msg || '发送失败';
         showToast(errMsg, 'error');
@@ -977,9 +1148,67 @@ async function sendMessage() {
 async function editMessage(messageID) {
     const msg = getMessageByID(messageID);
     if (!msg || msg.status === 'recalled') return;
-    const next = prompt('编辑消息', msg.content || '');
-    if (next === null) return;
-    const content = next.trim();
+    showModal('编辑消息', `
+        <div class="form-group">
+            <label>消息内容</label>
+            <textarea id="edit-message-content" maxlength="2000">${escapeHTML(msg.content || '')}</textarea>
+        </div>
+        <button class="btn-primary" onclick="saveEditedMessage(${jsArg(messageID)})">保存修改</button>
+    `);
+    setTimeout(() => document.getElementById('edit-message-content')?.focus(), 0);
+}
+
+async function sendBroadcastMessage() {
+    const input = document.getElementById('msg-input');
+    const content = input.value.trim();
+    if (!content || !currentConversationID) return;
+    if (currentConversationType !== 'group') {
+        showToast('广播消息仅支持群聊', 'warning');
+        return;
+    }
+
+    const sendConversationID = currentConversationID;
+    const replyToID = pendingReplyMessage ? (pendingReplyMessage.id || pendingReplyMessage.msg_id || 0) : 0;
+    input.value = '';
+
+    const now = new Date();
+    const timeStr = now.getFullYear() + '-' +
+        String(now.getMonth() + 1).padStart(2, '0') + '-' +
+        String(now.getDate()).padStart(2, '0') + ' ' +
+        String(now.getHours()).padStart(2, '0') + ':' +
+        String(now.getMinutes()).padStart(2, '0') + ':' +
+        String(now.getSeconds()).padStart(2, '0');
+
+    const resp = await messageAPI.send(sendConversationID, content, 'broadcast', {
+        reply_to_id: replyToID,
+        mention_all: true,
+    });
+    if (resp && resp.code === 0 && resp.data && resp.data.success) {
+        clearPendingReply();
+        appendMessage({
+            id: resp.data.msg_id,
+            msg_id: resp.data.msg_id,
+            sender_id: currentUser.id,
+            conversation_id: sendConversationID,
+            content,
+            msg_type: 'broadcast',
+            created_at: timeStr,
+            reply_to_id: replyToID,
+            mention_all: true,
+            read_count: 0,
+            recipient_count: currentConversationRecipientCount,
+        });
+        setConversationHidden(sendConversationID, false);
+        loadConversations();
+        showToast('广播已发送', 'success');
+    } else {
+        showToast(resp?.data?.msg || '广播发送失败', 'error');
+    }
+}
+
+async function saveEditedMessage(messageID) {
+    const input = document.getElementById('edit-message-content');
+    const content = input ? input.value.trim() : '';
     if (!content) {
         showToast('消息内容不能为空', 'warning');
         return;
@@ -987,6 +1216,7 @@ async function editMessage(messageID) {
     const resp = await messageAPI.edit(messageID, content);
     if (resp && resp.code === 0 && resp.data && resp.data.success) {
         applyMessageStateUpdate(resp.data.message || { msg_id: messageID, content, is_edited: true });
+        closeModal();
         showToast('消息已编辑', 'success');
     } else {
         showToast(resp?.data?.msg || '编辑失败', 'error');
@@ -1082,7 +1312,7 @@ function showEditFriend(friendID, displayName, currentRemark) {
             <label>好友备注</label>
             <input type="text" id="edit-friend-remark" value="${escapeHTML(currentRemark || displayName || '')}" placeholder="留空则显示好友昵称">
         </div>
-        <button class="btn-primary" onclick="saveFriendRemark(${friendID})">保存</button>
+        <button class="btn-primary" onclick="saveFriendRemark(${jsArg(friendID)})">保存</button>
     `);
 }
 
@@ -1125,9 +1355,9 @@ function showAddFriend() {
 }
 
 async function addFriend() {
-    const friendID = parseInt(document.getElementById('add-friend-id').value);
+    const friendID = document.getElementById('add-friend-id').value.trim();
     const remark = document.getElementById('add-friend-remark').value.trim();
-    if (!friendID) {
+    if (!/^\d{10}$/.test(friendID)) {
         showToast('请输入有效的用户ID', 'warning');
         return;
     }
@@ -1158,7 +1388,7 @@ function showCreateGroup() {
 async function createGroup() {
     const name = document.getElementById('create-group-name').value.trim();
     const membersStr = document.getElementById('create-group-members').value.trim();
-    const memberIDs = membersStr.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n) && n > 0);
+    const memberIDs = parseIDList(membersStr);
     if (!name) {
         showToast('请输入群组名称', 'warning');
         return;
@@ -1233,10 +1463,10 @@ async function showGroupMembers(groupID) {
                                     ${isMuted ? '<span class="member-tag muted-tag">🔇 禁言中</span>' : ''}
                                 </div>
                                 <div class="member-actions">
-                                    ${canMute && !isMuted ? `<button class="btn-kick" onclick="showMuteMember(${groupID}, ${m.user_id}, '${escapeHTML(memberName)}')">禁言</button>` : ''}
-                                    ${canMute && isMuted ? `<button class="btn-kick" onclick="unmuteMember(${groupID}, ${m.user_id})">解禁</button>` : ''}
-                                    ${canSetRole ? `<button class="btn-kick" onclick="showSetRole(${groupID}, ${m.user_id}, '${escapeHTML(memberName)}')">角色</button>` : ''}
-                                    ${canKick ? `<button class="btn-kick" onclick="kickMember(${groupID}, ${m.user_id})">移除</button>` : ''}
+                                    ${canMute && !isMuted ? `<button class="btn-kick" onclick="showMuteMember(${jsArg(groupID)}, ${jsArg(m.user_id)}, ${jsStringArg(memberName)})">禁言</button>` : ''}
+                                    ${canMute && isMuted ? `<button class="btn-kick" onclick="unmuteMember(${jsArg(groupID)}, ${jsArg(m.user_id)})">解禁</button>` : ''}
+                                    ${canSetRole ? `<button class="btn-kick" onclick="showSetRole(${jsArg(groupID)}, ${jsArg(m.user_id)}, ${jsStringArg(memberName)})">角色</button>` : ''}
+                                    ${canKick ? `<button class="btn-kick" onclick="kickMember(${jsArg(groupID)}, ${jsArg(m.user_id)})">移除</button>` : ''}
                                 </div>
                             </div>
                         `;
@@ -1249,7 +1479,7 @@ async function showGroupMembers(groupID) {
                     <div class="section-label" style="margin-top:16px">邀请成员</div>
                     <div class="invite-row">
                         <input type="text" id="invite-user-ids" placeholder="输入用户ID，多个用逗号分隔">
-                        <button class="btn-inline btn-primary" onclick="inviteMember(${groupID})">邀请</button>
+                        <button class="btn-inline btn-primary" onclick="inviteMember(${jsArg(groupID)})">邀请</button>
                     </div>
                 `;
             }
@@ -1261,7 +1491,7 @@ async function showGroupMembers(groupID) {
 
 async function inviteMember(groupID) {
     const idsStr = document.getElementById('invite-user-ids').value.trim();
-    const userIDs = idsStr.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n));
+    const userIDs = parseIDList(idsStr);
     if (userIDs.length === 0) {
         showToast('请输入有效的用户ID', 'warning');
         return;
@@ -1341,7 +1571,7 @@ async function doSearch() {
                 const senderName = getUserName(m.sender_id);
                 const content = escapeHTML(m.content).replace(new RegExp(highlighted, 'gi'), match => `<mark>${match}</mark>`);
                 return `
-                    <div class="search-result-item" onclick="jumpToMessage(${m.conversation_id}, ${m.id})">
+                    <div class="search-result-item" onclick="jumpToMessage(${jsArg(m.conversation_id)}, ${jsArg(m.id)})">
                         <div class="search-result-header">
                             <span class="search-result-sender">${escapeHTML(senderName)}</span>
                         </div>
@@ -1463,58 +1693,101 @@ function showConversationInfo() {
 
 function showUserProfile() {
     if (!currentUser) return;
+    const displayName = currentUser.nickname || currentUser.username || '';
+    const avatarHTML = currentUser.avatar
+        ? `<img src="${escapeHTML(currentUser.avatar)}" class="avatar-img">`
+        : escapeHTML(displayName.charAt(0).toUpperCase() || '?');
+    const coverStyle = currentUser.cover
+        ? ` style="background-image:url(&quot;${escapeHTML(currentUser.cover)}&quot;)"`
+        : '';
     showModal('个人信息', `
-        <div style="text-align:center;margin-bottom:20px;">
-            <div class="avatar large" id="profile-avatar-display">${currentUser.avatar ? `<img src="${currentUser.avatar}" style="width:100%;height:100%;border-radius:50%;object-fit:cover;">` : (currentUser.nickname || currentUser.username).charAt(0).toUpperCase()}</div>
-            <div style="font-size:18px;font-weight:600;margin-top:8px;">${escapeHTML(currentUser.nickname || currentUser.username)}</div>
+        <div class="profile-card">
+            <div class="profile-cover"${coverStyle}></div>
+            <div class="profile-summary">
+                <div class="avatar large profile-avatar" id="profile-avatar-display">${avatarHTML}</div>
+                <div class="profile-title">
+                    <div class="profile-name">${escapeHTML(displayName)}</div>
+                    <div class="profile-uid">
+                        <span>UID ${currentUser.id}</span>
+                        <button class="btn-copy" onclick="copyProfileUID()">复制</button>
+                    </div>
+                    <div class="profile-signature">${escapeHTML(currentUser.signature || '这个人还没有写个性签名')}</div>
+                </div>
+            </div>
+        </div>
+        <div class="profile-form-grid">
+            <div class="form-group">
+                <label>昵称</label>
+                <input type="text" id="profile-nickname" value="${escapeHTML(currentUser.nickname || '')}">
+            </div>
+            <div class="form-group">
+                <label>性别/身份</label>
+                <input type="text" id="profile-gender" value="${escapeHTML(currentUser.gender || '')}" placeholder="例如 保密 / 学生 / 开发者">
+            </div>
+            <div class="form-group">
+                <label>邮箱</label>
+                <input type="email" id="profile-email" value="${escapeHTML(currentUser.email || '')}">
+            </div>
+            <div class="form-group">
+                <label>手机</label>
+                <input type="tel" id="profile-phone" value="${escapeHTML(currentUser.phone || '')}">
+            </div>
+            <div class="form-group">
+                <label>所在地</label>
+                <input type="text" id="profile-location" value="${escapeHTML(currentUser.location || '')}">
+            </div>
+            <div class="form-group">
+                <label>生日</label>
+                <input type="date" id="profile-birthday" value="${escapeHTML(currentUser.birthday || '')}">
+            </div>
         </div>
         <div class="form-group">
-            <label>昵称</label>
-            <input type="text" id="profile-nickname" value="${escapeHTML(currentUser.nickname || '')}">
+            <label>个性签名</label>
+            <input type="text" id="profile-signature" value="${escapeHTML(currentUser.signature || '')}" maxlength="120" placeholder="写一句别人看到你时会记住的话">
         </div>
         <div class="form-group">
-            <label>邮箱</label>
-            <input type="email" id="profile-email" value="${escapeHTML(currentUser.email || '')}">
+            <label>个人简介</label>
+            <textarea id="profile-bio" maxlength="500" placeholder="介绍一下你自己">${escapeHTML(currentUser.bio || '')}</textarea>
         </div>
         <div class="form-group">
-            <label>手机</label>
-            <input type="tel" id="profile-phone" value="${escapeHTML(currentUser.phone || '')}">
+            <label>个人网站</label>
+            <input type="url" id="profile-website" value="${escapeHTML(currentUser.website || '')}" placeholder="https://example.com">
         </div>
         <div class="form-group">
             <label>头像URL</label>
             <input type="text" id="profile-avatar" value="${escapeHTML(currentUser.avatar || '')}" placeholder="输入头像图片URL">
+        </div>
+        <div class="form-group">
+            <label>头图URL</label>
+            <input type="text" id="profile-cover" value="${escapeHTML(currentUser.cover || '')}" placeholder="输入个人主页头图URL">
         </div>
         <button class="btn-primary" onclick="saveProfile()">保存修改</button>
     `);
 }
 
 async function saveProfile() {
-    const nickname = document.getElementById('profile-nickname').value.trim();
-    const email = document.getElementById('profile-email').value.trim();
-    const phone = document.getElementById('profile-phone').value.trim();
-    const avatar = document.getElementById('profile-avatar').value.trim();
+    const profile = {
+        nickname: document.getElementById('profile-nickname').value.trim(),
+        email: document.getElementById('profile-email').value.trim(),
+        phone: document.getElementById('profile-phone').value.trim(),
+        avatar: document.getElementById('profile-avatar').value.trim(),
+        cover: document.getElementById('profile-cover').value.trim(),
+        signature: document.getElementById('profile-signature').value.trim(),
+        bio: document.getElementById('profile-bio').value.trim(),
+        location: document.getElementById('profile-location').value.trim(),
+        website: document.getElementById('profile-website').value.trim(),
+        gender: document.getElementById('profile-gender').value.trim(),
+        birthday: document.getElementById('profile-birthday').value,
+    };
 
-    if (nickname || email || phone) {
-        const resp = await userAPI.updateInfo(nickname, email, phone);
-        if (resp && resp.code === 0 && resp.data && resp.data.success) {
-            currentUser.nickname = nickname || currentUser.nickname;
-            currentUser.email = email;
-            currentUser.phone = phone;
-            userNickCache[currentUser.id] = currentUser.nickname || currentUser.username;
-        } else {
-            showToast(resp?.data?.msg || '更新信息失败', 'error');
-            return;
-        }
-    }
-
-    if (avatar && avatar !== (currentUser.avatar || '')) {
-        const resp = await userAPI.updateAvatar(avatar);
-        if (resp && resp.code === 0 && resp.data && resp.data.success) {
-            currentUser.avatar = avatar;
-        } else {
-            showToast(resp?.data?.msg || '更新头像失败', 'error');
-            return;
-        }
+    const resp = await userAPI.updateInfo(profile);
+    if (resp && resp.code === 0 && resp.data && resp.data.success) {
+        currentUser = { ...currentUser, ...profile };
+        userNickCache[currentUser.id] = currentUser.nickname || currentUser.username;
+        userAvatarCache[currentUser.id] = currentUser.avatar || '';
+    } else {
+        showToast(resp?.data?.msg || '更新信息失败', 'error');
+        return;
     }
 
     localStorage.setItem('claran_user', JSON.stringify(currentUser));
@@ -1532,6 +1805,16 @@ async function saveProfile() {
     loadConversations();
     if (currentConversationID) {
         openConversation(currentConversationID, currentConversationType || 'private');
+    }
+}
+
+async function copyProfileUID() {
+    if (!currentUser || !currentUser.id) return;
+    try {
+        await navigator.clipboard.writeText(String(currentUser.id));
+        showToast('UID已复制', 'success');
+    } catch (err) {
+        showToast('复制失败，请手动选择UID', 'error');
     }
 }
 
@@ -1580,16 +1863,16 @@ async function showGroupManage(groupID, openedFromMenu = false) {
         </div>
         ${canEdit ? `
         <div class="btn-row">
-            <button class="btn-primary" onclick="saveGroupInfo(${groupID})">保存修改</button>
-            <button class="btn-inline" onclick="pinGroup(${groupID}, ${group.is_pinned ? 'false' : 'true'})">${group.is_pinned ? '取消置顶' : '置顶群聊'}</button>
+            <button class="btn-primary" onclick="saveGroupInfo(${jsArg(groupID)})">保存修改</button>
+            <button class="btn-inline" onclick="pinGroup(${jsArg(groupID)}, ${group.is_pinned ? 'false' : 'true'})">${group.is_pinned ? '取消置顶' : '置顶群聊'}</button>
         </div>
         ` : ''}
         ${isOwner ? `
         <hr style="margin:16px 0;border-color:var(--border);">
         <div class="section-label">高级管理</div>
         <div class="btn-row">
-            <button class="btn-inline btn-warning" onclick="showTransferOwner(${groupID})">转让群主</button>
-            <button class="btn-inline btn-danger" onclick="deleteGroup(${groupID})">解散群组</button>
+            <button class="btn-inline btn-warning" onclick="showTransferOwner(${jsArg(groupID)})">转让群主</button>
+            <button class="btn-inline btn-danger" onclick="deleteGroup(${jsArg(groupID)})">解散群组</button>
         </div>
         ` : ''}
     `);
@@ -1641,13 +1924,13 @@ function showTransferOwner(groupID) {
             <label>新群主用户ID</label>
             <input type="number" id="transfer-new-owner" placeholder="输入新群主的用户ID">
         </div>
-        <button class="btn-primary btn-warning" onclick="transferOwner(${groupID})">确认转让</button>
+        <button class="btn-primary btn-warning" onclick="transferOwner(${jsArg(groupID)})">确认转让</button>
     `);
 }
 
 async function transferOwner(groupID) {
-    const newOwnerID = parseInt(document.getElementById('transfer-new-owner').value);
-    if (!newOwnerID) { showToast('请输入有效的用户ID', 'warning'); return; }
+    const newOwnerID = document.getElementById('transfer-new-owner').value.trim();
+    if (!/^\d{10}$/.test(newOwnerID)) { showToast('请输入有效的用户ID', 'warning'); return; }
     if (!confirm('确定要转让群主吗？此操作不可撤销！')) return;
     const resp = await groupAPI.transfer(groupID, newOwnerID);
     if (resp && resp.code === 0 && resp.data && resp.data.success) {
@@ -1702,7 +1985,7 @@ function showMuteMember(groupID, userID, userName) {
             <label>禁言时长（分钟）</label>
             <input type="number" id="mute-duration" value="10" min="1">
         </div>
-        <button class="btn-primary btn-warning" onclick="muteMember(${groupID}, ${userID})">确认禁言</button>
+        <button class="btn-primary btn-warning" onclick="muteMember(${jsArg(groupID)}, ${jsArg(userID)})">确认禁言</button>
     `);
 }
 
@@ -1738,7 +2021,7 @@ function showSetRole(groupID, userID, userName) {
                 <option value="admin">管理员</option>
             </select>
         </div>
-        <button class="btn-primary" onclick="setMemberRole(${groupID}, ${userID})">确认</button>
+        <button class="btn-primary" onclick="setMemberRole(${jsArg(groupID)}, ${jsArg(userID)})">确认</button>
     `);
 }
 
@@ -1798,7 +2081,15 @@ async function uploadAndSendFile() {
                 String(now.getHours()).padStart(2, '0') + ':' +
                 String(now.getMinutes()).padStart(2, '0') + ':' +
                 String(now.getSeconds()).padStart(2, '0');
-            appendMessage({ sender_id: currentUser.id, content, created_at: timeStr });
+            appendMessage({
+                id: sendResp.data.msg_id,
+                msg_id: sendResp.data.msg_id,
+                conversation_id: currentConversationID,
+                sender_id: currentUser.id,
+                content,
+                msg_type: msgType,
+                created_at: timeStr,
+            });
             showToast('文件发送成功', 'success');
         } else {
             showToast('消息发送失败', 'error');
@@ -1844,7 +2135,15 @@ async function sendVoiceBlob(blob, durationMs) {
             String(now.getHours()).padStart(2, '0') + ':' +
             String(now.getMinutes()).padStart(2, '0') + ':' +
             String(now.getSeconds()).padStart(2, '0');
-        appendMessage({ conversation_id: sendConversationID, sender_id: currentUser.id, content, msg_type: 'voice', created_at: timeStr });
+        appendMessage({
+            id: sendResp.data.msg_id,
+            msg_id: sendResp.data.msg_id,
+            conversation_id: sendConversationID,
+            sender_id: currentUser.id,
+            content,
+            msg_type: 'voice',
+            created_at: timeStr,
+        });
         showToast('语音已发送', 'success');
     } else {
         showToast(sendResp?.data?.msg || '语音消息发送失败', 'error');
@@ -1925,26 +2224,29 @@ function bindVoiceRecorder() {
 }
 
 function renderMessageContent(content, msgType) {
+    if (msgType === 'broadcast') {
+        return `<div class="broadcast-msg"><span class="broadcast-badge">广播</span><span>${escapeHTML(content)}</span></div>`;
+    }
     if (msgType === 'image' || (content && content.startsWith('[img]'))) {
         const media = parseMediaPayload(content, 'img');
         const key = rememberMedia(media);
-        const url = publicMediaURL(media) || (media.id ? '' : resolveMediaURL(media));
+        const url = resolveMediaURL(media);
         const dataAttrs = media.id ? ` data-media-id="${escapeHTML(media.id)}" data-media-key="${escapeHTML(key)}" data-media-url="${escapeHTML(media.url || '')}" data-media-name="${escapeHTML(media.name || '')}"` : '';
         return `<div class="image-msg-wrap"><img src="${escapeHTML(url)}"${dataAttrs} alt="${escapeHTML(media.name || '图片')}" class="chat-image" onclick="window.open(this.src,'_blank')" onerror="this.closest('.image-msg-wrap').querySelector('.media-error').style.display='inline';"><span class="media-error" style="display:none;">图片加载失败</span></div>`;
     }
     if (msgType === 'voice' || (content && content.startsWith('[voice]'))) {
         const media = parseMediaPayload(content, 'voice');
         const key = rememberMedia(media);
-        const url = publicMediaURL(media) || (media.id ? '' : resolveMediaURL(media));
+        const url = resolveMediaURL(media);
         const dataAttrs = media.id ? ` data-media-id="${escapeHTML(media.id)}" data-media-key="${escapeHTML(key)}" data-media-url="${escapeHTML(media.url || '')}" data-media-name="${escapeHTML(media.name || '')}"` : '';
-        return `<div class="media-msg voice-msg"><span class="voice-icon">VOICE</span><audio controls preload="metadata" src="${escapeHTML(url)}"${dataAttrs}></audio><button type="button" class="voice-download" onclick="downloadMedia('${escapeHTML(media.id || '')}', '${escapeHTML(media.name || 'voice.webm')}', '${escapeHTML(key)}')">下载</button><span class="voice-name">${escapeHTML(media.name || 'voice message')}</span></div>`;
+        return `<div class="media-msg voice-msg"><span class="voice-icon">VOICE</span><audio controls preload="metadata" src="${escapeHTML(url)}"${dataAttrs}></audio><button type="button" class="voice-download" onclick="downloadMedia(${jsStringArg(media.id || '')}, ${jsStringArg(media.name || 'voice.webm')}, ${jsStringArg(key)})">下载</button><span class="voice-name">${escapeHTML(media.name || 'voice message')}</span></div>`;
     }
     if (msgType === 'file' || (content && content.startsWith('[file]'))) {
         const media = parseMediaPayload(content, 'file');
         const url = resolveDownloadURL(media);
         const key = rememberMedia(media);
         if (media.id) {
-            return `<button type="button" class="media-msg file-msg file-download-btn" onclick="downloadMedia('${escapeHTML(media.id)}', '${escapeHTML(media.name || 'download')}', '${escapeHTML(key)}')">文件 ${escapeHTML(media.name || '未命名文件')}</button>`;
+            return `<button type="button" class="media-msg file-msg file-download-btn" onclick="downloadMedia(${jsStringArg(media.id)}, ${jsStringArg(media.name || 'download')}, ${jsStringArg(key)})">文件 ${escapeHTML(media.name || '未命名文件')}</button>`;
         }
         return `<a class="media-msg file-msg" href="${escapeHTML(url)}" target="_blank" rel="noopener" download="${escapeHTML(media.name || '')}">文件 ${escapeHTML(media.name || '未命名文件')}</a>`;
     }
@@ -1961,7 +2263,7 @@ async function loadBotSidebar() {
             return;
         }
         list.innerHTML = bots.map(b => `
-            <div class="list-item" onclick="chatWithBot(${b.id})">
+            <div class="list-item" data-bot-id="${escapeHTML(String(b.id))}" onclick="chatWithBot(${jsArg(b.id)})">
                 <div class="avatar conv-avatar">🤖</div>
                 <div class="list-item-info">
                     <div class="list-item-top">
@@ -1971,10 +2273,10 @@ async function loadBotSidebar() {
                     <div class="list-item-msg">${escapeHTML(b.description || '无描述')}</div>
                 </div>
                 <div class="bot-item-actions" onclick="event.stopPropagation()">
-                    <button class="btn-icon-sm" onclick="showBotRoutes(${b.id}, '${escapeHTML(b.name)}')" title="路由管理">🔗</button>
-                    <button class="btn-icon-sm" onclick="showBotBilling(${b.id}, '${escapeHTML(b.name)}')" title="计费记录">💰</button>
-                    <button class="btn-icon-sm" onclick="toggleBot(${b.id}, ${!b.is_active})" title="${b.is_active ? '停用' : '启用'}">${b.is_active ? '⏸' : '▶'}</button>
-                    <button class="btn-icon-sm" onclick="deleteBot(${b.id})" title="删除">🗑</button>
+                    <button class="btn-icon-sm" onclick="showBotRoutes(${jsArg(b.id)}, ${jsStringArg(b.name)})" title="路由管理">🔗</button>
+                    <button class="btn-icon-sm" onclick="showBotBilling(${jsArg(b.id)}, ${jsStringArg(b.name)})" title="计费记录">💰</button>
+                    <button class="btn-icon-sm" onclick="toggleBot(${jsArg(b.id)}, ${!b.is_active})" title="${b.is_active ? '停用' : '启用'}">${b.is_active ? '⏸' : '▶'}</button>
+                    <button class="btn-icon-sm" onclick="deleteBot(${jsArg(b.id)})" title="删除">🗑</button>
                 </div>
             </div>
         `).join('');
@@ -2043,7 +2345,7 @@ function showBotRoutes(botID, botName) {
                     <option value="regex">正则匹配</option>
                 </select>
             </div>
-            <button class="btn-primary" onclick="createBotRoute(${botID})">添加</button>
+            <button class="btn-primary" onclick="createBotRoute(${jsArg(botID)})">添加</button>
         </div>
         <div id="route-list-area" class="bot-list-area">加载中...</div>
     `);
@@ -2113,7 +2415,7 @@ function chatWithBot(botID) {
     currentConversationID = null;
     currentConversationType = '';
 
-    const botEl = document.querySelector(`[onclick="chatWithBot(${botID})"]`);
+    const botEl = Array.from(document.querySelectorAll('[data-bot-id]')).find(el => sameID(el.dataset.botId, botID));
     const botName = botEl ? botEl.querySelector('.list-item-name')?.textContent || 'AI助手' : 'AI助手';
 
     document.getElementById('welcome-area').style.display = 'none';
@@ -2123,6 +2425,10 @@ function chatWithBot(botID) {
     document.getElementById('chat-type-badge').className = 'chat-type-badge group';
     document.getElementById('group-announcement-bar').style.display = 'none';
     document.getElementById('message-list').innerHTML = '';
+    document.getElementById('broadcast-btn').style.display = 'none';
+    document.getElementById('msg-input').disabled = false;
+    document.getElementById('send-btn').disabled = false;
+    document.getElementById('voice-record-btn').disabled = false;
 
     if (botChatHistory[botID]) {
         botChatHistory[botID].forEach(m => {
@@ -2238,7 +2544,7 @@ async function loadBotRoutes(botID) {
                     <span class="bot-status active">优先级: ${r.priority || 0}</span>
                 </div>
                 <div class="bot-actions">
-                    <button class="btn-inline btn-danger" onclick="deleteBotRoute(${r.id}, ${botID})">删除</button>
+                    <button class="btn-inline btn-danger" onclick="deleteBotRoute(${jsArg(r.id)}, ${jsArg(botID)})">删除</button>
                 </div>
             </div>
         `).join('');

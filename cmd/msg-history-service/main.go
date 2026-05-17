@@ -6,6 +6,7 @@ import (
 	"ClaranAIM/internal/msg-history-service/service"
 	"ClaranAIM/kitex_gen/message/historyservice"
 	"ClaranAIM/pkg/config"
+	"ClaranAIM/pkg/governance"
 	"ClaranAIM/pkg/health"
 	"ClaranAIM/pkg/logger"
 	"net"
@@ -48,12 +49,14 @@ func main() {
 
 	svr := historyservice.NewServer(
 		historyHandler,
-		server.WithServiceAddr(addr),
-		server.WithServerBasicInfo(&rpcinfo.EndpointBasicInfo{
-			ServiceName: cfg.Service.Name,
-		}),
-		server.WithRegistry(r),
-		server.WithMetaHandler(transmeta.ServerTTHeaderHandler),
+		append([]server.Option{
+			server.WithServiceAddr(addr),
+			server.WithServerBasicInfo(&rpcinfo.EndpointBasicInfo{
+				ServiceName: cfg.Service.Name,
+			}),
+			server.WithRegistry(r),
+			server.WithMetaHandler(transmeta.ServerTTHeaderHandler),
+		}, governance.ServerOptions(cfg.Governance.RPC)...)...,
 	)
 
 	health.LogStartup(health.ServiceInfo{

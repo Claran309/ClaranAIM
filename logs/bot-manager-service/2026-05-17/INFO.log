@@ -1,0 +1,34 @@
+[bot-manager-service] 2026-05-17 19:42:34.296	INFO	health/health.go:26	MySQL连接正常	{"service": "bot-manager-service", "version": "8.0.32"}
+[bot-manager-service] 2026-05-17 19:42:34.312	INFO	logger/logger.go:316	会话存储已初始化: ./storage/bot/sessionStore
+[bot-manager-service] 2026-05-17 19:42:34.312	INFO	health/health.go:51	Etcd注册地址	{"service": "bot-manager-service", "endpoints": "[http://localhost:2379]"}
+[bot-manager-service] 2026-05-17 19:42:34.313	INFO	health/health.go:62	========================================
+[bot-manager-service] 2026-05-17 19:42:34.313	INFO	health/health.go:63	服务启动完成	{"service": "bot-manager-service", "version": "1.0.0", "port": "127.0.0.1:9006"}
+[bot-manager-service] 2026-05-17 19:42:34.313	INFO	health/health.go:64	========================================
+[bot-manager-service] 2026-05-17 19:47:05.394	INFO	logger/logger.go:316	CozeLoop追踪未启用，缺少API Token或Workspace ID
+[bot-manager-service] 2026-05-17 19:47:05.394	INFO	logger/logger.go:316	工具 operator_query 初始化成功
+[bot-manager-service] 2026-05-17 19:47:05.395	INFO	logger/logger.go:316	工具 resource_query 初始化成功
+[bot-manager-service] 2026-05-17 19:47:05.395	INFO	logger/logger.go:316	工具 battle_plan 初始化成功
+[bot-manager-service] 2026-05-17 19:47:05.395	INFO	logger/logger.go:316	工具 rag 初始化成功
+[bot-manager-service] 2026-05-17 19:47:05.395	INFO	logger/logger.go:316	工具 web_search 初始化成功
+[bot-manager-service] 2026-05-17 19:47:05.396	INFO	logger/logger.go:316	会话文件存在，加载会话: storage\bot\sessionStore\bot_5_conv_2000005.jsonl
+[bot-manager-service] 2026-05-17 19:47:05.412	INFO	logger/logger.go:316	加载历史消息成功: role=user, content=[你好]
+[bot-manager-service] 2026-05-17 19:47:05.412	INFO	logger/logger.go:316	加载历史消息成功: role=assistant, content=[博士，您好！我是阿米娅，很高兴见到您。  嗯...您今天还好吗？工作之余，请记得多休息哦。罗德岛的事...]
+[bot-manager-service] 2026-05-17 19:47:05.413	INFO	logger/logger.go:316	加载会话记忆: session=bot_5_conv_2000005, 历史消息数=2
+[bot-manager-service] 2026-05-17 19:47:05.414	INFO	logger/logger.go:316	[trace] Chain/1 start
+[bot-manager-service] 2026-05-17 19:47:05.415	INFO	logger/logger.go:316	[trace] Lambda/ start
+[bot-manager-service] 2026-05-17 19:47:05.415	INFO	logger/logger.go:316	[trace] Lambda/ end
+[bot-manager-service] 2026-05-17 19:47:05.415	INFO	logger/logger.go:316	[trace] Graph/ReAct start
+[bot-manager-service] 2026-05-17 19:47:05.415	INFO	logger/logger.go:316	[trace] Lambda/Init start
+[bot-manager-service] 2026-05-17 19:47:05.415	INFO	logger/logger.go:316	[trace] Lambda/Init end
+[bot-manager-service] 2026-05-17 19:47:05.415	INFO	logger/logger.go:316	[trace] ChatModel/ChatModel start
+[bot-manager-service] 2026-05-17 19:47:11.980	INFO	logger/logger.go:316	[trace] ChatModel/ChatModel end
+[bot-manager-service] 2026-05-17 19:47:11.980	INFO	logger/logger.go:316	[trace] Graph/ReAct end
+[bot-manager-service] 2026-05-17 19:47:11.980	INFO	logger/logger.go:316	[trace] Chain/1 end
+[bot-manager-service] 2026-05-17 19:47:11.988	INFO	logger/logger.go:316	会话记忆已保存: session=bot_5_conv_2000005
+[bot-manager-service] 2026-05-17 19:47:12.111	INFO	logger/logger.go:316	Bot对话完成: bot_id=5, user_id=2, session=bot_5_conv_2000005, input_tokens=7614, output_tokens=120, cost=0.035277, usage_seen=true, elapsed=6.5677345s
+[bot-manager-service] 2026-05-17 21:13:54.797	INFO	health/health.go:28	MySQL连接正常	{"service": "bot-manager-service", "version": "8.0.32"}
+[bot-manager-service] 2026-05-17 21:13:54.812	INFO	logger/logger.go:338	会话存储已初始化: ./storage/bot/sessionStore
+[bot-manager-service] 2026-05-17 21:13:54.812	INFO	health/health.go:56	Etcd注册地址	{"service": "bot-manager-service", "endpoints": "[http://localhost:2379]"}
+[bot-manager-service] 2026-05-17 21:13:54.813	INFO	health/health.go:69	========================================
+[bot-manager-service] 2026-05-17 21:13:54.813	INFO	health/health.go:70	服务启动完成	{"service": "bot-manager-service", "version": "1.0.0", "port": "127.0.0.1:9006"}
+[bot-manager-service] 2026-05-17 21:13:54.813	INFO	health/health.go:71	========================================

@@ -1,8 +1,20 @@
 .env
-.gitignore
-.cph
+.cph/
+
+# Local Go/build artifacts
+.gocache/
+tmp/
+*.tmp
 tmp.go
+
+# Local runtime data
 SessionStore/*
-!SessionStore/5e6b3a7e-8a35-40dc-9a48-4c1ba0cce4fc.jsonl.example
+!SessionStore/*.example
+storage/bot/sessionStore/*
+!storage/bot/sessionStore/*.example
+storage/source/*
+!storage/source/.gitkeep
+
+# Local notes/history
 ChatHistoryWithAI.md
-.gocache
+docs/ChatHistoryWithAI.md

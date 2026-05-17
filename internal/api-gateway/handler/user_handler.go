@@ -6,8 +6,12 @@ package handler
 import (
 	"ClaranAIM/internal/api-gateway/client"
 	"ClaranAIM/kitex_gen/user"
+	"ClaranAIM/pkg/jwt"
 	"ClaranAIM/pkg/response"
+	"bytes"
 	"context"
+	"encoding/json"
+	"errors"
 	"strconv"
 
 	"github.com/cloudwego/hertz/pkg/app"
@@ -16,8 +20,29 @@ import (
 // UserHandler 处理所有用户相关的 HTTP 请求
 type UserHandler struct{}
 
+// NewUserHandler 创建用户 HTTP handler。
+//
+// handler 不直接持有 DAO 或 Service，职责限定为请求参数解析、JWT 上下文读取、
+// RPC 调用和统一响应封装，便于 api-gateway 与用户服务保持清晰边界。
 func NewUserHandler() *UserHandler {
 	return &UserHandler{}
+}
+
+func bindUserJSONUseNumber(c *app.RequestContext, dest interface{}) error {
+	decoder := json.NewDecoder(bytes.NewReader(c.Request.Body()))
+	decoder.UseNumber()
+	return decoder.Decode(dest)
+}
+
+func parseOptionalJSONNumber(value json.Number, name string) (int64, error) {
+	if value.String() == "" {
+		return 0, nil
+	}
+	id, err := strconv.ParseInt(value.String(), 10, 64)
+	if err != nil || id < 0 {
+		return 0, errors.New("无效的" + name)
+	}
+	return id, nil
 }
 
 // Register 用户注册
@@ -71,10 +96,55 @@ func (h *UserHandler) Login(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 	response.Success(c, map[string]interface{}{
-		"success": resp.Success,
-		"token":   resp.Token, // JWT Token，前端需保存并在后续请求中携带
-		"user_id": resp.UserId,
-		"msg":     resp.Msg,
+		"success":       resp.Success,
+		"token":         resp.Token,
+		"access_token":  firstNonEmpty(resp.AccessToken, resp.Token),
+		"refresh_token": resp.RefreshToken,
+		"user_id":       resp.UserId,
+		"role":          resp.Role,
+		"msg":           resp.Msg,
+	})
+}
+
+// RefreshToken exchanges a refresh token for a new access token.
+//
+// The refresh token is parsed locally to verify its type and signature, then the
+// user is fetched from user-service so disabled/deleted users cannot keep
+// refreshing access tokens forever.
+func (h *UserHandler) RefreshToken(ctx context.Context, c *app.RequestContext) {
+	type refreshReq struct {
+		RefreshToken string `json:"refresh_token"`
+	}
+	var req refreshReq
+	if err := c.BindJSON(&req); err != nil || req.RefreshToken == "" {
+		response.BadRequest(c, "refresh_token不能为空")
+		return
+	}
+	claims, err := jwt.ParseRefreshToken(req.RefreshToken)
+	if err != nil {
+		response.Unauthorized(c, "无效的RefreshToken")
+		return
+	}
+	userResp, err := client.UserClient.GetUserInfo(ctx, client.NewGetUserInfoReq(claims.UserID))
+	if err != nil || userResp == nil || !userResp.Success || userResp.User == nil {
+		response.Unauthorized(c, "用户不存在或已被禁用")
+		return
+	}
+	role := userResp.User.Role
+	if role == "" {
+		role = jwt.RoleUser
+	}
+	accessToken, err := jwt.GenerateAccessToken(jwt.GetSecretKey(), claims.UserID, claims.Username, role, jwt.GetAccessExpirationHours())
+	if err != nil {
+		response.Error(c, err.Error())
+		return
+	}
+	response.Success(c, map[string]interface{}{
+		"success":      true,
+		"token":        accessToken,
+		"access_token": accessToken,
+		"user_id":      claims.UserID,
+		"role":         role,
 	})
 }
 
@@ -84,10 +154,8 @@ func (h *UserHandler) Login(ctx context.Context, c *app.RequestContext) {
 // 流程: 从上下文获取 userID → RPC 调用 user-service.GetUserInfo → 返回用户信息
 func (h *UserHandler) GetUserInfo(ctx context.Context, c *app.RequestContext) {
 	// JWTAuthMiddleware 已将 userID 注入上下文
-	userID, _ := c.Get("userID")
-	id, ok := userID.(int64)
+	id, ok := requireCurrentUserID(c)
 	if !ok {
-		response.Unauthorized(c, "无效的用户ID")
 		return
 	}
 
@@ -101,13 +169,21 @@ func (h *UserHandler) GetUserInfo(ctx context.Context, c *app.RequestContext) {
 
 // UpdateUserInfo 更新当前用户信息
 // PUT /api/v1/user/info
-// 请求体: {nickname, email, phone}
-// 只更新非空字段，空字段保持原值不变
+// 请求体支持 nickname、email、phone、avatar、cover、signature、bio、location、website、gender、birthday。
+// 前端个人资料页使用覆盖式保存，因此空字符串也会写入，用于清空资料字段。
 func (h *UserHandler) UpdateUserInfo(ctx context.Context, c *app.RequestContext) {
 	type updateReq struct {
-		Nickname string `json:"nickname"` // 新昵称
-		Email    string `json:"email"`    // 新邮箱
-		Phone    string `json:"phone"`    // 新手机号
+		Nickname  string `json:"nickname"`  // 新昵称
+		Email     string `json:"email"`     // 新邮箱
+		Phone     string `json:"phone"`     // 新手机号
+		Avatar    string `json:"avatar"`    // 头像URL
+		Cover     string `json:"cover"`     // 个人主页头图URL
+		Signature string `json:"signature"` // 个性签名
+		Bio       string `json:"bio"`       // 个人简介
+		Location  string `json:"location"`  // 所在地
+		Website   string `json:"website"`   // 个人主页/网站
+		Gender    string `json:"gender"`    // 性别/展示身份
+		Birthday  string `json:"birthday"`  // 生日，YYYY-MM-DD
 	}
 	var req updateReq
 	if err := c.BindJSON(&req); err != nil {
@@ -115,10 +191,26 @@ func (h *UserHandler) UpdateUserInfo(ctx context.Context, c *app.RequestContext)
 		return
 	}
 
-	userID, _ := c.Get("userID")
-	id := userID.(int64)
+	id, ok := requireCurrentUserID(c)
+	if !ok {
+		return
+	}
 
-	resp, err := client.UserClient.UpdateUserInfo(ctx, client.NewUpdateUserInfoReq(id, req.Nickname, req.Email, req.Phone))
+	resp, err := client.UserClient.UpdateUserInfo(ctx, client.NewUpdateUserInfoReq(
+		id,
+		req.Nickname,
+		req.Email,
+		req.Phone,
+		req.Avatar,
+		req.Cover,
+		req.Signature,
+		req.Bio,
+		req.Location,
+		req.Website,
+		req.Gender,
+		req.Birthday,
+		true,
+	))
 	if err != nil {
 		response.Error(c, err.Error())
 		return
@@ -140,8 +232,10 @@ func (h *UserHandler) UpdateAvatar(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 
-	userID, _ := c.Get("userID")
-	id := userID.(int64)
+	id, ok := requireCurrentUserID(c)
+	if !ok {
+		return
+	}
 
 	resp, err := client.UserClient.UpdateAvatar(ctx, &user.UpdateAvatarReq{UserId: id, Avatar: req.Avatar})
 	if err != nil {
@@ -155,8 +249,10 @@ func (h *UserHandler) UpdateAvatar(ctx context.Context, c *app.RequestContext) {
 // POST /api/v1/user/logout
 // 将用户在线状态切换为 offline，清除 Redis 中的在线记录
 func (h *UserHandler) Logout(ctx context.Context, c *app.RequestContext) {
-	userID, _ := c.Get("userID")
-	id := userID.(int64)
+	id, ok := requireCurrentUserID(c)
+	if !ok {
+		return
+	}
 
 	resp, err := client.UserClient.UpdateStatus(ctx, &user.UpdateStatusReq{UserId: id, Status: "offline"})
 	if err != nil {
@@ -172,20 +268,32 @@ func (h *UserHandler) Logout(ctx context.Context, c *app.RequestContext) {
 // 好友关系是双向的：A 添加 B 时，B 的好友列表也会出现 A
 func (h *UserHandler) AddFriend(ctx context.Context, c *app.RequestContext) {
 	type addFriendReq struct {
-		FriendID int64  `json:"friend_id"` // 好友的用户ID
-		GroupID  int64  `json:"group_id"`  // 好友分组ID，0 表示默认分组
-		Remark   string `json:"remark"`    // 好友备注名
+		FriendID json.Number `json:"friend_id"` // 好友的用户ID
+		GroupID  json.Number `json:"group_id"`  // 好友分组ID，0 表示默认分组
+		Remark   string      `json:"remark"`    // 好友备注名
 	}
 	var req addFriendReq
-	if err := c.BindJSON(&req); err != nil {
+	if err := bindUserJSONUseNumber(c, &req); err != nil {
 		response.BadRequest(c, "参数错误")
 		return
 	}
+	friendID, err := parseOptionalJSONNumber(req.FriendID, "好友用户ID")
+	if err != nil || friendID <= 0 {
+		response.BadRequest(c, "无效的好友用户ID")
+		return
+	}
+	groupID, err := parseOptionalJSONNumber(req.GroupID, "好友分组ID")
+	if err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
 
-	userID, _ := c.Get("userID")
-	id := userID.(int64)
+	id, ok := requireCurrentUserID(c)
+	if !ok {
+		return
+	}
 
-	resp, err := client.UserClient.AddFriend(ctx, client.NewAddFriendReq(id, req.FriendID, req.GroupID, req.Remark))
+	resp, err := client.UserClient.AddFriend(ctx, client.NewAddFriendReq(id, friendID, groupID, req.Remark))
 	if err != nil {
 		response.Error(c, err.Error())
 		return
@@ -199,18 +307,25 @@ func (h *UserHandler) AddFriend(ctx context.Context, c *app.RequestContext) {
 // 双向删除：A 删除 B 时，B 的好友列表也会移除 A
 func (h *UserHandler) DeleteFriend(ctx context.Context, c *app.RequestContext) {
 	type deleteFriendReq struct {
-		FriendID int64 `json:"friend_id"` // 要删除的好友用户ID
+		FriendID json.Number `json:"friend_id"` // 要删除的好友用户ID
 	}
 	var req deleteFriendReq
-	if err := c.BindJSON(&req); err != nil {
+	if err := bindUserJSONUseNumber(c, &req); err != nil {
 		response.BadRequest(c, "参数错误")
 		return
 	}
+	friendID, err := parseOptionalJSONNumber(req.FriendID, "好友用户ID")
+	if err != nil || friendID <= 0 {
+		response.BadRequest(c, "无效的好友用户ID")
+		return
+	}
 
-	userID, _ := c.Get("userID")
-	id := userID.(int64)
+	id, ok := requireCurrentUserID(c)
+	if !ok {
+		return
+	}
 
-	resp, err := client.UserClient.DeleteFriend(ctx, client.NewDeleteFriendReq(id, req.FriendID))
+	resp, err := client.UserClient.DeleteFriend(ctx, client.NewDeleteFriendReq(id, friendID))
 	if err != nil {
 		response.Error(c, err.Error())
 		return
@@ -218,29 +333,37 @@ func (h *UserHandler) DeleteFriend(ctx context.Context, c *app.RequestContext) {
 	response.Success(c, resp)
 }
 
-// GetFriendList 获取好友列表
-// GET /api/v1/user/friend/list
-// 返回当前用户的所有好友，包含好友昵称、头像、在线状态、分组、备注
+// UpdateFriendRemark 修改好友备注和分组。
+// PUT /api/v1/user/friend/remark
+// 请求体: {friend_id, group_id, remark}
 func (h *UserHandler) UpdateFriendRemark(ctx context.Context, c *app.RequestContext) {
 	type updateFriendRemarkReq struct {
-		FriendID int64  `json:"friend_id"`
-		GroupID  int64  `json:"group_id"`
-		Remark   string `json:"remark"`
+		FriendID json.Number `json:"friend_id"`
+		GroupID  json.Number `json:"group_id"`
+		Remark   string      `json:"remark"`
 	}
 	var req updateFriendRemarkReq
-	if err := c.BindJSON(&req); err != nil {
+	if err := bindUserJSONUseNumber(c, &req); err != nil {
 		response.BadRequest(c, "参数错误")
 		return
 	}
-	if req.FriendID <= 0 {
+	friendID, err := parseOptionalJSONNumber(req.FriendID, "好友用户ID")
+	if err != nil || friendID <= 0 {
 		response.BadRequest(c, "friend_id不能为空")
 		return
 	}
+	groupID, err := parseOptionalJSONNumber(req.GroupID, "好友分组ID")
+	if err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
 
-	userID, _ := c.Get("userID")
-	id := userID.(int64)
+	id, ok := requireCurrentUserID(c)
+	if !ok {
+		return
+	}
 
-	resp, err := client.UserClient.UpdateFriendRemark(ctx, client.NewUpdateFriendRemarkReq(id, req.FriendID, req.GroupID, req.Remark))
+	resp, err := client.UserClient.UpdateFriendRemark(ctx, client.NewUpdateFriendRemarkReq(id, friendID, groupID, req.Remark))
 	if err != nil {
 		response.Error(c, err.Error())
 		return
@@ -248,9 +371,12 @@ func (h *UserHandler) UpdateFriendRemark(ctx context.Context, c *app.RequestCont
 	response.Success(c, resp)
 }
 
+// GetFriendList returns the current user's friends with remarks and status.
 func (h *UserHandler) GetFriendList(ctx context.Context, c *app.RequestContext) {
-	userID, _ := c.Get("userID")
-	id := userID.(int64)
+	id, ok := requireCurrentUserID(c)
+	if !ok {
+		return
+	}
 
 	resp, err := client.UserClient.GetFriendList(ctx, client.NewGetFriendListReq(id))
 	if err != nil {
@@ -274,8 +400,10 @@ func (h *UserHandler) CreateFriendGroup(ctx context.Context, c *app.RequestConte
 		return
 	}
 
-	userID, _ := c.Get("userID")
-	id := userID.(int64)
+	id, ok := requireCurrentUserID(c)
+	if !ok {
+		return
+	}
 
 	resp, err := client.UserClient.CreateFriendGroup(ctx, &user.CreateFriendGroupReq{UserId: id, Name: req.Name})
 	if err != nil {
@@ -289,8 +417,10 @@ func (h *UserHandler) CreateFriendGroup(ctx context.Context, c *app.RequestConte
 // GET /api/v1/user/friend/groups
 // 返回当前用户创建的所有好友分组
 func (h *UserHandler) GetFriendGroups(ctx context.Context, c *app.RequestContext) {
-	userID, _ := c.Get("userID")
-	id := userID.(int64)
+	id, ok := requireCurrentUserID(c)
+	if !ok {
+		return
+	}
 
 	resp, err := client.UserClient.GetFriendGroups(ctx, &user.GetFriendGroupsReq{UserId: id})
 	if err != nil {
@@ -365,4 +495,13 @@ func trimSpace(s string) string {
 		end--
 	}
 	return s[start:end]
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }

@@ -12,10 +12,10 @@ import (
 
 // WebSocket连接参数配置
 const (
-	writeWait      = 10 * time.Second  // 写操作超时时间
-	pongWait       = 60 * time.Second  // 等待Pong响应的超时时间（超过此时间未收到Pong则断开）
+	writeWait      = 10 * time.Second    // 写操作超时时间
+	pongWait       = 60 * time.Second    // 等待Pong响应的超时时间（超过此时间未收到Pong则断开）
 	pingPeriod     = (pongWait * 9) / 10 // Ping发送间隔（必须小于pongWait）
-	maxMessageSize = 4096              // 单条消息最大字节数
+	maxMessageSize = 4096                // 单条消息最大字节数
 )
 
 // Upgrader WebSocket升级器
@@ -24,7 +24,7 @@ const (
 var Upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
-	CheckOrigin: func(r *http.Request) bool { return true },
+	CheckOrigin:     func(r *http.Request) bool { return true },
 }
 
 // WSClient WebSocket客户端连接
@@ -33,10 +33,10 @@ var Upgrader = websocket.Upgrader{
 //   - ReadPump: 从WebSocket读取客户端消息
 //   - WritePump: 向WebSocket写入服务端推送的消息
 type WSClient struct {
-	UserID int64              // 用户ID
-	Hub    *hub.Hub           // Hub引用
-	Conn   *websocket.Conn    // WebSocket连接
-	Send   chan []byte         // 消息发送通道（Hub通过此通道推送消息）
+	UserID int64           // 用户ID
+	Hub    *hub.Hub        // Hub引用
+	Conn   *websocket.Conn // WebSocket连接
+	Send   chan []byte     // 消息发送通道（Hub通过此通道推送消息）
 }
 
 // WSMessage WebSocket消息格式

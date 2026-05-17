@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/joho/godotenv"
+	"github.com/mitchellh/mapstructure"
 	"github.com/spf13/viper"
 )
 
@@ -14,15 +15,18 @@ import (
 // 包含所有服务共用的配置项：MySQL、Redis、JWT、Etcd、Service、MinIO、Storage
 // 每个服务通过各自的YAML配置文件加载，环境变量可覆盖敏感信息
 type Config struct {
-	MySQL   MySQLConfig   `yaml:"mysql"`
-	Redis   RedisConfig   `yaml:"redis"`
-	JWT     JWTConfig     `yaml:"jwt"`
-	Etcd    EtcdConfig    `yaml:"etcd"`
-	Service ServiceConfig `yaml:"service"`
-	Minio   MinioConfig   `yaml:"minio"`
-	Storage StorageConfig `yaml:"storage"`
-	LLM     LLMConfig     `yaml:"llm"`
-	Agent   AgentConfig   `yaml:"agent"`
+	MySQL      MySQLConfig      `yaml:"mysql"`
+	Redis      RedisConfig      `yaml:"redis"`
+	JWT        JWTConfig        `yaml:"jwt"`
+	Etcd       EtcdConfig       `yaml:"etcd"`
+	Service    ServiceConfig    `yaml:"service"`
+	Minio      MinioConfig      `yaml:"minio"`
+	Storage    StorageConfig    `yaml:"storage"`
+	LLM        LLMConfig        `yaml:"llm"`
+	Agent      AgentConfig      `yaml:"agent"`
+	Kafka      KafkaConfig      `yaml:"kafka"`
+	DTM        DTMConfig        `yaml:"dtm"`
+	Governance GovernanceConfig `yaml:"governance"`
 }
 
 // MySQLConfig MySQL数据库配置
@@ -46,8 +50,10 @@ type RedisConfig struct {
 
 // JWTConfig JWT认证配置
 type JWTConfig struct {
-	SecretKey  string `yaml:"secret_key"` // JWT签名密钥
-	Expiration int64  `yaml:"expiration"` // Token过期时间（小时）
+	SecretKey         string `yaml:"secret_key"`         // JWT签名密钥
+	Expiration        int64  `yaml:"expiration"`         // Access Token过期时间（小时），兼容旧配置
+	AccessExpiration  int64  `yaml:"access_expiration"`  // Access Token过期时间（小时）
+	RefreshExpiration int64  `yaml:"refresh_expiration"` // Refresh Token过期时间（小时）
 }
 
 // EtcdConfig Etcd服务发现配置
@@ -75,18 +81,55 @@ type StorageConfig struct {
 	Dir string `yaml:"dir"`
 }
 
+// LLMConfig holds default provider settings for internal bots.
 type LLMConfig struct {
 	DefaultAPIKey  string `yaml:"default_api_key"`
 	DefaultBaseURL string `yaml:"default_base_url"`
 	DefaultModel   string `yaml:"default_model"`
 }
 
+// AgentConfig controls bot memory, tool and agent filesystem locations.
 type AgentConfig struct {
 	SessionDir    string `yaml:"session_dir"`
 	AgentRoot     string `yaml:"agent_root"`
 	CozeloopToken string `yaml:"cozeloop_api_token"`
 	CozeloopWSID  string `yaml:"cozeloop_workspace_id"`
 	SkillsDir     string `yaml:"skills_dir"`
+}
+
+// KafkaConfig 控制服务是否启用 Kafka 事件总线。
+// Enabled=false 时服务仍按同步 RPC/HTTP fallback 工作，便于本地开发渐进接入。
+type KafkaConfig struct {
+	Enabled  bool     `yaml:"enabled"`
+	Brokers  []string `yaml:"brokers"`
+	ClientID string   `yaml:"client_id"`
+}
+
+// DTMConfig controls optional distributed transaction integration.
+type DTMConfig struct {
+	Enabled bool   `yaml:"enabled"`
+	Server  string `yaml:"server"`
+}
+
+// GovernanceConfig groups rate-limit and RPC governance settings.
+type GovernanceConfig struct {
+	RateLimit RateLimitConfig     `yaml:"rate_limit"`
+	RPC       RPCGovernanceConfig `yaml:"rpc"`
+}
+
+// RateLimitConfig configures the api-gateway token-bucket limiter.
+type RateLimitConfig struct {
+	Enabled       bool `yaml:"enabled"`
+	Burst         int  `yaml:"burst"`
+	WindowSeconds int  `yaml:"window_seconds"`
+}
+
+// RPCGovernanceConfig configures Kitex client/server timeout and protection knobs.
+type RPCGovernanceConfig struct {
+	TimeoutMS      int  `yaml:"timeout_ms"`
+	CircuitBreaker bool `yaml:"circuit_breaker"`
+	MaxConnections int  `yaml:"max_connections"`
+	MaxQPS         int  `yaml:"max_qps"`
 }
 
 // Load 加载配置文件
@@ -96,20 +139,34 @@ func Load(configPath string) (*Config, error) {
 	// 加载 .env 文件（如果存在），将环境变量加载到进程
 	_ = godotenv.Load()
 
-	// 设置 viper 自动读取环境变量
-	viper.AutomaticEnv()
+	// 每次 Load 使用独立 Viper 实例，避免测试或同进程多服务加载配置时串值。
+	v := viper.New()
+	v.AutomaticEnv()
+	v.SetDefault("kafka.enabled", true)
+	v.SetDefault("kafka.brokers", []string{"127.0.0.1:9092"})
+	v.SetDefault("dtm.enabled", true)
+	v.SetDefault("dtm.server", "http://localhost:36789")
+	v.SetDefault("governance.rate_limit.enabled", true)
+	v.SetDefault("governance.rate_limit.burst", 120)
+	v.SetDefault("governance.rate_limit.window_seconds", 60)
+	v.SetDefault("governance.rpc.timeout_ms", 5000)
+	v.SetDefault("governance.rpc.circuit_breaker", true)
+	v.SetDefault("governance.rpc.max_connections", 1000)
+	v.SetDefault("governance.rpc.max_qps", 1000)
 
 	// 读取 YAML 配置文件
-	viper.SetConfigFile(configPath)
-	viper.SetConfigType("yaml")
+	v.SetConfigFile(configPath)
+	v.SetConfigType("yaml")
 
-	if err := viper.ReadInConfig(); err != nil {
+	if err := v.ReadInConfig(); err != nil {
 		return nil, fmt.Errorf("读取配置文件失败: %w", err)
 	}
 
 	// 将YAML配置解析到Config结构体
 	var cfg Config
-	if err := viper.Unmarshal(&cfg); err != nil {
+	if err := v.Unmarshal(&cfg, func(decoderConfig *mapstructure.DecoderConfig) {
+		decoderConfig.TagName = "yaml"
+	}); err != nil {
 		return nil, fmt.Errorf("解析配置文件失败: %w", err)
 	}
 
@@ -187,6 +244,19 @@ func applyEnvOverrides(cfg *Config) {
 			cfg.JWT.Expiration = e
 		}
 	}
+	if expiration := os.Getenv("JWT_ACCESS_EXPIRATION"); expiration != "" {
+		if e, err := strconv.ParseInt(expiration, 10, 64); err == nil {
+			cfg.JWT.AccessExpiration = e
+		}
+	}
+	if expiration := os.Getenv("JWT_REFRESH_EXPIRATION"); expiration != "" {
+		if e, err := strconv.ParseInt(expiration, 10, 64); err == nil {
+			cfg.JWT.RefreshExpiration = e
+		}
+	}
+	if cfg.JWT.AccessExpiration <= 0 {
+		cfg.JWT.AccessExpiration = cfg.JWT.Expiration
+	}
 
 	// Etcd 配置覆盖（多个地址用逗号分隔）
 	if endpoints := os.Getenv("ETCD_ENDPOINTS"); endpoints != "" {
@@ -237,6 +307,78 @@ func applyEnvOverrides(cfg *Config) {
 	if skillsDir := os.Getenv("SKILLS_DIR"); skillsDir != "" {
 		cfg.Agent.SkillsDir = skillsDir
 	}
+
+	if enabled := os.Getenv("KAFKA_ENABLED"); enabled != "" {
+		if v, err := strconv.ParseBool(enabled); err == nil {
+			cfg.Kafka.Enabled = v
+		}
+	}
+	if brokers := os.Getenv("KAFKA_BROKERS"); brokers != "" {
+		cfg.Kafka.Brokers = splitAndTrim(brokers)
+	}
+	if clientID := os.Getenv("KAFKA_CLIENT_ID"); clientID != "" {
+		cfg.Kafka.ClientID = clientID
+	}
+	if cfg.Kafka.ClientID == "" {
+		cfg.Kafka.ClientID = cfg.Service.Name
+	}
+
+	if enabled := os.Getenv("DTM_ENABLED"); enabled != "" {
+		if v, err := strconv.ParseBool(enabled); err == nil {
+			cfg.DTM.Enabled = v
+		}
+	}
+	if server := os.Getenv("DTM_SERVER"); server != "" {
+		cfg.DTM.Server = server
+	}
+
+	if enabled := os.Getenv("RATE_LIMIT_ENABLED"); enabled != "" {
+		if v, err := strconv.ParseBool(enabled); err == nil {
+			cfg.Governance.RateLimit.Enabled = v
+		}
+	}
+	if burst := os.Getenv("RATE_LIMIT_BURST"); burst != "" {
+		if v, err := strconv.Atoi(burst); err == nil {
+			cfg.Governance.RateLimit.Burst = v
+		}
+	}
+	if window := os.Getenv("RATE_LIMIT_WINDOW_SECONDS"); window != "" {
+		if v, err := strconv.Atoi(window); err == nil {
+			cfg.Governance.RateLimit.WindowSeconds = v
+		}
+	}
+	if timeout := os.Getenv("RPC_TIMEOUT_MS"); timeout != "" {
+		if v, err := strconv.Atoi(timeout); err == nil {
+			cfg.Governance.RPC.TimeoutMS = v
+		}
+	}
+	if enabled := os.Getenv("RPC_CIRCUIT_BREAKER"); enabled != "" {
+		if v, err := strconv.ParseBool(enabled); err == nil {
+			cfg.Governance.RPC.CircuitBreaker = v
+		}
+	}
+	if maxConnections := os.Getenv("RPC_MAX_CONNECTIONS"); maxConnections != "" {
+		if v, err := strconv.Atoi(maxConnections); err == nil {
+			cfg.Governance.RPC.MaxConnections = v
+		}
+	}
+	if maxQPS := os.Getenv("RPC_MAX_QPS"); maxQPS != "" {
+		if v, err := strconv.Atoi(maxQPS); err == nil {
+			cfg.Governance.RPC.MaxQPS = v
+		}
+	}
+}
+
+func splitAndTrim(value string) []string {
+	parts := strings.Split(value, ",")
+	result := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			result = append(result, part)
+		}
+	}
+	return result
 }
 
 // MustLoad 加载配置，失败则panic

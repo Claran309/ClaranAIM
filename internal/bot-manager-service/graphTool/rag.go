@@ -113,20 +113,20 @@ func buildWorkflow(cm model.BaseChatModel) *compose.Workflow[Input, Output] {
 	// START→load→chunk→score 的直接边缘建立
 	wf.AddLambdaNode("score", compose.InvokableLambda(
 		func(ctx context.Context, in map[string]any) ([]scoredChunk, error) {
-        // 从 map 中手动提取字段，并进行类型断言
-        // 注意：这里的 key 必须和下面 AddInputWithOptions 里的字段名完全一致
-        chunks, ok1 := in["Chunks"].([]*schema.Document)
-        question, ok2 := in["Question"].(string)
-        
-        if !ok1 || !ok2 {
-            return nil, fmt.Errorf("score节点输入类型错误: Chunks 类型断言成功=%v, Question 类型断言成功=%v", ok1, ok2)
-        }
-        tasks := make([]scoreTask, len(chunks))
-        for i, c := range chunks {
-            tasks[i] = scoreTask{Text: c.Content, Question: question}
-        }
-        return scorer.Invoke(ctx, tasks)
-    },
+			// 从 map 中手动提取字段，并进行类型断言
+			// 注意：这里的 key 必须和下面 AddInputWithOptions 里的字段名完全一致
+			chunks, ok1 := in["Chunks"].([]*schema.Document)
+			question, ok2 := in["Question"].(string)
+
+			if !ok1 || !ok2 {
+				return nil, fmt.Errorf("score节点输入类型错误: Chunks 类型断言成功=%v, Question 类型断言成功=%v", ok1, ok2)
+			}
+			tasks := make([]scoreTask, len(chunks))
+			for i, c := range chunks {
+				tasks[i] = scoreTask{Text: c.Content, Question: question}
+			}
+			return scorer.Invoke(ctx, tasks)
+		},
 	)).
 		AddInputWithOptions("chunk",
 			[]*compose.FieldMapping{compose.ToField("Chunks")},
@@ -161,20 +161,20 @@ func buildWorkflow(cm model.BaseChatModel) *compose.Workflow[Input, Output] {
 	// 两者都使用 WithNoDirectDependency："filter" 节点通过其直接边缘控制执行顺序
 	wf.AddLambdaNode("answer", compose.InvokableLambda(
 		func(ctx context.Context, in map[string]any) (Output, error) {
-        topK, ok1 := in["TopK"].([]scoredChunk)
-        question, ok2 := in["Question"].(string)
-        if !ok1 || !ok2 {
-            return Output{}, fmt.Errorf("answer node input error: topK or question missing")
-        }
-        if len(topK) == 0 {
-            return Output{
-                Answer: fmt.Sprintf("在文档中未找到与 %q 相关的内容", question),
-            }, nil
-        }
-        
-        // 构造临时结构体传给 synthesize 函数，或者直接修改 synthesize 接收 map
-        return synthesize(ctx, cm, synthIn{TopK: topK, Question: question})
-    },
+			topK, ok1 := in["TopK"].([]scoredChunk)
+			question, ok2 := in["Question"].(string)
+			if !ok1 || !ok2 {
+				return Output{}, fmt.Errorf("answer node input error: topK or question missing")
+			}
+			if len(topK) == 0 {
+				return Output{
+					Answer: fmt.Sprintf("在文档中未找到与 %q 相关的内容", question),
+				}, nil
+			}
+
+			// 构造临时结构体传给 synthesize 函数，或者直接修改 synthesize 接收 map
+			return synthesize(ctx, cm, synthIn{TopK: topK, Question: question})
+		},
 	)).
 		AddInputWithOptions("filter",
 			[]*compose.FieldMapping{compose.ToField("TopK")},

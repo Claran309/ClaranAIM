@@ -1,9 +1,16 @@
+// Package model defines bot-manager-service persistence models.
 package model
 
-import "time"
+import (
+	"ClaranAIM/pkg/idgen"
+	"time"
 
+	"gorm.io/gorm"
+)
+
+// Bot stores configuration needed to construct and run one agent instance.
 type Bot struct {
-	ID           int64     `json:"id" gorm:"primaryKey;autoIncrement"`
+	ID           int64     `json:"id" gorm:"primaryKey;autoIncrement:false"`
 	Name         string    `json:"name" gorm:"size:100;not null"`
 	Type         string    `json:"type" gorm:"size:20;not null;default:internal"`
 	Description  string    `json:"description" gorm:"type:text"`
@@ -19,12 +26,19 @@ type Bot struct {
 	UpdatedAt    time.Time `json:"updated_at" gorm:"autoUpdateTime"`
 }
 
+// BeforeCreate assigns a snowflake ID before inserting a bot.
+func (b *Bot) BeforeCreate(tx *gorm.DB) error {
+	return fillSnowflakeID(&b.ID)
+}
+
+// TableName keeps the bot table name explicit.
 func (Bot) TableName() string {
 	return "bots"
 }
 
+// BotRoute stores a future dispatch/routing rule for a bot.
 type BotRoute struct {
-	ID           int64     `json:"id" gorm:"primaryKey;autoIncrement"`
+	ID           int64     `json:"id" gorm:"primaryKey;autoIncrement:false"`
 	BotID        int64     `json:"bot_id" gorm:"index;not null"`
 	RoutePattern string    `json:"route_pattern" gorm:"size:255;not null"`
 	RouteType    string    `json:"route_type" gorm:"size:50;not null;default:keyword"`
@@ -32,12 +46,19 @@ type BotRoute struct {
 	CreatedAt    time.Time `json:"created_at" gorm:"autoCreateTime"`
 }
 
+// BeforeCreate assigns a snowflake ID before inserting a route.
+func (r *BotRoute) BeforeCreate(tx *gorm.DB) error {
+	return fillSnowflakeID(&r.ID)
+}
+
+// TableName keeps the route table name explicit.
 func (BotRoute) TableName() string {
 	return "bot_routes"
 }
 
+// BillingRecord stores one measured bot action cost.
 type BillingRecord struct {
-	ID             int64     `json:"id" gorm:"primaryKey;autoIncrement"`
+	ID             int64     `json:"id" gorm:"primaryKey;autoIncrement:false"`
 	BotID          int64     `json:"bot_id" gorm:"index;not null"`
 	UserID         int64     `json:"user_id" gorm:"index;not null"`
 	ConversationID int64     `json:"conversation_id" gorm:"index;default:0"`
@@ -50,6 +71,24 @@ type BillingRecord struct {
 	CreatedAt      time.Time `json:"created_at" gorm:"autoCreateTime"`
 }
 
+// BeforeCreate assigns a snowflake ID before inserting a billing record.
+func (r *BillingRecord) BeforeCreate(tx *gorm.DB) error {
+	return fillSnowflakeID(&r.ID)
+}
+
+// TableName keeps the billing table name explicit.
 func (BillingRecord) TableName() string {
 	return "billing_records"
+}
+
+func fillSnowflakeID(id *int64) error {
+	if *id != 0 {
+		return nil
+	}
+	nextID, err := idgen.NextID()
+	if err != nil {
+		return err
+	}
+	*id = nextID
+	return nil
 }

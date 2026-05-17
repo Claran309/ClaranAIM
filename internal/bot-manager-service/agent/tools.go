@@ -11,6 +11,10 @@ import (
 	"github.com/cloudwego/eino/components/tool/utils"
 )
 
+// InitTools 初始化 bot 可调用的 Eino 工具集合。
+//
+// includeDomainTools 控制是否注册明日方舟领域演示工具；RAG 与联网搜索工具始终尝试
+// 注册。单个工具初始化失败不会中断整个 bot 启动，只记录日志并继续加载其他工具。
 func InitTools(ctx context.Context, chatModel model.BaseChatModel, includeDomainTools bool) []tool.BaseTool {
 	var tools []tool.BaseTool
 

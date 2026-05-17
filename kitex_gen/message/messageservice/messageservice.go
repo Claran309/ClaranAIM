@@ -48,6 +48,13 @@ var serviceMethods = map[string]kitex.MethodInfo{
 		false,
 		kitex.WithStreamingMode(kitex.StreamingNone),
 	),
+	"DeleteLocalMessage": kitex.NewMethodInfo(
+		deleteLocalMessageHandler,
+		newMessageServiceDeleteLocalMessageArgs,
+		newMessageServiceDeleteLocalMessageResult,
+		false,
+		kitex.WithStreamingMode(kitex.StreamingNone),
+	),
 	"EditMessage": kitex.NewMethodInfo(
 		editMessageHandler,
 		newMessageServiceEditMessageArgs,
@@ -239,6 +246,24 @@ func newMessageServiceMarkConversationReadResult() interface{} {
 	return message.NewMessageServiceMarkConversationReadResult()
 }
 
+func deleteLocalMessageHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
+	realArg := arg.(*message.MessageServiceDeleteLocalMessageArgs)
+	realResult := result.(*message.MessageServiceDeleteLocalMessageResult)
+	success, err := handler.(message.MessageService).DeleteLocalMessage(ctx, realArg.Req)
+	if err != nil {
+		return err
+	}
+	realResult.Success = success
+	return nil
+}
+func newMessageServiceDeleteLocalMessageArgs() interface{} {
+	return message.NewMessageServiceDeleteLocalMessageArgs()
+}
+
+func newMessageServiceDeleteLocalMessageResult() interface{} {
+	return message.NewMessageServiceDeleteLocalMessageResult()
+}
+
 func editMessageHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
 	realArg := arg.(*message.MessageServiceEditMessageArgs)
 	realResult := result.(*message.MessageServiceEditMessageResult)
@@ -384,6 +409,16 @@ func (p *kClient) MarkConversationRead(ctx context.Context, req *message.MarkCon
 	_args.Req = req
 	var _result message.MessageServiceMarkConversationReadResult
 	if err = p.c.Call(ctx, "MarkConversationRead", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
+
+func (p *kClient) DeleteLocalMessage(ctx context.Context, req *message.DeleteLocalMessageReq) (r *message.DeleteLocalMessageResp, err error) {
+	var _args message.MessageServiceDeleteLocalMessageArgs
+	_args.Req = req
+	var _result message.MessageServiceDeleteLocalMessageResult
+	if err = p.c.Call(ctx, "DeleteLocalMessage", &_args, &_result); err != nil {
 		return
 	}
 	return _result.GetSuccess(), nil

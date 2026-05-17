@@ -2,14 +2,19 @@ package main
 
 import (
 	"ClaranAIM/internal/msg-core-service/dao"
+	"ClaranAIM/internal/msg-core-service/eventconsumer"
 	"ClaranAIM/internal/msg-core-service/handler"
-	"ClaranAIM/internal/msg-core-service/push"
 	"ClaranAIM/internal/msg-core-service/service"
 	"ClaranAIM/kitex_gen/message/messageservice"
 	"ClaranAIM/pkg/cache/redis"
 	"ClaranAIM/pkg/config"
+	"ClaranAIM/pkg/eventbus"
+	"ClaranAIM/pkg/events"
+	"ClaranAIM/pkg/governance"
 	"ClaranAIM/pkg/health"
 	"ClaranAIM/pkg/logger"
+	"ClaranAIM/pkg/outbox"
+	"context"
 	"net"
 
 	"github.com/cloudwego/kitex/pkg/rpcinfo"
@@ -21,6 +26,9 @@ import (
 func main() {
 	logger.InitService("msg-core-service")
 
+	// msg-core-service 是 IM 的核心写路径：会话、消息事实、用户级消息状态、
+	// 已读游标和 WebSocket 推送目标都从这里统一处理。启动时只做非破坏性
+	// AutoMigrate，避免服务重启清空聊天历史。
 	cfg, err := config.Load("config/msg-core-service.yaml")
 	if err != nil {
 		logger.Fatal("加载配置失败", "error", err)
@@ -45,10 +53,24 @@ func main() {
 		}
 	}
 
-	pushClient := push.NewPushClient("127.0.0.1:8081")
+	var publisher eventbus.Publisher
+	if cfg.Kafka.Enabled && len(cfg.Kafka.Brokers) > 0 {
+		publisher = eventbus.NewKafkaPublisher(cfg.Kafka.Brokers, cfg.Kafka.ClientID)
+		defer publisher.Close()
+		outboxWorker := outbox.NewWorker(outbox.NewGormStore(db), publisher)
+		go outboxWorker.Run(context.Background())
+		logger.Info("Kafka消息事件发布已启用", "brokers", cfg.Kafka.Brokers)
+	}
 
-	msgService := service.NewMessageService(msgRepo, pushClient, redisClient, cfg.Etcd.Endpoints)
+	msgService := service.NewMessageServiceWithPublisher(msgRepo, redisClient, cfg.Etcd.Endpoints)
 	msgHandler := handler.NewMessageServiceImpl(msgService)
+
+	if cfg.Kafka.Enabled && len(cfg.Kafka.Brokers) > 0 {
+		consumer := eventbus.NewKafkaConsumer(cfg.Kafka.Brokers, events.TopicGroupEvents, "msg-core-service")
+		defer consumer.Close()
+		eventconsumer.StartGroupEventConsumer(context.Background(), consumer, msgService)
+		logger.Info("Kafka群组事件消费已启用", "topic", events.TopicGroupEvents)
+	}
 
 	r, err := etcd.NewEtcdRegistry(cfg.Etcd.Endpoints)
 	if err != nil {
@@ -63,12 +85,14 @@ func main() {
 
 	svr := messageservice.NewServer(
 		msgHandler,
-		server.WithServiceAddr(addr),
-		server.WithServerBasicInfo(&rpcinfo.EndpointBasicInfo{
-			ServiceName: cfg.Service.Name,
-		}),
-		server.WithRegistry(r),
-		server.WithMetaHandler(transmeta.ServerTTHeaderHandler),
+		append([]server.Option{
+			server.WithServiceAddr(addr),
+			server.WithServerBasicInfo(&rpcinfo.EndpointBasicInfo{
+				ServiceName: cfg.Service.Name,
+			}),
+			server.WithRegistry(r),
+			server.WithMetaHandler(transmeta.ServerTTHeaderHandler),
+		}, governance.ServerOptions(cfg.Governance.RPC)...)...,
 	)
 
 	health.LogStartup(health.ServiceInfo{

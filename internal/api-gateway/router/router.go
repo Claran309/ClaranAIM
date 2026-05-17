@@ -3,11 +3,22 @@ package router
 import (
 	"ClaranAIM/internal/api-gateway/handler"
 	"ClaranAIM/internal/api-gateway/middleware"
+	"ClaranAIM/pkg/config"
+	"time"
 
 	"github.com/cloudwego/hertz/pkg/route"
 )
 
-func RegisterRoutes(r *route.Engine) {
+// RegisterRoutes 统一注册 api-gateway 暴露给浏览器的 HTTP 路由。
+//
+// 这个项目采用“HTTP 网关 + 内部 Kitex RPC 服务”的分层：
+//   - router 只描述 URL、HTTP 方法和是否需要 JWT；
+//   - handler 负责参数绑定、认证用户提取和响应格式；
+//   - 具体业务规则在各内部 service 中实现。
+//
+// 这样前端始终访问 /api/v1/*，不会直接依赖内部微服务端口，也方便后续
+// 给网关统一加限流、审计、CORS、鉴权和灰度策略。
+func RegisterRoutes(r *route.Engine, cfg ...*config.Config) {
 	userHandler := handler.NewUserHandler()
 	groupHandler := handler.NewGroupHandler()
 	messageHandler := handler.NewMessageHandler()
@@ -15,11 +26,19 @@ func RegisterRoutes(r *route.Engine) {
 	botHandler := handler.NewBotHandler()
 
 	r.Use(middleware.CORSMiddleware())
+	if len(cfg) > 0 && cfg[0] != nil {
+		r.Use(middleware.RateLimitMiddleware(
+			cfg[0].Governance.RateLimit.Enabled,
+			cfg[0].Governance.RateLimit.Burst,
+			time.Duration(cfg[0].Governance.RateLimit.WindowSeconds)*time.Second,
+		))
+	}
 
 	public := r.Group("/api/v1")
 	{
 		public.POST("/user/register", userHandler.Register)
 		public.POST("/user/login", userHandler.Login)
+		public.POST("/user/token/refresh", userHandler.RefreshToken)
 	}
 
 	auth := r.Group("/api/v1")
@@ -56,6 +75,8 @@ func RegisterRoutes(r *route.Engine) {
 		auth.POST("/message/conversation", messageHandler.CreateConversation)
 		auth.POST("/message/send", messageHandler.SendMessage)
 		auth.POST("/message/read", messageHandler.MarkConversationRead)
+		// 删除本地消息只影响当前用户视图；全局撤回使用 /message/recall。
+		auth.POST("/message/delete-local", messageHandler.DeleteLocalMessage)
 		auth.PUT("/message/edit", messageHandler.EditMessage)
 		auth.POST("/message/recall", messageHandler.RecallMessage)
 		auth.GET("/message/history/:id", messageHandler.GetHistory)
@@ -78,6 +99,12 @@ func RegisterRoutes(r *route.Engine) {
 		auth.GET("/bot/:id/routes", botHandler.ListRoutes)
 		auth.DELETE("/bot/route/delete", botHandler.DeleteRoute)
 		auth.GET("/bot/:id/billing", botHandler.GetBilling)
+	}
+
+	admin := r.Group("/api/v1/admin")
+	admin.Use(middleware.JWTAuthMiddleware(), middleware.RequireRole("admin"))
+	{
+		// 管理层路由占位：后续新增系统管理接口必须挂在该分组下。
 	}
 
 	// Local object preview endpoint for files stored by the gateway. Metadata

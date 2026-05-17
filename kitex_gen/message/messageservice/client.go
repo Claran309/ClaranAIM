@@ -16,6 +16,7 @@ type Client interface {
 	GetUserConversations(ctx context.Context, req *message.GetUserConversationsReq, callOptions ...callopt.Option) (r *message.GetUserConversationsResp, err error)
 	SendMessage(ctx context.Context, req *message.SendMessageReq, callOptions ...callopt.Option) (r *message.SendMessageResp, err error)
 	MarkConversationRead(ctx context.Context, req *message.MarkConversationReadReq, callOptions ...callopt.Option) (r *message.MarkConversationReadResp, err error)
+	DeleteLocalMessage(ctx context.Context, req *message.DeleteLocalMessageReq, callOptions ...callopt.Option) (r *message.DeleteLocalMessageResp, err error)
 	EditMessage(ctx context.Context, req *message.EditMessageReq, callOptions ...callopt.Option) (r *message.EditMessageResp, err error)
 	RecallMessage(ctx context.Context, req *message.RecallMessageReq, callOptions ...callopt.Option) (r *message.RecallMessageResp, err error)
 	GetHistory(ctx context.Context, req *message.GetHistoryReq, callOptions ...callopt.Option) (r *message.GetHistoryResp, err error)
@@ -75,6 +76,11 @@ func (p *kMessageServiceClient) SendMessage(ctx context.Context, req *message.Se
 func (p *kMessageServiceClient) MarkConversationRead(ctx context.Context, req *message.MarkConversationReadReq, callOptions ...callopt.Option) (r *message.MarkConversationReadResp, err error) {
 	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
 	return p.kClient.MarkConversationRead(ctx, req)
+}
+
+func (p *kMessageServiceClient) DeleteLocalMessage(ctx context.Context, req *message.DeleteLocalMessageReq, callOptions ...callopt.Option) (r *message.DeleteLocalMessageResp, err error) {
+	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
+	return p.kClient.DeleteLocalMessage(ctx, req)
 }
 
 func (p *kMessageServiceClient) EditMessage(ctx context.Context, req *message.EditMessageReq, callOptions ...callopt.Option) (r *message.EditMessageResp, err error) {

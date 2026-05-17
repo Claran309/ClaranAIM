@@ -1,0 +1,16 @@
+[msg-core-service] 2026-05-17 19:42:26.690	INFO	health/health.go:26	MySQL连接正常	{"service": "msg-core-service", "version": "8.0.32"}
+[msg-core-service] 2026-05-17 19:42:26.718	INFO	health/health.go:44	Redis连接正常	{"service": "msg-core-service"}
+[msg-core-service] 2026-05-17 19:42:26.718	INFO	msg-core-service/main.go:62	Kafka消息事件发布已启用	{"brokers": ["127.0.0.1:9092"]}
+[msg-core-service] 2026-05-17 19:42:26.719	INFO	msg-core-service/main.go:72	Kafka群组事件消费已启用	{"topic": "claran.group.events"}
+[msg-core-service] 2026-05-17 19:42:26.719	INFO	health/health.go:51	Etcd注册地址	{"service": "msg-core-service", "endpoints": "[http://localhost:2379]"}
+[msg-core-service] 2026-05-17 19:42:26.720	INFO	health/health.go:62	========================================
+[msg-core-service] 2026-05-17 19:42:26.720	INFO	health/health.go:63	服务启动完成	{"service": "msg-core-service", "version": "1.0.0", "port": "127.0.0.1:9003"}
+[msg-core-service] 2026-05-17 19:42:26.720	INFO	health/health.go:64	========================================
+[msg-core-service] 2026-05-17 21:13:45.031	INFO	health/health.go:28	MySQL连接正常	{"service": "msg-core-service", "version": "8.0.32"}
+[msg-core-service] 2026-05-17 21:13:45.059	INFO	health/health.go:47	Redis连接正常	{"service": "msg-core-service"}
+[msg-core-service] 2026-05-17 21:13:45.059	INFO	msg-core-service/main.go:62	Kafka消息事件发布已启用	{"brokers": ["127.0.0.1:9092"]}
+[msg-core-service] 2026-05-17 21:13:45.060	INFO	msg-core-service/main.go:72	Kafka群组事件消费已启用	{"topic": "claran.group.events"}
+[msg-core-service] 2026-05-17 21:13:45.061	INFO	health/health.go:56	Etcd注册地址	{"service": "msg-core-service", "endpoints": "[http://localhost:2379]"}
+[msg-core-service] 2026-05-17 21:13:45.062	INFO	health/health.go:69	========================================
+[msg-core-service] 2026-05-17 21:13:45.062	INFO	health/health.go:70	服务启动完成	{"service": "msg-core-service", "version": "1.0.0", "port": "127.0.0.1:9003"}
+[msg-core-service] 2026-05-17 21:13:45.062	INFO	health/health.go:71	========================================

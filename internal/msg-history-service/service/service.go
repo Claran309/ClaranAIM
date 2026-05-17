@@ -30,6 +30,9 @@ type historyServiceImpl struct {
 	repo dao.HistoryRepository
 }
 
+// NewHistoryService 创建消息历史业务服务。
+//
+// service 层承载参数校验、分页顺序调整和离线消息语义，DAO 层只负责具体 SQL/GORM 操作。
 func NewHistoryService(repo dao.HistoryRepository) HistoryService {
 	return &historyServiceImpl{repo: repo}
 }

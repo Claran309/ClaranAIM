@@ -1,0 +1,13 @@
+[file-service] 2026-05-17 19:42:30.382	INFO	health/health.go:26	MySQL连接正常	{"service": "file-service", "version": "8.0.32"}
+[file-service] 2026-05-17 19:42:30.409	INFO	logger/logger.go:316	MinIO连接成功，Bucket: claran-aim
+[file-service] 2026-05-17 19:42:30.409	INFO	health/health.go:51	Etcd注册地址	{"service": "file-service", "endpoints": "[http://localhost:2379]"}
+[file-service] 2026-05-17 19:42:30.410	INFO	health/health.go:62	========================================
+[file-service] 2026-05-17 19:42:30.410	INFO	health/health.go:63	服务启动完成	{"service": "file-service", "version": "1.0.0", "port": "127.0.0.1:9005"}
+[file-service] 2026-05-17 19:42:30.410	INFO	health/health.go:64	========================================
+[file-service] 2026-05-17 19:48:35.133	INFO	logger/logger.go:316	文件记录保存成功: b_80abff94cfa93449eceeecd103e01286.jpg (35718 bytes), file_id=fcbbba68-0943-41bb-80c6-20c6c6212bbe
+[file-service] 2026-05-17 21:13:48.718	INFO	health/health.go:28	MySQL连接正常	{"service": "file-service", "version": "8.0.32"}
+[file-service] 2026-05-17 21:13:48.750	INFO	logger/logger.go:338	MinIO连接成功，Bucket: claran-aim
+[file-service] 2026-05-17 21:13:48.751	INFO	health/health.go:56	Etcd注册地址	{"service": "file-service", "endpoints": "[http://localhost:2379]"}
+[file-service] 2026-05-17 21:13:48.751	INFO	health/health.go:69	========================================
+[file-service] 2026-05-17 21:13:48.751	INFO	health/health.go:70	服务启动完成	{"service": "file-service", "version": "1.0.0", "port": "127.0.0.1:9005"}
+[file-service] 2026-05-17 21:13:48.751	INFO	health/health.go:71	========================================

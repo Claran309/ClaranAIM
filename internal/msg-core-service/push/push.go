@@ -12,10 +12,13 @@ import (
 // websocket-gateway 收到请求后，将消息广播给目标用户的WebSocket连接
 // 这实现了"后端服务 → WebSocket网关 → 用户浏览器"的实时消息推送链路
 type PushClient struct {
-	wsGatewayAddr string        // websocket-gateway 的HTTP地址（如 127.0.0.1:8081）
-	httpClient    *http.Client  // HTTP客户端，用于发送推送请求
+	wsGatewayAddr string       // websocket-gateway 的HTTP地址（如 127.0.0.1:8081）
+	httpClient    *http.Client // HTTP客户端，用于发送推送请求
 }
 
+// NewPushClient 创建基于 HTTP 的 WebSocket 网关推送客户端。
+//
+// Kafka 推送链路可用后，该客户端主要作为兼容旧推送路径或本地调试的备用实现。
 func NewPushClient(wsGatewayAddr string) *PushClient {
 	return &PushClient{
 		wsGatewayAddr: wsGatewayAddr,
@@ -29,7 +32,7 @@ func NewPushClient(wsGatewayAddr string) *PushClient {
 // 发送到 websocket-gateway 的 /push 接口的请求体
 type PushMessage struct {
 	TargetUserIDs []int64     `json:"target_user_ids"` // 目标用户ID列表（消息接收者）
-	Data         MessageData `json:"data"`            // 消息内容
+	Data          MessageData `json:"data"`            // 消息内容
 }
 
 // MessageData 推送消息数据
@@ -48,6 +51,7 @@ type MessageData struct {
 	EditedAt       string  `json:"edited_at"`        // 编辑时间
 	MentionUserIDs []int64 `json:"mention_user_ids"` // @用户列表
 	MentionAll     bool    `json:"mention_all"`      // 是否 @所有人
+	UserID         int64   `json:"user_id"`          // 已读事件中的读者用户ID
 }
 
 // PushMessage 向 websocket-gateway 推送消息
@@ -56,7 +60,7 @@ type MessageData struct {
 func (p *PushClient) PushMessage(targetUserIDs []int64, data MessageData) error {
 	pushMsg := PushMessage{
 		TargetUserIDs: targetUserIDs,
-		Data:         data,
+		Data:          data,
 	}
 
 	// 序列化为JSON

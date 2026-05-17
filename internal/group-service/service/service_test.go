@@ -1,7 +1,10 @@
 package service
 
 import (
+	"ClaranAIM/internal/group-service/dao"
 	"ClaranAIM/internal/group-service/model"
+	"ClaranAIM/pkg/events"
+	"ClaranAIM/pkg/outbox"
 	"context"
 	"testing"
 	"time"
@@ -10,13 +13,24 @@ import (
 type fakeGroupRepo struct {
 	groups  map[int64]*model.Group
 	members map[int64]map[int64]*model.GroupMember
+	outbox  []outbox.Event
 }
 
 func newFakeGroupRepo() *fakeGroupRepo {
 	return &fakeGroupRepo{
 		groups:  map[int64]*model.Group{},
 		members: map[int64]map[int64]*model.GroupMember{},
+		outbox:  []outbox.Event{},
 	}
+}
+
+func (r *fakeGroupRepo) WithTransaction(ctx context.Context, fn func(txRepo dao.GroupRepository) error) error {
+	return fn(r)
+}
+
+func (r *fakeGroupRepo) SaveOutboxEvent(ctx context.Context, event outbox.Event) error {
+	r.outbox = append(r.outbox, event)
+	return nil
 }
 
 func (r *fakeGroupRepo) CreateGroup(ctx context.Context, group *model.Group) error {
@@ -132,6 +146,25 @@ func TestTransferOwnerWorksWhenRedisIsDisabled(t *testing.T) {
 	}
 }
 
+func TestUpdateGroupAllowsClearingAnnouncement(t *testing.T) {
+	repo := newFakeGroupRepo()
+	repo.groups[10] = &model.Group{ID: 10, Name: "team", OwnerID: 1, Announcement: "old notice"}
+	repo.members[10] = map[int64]*model.GroupMember{
+		1: {GroupID: 10, UserID: 1, Role: "owner"},
+	}
+	svc := NewGroupService(repo, nil)
+
+	if err := svc.UpdateGroup(context.Background(), 10, 1, "team v2", ""); err != nil {
+		t.Fatalf("UpdateGroup returned error: %v", err)
+	}
+	if repo.groups[10].Name != "team v2" {
+		t.Fatalf("name = %q, want team v2", repo.groups[10].Name)
+	}
+	if repo.groups[10].Announcement != "" {
+		t.Fatalf("announcement = %q, want empty string", repo.groups[10].Announcement)
+	}
+}
+
 func TestGetGroupMembersRejectsDeletedGroup(t *testing.T) {
 	repo := newFakeGroupRepo()
 	repo.groups[10] = &model.Group{ID: 10, Name: "team", OwnerID: 1}
@@ -153,5 +186,61 @@ func TestGetGroupMembersRejectsDeletedGroup(t *testing.T) {
 	}
 	if isMember || role != "" {
 		t.Fatalf("expected no membership for deleted group, got isMember=%v role=%q", isMember, role)
+	}
+}
+
+func TestCreateGroupPublishesGroupCreatedEvent(t *testing.T) {
+	repo := newFakeGroupRepo()
+	svc := NewGroupService(repo, nil)
+
+	group, err := svc.CreateGroup(context.Background(), "team", 1, []int64{2, 3})
+	if err != nil {
+		t.Fatalf("CreateGroup returned error: %v", err)
+	}
+
+	if len(repo.outbox) != 1 {
+		t.Fatalf("outbox len = %d, want 1", len(repo.outbox))
+	}
+	envelope, err := repo.outbox[0].Envelope()
+	if err != nil {
+		t.Fatalf("outbox envelope decode failed: %v", err)
+	}
+	if envelope.Type != events.EventTypeGroupCreated {
+		t.Fatalf("event type = %q, want %q", envelope.Type, events.EventTypeGroupCreated)
+	}
+	if envelope.Key != "1" || group.ID != 1 {
+		t.Fatalf("event key/group id = %q/%d, want 1/1", envelope.Key, group.ID)
+	}
+}
+
+func TestInviteMemberPublishesFullMemberSnapshot(t *testing.T) {
+	repo := newFakeGroupRepo()
+	repo.groups[10] = &model.Group{ID: 10, Name: "team", OwnerID: 1}
+	repo.members[10] = map[int64]*model.GroupMember{
+		1: {GroupID: 10, UserID: 1, Role: "owner"},
+		2: {GroupID: 10, UserID: 2, Role: "member"},
+	}
+	svc := NewGroupService(repo, nil)
+
+	if err := svc.InviteMember(context.Background(), 10, 1, []int64{3}); err != nil {
+		t.Fatalf("InviteMember returned error: %v", err)
+	}
+
+	if len(repo.outbox) != 1 {
+		t.Fatalf("outbox len = %d, want 1", len(repo.outbox))
+	}
+	envelope, err := repo.outbox[0].Envelope()
+	if err != nil {
+		t.Fatalf("outbox envelope decode failed: %v", err)
+	}
+	if envelope.Type != events.EventTypeGroupMemberInvited {
+		t.Fatalf("event type = %q, want %q", envelope.Type, events.EventTypeGroupMemberInvited)
+	}
+	payload, err := events.DecodePayload[events.GroupMemberInvitedPayload](envelope)
+	if err != nil {
+		t.Fatalf("decode payload: %v", err)
+	}
+	if len(payload.MemberIDs) != 3 {
+		t.Fatalf("member snapshot len = %d, want 3: %#v", len(payload.MemberIDs), payload.MemberIDs)
 	}
 }

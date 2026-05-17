@@ -133,6 +133,9 @@
                         <button id="voice-record-btn" class="btn-icon voice-record-btn" title="按住录音">
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="8" y1="22" x2="16" y2="22"/></svg>
                         </button>
+                        <button id="broadcast-btn" class="btn-icon broadcast-btn" onclick="sendBroadcastMessage()" title="发送群广播" style="display:none;">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m3 11 18-5v12L3 13v-2Z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></svg>
+                        </button>
                         <input type="text" id="msg-input" placeholder="输入消息..." onkeydown="if(event.key==='Enter'){if(currentBotID)sendBotChatMsg();else sendMessage();}">
                         <button id="send-btn" class="btn-send" onclick="sendMessage()">发送</button>
                     </div>

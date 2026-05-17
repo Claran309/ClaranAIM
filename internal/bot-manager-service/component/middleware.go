@@ -6,11 +6,11 @@ import (
 	"fmt"
 	"io"
 
+	commontool "github.com/cloudwego/eino-examples/adk/common/tool"
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/schema"
-	commontool "github.com/cloudwego/eino-examples/adk/common/tool"
 )
 
 // safeToolMiddleware 是一个自定义中间件，用于安全地处理工具调用错误
@@ -31,7 +31,7 @@ func (m *SafeToolMiddleware) WrapInvokableToolCall(
 		result, err := endpoint(ctx, args, opts...)
 		if err != nil {
 			// 如果是中断重新运行错误，直接返回以允许 Agent 重试
-			if _, ok := compose.IsInterruptRerunError(err);ok {
+			if _, ok := compose.IsInterruptRerunError(err); ok {
 				return "", err
 			}
 			// 否则，返回一个格式化的错误消息

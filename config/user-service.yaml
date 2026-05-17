@@ -16,6 +16,15 @@ redis:
 jwt:
   secret_key: ""
   expiration: 0
+  access_expiration: 0
+  refresh_expiration: 0
 
 etcd:
   endpoints: []
+
+governance:
+  rpc:
+    timeout_ms: 5000
+    circuit_breaker: true
+    max_connections: 1000
+    max_qps: 1000

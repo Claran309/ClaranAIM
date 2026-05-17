@@ -16,6 +16,9 @@ type MessageServiceImpl struct {
 	svc service.MessageService
 }
 
+// NewMessageServiceImpl 创建消息核心 RPC handler。
+//
+// 返回值使用 Kitex 生成的 message.MessageService 接口类型，便于 main 中直接注册服务。
 func NewMessageServiceImpl(svc service.MessageService) message.MessageService {
 	return &MessageServiceImpl{svc: svc}
 }
@@ -105,6 +108,9 @@ func (h *MessageServiceImpl) SendMessage(ctx context.Context, req *message.SendM
 	}, nil
 }
 
+// MarkConversationRead 更新用户在会话中的已读游标。
+//
+// RPC 层只负责请求/响应转换；游标合法性、目标消息选择和已读事件发布都在 service 层处理。
 func (h *MessageServiceImpl) MarkConversationRead(ctx context.Context, req *message.MarkConversationReadReq) (resp *message.MarkConversationReadResp, err error) {
 	if err := h.svc.MarkConversationRead(ctx, req.ConversationId, req.UserId, req.MessageId); err != nil {
 		return &message.MarkConversationReadResp{Success: false, Msg: err.Error()}, nil
@@ -112,6 +118,21 @@ func (h *MessageServiceImpl) MarkConversationRead(ctx context.Context, req *mess
 	return &message.MarkConversationReadResp{Success: true, Msg: "已读游标已更新"}, nil
 }
 
+// DeleteLocalMessage 只删除调用用户自己的消息视图。
+//
+// RPC handler 不直接操作数据库，也不判断“删除全局消息还是本地消息”；它只把
+// IDL 请求转换为 service 调用。真正的 IM 语义在 service 层统一实现，避免
+// HTTP、RPC、未来内部任务各写一套删除规则。
+func (h *MessageServiceImpl) DeleteLocalMessage(ctx context.Context, req *message.DeleteLocalMessageReq) (resp *message.DeleteLocalMessageResp, err error) {
+	if err := h.svc.DeleteLocalMessage(ctx, req.ConversationId, req.UserId, req.MessageId); err != nil {
+		return &message.DeleteLocalMessageResp{Success: false, Msg: err.Error()}, nil
+	}
+	return &message.DeleteLocalMessageResp{Success: true, Msg: "本地消息已删除"}, nil
+}
+
+// EditMessage 编辑当前用户有权限修改的消息。
+//
+// 是否为原作者、是否超过编辑窗口、撤回消息是否可编辑等规则统一由 service 层校验。
 func (h *MessageServiceImpl) EditMessage(ctx context.Context, req *message.EditMessageReq) (resp *message.EditMessageResp, err error) {
 	msg, err := h.svc.EditMessage(ctx, req.MessageId, req.EditorId, req.Content)
 	if err != nil {
@@ -120,6 +141,9 @@ func (h *MessageServiceImpl) EditMessage(ctx context.Context, req *message.EditM
 	return &message.EditMessageResp{Success: true, Message: toRPCMessage(msg), Msg: "消息已编辑"}, nil
 }
 
+// RecallMessage 撤回一条对所有参与者可见的消息。
+//
+// service 层负责权限和状态变更，并通过事件总线通知 websocket-gateway 刷新前端状态。
 func (h *MessageServiceImpl) RecallMessage(ctx context.Context, req *message.RecallMessageReq) (resp *message.RecallMessageResp, err error) {
 	if err := h.svc.RecallMessage(ctx, req.MessageId, req.OperatorId); err != nil {
 		return &message.RecallMessageResp{Success: false, Msg: err.Error()}, nil
@@ -199,9 +223,12 @@ func toRPCMessage(m *model.Message) *message.Message {
 		ReplyToId:      m.ReplyToID,
 		Status:         m.Status,
 		IsEdited:       m.IsEdited,
-		EditedAt:       formatTime(m.EditedAt),
+		EditedAt:       formatOptionalTime(m.EditedAt),
 		MentionUserIds: m.MentionUserIDs,
 		MentionAll:     m.MentionAll,
+		ReadCount:      m.ReadCount,
+		RecipientCount: m.RecipientCount,
+		IsReadByMe:     m.IsReadByMe,
 	}
 }
 
@@ -221,6 +248,13 @@ func parseOptionalTime(value string) (time.Time, error) {
 
 func formatTime(t time.Time) string {
 	if t.IsZero() {
+		return ""
+	}
+	return t.Format("2006-01-02 15:04:05")
+}
+
+func formatOptionalTime(t *time.Time) string {
+	if t == nil || t.IsZero() {
 		return ""
 	}
 	return t.Format("2006-01-02 15:04:05")

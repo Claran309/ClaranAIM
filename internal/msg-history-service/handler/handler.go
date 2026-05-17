@@ -13,6 +13,10 @@ type HistoryServiceImpl struct {
 	svc service.HistoryService
 }
 
+// NewHistoryServiceImpl 创建消息历史 RPC handler。
+//
+// handler 负责把 Kitex 生成的请求结构转换为 service 调用，并把内部模型转换为
+// IDL 响应结构，保持 RPC 层不直接访问数据库。
 func NewHistoryServiceImpl(svc service.HistoryService) message.HistoryService {
 	return &HistoryServiceImpl{svc: svc}
 }

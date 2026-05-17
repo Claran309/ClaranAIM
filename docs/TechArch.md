@@ -151,7 +151,7 @@ Agent 的价值来自真实上下文。IM 是上下文密度最高的软件形�
 
 数据传递：
 
-1. 用户登录后 api-gateway 生成 JWT。
+1. 用户登录请求经 api-gateway 转发到 user-service，由 user-service 完成密码校验并签发 Access Token / Refresh Token。
 2. 前端带 JWT 请求好友列表。
 3. user-service 从 MySQL 读取好友关系，并可结合 Redis 缓存返回。
 4. 前端点击好友时调用 msg-core-service 创建或复用私聊 conversation。
@@ -166,20 +166,27 @@ Agent 的价值来自真实上下文。IM 是上下文密度最高的软件形�
 数据传递：
 
 1. 创建群时 group-service 写入群和成员。
-2. api-gateway 在群创建成功后调用 msg-core-service 创建 group conversation。
-3. 邀请成员成功后，api-gateway 读取最新群成员并再次调用创建会话接口。
-4. msg-core-service 复用旧会话并补齐新成员。
-5. msg-core-service 发送群消息时会再次查询群成员，保证旧会话也能同步新成员和禁言状态。
+2. group-service 发布 `group.created` 事件，payload 携带群 ID、群主和完整成员快照。
+3. 邀请/踢出/解散群时，group-service 发布 `group.member_invited`、`group.member_kicked`、`group.deleted` 事件。
+4. msg-core-service 消费 `claran.group.events`，创建或复用 group conversation，并同步 `conversation_participants`。
+5. msg-core-service 发送群消息时仍会同步查询群成员和禁言状态，作为 Kafka 事件延迟或重放期间的权限兜底。
 
 ### 会话与消息
 
 主要表：
 
 - `conversations`：会话 ID、类型、群 ID、更新时间。
-- `conversation_participants`：会话参与者，用于私聊/群聊会话列表和推送目标。
+- `conversation_participants`：会话参与者，用于私聊/群聊会话列表、推送目标，同时保存 per-user 已读游标、草稿、置顶和通知设置。
 - `messages`：消息 ID、会话 ID、发送者、消息内容、消息类型、引用消息、消息状态、编辑标记、@ 列表、创建时间。
+- `message_user_states`：用户级消息视图，保存投递时间、已读时间和本地删除时间。
 - `message_edit_records`：消息编辑历史，保存原内容、新内容、编辑人和编辑时间。
-- `conversation_participants`：会话参与者，同时保存 per-user 已读游标、草稿、置顶和通知设置。
+
+消息数据分成两层：
+
+- 服务端消息事实：`messages` 表表达“这条消息是否存在、属于哪个会话、谁发送、内容是什么、是否撤回或编辑”。除撤回、编辑、系统治理外，普通用户的本地操作不直接改这张表。
+- 用户本地视图：`message_user_states` 表表达“某个用户是否已收到、是否已读、是否在自己的历史中删除了这条消息”。用户删除聊天记录只写 `local_deleted_at`，历史查询按当前用户过滤，不影响其他参与者。
+
+这个拆分让离线同步、多端漫游、撤回、已读回执和 Agent 拉取上下文都有共同事实来源：Agent、搜索和审计读取 `messages`，用户界面读取 `messages + message_user_states` 组成的个人视图。
 
 消息发送链路：
 
@@ -190,6 +197,7 @@ sequenceDiagram
     participant Msg as msg-core-service
     participant Group as group-service
     participant DB as MySQL
+    participant Kafka as Kafka
     participant WS as websocket-gateway
 
     Web->>API: POST /message/send
@@ -202,8 +210,11 @@ sequenceDiagram
         Msg->>DB: 同步缺失参与者
     end
     Msg->>DB: 写入 messages
+    Msg->>DB: 写入 message_user_states
     Msg->>DB: 更新 conversations.updated_at
-    Msg->>WS: 推送 new_message
+    Msg->>DB: 同事务写入 event_outbox(message.created)
+    DB-->>Kafka: Outbox worker 发布 message.created
+    Kafka->>WS: websocket-gateway 消费消息事件
     WS-->>Web: WebSocket 消息
 ```
 
@@ -211,7 +222,7 @@ sequenceDiagram
 
 主要表：
 
-- `file_records` / `file_metas`：文件 ID、文件名、类型、大小、Content-Type、文件 URL、上传者、时间。
+- `file_records`：内部雪花主键、对外 UUID 文件 ID、文件名、类型、大小、Content-Type、文件 URL、上传者、时间。
 
 数据传递：
 
@@ -220,7 +231,7 @@ sequenceDiagram
 3. 网关把二进制写入本地 `storage/source` 或 MinIO。
 4. 网关调用 file-service 保存元数据。
 5. file-service 返回真实 `file_id`。
-6. 前端把 `[img]url|id|name[/img]`、`[file]url|id|name[/file]` 或 `[voice]url|id|name[/voice]` 作为消息内容发送给 msg-core-service。
+6. 前端优先把 `{"id":"file_id","url":"file_url","name":"filename"}` 这类 JSON 作为图片、文件或语音消息内容发送给 msg-core-service；旧的 `[img]...[/img]`、`[file]...[/file]`、`[voice]...[/voice]` 格式仅保留兼容。
 7. 会话渲染时根据 `file_id` 生成下载 URL，图片直接预览，语音直接播放。
 
 ### Bot 与 Agent
@@ -274,7 +285,7 @@ AI 对话链路：
 │  文件上传代理  │              │  在线状态同步       │
 └──┬──┬──┬──┬──┬──┘              └────────┬─────────┘
    │  │  │  │  │                          │
-   │  │  │  │  │  RPC (Kitex + TTHeader)  │ HTTP /push
+   │  │  │  │  │  RPC (Kitex + TTHeader)  │ Kafka message events
    │  │  │  │  │  服务发现: Etcd           │
    ▼  ▼  ▼  ▼  ▼                          │
 ┌─────┐┌─────┐┌──────────┐┌─────┐┌────────┐│
@@ -436,14 +447,14 @@ api-gateway: UserHandler.Login()
 user-service: userServiceImpl.Login()
   │  1. repo.GetUserByUsername() → 查询用户记录
   │  2. password.CheckPassword(pwd, user.Password) → bcrypt 校验
-  │  3. jwt.GenerateToken(secretKey, userID, username, expiration)
-  │     → 生成 JWT（HS256 签名，payload 含 userID + username + 过期时间）
+  │  3. jwt.GenerateAccessToken(...) + jwt.GenerateRefreshToken(...)
+  │     → 生成 Access/Refresh JWT（HS256 签名，payload 含 userID、username、role、token_type、过期时间）
   │  4. user.Status = "online" → repo.UpdateUser() 更新状态
   │  5. redis.SetJSON("user:info:{id}", user, 15min) → 刷新用户缓存
   │  6. redis.Set("online:user:{id}", "1", 30min) → 设置在线标记
   │
   ▼
-返回 LoginResp{success: true, token: "eyJ...", user_id: 1}
+返回 LoginResp{success: true, access_token: "eyJ...", refresh_token: "eyJ...", user_id: 1, role: "user"}
 ```
 
 ### 3.3 发送消息完整流程（最核心）
@@ -477,18 +488,18 @@ msg-core-service: messageServiceImpl.SendMessage()
   │  6. redis.SetJSON("conversation:recent:{id}", msg, 10min) → 缓存最近消息
   │  7. 遍历所有参与者 → redis.Del("user:conversations:{uid}") → 清除会话列表缓存
   │
-  │  ── 第5步：WebSocket 实时推送 ──
+  │  ── 第5步：发布消息事件 ──
   │  8. repo.GetParticipants(conversationID) → 获取所有参与者 userID
-  │  9. pushClient.PushMessage(targetUserIDs, pushData)
+  │  9. eventbus.Publish(message.created, targetUserIDs, pushData)
   │     │
   │     ▼
-  │  push.PushClient.PushMessage()
-  │     │  HTTP POST http://localhost:8081/push
-  │     │  Body: {target_user_ids: [1,2], data: {type, conversation_id, sender_id, content, ...}}
+  │  Kafka topic: claran.message.events
+  │     │  key = conversation_id
+  │     │  payload = {target_user_ids: [1,2], data fields...}
   │     │
   │     ▼
-  │  websocket-gateway: /push handler
-  │     │  1. 解析推送请求
+  │  websocket-gateway: message event consumer
+  │     │  1. 解析 MessagePayload
   │     │  2. 构造 WebSocket 消息: {type: "new_message", data: {...}}
   │     │  3. h.Broadcast(targetUserIDs, data)
   │     │
@@ -514,7 +525,7 @@ Phase 1 将消息从“纯文本记录”扩展为可协作的 IM 事件：
 
 | 能力 | 存储位置 | 对外接口 | 实时事件 |
 |------|----------|----------|----------|
-| 已读游标 | `conversation_participants.last_read_message_id/last_read_at` | `POST /message/read` | 后续可扩展 `message_read` |
+| 已读游标/回执 | `conversation_participants.last_read_message_id/last_read_at` + `message_user_states.read_at` | `POST /message/read` | `message_read` |
 | 引用/回复 | `messages.reply_to_id` | `POST /message/send` 的 `reply_to_id` | `new_message` 携带 `reply_to_id` |
 | 编辑 | `messages.is_edited/edited_at` + `message_edit_records` | `PUT /message/edit` | `message_edited` |
 | 撤回 | `messages.status=recalled` | `POST /message/recall` | `message_recalled` |
@@ -522,7 +533,7 @@ Phase 1 将消息从“纯文本记录”扩展为可协作的 IM 事件：
 | 广播消息 | `messages.msg_type=broadcast` | `POST /message/send` | `new_message` |
 | 时间范围搜索 | `messages.created_at` | `GET /message/search?start_at=&end_at=` | 无 |
 
-撤回默认窗口为 2 分钟，由 msg-core-service 校验。编辑只允许消息发送者操作，已撤回消息不能继续编辑。会话列表 unread_count 由用户在该会话的 read cursor 和消息 ID 计算，前端打开会话后会上报最新消息已读。
+撤回默认窗口为 2 分钟，由 msg-core-service 校验。编辑只允许消息发送者操作，已撤回消息不能继续编辑。会话列表 unread_count 由用户在该会话的 read cursor 和消息 ID 计算，前端打开会话后会上报最新消息已读。消息历史响应会额外返回 `read_count`、`recipient_count` 和 `is_read_by_me`，前端据此展示私聊已读/未读和群聊已读人数。
 
 ### 3.4 WebSocket 连接建立流程
 
@@ -554,10 +565,12 @@ websocket-gateway: WSHandler.ServeHTTP()
 **Token 生成**（登录时）：
 ```go
 claims := Claims{
-    UserID:   user.ID,        // 用户ID
-    Username: user.Username,  // 用户名
+    UserID:    user.ID,        // 用户ID
+    Username:  user.Username,  // 用户名
+    Role:      user.Role,      // user/admin
+    TokenType: "access",       // access/refresh
     StandardClaims: jwt.StandardClaims{
-        ExpiresAt: now.Add(168h).Unix(),  // 过期时间
+        ExpiresAt: now.Add(accessTTL).Unix(),
         IssuedAt:  now.Unix(),            // 签发时间
         Issuer:    "ClaranAIM",           // 签发者
     },
@@ -570,11 +583,18 @@ signedToken := token.SignedString([]byte(secretKey))  // HMAC-SHA256 签名
 ```
 api-gateway 中间件: JWTAuthMiddleware()
   1. 从 Authorization 头提取 "Bearer <token>"
-  2. jwt.ParseToken(token) → 验证签名 + 检查过期时间
-  3. 解析出 claims.UserID 和 claims.Username
-  4. 存入请求上下文: c.Set("userID", claims.UserID)
+  2. jwt.ParseToken(token) → 只接受 token_type=access，验证签名 + 检查过期时间
+  3. 解析出 claims.UserID、claims.Username、claims.Role
+  4. 存入请求上下文: c.Set("userID", claims.UserID), c.Set("role", claims.Role)
   5. 后续 handler 通过 c.Get("userID") 获取当前用户ID
 ```
+
+**Refresh Token 续签**：
+
+- `POST /api/v1/user/token/refresh` 只接受 `token_type=refresh` 的 JWT。
+- api-gateway 解析 Refresh Token 后，会通过 user-service 重新读取当前用户信息和当前 role，再签发新的 Access Token。
+- Refresh Token 中的 role 只代表签发时快照，不作为续签时的最终权限来源，避免管理员降级后旧令牌继续保留管理权限。
+- 管理接口统一通过 `RequireRole(jwt.RoleAdmin)` 挂载角色鉴权；当前 `/api/v1/admin` 是预留分组。
 
 **WebSocket 认证**（特殊处理）：
 - WebSocket 无法设置 HTTP Header，因此 Token 通过 URL 参数传递
@@ -679,9 +699,10 @@ for {
 **消息推送链路**：
 ```
 msg-core-service.SendMessage()
-  → pushClient.PushMessage(targetUserIDs, data)
-    → HTTP POST /push
-      → websocket-gateway 解析请求
+  → 发布 message.created/message.edited/message.recalled/message.read
+    → 同事务写入 MySQL event_outbox
+      → Outbox worker 发布 Kafka topic claran.message.events
+        → websocket-gateway consumer 解析事件
         → hub.Broadcast(targetUserIDs, jsonData)
           → 遍历每个目标用户的所有连接
             → client.Send <- data
@@ -689,6 +710,8 @@ msg-core-service.SendMessage()
                 → conn.NextWriter(TextMessage).Write(data)
                   → 浏览器 onmessage 回调
 ```
+
+`/push` HTTP 接口仍保留为内部兼容入口；当前 msg-core-service 的主路径不再请求内直推，而是写 `event_outbox` 后由 worker 异步投递 Kafka。
 
 **心跳保活**：
 ```
@@ -721,7 +744,7 @@ WebSocket 断开时:
 ```
 读取:
   1. 查 Redis → 命中 → 直接返回
-  2. 查 Redis → 未命中 → 查 MySQL → 写入 Redis → 返回
+  2. 查 Redis → 未命中 → 尝试获取 Redis 分布式锁 → 查 MySQL → 写入 Redis → 返回
 
 写入:
   1. 写 MySQL
@@ -734,33 +757,40 @@ WebSocket 断开时:
   - TTL 兜底保证最终一致性
 ```
 
+**缓存防护策略**：
+
+- 缓存雪崩：写入缓存时使用 TTL 随机抖动，避免大量 key 在同一时刻过期。
+- 缓存穿透：数据库确定不存在的数据写入短 TTL 空值缓存，不使用布隆过滤器。
+- 缓存击穿：热点 key 未命中时使用 Redis `SET NX PX` 分布式锁，释放锁使用 Lua 校验 token，避免误删其他请求的锁。
+- 写后删除：所有写数据库操作成功后删除相关缓存，读路径负责按最新数据库状态回填。
+
 **各服务缓存详情**：
 
 user-service:
 | 操作 | 缓存 Key | 策略 |
 |------|---------|------|
-| 注册 | `user:info:{id}` | 写入缓存（TTL 15min） |
-| 登录 | `user:info:{id}` + `online:user:{id}` | 刷新用户缓存 + 设置在线标记（TTL 30min） |
-| 获取用户信息 | `user:info:{id}` | 先查缓存，未命中查 DB 回写 |
-| 更新用户信息 | `user:info:{id}` | 更新 DB + 刷新缓存 |
-| 获取好友列表 | `user:friends:{id}` | 先查缓存（TTL 5min），未命中查 DB 回写 |
+| 注册 | `user:info:{id}` | 写库后写入缓存（TTL 15min + 抖动） |
+| 登录 | `user:info:{id}` + `online:user:{id}` | 用户缓存回写，在线标记 TTL 带抖动 |
+| 获取用户信息 | `user:info:{id}` | Cache-Aside + 分布式锁 + 空值缓存 |
+| 更新用户信息 | `user:info:{id}` | 更新 DB 后删除缓存 |
+| 获取好友列表 | `user:friends:{id}` | 先查缓存，空列表写空值缓存，TTL 带抖动 |
 | 添加/删除好友 | `user:friends:{uid}` | 双向删除双方好友缓存 |
-| 获取好友分组 | `user:friend_groups:{id}` | 先查缓存（TTL 10min），未命中查 DB 回写 |
+| 获取好友分组 | `user:friend_groups:{id}` | 先查缓存，空列表写空值缓存，TTL 带抖动 |
 | 创建好友分组 | `user:friend_groups:{id}` | 删除缓存 |
 
 msg-core-service:
 | 操作 | 缓存 Key | 策略 |
 |------|---------|------|
-| 获取会话列表 | `user:conversations:{id}` | 先查缓存（TTL 5min），未命中查 DB 回写 |
-| 发送消息 | `conversation:recent:{id}` + `user:conversations:{uid}` | 缓存最近消息 + 清除所有参与者的会话列表缓存 |
+| 获取会话列表 | `user:conversations:{id}` | 先查缓存，空列表写空值缓存，TTL 带抖动 |
+| 发送消息 | `conversation:recent:{id}` + `user:conversations:{uid}` | 最近消息 TTL 带抖动 + 清除所有参与者的会话列表缓存 |
 | 创建会话 | `user:conversations:{uid}` | 清除所有参与者的会话列表缓存 |
 
 group-service:
 | 操作 | 缓存 Key | 策略 |
 |------|---------|------|
-| 获取群组信息 | `group:info:{id}` | 先查缓存（TTL 10min），未命中查 DB 回写 |
-| 获取用户群组列表 | `user:groups:{uid}` | 先查缓存（TTL 5min），未命中查 DB 回写 |
-| 获取群成员列表 | `group:members:{id}` | 先查缓存（TTL 5min），未命中查 DB 回写 |
+| 获取群组信息 | `group:info:{id}` | Cache-Aside + 分布式锁 + 空值缓存 |
+| 获取用户群组列表 | `user:groups:{uid}` | 先查缓存，空列表写空值缓存，TTL 带抖动 |
+| 获取群成员列表 | `group:members:{id}` | 先查缓存，空列表写空值缓存，TTL 带抖动 |
 | 创建/更新/删除群组 | `group:info:{id}` + `user:groups:{uid}` | 删除群组缓存 + 删除成员的群组列表缓存 |
 | 添加/移除成员 | `group:members:{id}` + `user:groups:{uid}` | 删除成员列表缓存 + 删除被操作用户的群组列表缓存 |
 
@@ -780,18 +810,25 @@ func InitDB(dsn string) (*gorm.DB, error) {
     db, _ := gorm.Open(mysql.Open(dsn), &gorm.Config{})
     
     for _, m := range models {
-        if db.Migrator().HasTable(m) {
-            db.Migrator().DropTable(m)  // 开发阶段：删表重建
-        }
-        db.AutoMigrate(m)               // 根据模型自动建表
+        db.AutoMigrate(m) // 非破坏性自动迁移：新增表/字段，不在启动时删表
     }
     return db, nil
 }
 ```
 
-**为什么开发阶段用 DropTable + AutoMigrate**：
-- 开发阶段模型频繁变更，直接 AutoMigrate 无法处理字段删除/类型变更
-- 生产环境应使用迁移工具（如 golang-migrate）做增量迁移
+**迁移策略约束**：
+- 服务启动流程禁止 DropTable，避免重启清空用户、消息、文件和计费数据
+- GORM AutoMigrate 只承担开发阶段的非破坏性迁移，适合新增表和新增字段
+- 字段删除、类型变更、数据回填等复杂变更应使用迁移工具（如 golang-migrate）做增量迁移
+
+### 3.6 分布式 ID 策略
+
+项目不再依赖 MySQL 自增主键：
+
+- 用户 ID：`users.id` 使用 10 位数字 UID，范围为 `1000000000` 到 `9999999999`。注册时生成随机 UID 并查重，用户可复制 UID 用于添加好友。
+- 业务 ID：群、会话、消息、好友关系、Bot、计费记录、消息用户状态等使用 64 位雪花 ID。
+- 雪花 ID 布局：毫秒级时间戳 + workerID + 同毫秒序列号。当前 workerID 可由本机信息兜底，后续多实例部署时可扩展为 Redis/Etcd 分配。
+- 时钟回拨：小幅回拨短暂等待，超过阈值直接返回错误，避免生成重复 ID。
 
 **好友关系是双向的**：
 ```
@@ -986,6 +1023,8 @@ services:
   redis:        # 缓存 - 端口 6379
   etcd:         # 服务注册发现 - 端口 2379
   minio:        # 对象存储 - 端口 9000(API) + 9009(控制台)
+  kafka:        # 事件总线 - 端口 9092，控制器 9093；服务配置默认启用
+  dtm:          # 分布式事务协调器 - HTTP 36789，gRPC 36790；默认配置已开启，按业务需要接入 Saga/TCC 分支
 ```
 
 ### 7.2 服务连接方式
@@ -994,7 +1033,9 @@ services:
 - MySQL: `claran:chr070309@tcp(localhost:3306)/ClaranCloudDisk?charset=utf8mb4&parseTime=True&loc=Local`
 - Redis: `localhost:6379`，无密码，DB 0
 - Etcd: `http://localhost:2379`
-- MinIO: `localhost:9000`，Bucket: `claran-aim`
+- MinIO: `localhost:9000`，Bucket 由 `MINIO_BUCKET_NAME` 或服务配置决定；当前 `config/file-service.yaml` 默认 `claranaim`
+- Kafka: `127.0.0.1:9092`，当前使用 topic `claran.group.events` 和 `claran.message.events`
+- DTM: `http://localhost:36789`，配置默认开启，并通过 `pkg/dtm` 提供 Saga 构建器；不替代 Outbox 高频事件可靠发布。
 
 ---
 
@@ -1003,7 +1044,7 @@ services:
 ### 8.1 完整启动顺序
 
 ```
-1. docker-compose up -d          → 启动 MySQL、Redis、Etcd、MinIO
+1. docker-compose up -d          → 启动 MySQL、Redis、Etcd、MinIO、Kafka、DTM
 2. 等待 MySQL 初始化完成（约 10 秒）
 3. scripts/start.bat             → 依次启动 8 个后端服务
    ├── user-service (:9001)      → 自动建表 + 注册到 Etcd
@@ -1046,8 +1087,8 @@ services:
 
 | 设计点 | 当前实现 | 未来优化方向 |
 |-------|---------|------------|
-| 消息存储 | 同步写 MySQL | 异步写（先写 Redis，再批量落盘） |
-| 消息推送 | HTTP 调用 /push | Redis Pub/Sub 替代 HTTP |
+| 消息存储 | 同步写 MySQL，事件同事务写 `event_outbox` | 若采用 Redis 缓冲，必须使用 Redis Stream/AOF/ACK 或数据库 Outbox 保证可重放，不能只写普通缓存后批量落盘 |
+| 消息推送 | Outbox worker 发布 Kafka message events | 扩展离线推送、搜索索引、AI 后处理消费者 |
 | 会话列表 | 每次查 DB 拼装 | Redis Sorted Set 维护 |
 | 在线状态 | Redis String + TTL | Redis Set + 定时刷新 |
 | 历史消息分页 | 游标分页（before_id） | 已实现，无需优化 |
@@ -1074,7 +1115,7 @@ file-service: FileMeta 持久化
   │
   ▼
 MinIO: 实际文件存储
-  │  Bucket: claran-aim
+  │  Bucket: claranaim（可通过 MINIO_BUCKET_NAME 覆盖）
   │  Key: uploads/{timestamp}_{filename}
 ```
 
@@ -1106,7 +1147,7 @@ api-gateway: FileHandler.GetFile()
 | Endpoint | MINIO_ENDPOINT | MinIO 服务地址，默认 localhost:9000 |
 | Access Key | MINIO_ROOT_USER | 认证用户名 |
 | Secret Key | MINIO_ROOT_PASSWORD | 认证密码 |
-| Bucket | MINIO_BUCKET_NAME | 存储桶名称，默认 claran-aim |
+| Bucket | MINIO_BUCKET_NAME | 存储桶名称，当前配置默认 claranaim |
 | Use MinIO | MINIO_USE_MINIO | 是否使用 MinIO（false 则存本地） |
 
 ---
@@ -1193,8 +1234,8 @@ bot-manager-service: ChatWithBot()
   │     event.Output.MessageOutput.GetMessage() → 提取回复内容
   │
   │  ── 第4步：计费记录 ──
-  │  5. 估算 Token 数 = (输入长度 + 输出长度) / 4
-  │  6. 估算费用 = Token 数 × 0.0001
+  │  5. 从 Eino schema.Message.ResponseMeta.Usage 读取 PromptTokens/CompletionTokens
+  │  6. 按模型输入/输出单价计算费用
   │  7. recordBilling() → 写入 billing_records 表
   │
   ▼
@@ -1225,15 +1266,19 @@ BillingRecord 模型:
   ├── id          记录ID
   ├── bot_id      关联的Bot
   ├── user_id     使用者
-  ├── action      操作类型（chat/chat_error/chat_empty）
-  ├── token_count 估算Token数
-  ├── cost        估算费用
+  ├── conversation_id 关联会话ID
+  ├── action      操作类型（chat/chat_usage_missing/chat_error/chat_empty）
+  ├── token_count 输入 + 输出 Token 总数
+  ├── input_tokens  模型响应 usage.prompt_tokens
+  ├── output_tokens 模型响应 usage.completion_tokens
+  ├── model_name  模型名称
+  ├── cost        按真实 Token 用量和模型单价计算的费用
   └── created_at  记录时间
 
-计费策略（当前为估算）：
-  - Token 估算 = (输入字符数 + 输出字符数) / 4
-  - 费用估算 = Token 数 × 0.0001
-  - 未来可接入 OpenAI API 返回的实际 Token 用量
+计费策略：
+  - Token 数只来自 Eino 返回的 schema.Message.ResponseMeta.Usage，不使用字符数估算。
+  - 当前记录 input_tokens/output_tokens/token_count，费用按模型输入/输出单价分别计算。
+  - 如果兼容模型接口没有返回 usage，记录 action=chat_usage_missing，Token 和费用按 0 写入，避免猜测计费。
 ```
 
 ---
@@ -1309,16 +1354,31 @@ msg-core-service: SendMessage()
 
 - 所有服务使用统一的日志格式
 - 每条日志包含：时间戳、日志级别、服务名、消息、结构化字段
-- 替代 Go 标准库 `log` 包的无格式输出
+- 基于 `go.uber.org/zap` 输出到控制台，并同步写入本地日志文件
+- 标准库 `log.Printf/log.Println` 已被桥接到统一 logger，旧代码日志也会落盘
 
 ### 14.2 日志格式
 
 ```
-[2026-05-13 10:30:45.123] [INFO] [user-service] 数据库初始化成功
-[2026-05-13 10:30:45.456] [ERROR] [msg-core-service] 发送消息失败 | error=禁言中 | user_id=1 | conv_id=5
+[user-service] 2026-05-17 19:36:23.654 INFO  cmd/user-service/main.go:31 数据库初始化成功
+[msg-core-service] 2026-05-17 19:36:23.704 ERROR internal/msg-core-service/service.go:820 发送消息失败 {"error":"禁言中","user_id":1000000001,"conv_id":5}
 ```
 
-### 14.3 使用方式
+### 14.3 本地日志文件
+
+默认写入项目根目录：
+
+```text
+logs/<service>/<YYYY-MM-DD>/INFO.log
+logs/<service>/<YYYY-MM-DD>/ERR.log
+```
+
+- `INFO.log`：记录 `INFO/WARN/ERROR/FATAL` 等所有业务日志。
+- `ERR.log`：只记录 `ERROR/FATAL`，用于快速定位错误。
+- `CLARAN_LOG_DIR` 可覆盖日志根目录，例如 `CLARAN_LOG_DIR=D:\ClaranAIMLogs`。
+- 日志按日期自动切分；服务启动时会使用 `logger.InitService("<service>")` 初始化对应服务目录。
+
+### 14.4 使用方式
 
 ```go
 // 初始化（main.go 中）
@@ -1331,7 +1391,7 @@ logger.Error("发送消息失败", "error", err, "user_id", userID)
 logger.Fatal("服务启动失败", "error", err)  // Fatal 会调用 os.Exit(1)
 ```
 
-### 14.4 结构化字段
+### 14.5 结构化字段
 
 ```go
 // 支持键值对字段，便于日志检索和分析
@@ -1341,7 +1401,7 @@ logger.Info("消息发送成功",
     "sender_id", senderID,
     "elapsed", time.Since(start),
 )
-// 输出: [2026-05-13 10:30:45.123] [INFO] [msg-core-service] 消息发送成功 | msg_id=42 | conv_id=5 | sender_id=1 | elapsed=3.2ms
+// 输出到控制台和 logs/msg-core-service/<date>/INFO.log
 ```
 
 ---
@@ -1363,8 +1423,11 @@ logger.Info("消息发送成功",
 
 创建会话:
   api-gateway.CreateConversation()
-    → 遍历参与者列表，校验每个用户存在
-    → 不存在则返回错误
+    → HTTP 层只解析参数并调用 user-service 校验参与者是否存在
+    → 具体会话创建、私聊去重、群聊参与者同步由 msg-core-service 负责
+  group-service.CreateGroup()/InviteMember()
+    → 发布 group.* Kafka 事件
+    → msg-core-service 消费后创建或同步群聊会话参与者
 
 发送消息:
   api-gateway.SendMessage()
@@ -1418,8 +1481,9 @@ WebSocket 断开时:
 ### 16.3 安全与治理
 
 - msg-filter-service：敏感内容检测、实时审核、多语言翻译。
-- 服务降级与重试：RPC 调用超时、熔断、幂等重试。
-- Kafka：将消息落库、推送、搜索索引、AI 后处理解耦为事件流。
+- 服务降级与重试：API 网关已接入令牌桶限流；Kitex 客户端已接入 RPC 超时、加权轮询和熔断；Kitex 服务端已接入连接数/QPS 限制。后续仍需补充按业务错误码的降级策略和幂等重试。
+- Kafka：已用于群组事件同步和消息实时推送；`group.*` 与 `message.*` 已通过 MySQL Transactional Outbox 覆盖生产前崩溃窗口。后续继续补消费者幂等、搜索索引、AI 后处理和审计事件流，详见 `docs/ReliabilityAndEventConsistency.md`。
+- DTM：已作为默认开启的基础设施接入 Docker Compose、配置系统和 `pkg/dtm`。当前不强行改造高频消息链路，避免把 Outbox 已覆盖的事件可靠发布问题复杂化；后续低频跨服务补偿事务可按 Saga/TCC 接入。
 - 可观测性：Prometheus、Jaeger、Grafana、ELK。
 - 压测：K6 场景覆盖登录、会话列表、群聊消息、文件上传、Bot 对话。
 - 部署：Kubernetes、滚动升级、配置中心、灰度发布。

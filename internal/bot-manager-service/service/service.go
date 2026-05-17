@@ -17,6 +17,11 @@ import (
 	"github.com/cloudwego/eino/schema"
 )
 
+// BotService defines the bot management and runtime chat contract.
+//
+// bot-manager-service owns bot configuration, routing rules, local conversation
+// memory and billing records. The current implementation executes bot chats in
+// this service; a future bot-runtime-service can reuse this interface boundary.
 type BotService interface {
 	CreateBot(ctx context.Context, name, botType, description, modelName, apiKey, baseURL, systemPrompt, skillsDir, agentRoot string, ownerID int64, defaultAPIKey, defaultBaseURL, defaultModel string) (*model.Bot, error)
 	UpdateBot(ctx context.Context, botID, operatorID int64, name, description, modelName, apiKey, baseURL, systemPrompt, skillsDir, agentRoot string, isActive bool, defaultAPIKey, defaultBaseURL, defaultModel string) error
@@ -65,6 +70,10 @@ func NewBotService(botRepo dao.BotRepository, routeRepo dao.RouteRepository, bil
 	}
 }
 
+// CreateBot creates a bot configuration owned by one user.
+//
+// Internal bots inherit the system default provider credentials; custom bots
+// must provide their own API key and base URL.
 func (s *botServiceImpl) CreateBot(ctx context.Context, name, botType, description, modelName, apiKey, baseURL, systemPrompt, skillsDir, agentRoot string, ownerID int64, defaultAPIKey, defaultBaseURL, defaultModel string) (*model.Bot, error) {
 	if name == "" {
 		return nil, errors.New("bot名称不能为空")
@@ -118,6 +127,7 @@ func (s *botServiceImpl) CreateBot(ctx context.Context, name, botType, descripti
 	return bot, nil
 }
 
+// UpdateBot modifies bot settings and invalidates the cached runtime agent.
 func (s *botServiceImpl) UpdateBot(ctx context.Context, botID, operatorID int64, name, description, modelName, apiKey, baseURL, systemPrompt, skillsDir, agentRoot string, isActive bool, defaultAPIKey, defaultBaseURL, defaultModel string) error {
 	bot, err := s.botRepo.GetBotByID(ctx, botID)
 	if err != nil {
@@ -179,14 +189,18 @@ func (s *botServiceImpl) UpdateBot(ctx context.Context, botID, operatorID int64,
 	return nil
 }
 
+// GetBot returns one bot configuration.
 func (s *botServiceImpl) GetBot(ctx context.Context, botID int64) (*model.Bot, error) {
 	return s.botRepo.GetBotByID(ctx, botID)
 }
 
+// ListBots returns bots owned by a user, optionally filtered by type.
 func (s *botServiceImpl) ListBots(ctx context.Context, ownerID int64, botType string) ([]model.Bot, error) {
 	return s.botRepo.ListBots(ctx, ownerID, botType)
 }
 
+// DeleteBot removes a bot configuration owned by operatorID and drops the cached
+// runtime instance.
 func (s *botServiceImpl) DeleteBot(ctx context.Context, botID, operatorID int64) error {
 	bot, err := s.botRepo.GetBotByID(ctx, botID)
 	if err != nil {
@@ -211,6 +225,12 @@ func (s *botServiceImpl) DeleteBot(ctx context.Context, botID, operatorID int64)
 	return nil
 }
 
+// ChatWithBot runs one user message through the configured Eino agent.
+//
+// Memory is scoped by bot ID and conversation ID so the same bot can keep
+// independent context in different IM conversations. Token billing uses the
+// usage metadata returned by Eino messages; when usage is absent, the billing
+// record is marked as usage-missing with zero tokens.
 func (s *botServiceImpl) ChatWithBot(ctx context.Context, botID, userID, conversationID int64, message string) (string, int64, error) {
 	botInfo, err := s.botRepo.GetBotByID(ctx, botID)
 	if err != nil {
@@ -409,6 +429,7 @@ func (r *botReplyCollector) mergeResolvedMessage(role schema.RoleType, msg *sche
 	r.parts = append(r.parts, content)
 }
 
+// String joins assistant message chunks into the final visible bot reply.
 func (r *botReplyCollector) String() string {
 	if len(r.parts) == 0 {
 		return ""
@@ -463,6 +484,7 @@ func modelTokenPrice(modelName string) (inputYuanPerMillion, outputYuanPerMillio
 	}
 }
 
+// CreateRoute creates a routing rule for a bot after confirming the bot exists.
 func (s *botServiceImpl) CreateRoute(ctx context.Context, botID int64, routePattern, routeType string, priority int64) (*model.BotRoute, error) {
 	bot, err := s.botRepo.GetBotByID(ctx, botID)
 	if err != nil {
@@ -487,14 +509,18 @@ func (s *botServiceImpl) CreateRoute(ctx context.Context, botID int64, routePatt
 	return route, nil
 }
 
+// ListRoutes returns all routing rules for one bot.
 func (s *botServiceImpl) ListRoutes(ctx context.Context, botID int64) ([]model.BotRoute, error) {
 	return s.routeRepo.ListRoutes(ctx, botID)
 }
 
+// DeleteRoute removes one routing rule. operatorID is kept for future ownership
+// checks when route records carry owner metadata.
 func (s *botServiceImpl) DeleteRoute(ctx context.Context, routeID, operatorID int64) error {
 	return s.routeRepo.DeleteRoute(ctx, routeID)
 }
 
+// GetBilling returns paginated billing records for one bot/user pair.
 func (s *botServiceImpl) GetBilling(ctx context.Context, botID, userID int64, limit, offset int64) ([]model.BillingRecord, int64, error) {
 	if limit <= 0 {
 		limit = 20

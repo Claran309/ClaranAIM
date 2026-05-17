@@ -7,8 +7,12 @@ import (
 	"ClaranAIM/kitex_gen/group/groupservice"
 	"ClaranAIM/pkg/cache/redis"
 	"ClaranAIM/pkg/config"
+	"ClaranAIM/pkg/eventbus"
+	"ClaranAIM/pkg/governance"
 	"ClaranAIM/pkg/health"
 	"ClaranAIM/pkg/logger"
+	"ClaranAIM/pkg/outbox"
+	"context"
 	"net"
 
 	"github.com/cloudwego/kitex/pkg/rpcinfo"
@@ -44,6 +48,14 @@ func main() {
 	}
 
 	groupRepo := dao.NewGroupRepo(db)
+	var publisher eventbus.Publisher
+	if cfg.Kafka.Enabled && len(cfg.Kafka.Brokers) > 0 {
+		publisher = eventbus.NewKafkaPublisher(cfg.Kafka.Brokers, cfg.Kafka.ClientID)
+		defer publisher.Close()
+		outboxWorker := outbox.NewWorker(outbox.NewGormStore(db), publisher)
+		go outboxWorker.Run(context.Background())
+		logger.Info("Kafka事件发布已启用", "brokers", cfg.Kafka.Brokers)
+	}
 	groupService := service.NewGroupService(groupRepo, redisClient)
 	groupHandler := handler.NewGroupServiceImpl(groupService)
 
@@ -60,12 +72,14 @@ func main() {
 
 	svr := groupservice.NewServer(
 		groupHandler,
-		server.WithServiceAddr(addr),
-		server.WithServerBasicInfo(&rpcinfo.EndpointBasicInfo{
-			ServiceName: cfg.Service.Name,
-		}),
-		server.WithRegistry(r),
-		server.WithMetaHandler(transmeta.ServerTTHeaderHandler),
+		append([]server.Option{
+			server.WithServiceAddr(addr),
+			server.WithServerBasicInfo(&rpcinfo.EndpointBasicInfo{
+				ServiceName: cfg.Service.Name,
+			}),
+			server.WithRegistry(r),
+			server.WithMetaHandler(transmeta.ServerTTHeaderHandler),
+		}, governance.ServerOptions(cfg.Governance.RPC)...)...,
 	)
 
 	health.LogStartup(health.ServiceInfo{

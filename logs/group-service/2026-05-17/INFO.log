@@ -1,0 +1,14 @@
+[group-service] 2026-05-17 19:42:22.078	INFO	health/health.go:26	MySQL连接正常	{"service": "group-service", "version": "8.0.32"}
+[group-service] 2026-05-17 19:42:22.127	INFO	health/health.go:44	Redis连接正常	{"service": "group-service"}
+[group-service] 2026-05-17 19:42:22.128	INFO	group-service/main.go:57	Kafka事件发布已启用	{"brokers": ["127.0.0.1:9092"]}
+[group-service] 2026-05-17 19:42:22.130	INFO	health/health.go:51	Etcd注册地址	{"service": "group-service", "endpoints": "[http://localhost:2379]"}
+[group-service] 2026-05-17 19:42:22.130	INFO	health/health.go:62	========================================
+[group-service] 2026-05-17 19:42:22.130	INFO	health/health.go:63	服务启动完成	{"service": "group-service", "version": "1.0.0", "port": "127.0.0.1:9002"}
+[group-service] 2026-05-17 19:42:22.131	INFO	health/health.go:64	========================================
+[group-service] 2026-05-17 21:13:40.551	INFO	health/health.go:28	MySQL连接正常	{"service": "group-service", "version": "8.0.32"}
+[group-service] 2026-05-17 21:13:40.581	INFO	health/health.go:47	Redis连接正常	{"service": "group-service"}
+[group-service] 2026-05-17 21:13:40.581	INFO	group-service/main.go:57	Kafka事件发布已启用	{"brokers": ["127.0.0.1:9092"]}
+[group-service] 2026-05-17 21:13:40.582	INFO	health/health.go:56	Etcd注册地址	{"service": "group-service", "endpoints": "[http://localhost:2379]"}
+[group-service] 2026-05-17 21:13:40.583	INFO	health/health.go:69	========================================
+[group-service] 2026-05-17 21:13:40.583	INFO	health/health.go:70	服务启动完成	{"service": "group-service", "version": "1.0.0", "port": "127.0.0.1:9002"}
+[group-service] 2026-05-17 21:13:40.583	INFO	health/health.go:71	========================================

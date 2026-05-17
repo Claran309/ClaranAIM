@@ -6,6 +6,7 @@ import (
 	"strings"
 )
 
+// OperatorQueryToolParams 是干员查询工具的入参。
 type OperatorQueryToolParams struct {
 	Name string `json:"name" jsonschema:"description=干员名称，如'能天使'、'银灰'等"`
 }
@@ -30,6 +31,7 @@ func QueryOperator(ctx context.Context, input *OperatorQueryToolParams) (string,
 	return info, nil
 }
 
+// ResourceQueryToolParams 是资源查询工具的入参。
 type ResourceQueryToolParams struct {
 	ResourceType string `json:"resource_type" jsonschema:"description=资源类型，可选值：龙门币、合成玉、理智、源石、全部"`
 }
@@ -61,6 +63,7 @@ func QueryResources(ctx context.Context, input *ResourceQueryToolParams) (string
 	return info, nil
 }
 
+// BattlePlanToolParams 是作战计划工具的入参。
 type BattlePlanToolParams struct {
 	StageName  string `json:"stage_name" jsonschema:"description=关卡名称，如'1-7'、'CE-5'、'SK-5'等"`
 	Difficulty string `json:"difficulty" jsonschema:"description=难度偏好，可选值：标准、挑战"`

@@ -1,8 +1,11 @@
 package service
 
 import (
+	"ClaranAIM/internal/msg-core-service/dao"
 	"ClaranAIM/internal/msg-core-service/model"
 	"ClaranAIM/kitex_gen/group"
+	"ClaranAIM/pkg/events"
+	"ClaranAIM/pkg/outbox"
 	"context"
 	"errors"
 	"strings"
@@ -15,21 +18,36 @@ import (
 type fakeMessageRepo struct {
 	nextConversationID int64
 	nextMessageID      int64
+	nextUserStateID    int64
 	conversations      map[int64]*model.Conversation
 	participants       map[int64]map[int64]model.ConversationParticipant
 	messages           map[int64][]model.Message
+	userStates         map[int64]map[int64]model.MessageUserState
 	editRecords        []model.MessageEditRecord
+	outbox             []outbox.Event
 }
 
 func newFakeMessageRepo() *fakeMessageRepo {
 	return &fakeMessageRepo{
 		nextConversationID: 1,
 		nextMessageID:      1,
+		nextUserStateID:    1,
 		conversations:      map[int64]*model.Conversation{},
 		participants:       map[int64]map[int64]model.ConversationParticipant{},
 		messages:           map[int64][]model.Message{},
+		userStates:         map[int64]map[int64]model.MessageUserState{},
 		editRecords:        []model.MessageEditRecord{},
+		outbox:             []outbox.Event{},
 	}
+}
+
+func (r *fakeMessageRepo) WithTransaction(ctx context.Context, fn func(tx dao.MessageRepository) error) error {
+	return fn(r)
+}
+
+func (r *fakeMessageRepo) SaveOutboxEvent(ctx context.Context, event outbox.Event) error {
+	r.outbox = append(r.outbox, event)
+	return nil
 }
 
 func (r *fakeMessageRepo) CreateConversation(ctx context.Context, conv *model.Conversation) error {
@@ -72,6 +90,11 @@ func (r *fakeMessageRepo) AddParticipant(ctx context.Context, p *model.Conversat
 	cp.JoinedAt = time.Now()
 	cp.NotifyEnabled = true
 	r.participants[p.ConversationID][p.UserID] = cp
+	return nil
+}
+
+func (r *fakeMessageRepo) RemoveParticipant(ctx context.Context, conversationID, userID int64) error {
+	delete(r.participants[conversationID], userID)
 	return nil
 }
 
@@ -135,10 +158,73 @@ func (r *fakeMessageRepo) CreateEditRecord(ctx context.Context, record *model.Me
 	return nil
 }
 
+func (r *fakeMessageRepo) UpsertMessageUserState(ctx context.Context, state *model.MessageUserState) error {
+	if r.userStates[state.UserID] == nil {
+		r.userStates[state.UserID] = map[int64]model.MessageUserState{}
+	}
+	now := time.Now()
+	existing, ok := r.userStates[state.UserID][state.MessageID]
+	if ok {
+		if state.DeliveredAt != nil {
+			existing.DeliveredAt = state.DeliveredAt
+		}
+		if state.ReadAt != nil {
+			existing.ReadAt = state.ReadAt
+		}
+		if state.LocalDeletedAt != nil {
+			existing.LocalDeletedAt = state.LocalDeletedAt
+		}
+		existing.UpdatedAt = now
+		r.userStates[state.UserID][state.MessageID] = existing
+		return nil
+	}
+	cp := *state
+	cp.ID = r.nextUserStateID
+	r.nextUserStateID++
+	cp.CreatedAt = now
+	cp.UpdatedAt = now
+	r.userStates[state.UserID][state.MessageID] = cp
+	return nil
+}
+
+func (r *fakeMessageRepo) MarkMessagesReadThrough(ctx context.Context, conversationID, userID, messageID int64, readAt time.Time) error {
+	if r.userStates[userID] == nil {
+		r.userStates[userID] = map[int64]model.MessageUserState{}
+	}
+	for _, msg := range r.messages[conversationID] {
+		if msg.ID > messageID {
+			continue
+		}
+		state := r.userStates[userID][msg.ID]
+		state.ConversationID = conversationID
+		state.MessageID = msg.ID
+		state.UserID = userID
+		state.ReadAt = &readAt
+		if state.DeliveredAt == nil {
+			state.DeliveredAt = &readAt
+		}
+		r.userStates[userID][msg.ID] = state
+	}
+	return nil
+}
+
+func (r *fakeMessageRepo) MarkMessageLocalDeleted(ctx context.Context, conversationID, userID, messageID int64, deletedAt time.Time) error {
+	if r.userStates[userID] == nil {
+		r.userStates[userID] = map[int64]model.MessageUserState{}
+	}
+	state := r.userStates[userID][messageID]
+	state.ConversationID = conversationID
+	state.MessageID = messageID
+	state.UserID = userID
+	state.LocalDeletedAt = &deletedAt
+	r.userStates[userID][messageID] = state
+	return nil
+}
+
 func (r *fakeMessageRepo) UpdateParticipantReadCursor(ctx context.Context, conversationID, userID, messageID int64, readAt time.Time) error {
 	p := r.participants[conversationID][userID]
 	p.LastReadMessageID = messageID
-	p.LastReadAt = readAt
+	p.LastReadAt = &readAt
 	r.participants[conversationID][userID] = p
 	return nil
 }
@@ -175,6 +261,71 @@ func (r *fakeMessageRepo) GetMessages(ctx context.Context, conversationID int64,
 	out := make([]model.Message, len(msgs))
 	copy(out, msgs)
 	return out, nil
+}
+
+func (r *fakeMessageRepo) GetMessagesForUser(ctx context.Context, conversationID, userID, limit, beforeID int64) ([]model.Message, error) {
+	msgs, err := r.GetMessages(ctx, conversationID, 0, beforeID)
+	if err != nil {
+		return nil, err
+	}
+	filtered := make([]model.Message, 0, len(msgs))
+	for _, msg := range msgs {
+		if state, ok := r.userStates[userID][msg.ID]; ok && state.LocalDeletedAt != nil {
+			continue
+		}
+		filtered = append(filtered, msg)
+	}
+	if limit > 0 && int64(len(filtered)) > limit {
+		filtered = filtered[len(filtered)-int(limit):]
+	}
+	return filtered, nil
+}
+
+func (r *fakeMessageRepo) CountUnreadMessages(ctx context.Context, conversationID, userID, lastReadMessageID int64) (int64, error) {
+	var count int64
+	for _, msg := range r.messages[conversationID] {
+		if msg.ID <= lastReadMessageID || msg.Status == MessageStatusRecalled {
+			continue
+		}
+		if msg.SenderID == userID {
+			continue
+		}
+		if state, ok := r.userStates[userID][msg.ID]; ok && state.LocalDeletedAt != nil {
+			continue
+		}
+		count++
+	}
+	return count, nil
+}
+
+func (r *fakeMessageRepo) GetMessageReadStats(ctx context.Context, conversationID int64, messageIDs []int64, viewerID int64) (map[int64]dao.MessageReadStat, error) {
+	wanted := map[int64]struct{}{}
+	for _, id := range messageIDs {
+		wanted[id] = struct{}{}
+	}
+	participants := r.participants[conversationID]
+	stats := make(map[int64]dao.MessageReadStat, len(messageIDs))
+	for _, msg := range r.messages[conversationID] {
+		if _, ok := wanted[msg.ID]; !ok {
+			continue
+		}
+		stat := dao.MessageReadStat{MessageID: msg.ID}
+		for userID := range participants {
+			state := r.userStates[userID][msg.ID]
+			if userID == viewerID && state.ReadAt != nil {
+				stat.IsReadByMe = true
+			}
+			if userID == msg.SenderID {
+				continue
+			}
+			stat.RecipientCount++
+			if state.ReadAt != nil {
+				stat.ReadCount++
+			}
+		}
+		stats[msg.ID] = stat
+	}
+	return stats, nil
 }
 
 func (r *fakeMessageRepo) SearchMessages(ctx context.Context, conversationIDs []int64, keyword string, limit int64, startAt, endAt *time.Time) ([]model.Message, error) {
@@ -450,6 +601,74 @@ func TestSendMessageStoresReplyMentionsAndBroadcastType(t *testing.T) {
 	}
 }
 
+func TestSendMessagePublishesMessageCreatedEvent(t *testing.T) {
+	repo := newFakeMessageRepo()
+	svc := &messageServiceImpl{repo: repo}
+	conv, err := svc.CreateConversation(context.Background(), "private", []int64{1, 2}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	msg, err := svc.SendMessage(context.Background(), conv.ID, 1, "hello via kafka", "text")
+	if err != nil {
+		t.Fatalf("SendMessage returned error: %v", err)
+	}
+
+	if len(repo.outbox) != 1 {
+		t.Fatalf("outbox len = %d, want 1", len(repo.outbox))
+	}
+	envelope, err := repo.outbox[0].Envelope()
+	if err != nil {
+		t.Fatalf("outbox envelope decode failed: %v", err)
+	}
+	if envelope.Type != events.EventTypeMessageCreated {
+		t.Fatalf("event type = %q, want %q", envelope.Type, events.EventTypeMessageCreated)
+	}
+	payload, err := events.DecodePayload[events.MessagePayload](envelope)
+	if err != nil {
+		t.Fatalf("decode payload: %v", err)
+	}
+	if payload.MsgID != msg.ID || payload.ConversationID != conv.ID || len(payload.TargetUserIDs) != 2 {
+		t.Fatalf("payload = %#v, want msg/conversation targets", payload)
+	}
+}
+
+func TestMarkReadPublishesReadEventToOtherParticipants(t *testing.T) {
+	repo := newFakeMessageRepo()
+	svc := &messageServiceImpl{repo: repo}
+	conv, err := svc.CreateConversation(context.Background(), "private", []int64{1, 2}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	msg, err := svc.SendMessage(context.Background(), conv.ID, 1, "read me", "text")
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo.outbox = nil
+
+	if err := svc.MarkConversationRead(context.Background(), conv.ID, 2, msg.ID); err != nil {
+		t.Fatalf("MarkConversationRead returned error: %v", err)
+	}
+
+	if len(repo.outbox) != 1 {
+		t.Fatalf("outbox len = %d, want 1", len(repo.outbox))
+	}
+	envelope, err := repo.outbox[0].Envelope()
+	if err != nil {
+		t.Fatalf("outbox envelope decode failed: %v", err)
+	}
+	if envelope.Type != events.EventTypeMessageRead {
+		t.Fatalf("event type = %q, want %q", envelope.Type, events.EventTypeMessageRead)
+	}
+	payload, err := events.DecodePayload[events.MessagePayload](envelope)
+	if err != nil {
+		t.Fatalf("decode payload: %v", err)
+	}
+	if len(payload.TargetUserIDs) != 1 || payload.TargetUserIDs[0] != 1 {
+		t.Fatalf("target users = %#v, want [1]", payload.TargetUserIDs)
+	}
+}
+
 func TestMarkReadUpdatesParticipantCursorAndUnreadCount(t *testing.T) {
 	repo := newFakeMessageRepo()
 	svc := &messageServiceImpl{repo: repo}
@@ -482,6 +701,136 @@ func TestMarkReadUpdatesParticipantCursorAndUnreadCount(t *testing.T) {
 	}
 	if len(convs) != 1 || convs[0].UnreadCount != 0 {
 		t.Fatalf("expected unread count 0 after read, got %#v", convs)
+	}
+}
+
+func TestSendMessageCreatesPerUserMessageStates(t *testing.T) {
+	repo := newFakeMessageRepo()
+	svc := &messageServiceImpl{repo: repo}
+	conv, err := svc.CreateConversation(context.Background(), "private", []int64{1, 2}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	msg, err := svc.SendMessage(context.Background(), conv.ID, 1, "server fact", "text")
+	if err != nil {
+		t.Fatalf("send message: %v", err)
+	}
+	if msg.EditedAt != nil {
+		t.Fatalf("newly sent message should not have edited_at, got %v", msg.EditedAt)
+	}
+
+	senderState, ok := repo.userStates[1][msg.ID]
+	if !ok {
+		t.Fatal("expected sender message_user_state to be created")
+	}
+	if senderState.ReadAt == nil || senderState.DeliveredAt == nil {
+		t.Fatalf("expected sender message to be delivered and read, got %#v", senderState)
+	}
+	receiverState, ok := repo.userStates[2][msg.ID]
+	if !ok {
+		t.Fatal("expected receiver message_user_state to be created")
+	}
+	if receiverState.DeliveredAt == nil {
+		t.Fatalf("expected receiver message to be marked delivered, got %#v", receiverState)
+	}
+	if receiverState.ReadAt != nil {
+		t.Fatalf("expected receiver message to remain unread, got %#v", receiverState)
+	}
+}
+
+func TestGetHistoryHydratesGroupReadReceiptCounts(t *testing.T) {
+	repo := newFakeMessageRepo()
+	svc := &messageServiceImpl{repo: repo}
+	conv, err := svc.CreateConversation(context.Background(), "group", []int64{1, 2, 3, 4}, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	msg, err := svc.SendMessage(context.Background(), conv.ID, 1, "read receipt", "text")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.MarkConversationRead(context.Background(), conv.ID, 2, msg.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.MarkConversationRead(context.Background(), conv.ID, 3, msg.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	history, err := svc.GetHistory(context.Background(), conv.ID, 1, 50, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(history) != 1 {
+		t.Fatalf("expected one message, got %#v", history)
+	}
+	if history[0].RecipientCount != 3 || history[0].ReadCount != 2 {
+		t.Fatalf("expected group read count 2/3, got %d/%d", history[0].ReadCount, history[0].RecipientCount)
+	}
+	if !history[0].IsReadByMe {
+		t.Fatal("sender should see own message as read by self")
+	}
+
+	receiverHistory, err := svc.GetHistory(context.Background(), conv.ID, 4, 50, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(receiverHistory) != 1 || receiverHistory[0].IsReadByMe {
+		t.Fatalf("unread receiver should not be marked is_read_by_me, got %#v", receiverHistory)
+	}
+}
+
+func TestDeleteLocalMessageHidesOnlyCurrentUsersHistory(t *testing.T) {
+	repo := newFakeMessageRepo()
+	svc := &messageServiceImpl{repo: repo}
+	conv, err := svc.CreateConversation(context.Background(), "private", []int64{1, 2}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	msg, err := svc.SendMessage(context.Background(), conv.ID, 1, "visible to receiver until local delete", "text")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := svc.DeleteLocalMessage(context.Background(), conv.ID, 2, msg.ID); err != nil {
+		t.Fatalf("delete local message: %v", err)
+	}
+
+	receiverHistory, err := svc.GetHistory(context.Background(), conv.ID, 2, 50, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(receiverHistory) != 0 {
+		t.Fatalf("expected deleted message to be hidden from receiver history, got %#v", receiverHistory)
+	}
+	senderHistory, err := svc.GetHistory(context.Background(), conv.ID, 1, 50, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(senderHistory) != 1 || senderHistory[0].ID != msg.ID {
+		t.Fatalf("expected sender history to keep server message fact, got %#v", senderHistory)
+	}
+}
+
+func TestMarkReadRejectsMessageFromAnotherConversation(t *testing.T) {
+	repo := newFakeMessageRepo()
+	svc := &messageServiceImpl{repo: repo}
+	convA, err := svc.CreateConversation(context.Background(), "private", []int64{1, 2}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	convB, err := svc.CreateConversation(context.Background(), "private", []int64{1, 3}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	msgB, err := svc.SendMessage(context.Background(), convB.ID, 1, "wrong conversation", "text")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = svc.MarkConversationRead(context.Background(), convA.ID, 2, msgB.ID)
+	if err == nil || !strings.Contains(err.Error(), "不属于当前会话") {
+		t.Fatalf("expected cross-conversation read cursor rejection, got %v", err)
 	}
 }
 

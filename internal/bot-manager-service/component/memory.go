@@ -14,20 +14,24 @@ import (
 	"github.com/cloudwego/eino/schema"
 )
 
-// 会话元数据
+// SessionMeta 是会话列表接口返回的轻量元数据。
 type SessionMeta struct {
 	ID        string    `json:"id"`
 	Title     string    `json:"title"`
 	CreatedAt time.Time `json:"created_at"`
 }
 
+// Session 表示一个 bot 对话会话。
+//
+// 会话消息以内存切片提供快速读取，同时以 JSONL 追加写入磁盘，避免进程重启后丢失
+// bot 上下文。filePath 和 messages 由 Store 维护，不直接暴露给外部调用方修改。
 type Session struct {
-	ID 	  string
+	ID        string
 	CreatedAt time.Time
 
-	filePath string					 // 会话记忆路径
+	filePath string // 会话记忆路径
 	mu       sync.Mutex
-	messages []*schema.Message       // 消息列表
+	messages []*schema.Message // 消息列表
 }
 
 // Append 添加消息到内存并持久化到磁盘
@@ -86,11 +90,11 @@ func (s *Session) GetTitle() string {
 	return "新会话"
 }
 
-// 会话管理器
+// Store 管理 bot 会话的内存缓存和磁盘 JSONL 文件。
 type Store struct {
 	sessions map[string]*Session // 会话缓存
 	mu       sync.Mutex
-	dir 	 string
+	dir      string
 }
 
 // NewStore 创建新的会话存储
@@ -124,7 +128,7 @@ func (s *Store) GetSession(id string) (*Session, error) {
 	filepath := filepath.Join(s.dir, id+".jsonl")
 
 	var session *Session
-	if _, exists := os.Stat(filepath);os.IsNotExist(exists){ // 如果文件不存在，创建新会话
+	if _, exists := os.Stat(filepath); os.IsNotExist(exists) { // 如果文件不存在，创建新会话
 		log.Printf("会话文件不存在，创建新会话: %s\n", filepath)
 		header := SessionHeader{
 			Type:      "session",
@@ -146,7 +150,7 @@ func (s *Store) GetSession(id string) (*Session, error) {
 			filePath:  filepath,
 			messages:  make([]*schema.Message, 0),
 		}
-	}else { // 从磁盘加载会话
+	} else { // 从磁盘加载会话
 		log.Printf("会话文件存在，加载会话: %s\n", filepath)
 		file, err := os.Open(filepath)
 		if err != nil {
@@ -193,9 +197,9 @@ func (s *Store) GetSession(id string) (*Session, error) {
 			if len(contentRune) > 50 {
 				displayContent = string(contentRune[:50]) + "..."
 			}
-			
+
 			displayContent = strings.ReplaceAll(displayContent, "\n", " ")
-			
+
 			log.Printf("加载历史消息成功: role=%s, content=[%s]\n", msg.Role, displayContent)
 		}
 	}

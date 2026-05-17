@@ -13,6 +13,8 @@ redis:
 jwt:
   secret_key: ""
   expiration: 0
+  access_expiration: 0
+  refresh_expiration: 0
 
 etcd:
   endpoints: []
@@ -26,3 +28,18 @@ minio:
 
 storage:
   dir: "./storage/source"
+
+dtm:
+  enabled: true
+  server: "http://localhost:36789"
+
+governance:
+  rate_limit:
+    enabled: true
+    burst: 120
+    window_seconds: 60
+  rpc:
+    timeout_ms: 5000
+    circuit_breaker: true
+    max_connections: 1000
+    max_qps: 1000

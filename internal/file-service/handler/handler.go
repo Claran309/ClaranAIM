@@ -1,3 +1,7 @@
+// Package handler implements file-service Kitex RPC handlers.
+//
+// These handlers translate generated Thrift requests into service calls and keep
+// transport-level nil/required-field checks close to the RPC boundary.
 package handler
 
 import (
@@ -7,14 +11,17 @@ import (
 	"errors"
 )
 
+// FileServiceImpl is the Kitex server implementation for file-service.
 type FileServiceImpl struct {
 	svc service.FileService
 }
 
+// NewFileServiceImpl wires the business service into the generated RPC server.
 func NewFileServiceImpl(svc service.FileService) file.FileService {
 	return &FileServiceImpl{svc: svc}
 }
 
+// UploadFile stores a metadata record for a file already uploaded by the gateway.
 func (h *FileServiceImpl) UploadFile(ctx context.Context, req *file.UploadFileReq) (resp *file.UploadFileResp, err error) {
 	if req == nil {
 		return &file.UploadFileResp{Success: false, Msg: "upload request is nil"}, nil
@@ -40,6 +47,7 @@ func (h *FileServiceImpl) UploadFile(ctx context.Context, req *file.UploadFileRe
 	}, nil
 }
 
+// GetFile returns file metadata by file_id.
 func (h *FileServiceImpl) GetFile(ctx context.Context, req *file.GetFileReq) (resp *file.GetFileResp, err error) {
 	if req == nil {
 		return &file.GetFileResp{Success: false, Msg: "get file request is nil"}, nil
@@ -62,6 +70,7 @@ func (h *FileServiceImpl) GetFile(ctx context.Context, req *file.GetFileReq) (re
 	}, nil
 }
 
+// DeleteFile removes a file after service-level ownership validation.
 func (h *FileServiceImpl) DeleteFile(ctx context.Context, req *file.DeleteFileReq) (resp *file.DeleteFileResp, err error) {
 	if req == nil {
 		return &file.DeleteFileResp{Success: false, Msg: "delete file request is nil"}, nil
@@ -79,6 +88,7 @@ func (h *FileServiceImpl) DeleteFile(ctx context.Context, req *file.DeleteFileRe
 	return &file.DeleteFileResp{Success: true, Msg: "删除成功"}, nil
 }
 
+// ListFiles returns a paginated list of file metadata for one uploader.
 func (h *FileServiceImpl) ListFiles(ctx context.Context, req *file.ListFilesReq) (resp *file.ListFilesResp, err error) {
 	if req == nil {
 		return &file.ListFilesResp{Success: false, Msg: "list files request is nil"}, nil

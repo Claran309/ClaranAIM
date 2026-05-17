@@ -3,15 +3,17 @@ package service
 import (
 	"ClaranAIM/internal/msg-core-service/dao"
 	"ClaranAIM/internal/msg-core-service/model"
-	"ClaranAIM/internal/msg-core-service/push"
 	"ClaranAIM/kitex_gen/group"
 	"ClaranAIM/kitex_gen/group/groupservice"
 	"ClaranAIM/pkg/cache/redis"
+	"ClaranAIM/pkg/events"
+	"ClaranAIM/pkg/outbox"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
+	"strconv"
 	"time"
 
 	"github.com/cloudwego/kitex/client"
@@ -19,6 +21,12 @@ import (
 	etcd "github.com/kitex-contrib/registry-etcd"
 )
 
+// MessageService defines the message-domain operations owned by msg-core-service.
+//
+// This service owns conversations, message facts, per-user message state,
+// message read cursors and the transactional outbox records that eventually
+// become Kafka/WebSocket events. API gateway and other services should call this
+// interface instead of touching message tables directly.
 type MessageService interface {
 	CreateConversation(ctx context.Context, convType string, participantIDs []int64, groupID int64) (*model.Conversation, error)
 	GetConversation(ctx context.Context, conversationID int64) (*model.Conversation, error)
@@ -26,6 +34,7 @@ type MessageService interface {
 	SendMessage(ctx context.Context, conversationID, senderID int64, content, msgType string) (*model.Message, error)
 	SendMessageExt(ctx context.Context, opts SendMessageOptions) (*model.Message, error)
 	MarkConversationRead(ctx context.Context, conversationID, userID, messageID int64) error
+	DeleteLocalMessage(ctx context.Context, conversationID, userID, messageID int64) error
 	EditMessage(ctx context.Context, messageID, editorID int64, content string) (*model.Message, error)
 	RecallMessage(ctx context.Context, messageID, operatorID int64) error
 	GetHistory(ctx context.Context, conversationID, userID int64, limit, beforeID int64) ([]model.Message, error)
@@ -33,15 +42,21 @@ type MessageService interface {
 	SearchMessagesInConversations(ctx context.Context, conversationIDs []int64, keyword string, limit int64) ([]model.Message, error)
 	SearchMessagesAdvanced(ctx context.Context, opts SearchMessagesOptions) ([]model.Message, error)
 	GetConversationParticipants(ctx context.Context, conversationID int64) ([]int64, error)
+	ApplyGroupEvent(ctx context.Context, envelope events.Envelope) error
 }
 
 const (
-	MessageStatusSent     = "sent"
+	// MessageStatusSent is the normal persisted state for a delivered message fact.
+	MessageStatusSent = "sent"
+	// MessageStatusRecalled means the message fact remains for ordering/audit,
+	// but clients should render it as recalled rather than showing original text.
 	MessageStatusRecalled = "recalled"
 )
 
 const defaultRecallWindow = 2 * time.Minute
 
+// SendMessageOptions carries the full send-message contract, including fields
+// that are optional in the simple SendMessage wrapper.
 type SendMessageOptions struct {
 	ConversationID int64
 	SenderID       int64
@@ -52,6 +67,8 @@ type SendMessageOptions struct {
 	MentionAll     bool
 }
 
+// SearchMessagesOptions describes an advanced history search scoped by user,
+// conversations, keyword and optional time range.
 type SearchMessagesOptions struct {
 	UserID          int64
 	ConversationIDs []int64
@@ -79,11 +96,33 @@ type UserConversationInfo struct {
 }
 
 type messageServiceImpl struct {
-	repo        dao.MessageRepository
-	pushClient  *push.PushClient
-	redis       *redis.RedisClient
-	groupClient groupservice.Client
+	repo         dao.MessageRepository
+	redis        *redis.RedisClient
+	groupClient  groupservice.Client
 	recallWindow time.Duration
+}
+
+type messageEvent struct {
+	eventType     string
+	data          messageEventData
+	targetUserIDs []int64
+}
+
+type messageEventData struct {
+	Type           string
+	ConversationID int64
+	SenderID       int64
+	Content        string
+	MsgType        string
+	MsgID          int64
+	CreatedAt      string
+	ReplyToID      int64
+	Status         string
+	IsEdited       bool
+	EditedAt       string
+	MentionUserIDs []int64
+	MentionAll     bool
+	UserID         int64
 }
 
 var errConversationAccessDenied = errors.New("无权访问该会话")
@@ -91,7 +130,14 @@ var errConversationAccessDenied = errors.New("无权访问该会话")
 // NewMessageService connects the message domain with Redis, WebSocket push and
 // group-service. If group-service discovery fails, private chat still works and
 // group access falls back to local conversation_participants.
-func NewMessageService(repo dao.MessageRepository, pushClient *push.PushClient, redisClient *redis.RedisClient, etcdEndpoints []string) MessageService {
+func NewMessageService(repo dao.MessageRepository, redisClient *redis.RedisClient, etcdEndpoints []string) MessageService {
+	return NewMessageServiceWithPublisher(repo, redisClient, etcdEndpoints)
+}
+
+// NewMessageServiceWithPublisher creates the message service with optional
+// group-service discovery. The historical name is kept for compatibility; event
+// publishing now happens through the transactional outbox stored by the repo.
+func NewMessageServiceWithPublisher(repo dao.MessageRepository, redisClient *redis.RedisClient, etcdEndpoints []string) MessageService {
 	var groupClient groupservice.Client
 	etcdResolver, err := etcd.NewEtcdResolver(etcdEndpoints)
 	if err != nil {
@@ -105,9 +151,14 @@ func NewMessageService(repo dao.MessageRepository, pushClient *push.PushClient, 
 			log.Printf("创建group-service客户端失败，禁言检查将不可用: %v", err)
 		}
 	}
-	return &messageServiceImpl{repo: repo, pushClient: pushClient, redis: redisClient, groupClient: groupClient, recallWindow: defaultRecallWindow}
+	return &messageServiceImpl{repo: repo, redis: redisClient, groupClient: groupClient, recallWindow: defaultRecallWindow}
 }
 
+// CreateConversation creates or reuses a private/group conversation.
+//
+// Private conversations are de-duplicated by participant pair. Group
+// conversations are de-duplicated by group_id and participants are synchronized
+// from the latest group member snapshot so message fanout remains correct.
 func (s *messageServiceImpl) CreateConversation(ctx context.Context, convType string, participantIDs []int64, groupID int64) (*model.Conversation, error) {
 	if convType != "private" && convType != "group" {
 		return nil, errors.New("无效的会话类型")
@@ -159,6 +210,7 @@ func (s *messageServiceImpl) CreateConversation(ctx context.Context, convType st
 	return conv, nil
 }
 
+// GetConversation returns one conversation fact or an explicit not-found error.
 func (s *messageServiceImpl) GetConversation(ctx context.Context, conversationID int64) (*model.Conversation, error) {
 	conv, err := s.repo.GetConversationByID(ctx, conversationID)
 	if err != nil {
@@ -170,12 +222,20 @@ func (s *messageServiceImpl) GetConversation(ctx context.Context, conversationID
 	return conv, nil
 }
 
+// GetUserConversations builds the sidebar projection for one user.
+//
+// It joins conversation participants, latest message, unread count and optional
+// group-service metadata. Empty results are cached as a null marker to reduce
+// repeated penetration queries for new users.
 func (s *messageServiceImpl) GetUserConversations(ctx context.Context, userID int64) ([]UserConversationInfo, error) {
 	if s.redis != nil {
 		cacheKey := fmt.Sprintf("user:conversations:%d", userID)
 		var cached []UserConversationInfo
 		hit, err := s.redis.GetJSON(ctx, cacheKey, &cached)
 		if err == nil && hit != "" {
+			if s.redis.IsNullHit(hit) {
+				return nil, nil
+			}
 			return cached, nil
 		}
 	}
@@ -213,7 +273,7 @@ func (s *messageServiceImpl) GetUserConversations(ctx context.Context, userID in
 			info.LastMessageTime = msgs[0].CreatedAt.Format("2006-01-02 15:04:05")
 			info.LastSenderID = msgs[0].SenderID
 		}
-		info.UnreadCount = countUnreadMessages(ctx, s.repo, conv.ID, p.LastReadMessageID)
+		info.UnreadCount = countUnreadMessages(ctx, s.repo, conv.ID, userID, p.LastReadMessageID)
 
 		if conv.Type == "private" {
 			for _, ap := range allParticipants {
@@ -241,13 +301,18 @@ func (s *messageServiceImpl) GetUserConversations(ctx context.Context, userID in
 		result = append(result, info)
 	}
 
-	if s.redis != nil && len(result) > 0 {
+	if s.redis != nil {
 		cacheKey := fmt.Sprintf("user:conversations:%d", userID)
-		s.redis.SetJSON(ctx, cacheKey, result, 5*time.Minute)
+		if len(result) == 0 {
+			s.redis.SetNull(ctx, cacheKey, time.Minute, 30*time.Second)
+		} else {
+			s.redis.SetJSONWithJitter(ctx, cacheKey, result, 5*time.Minute, 30*time.Second)
+		}
 	}
 	return result, nil
 }
 
+// SendMessage sends a simple message without reply or mention metadata.
 func (s *messageServiceImpl) SendMessage(ctx context.Context, conversationID, senderID int64, content, msgType string) (*model.Message, error) {
 	return s.SendMessageExt(ctx, SendMessageOptions{
 		ConversationID: conversationID,
@@ -257,6 +322,12 @@ func (s *messageServiceImpl) SendMessage(ctx context.Context, conversationID, se
 	})
 }
 
+// SendMessageExt persists a message and its delivery event atomically.
+//
+// The transaction writes the message fact, updates conversation sorting time,
+// creates per-user message states, and appends a message.created outbox record.
+// Kafka/WebSocket publication happens later from the outbox worker, so a process
+// crash after DB commit cannot lose the event.
 func (s *messageServiceImpl) SendMessageExt(ctx context.Context, opts SendMessageOptions) (*model.Message, error) {
 	content := opts.Content
 	if content == "" {
@@ -309,15 +380,52 @@ func (s *messageServiceImpl) SendMessageExt(ctx context.Context, opts SendMessag
 		MentionsJSON:   mentionsJSON,
 		MentionAll:     opts.MentionAll,
 	}
-	if err := s.repo.CreateMessage(ctx, msg); err != nil {
+	var participants []model.ConversationParticipant
+	var msgEvent messageEvent
+	if err := s.repo.WithTransaction(ctx, func(tx dao.MessageRepository) error {
+		if err := tx.CreateMessage(ctx, msg); err != nil {
+			return err
+		}
+		hydrateMessageRuntimeFields(msg)
+		var err error
+		participants, err = tx.GetParticipants(ctx, opts.ConversationID)
+		if err != nil {
+			return err
+		}
+
+		// messages 是服务端事实；conversation.updated_at 是会话列表排序依据；
+		// message_user_states 是每个用户看到这条消息时的个人状态。三者共同完成
+		// “消息已发送，但每个用户可以有不同本地视图”的 IM 语义。
+		conv.UpdatedAt = msg.CreatedAt
+		if err := tx.UpdateConversation(ctx, conv); err != nil {
+			return err
+		}
+
+		if err := s.createMessageUserStatesWithRepo(ctx, tx, msg, participants); err != nil {
+			return err
+		}
+		targetUserIDs := userIDsFromParticipants(participants)
+		msgEvent = messageEvent{
+			eventType: events.EventTypeMessageCreated,
+			data: messageEventData{
+				Type:           "new_message",
+				ConversationID: opts.ConversationID,
+				SenderID:       opts.SenderID,
+				Content:        content,
+				MsgType:        msgType,
+				MsgID:          msg.ID,
+				CreatedAt:      msg.CreatedAt.Format("2006-01-02 15:04:05"),
+				ReplyToID:      msg.ReplyToID,
+				Status:         msg.Status,
+				MentionUserIDs: msg.MentionUserIDs,
+				MentionAll:     msg.MentionAll,
+			},
+			targetUserIDs: targetUserIDs,
+		}
+		return s.saveMessageEvent(ctx, tx, msgEvent.eventType, msgEvent.data, msgEvent.targetUserIDs)
+	}); err != nil {
 		return nil, err
 	}
-	hydrateMessageRuntimeFields(msg)
-
-	conv.UpdatedAt = msg.CreatedAt
-	_ = s.repo.UpdateConversation(ctx, conv)
-
-	participants, _ := s.repo.GetParticipants(ctx, opts.ConversationID)
 	if s.redis != nil {
 		cacheKey := fmt.Sprintf("conversation:recent:%d", opts.ConversationID)
 		recentMsg := map[string]interface{}{
@@ -328,40 +436,19 @@ func (s *messageServiceImpl) SendMessageExt(ctx context.Context, opts SendMessag
 			"msg_type":        msg.MsgType,
 			"created_at":      msg.CreatedAt.Format("2006-01-02 15:04:05"),
 		}
-		s.redis.SetJSON(ctx, cacheKey, recentMsg, 10*time.Minute)
+		s.redis.SetJSONWithJitter(ctx, cacheKey, recentMsg, 10*time.Minute, time.Minute)
 		for _, p := range participants {
 			s.invalidateConversationCache(ctx, p.UserID)
-		}
-	}
-
-	if s.pushClient != nil {
-		// WebSocket gateway does not know conversation membership. msg-core turns
-		// the conversation into concrete user IDs before asking the gateway to push.
-		targetUserIDs := make([]int64, 0, len(participants))
-		for _, p := range participants {
-			targetUserIDs = append(targetUserIDs, p.UserID)
-		}
-		pushData := push.MessageData{
-			Type:           "new_message",
-			ConversationID: opts.ConversationID,
-			SenderID:       opts.SenderID,
-			Content:        content,
-			MsgType:        msgType,
-			MsgID:          msg.ID,
-			CreatedAt:      msg.CreatedAt.Format("2006-01-02 15:04:05"),
-			ReplyToID:      msg.ReplyToID,
-			Status:         msg.Status,
-			MentionUserIDs: msg.MentionUserIDs,
-			MentionAll:     msg.MentionAll,
-		}
-		if err := s.pushClient.PushMessage(targetUserIDs, pushData); err != nil {
-			log.Printf("WebSocket推送失败: %v", err)
 		}
 	}
 
 	return msg, nil
 }
 
+// MarkConversationRead advances one user's read state through messageID.
+//
+// The method updates both the conversation-level read cursor and the per-message
+// read_at rows, then appends a read-receipt outbox event for other participants.
 func (s *messageServiceImpl) MarkConversationRead(ctx context.Context, conversationID, userID, messageID int64) error {
 	conv, err := s.repo.GetConversationByID(ctx, conversationID)
 	if err != nil {
@@ -382,14 +469,74 @@ func (s *messageServiceImpl) MarkConversationRead(ctx context.Context, conversat
 			return nil
 		}
 		messageID = msgs[0].ID
+	} else {
+		msg, err := s.repo.GetMessageByID(ctx, messageID)
+		if err != nil {
+			return err
+		}
+		if msg == nil {
+			return errors.New("消息不存在")
+		}
+		if msg.ConversationID != conversationID {
+			return errors.New("已读消息不属于当前会话")
+		}
 	}
-	if err := s.repo.UpdateParticipantReadCursor(ctx, conversationID, userID, messageID, time.Now()); err != nil {
+	readAt := time.Now()
+	if err := s.repo.WithTransaction(ctx, func(tx dao.MessageRepository) error {
+		if err := tx.UpdateParticipantReadCursor(ctx, conversationID, userID, messageID, readAt); err != nil {
+			return err
+		}
+		if err := tx.MarkMessagesReadThrough(ctx, conversationID, userID, messageID, readAt); err != nil {
+			return err
+		}
+		return s.saveReadReceipt(ctx, tx, conversationID, userID, messageID)
+	}); err != nil {
 		return err
 	}
 	s.invalidateConversationCache(ctx, userID)
 	return nil
 }
 
+// DeleteLocalMessage 实现 IM 中常见的“只删除我本地聊天记录”语义。
+//
+// 这里不会删除 messages 表中的消息，也不会影响其他参与者的历史。它只在
+// message_user_states 写入 local_deleted_at，之后 GetHistory 会按当前用户过滤该消息。
+func (s *messageServiceImpl) DeleteLocalMessage(ctx context.Context, conversationID, userID, messageID int64) error {
+	if messageID <= 0 {
+		return errors.New("message_id不能为空")
+	}
+	conv, err := s.repo.GetConversationByID(ctx, conversationID)
+	if err != nil {
+		return err
+	}
+	if conv == nil {
+		return errors.New("会话不存在")
+	}
+	if err := s.ensureConversationParticipant(ctx, conv, userID); err != nil {
+		return err
+	}
+	msg, err := s.repo.GetMessageByID(ctx, messageID)
+	if err != nil {
+		return err
+	}
+	if msg == nil {
+		return errors.New("消息不存在")
+	}
+	if msg.ConversationID != conversationID {
+		return errors.New("消息不属于当前会话")
+	}
+	if err := s.repo.MarkMessageLocalDeleted(ctx, conversationID, userID, messageID, time.Now()); err != nil {
+		return err
+	}
+	s.invalidateConversationCache(ctx, userID)
+	return nil
+}
+
+// EditMessage updates one sent message and records an edit audit row.
+//
+// Only the original sender may edit. The message fact is updated in the same
+// transaction as the edit record and outbox event so history, audit and realtime
+// notifications stay consistent.
 func (s *messageServiceImpl) EditMessage(ctx context.Context, messageID, editorID int64, content string) (*model.Message, error) {
 	if content == "" {
 		return nil, errors.New("消息内容不能为空")
@@ -419,25 +566,35 @@ func (s *messageServiceImpl) EditMessage(ctx context.Context, messageID, editorI
 	}
 
 	oldContent := msg.Content
+	editedAt := time.Now()
 	msg.Content = content
 	msg.IsEdited = true
-	msg.EditedAt = time.Now()
-	if err := s.repo.UpdateMessage(ctx, msg); err != nil {
+	msg.EditedAt = &editedAt
+	if err := s.repo.WithTransaction(ctx, func(tx dao.MessageRepository) error {
+		if err := tx.UpdateMessage(ctx, msg); err != nil {
+			return err
+		}
+		if err := tx.CreateEditRecord(ctx, &model.MessageEditRecord{
+			MessageID:      msg.ID,
+			ConversationID: msg.ConversationID,
+			EditorID:       editorID,
+			OldContent:     oldContent,
+			NewContent:     content,
+		}); err != nil {
+			return err
+		}
+		return s.saveMessageState(ctx, tx, msg, events.EventTypeMessageEdited, "message_edited")
+	}); err != nil {
 		return nil, err
 	}
-	_ = s.repo.CreateEditRecord(ctx, &model.MessageEditRecord{
-		MessageID:      msg.ID,
-		ConversationID: msg.ConversationID,
-		EditorID:       editorID,
-		OldContent:     oldContent,
-		NewContent:     content,
-	})
 	s.invalidateConversationParticipantsCache(ctx, msg.ConversationID)
-	s.pushMessageState(ctx, msg, "message_edited")
 	hydrateMessageRuntimeFields(msg)
 	return msg, nil
 }
 
+// RecallMessage hides the original content for all participants within the
+// recall window. The row remains in messages so ordering and audit references do
+// not collapse.
 func (s *messageServiceImpl) RecallMessage(ctx context.Context, messageID, operatorID int64) error {
 	msg, err := s.repo.GetMessageByID(ctx, messageID)
 	if err != nil {
@@ -468,14 +625,23 @@ func (s *messageServiceImpl) RecallMessage(ctx context.Context, messageID, opera
 	}
 	msg.Content = ""
 	msg.Status = MessageStatusRecalled
-	if err := s.repo.UpdateMessage(ctx, msg); err != nil {
+	if err := s.repo.WithTransaction(ctx, func(tx dao.MessageRepository) error {
+		if err := tx.UpdateMessage(ctx, msg); err != nil {
+			return err
+		}
+		return s.saveMessageState(ctx, tx, msg, events.EventTypeMessageRecalled, "message_recalled")
+	}); err != nil {
 		return err
 	}
 	s.invalidateConversationParticipantsCache(ctx, msg.ConversationID)
-	s.pushMessageState(ctx, msg, "message_recalled")
 	return nil
 }
 
+// GetHistory returns one page of messages visible to userID.
+//
+// It enforces membership, filters per-user local deletions and hydrates runtime
+// fields such as mention IDs and read receipt counts before returning messages
+// in chronological order for the frontend.
 func (s *messageServiceImpl) GetHistory(ctx context.Context, conversationID, userID int64, limit, beforeID int64) ([]model.Message, error) {
 	if limit <= 0 {
 		limit = 50
@@ -494,12 +660,15 @@ func (s *messageServiceImpl) GetHistory(ctx context.Context, conversationID, use
 		return nil, err
 	}
 
-	messages, err := s.repo.GetMessages(ctx, conversationID, limit, beforeID)
+	messages, err := s.repo.GetMessagesForUser(ctx, conversationID, userID, limit, beforeID)
 	if err != nil {
 		return nil, err
 	}
 	for i := range messages {
 		hydrateMessageRuntimeFields(&messages[i])
+	}
+	if err := s.hydrateReadReceiptFields(ctx, conversationID, userID, messages); err != nil {
+		return nil, err
 	}
 	for i, j := 0, len(messages)-1; i < j; i, j = i+1, j-1 {
 		messages[i], messages[j] = messages[j], messages[i]
@@ -507,6 +676,7 @@ func (s *messageServiceImpl) GetHistory(ctx context.Context, conversationID, use
 	return messages, nil
 }
 
+// SearchMessages searches across all conversations the user participates in.
 func (s *messageServiceImpl) SearchMessages(ctx context.Context, userID int64, keyword string, limit int64) ([]model.Message, error) {
 	if keyword == "" {
 		return nil, errors.New("搜索关键字不能为空")
@@ -529,6 +699,7 @@ func (s *messageServiceImpl) SearchMessages(ctx context.Context, userID int64, k
 	return s.repo.SearchMessages(ctx, convIDs, keyword, limit, nil, nil)
 }
 
+// SearchMessagesInConversations searches an explicit conversation set.
 func (s *messageServiceImpl) SearchMessagesInConversations(ctx context.Context, conversationIDs []int64, keyword string, limit int64) ([]model.Message, error) {
 	if keyword == "" {
 		return nil, errors.New("搜索关键字不能为空")
@@ -546,6 +717,8 @@ func (s *messageServiceImpl) SearchMessagesInConversations(ctx context.Context, 
 	})
 }
 
+// SearchMessagesAdvanced is the shared search implementation with optional
+// user authorization and time range filtering.
 func (s *messageServiceImpl) SearchMessagesAdvanced(ctx context.Context, opts SearchMessagesOptions) ([]model.Message, error) {
 	if opts.Keyword == "" {
 		return nil, errors.New("搜索关键字不能为空")
@@ -597,6 +770,8 @@ func (s *messageServiceImpl) SearchMessagesAdvanced(ctx context.Context, opts Se
 	return msgs, nil
 }
 
+// GetConversationParticipants returns the current participant user IDs for a
+// conversation. API gateway uses this to validate peer users before sending.
 func (s *messageServiceImpl) GetConversationParticipants(ctx context.Context, conversationID int64) ([]int64, error) {
 	participants, err := s.repo.GetParticipants(ctx, conversationID)
 	if err != nil {
@@ -609,11 +784,61 @@ func (s *messageServiceImpl) GetConversationParticipants(ctx context.Context, co
 	return userIDs, nil
 }
 
+func (s *messageServiceImpl) hydrateReadReceiptFields(ctx context.Context, conversationID, viewerID int64, messages []model.Message) error {
+	if len(messages) == 0 {
+		return nil
+	}
+	messageIDs := make([]int64, 0, len(messages))
+	for _, msg := range messages {
+		messageIDs = append(messageIDs, msg.ID)
+	}
+	stats, err := s.repo.GetMessageReadStats(ctx, conversationID, messageIDs, viewerID)
+	if err != nil {
+		return err
+	}
+	for i := range messages {
+		stat := stats[messages[i].ID]
+		messages[i].ReadCount = stat.ReadCount
+		messages[i].RecipientCount = stat.RecipientCount
+		messages[i].IsReadByMe = stat.IsReadByMe
+	}
+	return nil
+}
+
 func (s *messageServiceImpl) invalidateConversationCache(ctx context.Context, userID int64) {
 	if s.redis == nil {
 		return
 	}
 	s.redis.Del(ctx, fmt.Sprintf("user:conversations:%d", userID))
+}
+
+func (s *messageServiceImpl) createMessageUserStates(ctx context.Context, msg *model.Message, participants []model.ConversationParticipant) error {
+	return s.createMessageUserStatesWithRepo(ctx, s.repo, msg, participants)
+}
+
+func (s *messageServiceImpl) createMessageUserStatesWithRepo(ctx context.Context, repo dao.MessageRepository, msg *model.Message, participants []model.ConversationParticipant) error {
+	if msg == nil {
+		return nil
+	}
+	deliveredAt := msg.CreatedAt
+	readAt := msg.CreatedAt
+	for _, p := range participants {
+		state := &model.MessageUserState{
+			ConversationID: msg.ConversationID,
+			MessageID:      msg.ID,
+			UserID:         p.UserID,
+			DeliveredAt:    &deliveredAt,
+		}
+		// 发送者自己的客户端已经完成发送动作，因此服务端视角下可直接视为已投递且已读。
+		// 接收者保持未读，直到显式调用 MarkConversationRead 更新游标。
+		if p.UserID == msg.SenderID {
+			state.ReadAt = &readAt
+		}
+		if err := repo.UpsertMessageUserState(ctx, state); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *messageServiceImpl) invalidateConversationParticipantsCache(ctx context.Context, conversationID int64) {
@@ -626,20 +851,16 @@ func (s *messageServiceImpl) invalidateConversationParticipantsCache(ctx context
 	}
 }
 
-func (s *messageServiceImpl) pushMessageState(ctx context.Context, msg *model.Message, eventType string) {
-	if s.pushClient == nil || msg == nil {
-		return
+func (s *messageServiceImpl) saveMessageState(ctx context.Context, repo dao.MessageRepository, msg *model.Message, eventType, pushType string) error {
+	if msg == nil {
+		return nil
 	}
-	participants, err := s.repo.GetParticipants(ctx, msg.ConversationID)
+	participants, err := repo.GetParticipants(ctx, msg.ConversationID)
 	if err != nil {
-		return
+		return err
 	}
-	targetUserIDs := make([]int64, 0, len(participants))
-	for _, p := range participants {
-		targetUserIDs = append(targetUserIDs, p.UserID)
-	}
-	if err := s.pushClient.PushMessage(targetUserIDs, push.MessageData{
-		Type:           eventType,
+	return s.saveMessageEvent(ctx, repo, eventType, messageEventData{
+		Type:           pushType,
 		ConversationID: msg.ConversationID,
 		SenderID:       msg.SenderID,
 		Content:        msg.Content,
@@ -649,12 +870,32 @@ func (s *messageServiceImpl) pushMessageState(ctx context.Context, msg *model.Me
 		ReplyToID:      msg.ReplyToID,
 		Status:         msg.Status,
 		IsEdited:       msg.IsEdited,
-		EditedAt:       formatTime(msg.EditedAt),
+		EditedAt:       formatOptionalTime(msg.EditedAt),
 		MentionUserIDs: msg.MentionUserIDs,
 		MentionAll:     msg.MentionAll,
-	}); err != nil {
-		log.Printf("WebSocket消息状态推送失败: %v", err)
+	}, userIDsFromParticipants(participants))
+}
+
+func (s *messageServiceImpl) saveReadReceipt(ctx context.Context, repo dao.MessageRepository, conversationID, readerID, messageID int64) error {
+	participants, err := repo.GetParticipants(ctx, conversationID)
+	if err != nil {
+		return err
 	}
+	targetUserIDs := make([]int64, 0, len(participants))
+	for _, p := range participants {
+		if p.UserID != readerID {
+			targetUserIDs = append(targetUserIDs, p.UserID)
+		}
+	}
+	if len(targetUserIDs) == 0 {
+		return nil
+	}
+	return s.saveMessageEvent(ctx, repo, events.EventTypeMessageRead, messageEventData{
+		Type:           "message_read",
+		ConversationID: conversationID,
+		MsgID:          messageID,
+		UserID:         readerID,
+	}, targetUserIDs)
 }
 
 func (s *messageServiceImpl) fetchGroupMembers(ctx context.Context, groupID int64) (*group.GetGroupMembersResp, error) {
@@ -804,18 +1045,19 @@ func hydrateMessageRuntimeFields(msg *model.Message) {
 	}
 }
 
-func countUnreadMessages(ctx context.Context, repo dao.MessageRepository, conversationID, lastReadMessageID int64) int64 {
-	msgs, err := repo.GetMessages(ctx, conversationID, 1000, 0)
+func countUnreadMessages(ctx context.Context, repo dao.MessageRepository, conversationID, userID, lastReadMessageID int64) int64 {
+	count, err := repo.CountUnreadMessages(ctx, conversationID, userID, lastReadMessageID)
 	if err != nil {
 		return 0
 	}
-	var count int64
-	for _, msg := range msgs {
-		if msg.ID > lastReadMessageID && msg.Status != MessageStatusRecalled {
-			count++
-		}
-	}
 	return count
+}
+
+func formatOptionalTime(t *time.Time) string {
+	if t == nil || t.IsZero() {
+		return ""
+	}
+	return t.Format("2006-01-02 15:04:05")
 }
 
 func formatTime(t time.Time) string {
@@ -823,4 +1065,90 @@ func formatTime(t time.Time) string {
 		return ""
 	}
 	return t.Format("2006-01-02 15:04:05")
+}
+
+// ApplyGroupEvent applies group-service membership events to the message domain.
+//
+// group-service owns group_members, while msg-core-service owns
+// conversation_participants used for message fanout. This consumer bridges those
+// domains asynchronously from Kafka/Outbox events.
+func (s *messageServiceImpl) ApplyGroupEvent(ctx context.Context, envelope events.Envelope) error {
+	switch envelope.Type {
+	case events.EventTypeGroupCreated:
+		payload, err := events.DecodePayload[events.GroupCreatedPayload](envelope)
+		if err != nil {
+			return err
+		}
+		_, err = s.CreateConversation(ctx, "group", payload.MemberIDs, payload.GroupID)
+		return err
+	case events.EventTypeGroupMemberInvited:
+		payload, err := events.DecodePayload[events.GroupMemberInvitedPayload](envelope)
+		if err != nil {
+			return err
+		}
+		_, err = s.CreateConversation(ctx, "group", payload.MemberIDs, payload.GroupID)
+		return err
+	case events.EventTypeGroupMemberKicked:
+		payload, err := events.DecodePayload[events.GroupMemberKickedPayload](envelope)
+		if err != nil {
+			return err
+		}
+		conv, err := s.repo.FindGroupConversation(ctx, payload.GroupID)
+		if err != nil || conv == nil {
+			return err
+		}
+		if err := s.repo.RemoveParticipant(ctx, conv.ID, payload.UserID); err != nil {
+			return err
+		}
+		s.invalidateConversationCache(ctx, payload.UserID)
+		return nil
+	case events.EventTypeGroupDeleted:
+		payload, err := events.DecodePayload[events.GroupDeletedPayload](envelope)
+		if err != nil {
+			return err
+		}
+		for _, userID := range payload.MemberIDs {
+			s.invalidateConversationCache(ctx, userID)
+		}
+		return nil
+	default:
+		return nil
+	}
+}
+
+func (s *messageServiceImpl) saveMessageEvent(ctx context.Context, repo dao.MessageRepository, eventType string, data messageEventData, targetUserIDs []int64) error {
+	payload := events.MessagePayload{
+		Type:           data.Type,
+		ConversationID: data.ConversationID,
+		SenderID:       data.SenderID,
+		Content:        data.Content,
+		MsgType:        data.MsgType,
+		MsgID:          data.MsgID,
+		CreatedAt:      data.CreatedAt,
+		ReplyToID:      data.ReplyToID,
+		Status:         data.Status,
+		IsEdited:       data.IsEdited,
+		EditedAt:       data.EditedAt,
+		MentionUserIDs: data.MentionUserIDs,
+		MentionAll:     data.MentionAll,
+		UserID:         data.UserID,
+		TargetUserIDs:  dedupeUserIDs(targetUserIDs),
+	}
+	envelope, err := events.NewEnvelope(eventType, strconv.FormatInt(data.ConversationID, 10), payload)
+	if err != nil {
+		return err
+	}
+	record, err := outbox.NewEvent("message", data.MsgID, envelope)
+	if err != nil {
+		return err
+	}
+	return repo.SaveOutboxEvent(ctx, record)
+}
+
+func userIDsFromParticipants(participants []model.ConversationParticipant) []int64 {
+	userIDs := make([]int64, 0, len(participants))
+	for _, p := range participants {
+		userIDs = append(userIDs, p.UserID)
+	}
+	return dedupeUserIDs(userIDs)
 }

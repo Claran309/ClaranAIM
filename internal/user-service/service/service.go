@@ -4,6 +4,7 @@ import (
 	"ClaranAIM/internal/user-service/dao"
 	"ClaranAIM/internal/user-service/model"
 	"ClaranAIM/pkg/cache/redis"
+	"ClaranAIM/pkg/idgen"
 	"ClaranAIM/pkg/jwt"
 	"ClaranAIM/pkg/password"
 	"context"
@@ -15,20 +16,47 @@ import (
 // UserService 用户业务逻辑接口
 // 定义用户服务所需的所有业务方法
 type UserService interface {
-	Register(ctx context.Context, username, pwd, nickname string) (*model.User, error)                         // 用户注册：用户名去重 + bcrypt加密 + 写库 + 缓存
-	Login(ctx context.Context, username, pwd, jwtSecret string, expiration int64) (string, *model.User, error) // 用户登录：bcrypt校验 + 生成JWT + 更新在线状态 + 缓存
-	GetUserInfo(ctx context.Context, userID int64) (*model.User, error)                                        // 获取用户信息：优先Redis缓存，未命中查MySQL
-	UpdateUserInfo(ctx context.Context, userID int64, nickname, email, phone string) error                     // 更新用户信息：只更新非空字段，刷新缓存
-	UpdateAvatar(ctx context.Context, userID int64, avatar string) error                                       // 更新用户头像
-	UpdateStatus(ctx context.Context, userID int64, status string) error                                       // 更新在线状态：同时更新MySQL和Redis
-	AddFriend(ctx context.Context, userID, friendID, groupID int64, remark string) error                       // 添加好友：双向添加，清除双方缓存
-	DeleteFriend(ctx context.Context, userID, friendID int64) error                                            // 删除好友：双向删除，清除双方缓存
-	GetFriendList(ctx context.Context, userID int64) ([]FriendInfo, error)                                     // 获取好友列表：含好友信息和分组，支持缓存
-	UpdateFriendRemark(ctx context.Context, userID, friendID, groupID int64, remark string) error              // 更新好友备注和分组
-	CreateFriendGroup(ctx context.Context, userID int64, name string) (*model.FriendGroup, error)              // 创建好友分组
-	GetFriendGroups(ctx context.Context, userID int64) ([]model.FriendGroup, error)                            // 获取好友分组列表
-	MoveFriendGroup(ctx context.Context, userID, friendID, groupID int64) error                                // 移动好友到指定分组
-	BatchGetUserInfo(ctx context.Context, ids []int64) ([]model.User, error)                                   // 批量获取用户信息：优先缓存，未命中查DB
+	Register(ctx context.Context, username, pwd, nickname string) (*model.User, error)
+	Login(ctx context.Context, username, pwd, jwtSecret string, accessExpiration, refreshExpiration int64) (TokenPair, *model.User, error)
+	GetUserInfo(ctx context.Context, userID int64) (*model.User, error)
+	UpdateUserInfo(ctx context.Context, userID int64, profile UserProfileUpdate) error
+	UpdateAvatar(ctx context.Context, userID int64, avatar string) error
+	UpdateStatus(ctx context.Context, userID int64, status string) error
+	AddFriend(ctx context.Context, userID, friendID, groupID int64, remark string) error
+	DeleteFriend(ctx context.Context, userID, friendID int64) error
+	GetFriendList(ctx context.Context, userID int64) ([]FriendInfo, error)
+	UpdateFriendRemark(ctx context.Context, userID, friendID, groupID int64, remark string) error
+	CreateFriendGroup(ctx context.Context, userID int64, name string) (*model.FriendGroup, error)
+	GetFriendGroups(ctx context.Context, userID int64) ([]model.FriendGroup, error)
+	MoveFriendGroup(ctx context.Context, userID, friendID, groupID int64) error
+	BatchGetUserInfo(ctx context.Context, ids []int64) ([]model.User, error)
+}
+
+// TokenPair 是登录成功后返回的一组访问凭证。
+//
+// AccessToken 用于短期接口鉴权，RefreshToken 用于在访问 token 过期后换取新的
+// access token，二者都会携带用户角色以支持管理接口鉴权。
+type TokenPair struct {
+	AccessToken  string
+	RefreshToken string
+}
+
+// UserProfileUpdate 承载个人资料页可编辑字段。
+// FullUpdate=true 时按表单提交值覆盖资料字段，允许用户主动清空签名、简介等内容；
+// FullUpdate=false 保持旧接口语义，只更新非空字段，兼容已有 RPC 调用。
+type UserProfileUpdate struct {
+	Nickname   string
+	Email      string
+	Phone      string
+	Avatar     string
+	Cover      string
+	Signature  string
+	Bio        string
+	Location   string
+	Website    string
+	Gender     string
+	Birthday   string
+	FullUpdate bool
 }
 
 // FriendInfo 好友信息结构体
@@ -81,15 +109,34 @@ func (s *userServiceImpl) Register(ctx context.Context, username, pwd, nickname 
 		nickname = username
 	}
 
-	user := &model.User{
-		Username: username,
-		Password: hashedPwd,
-		Nickname: nickname,
-		Status:   "offline",
+	var user *model.User
+	for i := 0; i < 5; i++ {
+		uid, err := idgen.NewUID10()
+		if err != nil {
+			return nil, err
+		}
+		existingUID, err := s.repo.GetUserByID(ctx, uid)
+		if err != nil {
+			return nil, err
+		}
+		if existingUID != nil {
+			continue
+		}
+		user = &model.User{
+			ID:       uid,
+			Username: username,
+			Password: hashedPwd,
+			Nickname: nickname,
+			Role:     jwt.RoleUser,
+			Status:   "offline",
+		}
+		if err := s.repo.CreateUser(ctx, user); err != nil {
+			return nil, err
+		}
+		break
 	}
-
-	if err := s.repo.CreateUser(ctx, user); err != nil {
-		return nil, err
+	if user == nil {
+		return nil, errors.New("生成用户UID失败，请重试")
 	}
 
 	s.cacheUserInfo(ctx, user)
@@ -99,26 +146,35 @@ func (s *userServiceImpl) Register(ctx context.Context, username, pwd, nickname 
 
 // Login 用户登录
 // 流程：校验参数 → 查询用户 → bcrypt校验密码 → 生成JWT → 更新在线状态 → 缓存
-func (s *userServiceImpl) Login(ctx context.Context, username, pwd, jwtSecret string, expiration int64) (string, *model.User, error) {
+func (s *userServiceImpl) Login(ctx context.Context, username, pwd, jwtSecret string, accessExpiration, refreshExpiration int64) (TokenPair, *model.User, error) {
 	if username == "" || pwd == "" {
-		return "", nil, errors.New("用户名和密码不能为空")
+		return TokenPair{}, nil, errors.New("用户名和密码不能为空")
 	}
 
 	user, err := s.repo.GetUserByUsername(ctx, username)
 	if err != nil {
-		return "", nil, err
+		return TokenPair{}, nil, err
 	}
 	if user == nil {
-		return "", nil, errors.New("用户不存在")
+		return TokenPair{}, nil, errors.New("用户不存在")
 	}
 
 	if !password.CheckPassword(pwd, user.Password) {
-		return "", nil, errors.New("密码错误")
+		return TokenPair{}, nil, errors.New("密码错误")
 	}
 
-	token, err := jwt.GenerateToken(jwtSecret, user.ID, user.Username, expiration)
+	role := user.Role
+	if role == "" {
+		role = jwt.RoleUser
+		user.Role = role
+	}
+	accessToken, err := jwt.GenerateAccessToken(jwtSecret, user.ID, user.Username, role, accessExpiration)
 	if err != nil {
-		return "", nil, err
+		return TokenPair{}, nil, err
+	}
+	refreshToken, err := jwt.GenerateRefreshToken(jwtSecret, user.ID, user.Username, role, refreshExpiration)
+	if err != nil {
+		return TokenPair{}, nil, err
 	}
 
 	user.Status = "online"
@@ -126,7 +182,7 @@ func (s *userServiceImpl) Login(ctx context.Context, username, pwd, jwtSecret st
 
 	s.cacheUserInfo(ctx, user)
 	if s.redis != nil {
-		s.redis.Set(ctx, "online:user:"+fmt.Sprintf("%d", user.ID), "1", 30*time.Minute)
+		s.redis.SetWithJitter(ctx, "online:user:"+fmt.Sprintf("%d", user.ID), "1", 30*time.Minute, 2*time.Minute)
 
 		friends, _ := s.repo.GetFriendList(ctx, user.ID)
 		for _, f := range friends {
@@ -134,7 +190,7 @@ func (s *userServiceImpl) Login(ctx context.Context, username, pwd, jwtSecret st
 		}
 	}
 
-	return token, user, nil
+	return TokenPair{AccessToken: accessToken, RefreshToken: refreshToken}, user, nil
 }
 
 // GetUserInfo 获取用户信息
@@ -143,9 +199,21 @@ func (s *userServiceImpl) GetUserInfo(ctx context.Context, userID int64) (*model
 	if s.redis != nil {
 		user := &model.User{}
 		cacheKey := fmt.Sprintf("user:info:%d", userID)
-		hit, err := s.redis.GetJSON(ctx, cacheKey, user)
-		if err == nil && hit != "" {
+		found, err := s.redis.CacheAsideJSON(ctx, cacheKey, user, 15*time.Minute, func(ctx context.Context) (interface{}, bool, error) {
+			dbUser, err := s.repo.GetUserByID(ctx, userID)
+			if err != nil {
+				return nil, false, err
+			}
+			if dbUser == nil {
+				return nil, false, nil
+			}
+			return dbUser, true, nil
+		})
+		if err == nil && found {
 			return user, nil
+		}
+		if err == nil && !found {
+			return nil, errors.New("用户不存在")
 		}
 	}
 
@@ -162,9 +230,10 @@ func (s *userServiceImpl) GetUserInfo(ctx context.Context, userID int64) (*model
 	return user, nil
 }
 
-// UpdateUserInfo 更新用户信息（昵称/邮箱/手机）
-// 只更新非空字段，更新后刷新Redis缓存
-func (s *userServiceImpl) UpdateUserInfo(ctx context.Context, userID int64, nickname, email, phone string) error {
+// UpdateUserInfo 更新用户资料。
+// 个人资料页使用 FullUpdate 覆盖式保存，允许清空字段；旧调用未设置 FullUpdate 时仍只更新非空字段。
+// 数据库写入成功后按“写后删除”策略删除用户信息缓存，下一次读取再回源并重建缓存。
+func (s *userServiceImpl) UpdateUserInfo(ctx context.Context, userID int64, profile UserProfileUpdate) error {
 	user, err := s.repo.GetUserByID(ctx, userID)
 	if err != nil {
 		return err
@@ -173,21 +242,59 @@ func (s *userServiceImpl) UpdateUserInfo(ctx context.Context, userID int64, nick
 		return errors.New("用户不存在")
 	}
 
-	if nickname != "" {
-		user.Nickname = nickname
-	}
-	if email != "" {
-		user.Email = email
-	}
-	if phone != "" {
-		user.Phone = phone
+	if profile.FullUpdate {
+		user.Nickname = profile.Nickname
+		user.Email = profile.Email
+		user.Phone = profile.Phone
+		user.Avatar = profile.Avatar
+		user.Cover = profile.Cover
+		user.Signature = profile.Signature
+		user.Bio = profile.Bio
+		user.Location = profile.Location
+		user.Website = profile.Website
+		user.Gender = profile.Gender
+		user.Birthday = profile.Birthday
+	} else {
+		if profile.Nickname != "" {
+			user.Nickname = profile.Nickname
+		}
+		if profile.Email != "" {
+			user.Email = profile.Email
+		}
+		if profile.Phone != "" {
+			user.Phone = profile.Phone
+		}
+		if profile.Avatar != "" {
+			user.Avatar = profile.Avatar
+		}
+		if profile.Cover != "" {
+			user.Cover = profile.Cover
+		}
+		if profile.Signature != "" {
+			user.Signature = profile.Signature
+		}
+		if profile.Bio != "" {
+			user.Bio = profile.Bio
+		}
+		if profile.Location != "" {
+			user.Location = profile.Location
+		}
+		if profile.Website != "" {
+			user.Website = profile.Website
+		}
+		if profile.Gender != "" {
+			user.Gender = profile.Gender
+		}
+		if profile.Birthday != "" {
+			user.Birthday = profile.Birthday
+		}
 	}
 
 	if err := s.repo.UpdateUser(ctx, user); err != nil {
 		return err
 	}
 
-	s.cacheUserInfo(ctx, user)
+	s.invalidateUserInfoCache(ctx, userID)
 	return nil
 }
 
@@ -204,7 +311,7 @@ func (s *userServiceImpl) UpdateAvatar(ctx context.Context, userID int64, avatar
 	if err := s.repo.UpdateUser(ctx, user); err != nil {
 		return err
 	}
-	s.cacheUserInfo(ctx, user)
+	s.invalidateUserInfoCache(ctx, userID)
 	return nil
 }
 
@@ -223,11 +330,11 @@ func (s *userServiceImpl) UpdateStatus(ctx context.Context, userID int64, status
 	if err := s.repo.UpdateUser(ctx, user); err != nil {
 		return err
 	}
-	s.cacheUserInfo(ctx, user)
+	s.invalidateUserInfoCache(ctx, userID)
 
 	if s.redis != nil {
 		if status == "online" {
-			s.redis.Set(ctx, "online:user:"+fmt.Sprintf("%d", userID), "1", 30*time.Minute)
+			s.redis.SetWithJitter(ctx, "online:user:"+fmt.Sprintf("%d", userID), "1", 30*time.Minute, 2*time.Minute)
 		} else {
 			s.redis.Del(ctx, "online:user:"+fmt.Sprintf("%d", userID))
 		}
@@ -310,6 +417,9 @@ func (s *userServiceImpl) GetFriendList(ctx context.Context, userID int64) ([]Fr
 		var cached []FriendInfo
 		hit, err := s.redis.GetJSON(ctx, cacheKey, &cached)
 		if err == nil && hit != "" {
+			if s.redis.IsNullHit(hit) {
+				return nil, nil
+			}
 			return cached, nil
 		}
 	}
@@ -350,9 +460,13 @@ func (s *userServiceImpl) GetFriendList(ctx context.Context, userID int64) ([]Fr
 		result = append(result, info)
 	}
 
-	if s.redis != nil && len(result) > 0 {
+	if s.redis != nil {
 		cacheKey := fmt.Sprintf("user:friends:%d", userID)
-		s.redis.SetJSON(ctx, cacheKey, result, 5*time.Minute)
+		if len(result) == 0 {
+			s.redis.SetNull(ctx, cacheKey, time.Minute, 30*time.Second)
+		} else {
+			s.redis.SetJSONWithJitter(ctx, cacheKey, result, 5*time.Minute, 30*time.Second)
+		}
 	}
 
 	return result, nil
@@ -395,6 +509,9 @@ func (s *userServiceImpl) GetFriendGroups(ctx context.Context, userID int64) ([]
 		var cached []model.FriendGroup
 		hit, err := s.redis.GetJSON(ctx, cacheKey, &cached)
 		if err == nil && hit != "" {
+			if s.redis.IsNullHit(hit) {
+				return nil, nil
+			}
 			return cached, nil
 		}
 	}
@@ -404,9 +521,13 @@ func (s *userServiceImpl) GetFriendGroups(ctx context.Context, userID int64) ([]
 		return nil, err
 	}
 
-	if s.redis != nil && len(groups) > 0 {
+	if s.redis != nil {
 		cacheKey := fmt.Sprintf("user:friend_groups:%d", userID)
-		s.redis.SetJSON(ctx, cacheKey, groups, 10*time.Minute)
+		if len(groups) == 0 {
+			s.redis.SetNull(ctx, cacheKey, time.Minute, 30*time.Second)
+		} else {
+			s.redis.SetJSONWithJitter(ctx, cacheKey, groups, 10*time.Minute, time.Minute)
+		}
 	}
 
 	return groups, nil
@@ -439,6 +560,9 @@ func (s *userServiceImpl) BatchGetUserInfo(ctx context.Context, ids []int64) ([]
 			cacheKey := fmt.Sprintf("user:info:%d", id)
 			hit, err := s.redis.GetJSON(ctx, cacheKey, user)
 			if err == nil && hit != "" {
+				if s.redis.IsNullHit(hit) {
+					continue
+				}
 				cachedUsers = append(cachedUsers, *user)
 			} else {
 				missedIDs = append(missedIDs, id)
@@ -472,7 +596,14 @@ func (s *userServiceImpl) cacheUserInfo(ctx context.Context, user *model.User) {
 		return
 	}
 	cacheKey := fmt.Sprintf("user:info:%d", user.ID)
-	s.redis.SetJSON(ctx, cacheKey, user, 15*time.Minute)
+	s.redis.SetJSONWithJitter(ctx, cacheKey, user, 15*time.Minute, time.Minute)
+}
+
+func (s *userServiceImpl) invalidateUserInfoCache(ctx context.Context, userID int64) {
+	if s.redis == nil {
+		return
+	}
+	s.redis.Del(ctx, fmt.Sprintf("user:info:%d", userID))
 }
 
 // invalidateFriendCache 清除好友列表缓存

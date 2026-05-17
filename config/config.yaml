@@ -8,7 +8,9 @@ redis:
 
 jwt:
   secret_key: "MySuperSecureJWTKey@2025!Claran_work"
-  expiration: 168
+  expiration: 2
+  access_expiration: 2
+  refresh_expiration: 168
 
 etcd:
   endpoints:
@@ -17,3 +19,24 @@ etcd:
 service:
   name: ""
   address: ""
+
+kafka:
+  enabled: true
+  brokers:
+    - "127.0.0.1:9092"
+  client_id: ""
+
+dtm:
+  enabled: true
+  server: "http://localhost:36789"
+
+governance:
+  rate_limit:
+    enabled: true
+    burst: 120
+    window_seconds: 60
+  rpc:
+    timeout_ms: 5000
+    circuit_breaker: true
+    max_connections: 1000
+    max_qps: 1000

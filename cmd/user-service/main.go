@@ -7,6 +7,7 @@ import (
 	"ClaranAIM/kitex_gen/user/userservice"
 	"ClaranAIM/pkg/cache/redis"
 	"ClaranAIM/pkg/config"
+	"ClaranAIM/pkg/governance"
 	"ClaranAIM/pkg/health"
 	"ClaranAIM/pkg/logger"
 	"net"
@@ -46,7 +47,7 @@ func main() {
 	userService := service.NewUserService(userRepo, redisClient)
 	userHandler := handler.NewUserServiceImpl(userService)
 
-	handler.InitJWTConfig(cfg.JWT.SecretKey, cfg.JWT.Expiration)
+	handler.InitJWTConfigWithRefresh(cfg.JWT.SecretKey, cfg.JWT.AccessExpiration, cfg.JWT.RefreshExpiration)
 
 	r, err := etcd.NewEtcdRegistry(cfg.Etcd.Endpoints)
 	if err != nil {
@@ -62,12 +63,14 @@ func main() {
 
 	svr := userservice.NewServer(
 		userHandler,
-		server.WithServiceAddr(addr),
-		server.WithServerBasicInfo(&rpcinfo.EndpointBasicInfo{
-			ServiceName: cfg.Service.Name,
-		}),
-		server.WithRegistry(r),
-		server.WithMetaHandler(transmeta.ServerTTHeaderHandler),
+		append([]server.Option{
+			server.WithServiceAddr(addr),
+			server.WithServerBasicInfo(&rpcinfo.EndpointBasicInfo{
+				ServiceName: cfg.Service.Name,
+			}),
+			server.WithRegistry(r),
+			server.WithMetaHandler(transmeta.ServerTTHeaderHandler),
+		}, governance.ServerOptions(cfg.Governance.RPC)...)...,
 	)
 
 	health.LogStartup(health.ServiceInfo{

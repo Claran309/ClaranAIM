@@ -21,6 +21,9 @@ struct Message {
     10: string edited_at
     11: list<i64> mention_user_ids
     12: bool mention_all
+    13: i64 read_count
+    14: i64 recipient_count
+    15: bool is_read_by_me
 }
 
 struct CreateConversationReq {
@@ -135,6 +138,17 @@ struct MarkConversationReadResp {
     2: string msg
 }
 
+struct DeleteLocalMessageReq {
+    1: i64 conversation_id
+    2: i64 user_id
+    3: i64 message_id
+}
+
+struct DeleteLocalMessageResp {
+    1: bool success
+    2: string msg
+}
+
 struct EditMessageReq {
     1: i64 message_id
     2: i64 editor_id
@@ -164,6 +178,7 @@ service MessageService {
     GetUserConversationsResp GetUserConversations(1: GetUserConversationsReq req)
     SendMessageResp SendMessage(1: SendMessageReq req)
     MarkConversationReadResp MarkConversationRead(1: MarkConversationReadReq req)
+    DeleteLocalMessageResp DeleteLocalMessage(1: DeleteLocalMessageReq req)
     EditMessageResp EditMessage(1: EditMessageReq req)
     RecallMessageResp RecallMessage(1: RecallMessageReq req)
     GetHistoryResp GetHistory(1: GetHistoryReq req)

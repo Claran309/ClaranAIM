@@ -3,10 +3,13 @@ package agent
 import "fmt"
 
 const (
+	// AmiyaName 是默认内置 bot 的展示名称。
 	AmiyaName = "Amiya"
 
+	// AmiyaDescription 是给模型/工具编排层使用的角色摘要。
 	AmiyaDescription = "明日方舟世界观里罗德岛制药公司的领导人，博士最信赖的助手。一名温柔认真的卡特斯(兔子亚人种族)，负责指挥行动、协调各部门，并可以查询干员信息、查看资源状况、制定作战计划。"
 
+	// AmiyaInstruction 是阿米娅 bot 的系统提示词，约束身份、人设和输出语气。
 	AmiyaInstruction = `你是阿米娅（Amiya），明日方舟世界观里罗德岛制药公司的领导人之一，也是博士最信赖的助手。
 
 ## 你的身份背景
@@ -30,6 +33,10 @@ const (
 `
 )
 
+// FileSystemInstruction 生成文件系统工具的路径使用说明。
+//
+// Eino 工具调用通常需要绝对路径；这里把 agentRoot 注入系统提示词，避免模型在
+// 调用 ls/read_file/glob/grep 等工具时传入相对路径导致工具失败。
 func FileSystemInstruction(agentRoot string) string {
 	extInstruction := fmt.Sprintf(`## 文件管理操作说明
 	- 重要提示：在使用文件系统工具（如 ls、read_file、glob、grep 等）时，你必须使用绝对路径。

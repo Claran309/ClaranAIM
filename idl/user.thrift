@@ -10,6 +10,14 @@ struct User {
     7: string status
     8: string created_at
     9: string updated_at
+    10: string cover
+    11: string signature
+    12: string bio
+    13: string location
+    14: string website
+    15: string gender
+    16: string birthday
+    17: string role
 }
 
 struct RegisterReq {
@@ -34,6 +42,9 @@ struct LoginResp {
     2: string token
     3: i64 user_id
     4: string msg
+    5: string access_token
+    6: string refresh_token
+    7: string role
 }
 
 struct GetUserInfoReq {
@@ -51,6 +62,15 @@ struct UpdateUserInfoReq {
     2: string nickname
     3: string email
     4: string phone
+    5: string avatar
+    6: string cover
+    7: string signature
+    8: string bio
+    9: string location
+    10: string website
+    11: string gender
+    12: string birthday
+    13: bool full_update
 }
 
 struct UpdateUserInfoResp {

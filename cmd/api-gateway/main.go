@@ -21,15 +21,21 @@ func main() {
 	}
 
 	jwt.SetSecretKey(cfg.JWT.SecretKey)
+	jwt.SetTokenExpirations(cfg.JWT.AccessExpiration, cfg.JWT.RefreshExpiration)
 
-	client.InitClients(cfg.Etcd.Endpoints)
+	client.InitClients(cfg.Etcd.Endpoints, cfg.Governance.RPC)
 	health.CheckEtcd(cfg.Etcd.Endpoints, "api-gateway")
 
 	handler.InitFileStorage(cfg)
+	if cfg.DTM.Enabled {
+		logger.Info("DTM分布式事务配置已启用", "server", cfg.DTM.Server)
+	} else {
+		logger.Info("DTM分布式事务配置未启用")
+	}
 
 	h := server.Default(server.WithHostPorts(cfg.Service.Address))
 
-	router.RegisterRoutes(h.Engine)
+	router.RegisterRoutes(h.Engine, cfg)
 
 	health.LogStartup(health.ServiceInfo{
 		Name:    "api-gateway",

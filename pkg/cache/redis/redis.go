@@ -2,12 +2,25 @@ package redis
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/sha1"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"math/big"
 	"time"
 
 	"github.com/redis/go-redis/v9"
 )
+
+const cacheNullValue = "__CLARAN_CACHE_NULL__"
+
+var releaseLockScript = redis.NewScript(`
+if redis.call("GET", KEYS[1]) == ARGV[1] then
+	return redis.call("DEL", KEYS[1])
+end
+return 0
+`)
 
 // RedisClient Redis客户端封装
 // 对 go-redis/v9 客户端的二次封装，提供更简洁的API
@@ -44,10 +57,14 @@ func NewRedisClient(addr, password string, db int) (*RedisClient, error) {
 	return &RedisClient{client: client}, nil
 }
 
+// GetInnerClient exposes the underlying go-redis client for integration points
+// that need APIs not wrapped by RedisClient.
 func (r *RedisClient) GetInnerClient() *redis.Client {
 	return r.client
 }
 
+// Get returns a string value. Missing keys are normalized to an empty string and
+// nil error so service code can treat cache miss as a normal path.
 func (r *RedisClient) Get(ctx context.Context, key string) (string, error) {
 	result, err := r.client.Get(ctx, key).Result()
 	if err == redis.Nil {
@@ -61,6 +78,11 @@ func (r *RedisClient) Set(ctx context.Context, key string, value string, expirat
 	return r.client.Set(ctx, key, value, expiration).Err()
 }
 
+// SetWithJitter writes a string value with randomized TTL to reduce cache avalanche.
+func (r *RedisClient) SetWithJitter(ctx context.Context, key string, value string, expiration, jitter time.Duration) error {
+	return r.Set(ctx, key, value, jitterExpiration(expiration, jitter))
+}
+
 // GetJSON 获取JSON值并反序列化
 // 返回值：原始JSON字符串（用于判断缓存是否存在）和反序列化错误
 // key不存在时返回空字符串和nil
@@ -71,6 +93,9 @@ func (r *RedisClient) GetJSON(ctx context.Context, key string, dest interface{})
 	}
 	if val == "" {
 		return "", nil
+	}
+	if isCachedNull(val) {
+		return val, nil
 	}
 	return val, json.Unmarshal([]byte(val), dest)
 }
@@ -85,9 +110,100 @@ func (r *RedisClient) SetJSON(ctx context.Context, key string, value interface{}
 	return r.Set(ctx, key, string(data), expiration)
 }
 
+// SetJSONWithJitter stores JSON with randomized TTL.
+func (r *RedisClient) SetJSONWithJitter(ctx context.Context, key string, value interface{}, expiration, jitter time.Duration) error {
+	data, err := json.Marshal(value)
+	if err != nil {
+		return err
+	}
+	return r.SetWithJitter(ctx, key, string(data), expiration, jitter)
+}
+
+// SetNull stores a short-lived null marker to prevent cache penetration.
+func (r *RedisClient) SetNull(ctx context.Context, key string, expiration, jitter time.Duration) error {
+	return r.SetWithJitter(ctx, key, cacheNullValue, expiration, jitter)
+}
+
+// IsNullHit reports whether GetJSON returned the special cached-null marker.
+func (r *RedisClient) IsNullHit(raw string) bool {
+	return isCachedNull(raw)
+}
+
+// CacheAsideJSON 实现带防击穿锁、空值缓存和 TTL 抖动的 cache-aside 模式。
+//
+// load 函数返回 found=false 表示数据库确定不存在，此时会写入短 TTL 空值，
+// 用空值缓存抵挡缓存穿透。热点 key 未命中时先抢 Redis 锁，抢不到的请求短暂等待
+// 后再次读缓存，降低同一时刻大量请求打到数据库的概率。
+func (r *RedisClient) CacheAsideJSON(ctx context.Context, key string, dest interface{}, expiration time.Duration, load func(context.Context) (interface{}, bool, error)) (bool, error) {
+	raw, err := r.GetJSON(ctx, key, dest)
+	if err != nil {
+		return false, err
+	}
+	if raw != "" {
+		return !isCachedNull(raw), nil
+	}
+
+	lockKey := "lock:cache:" + hashKey(key)
+	token, locked, err := r.AcquireLock(ctx, lockKey, 3*time.Second)
+	if err != nil {
+		return false, err
+	}
+	if !locked {
+		for i := 0; i < 3; i++ {
+			select {
+			case <-ctx.Done():
+				return false, ctx.Err()
+			case <-time.After(50 * time.Millisecond):
+			}
+			raw, err = r.GetJSON(ctx, key, dest)
+			if err != nil {
+				return false, err
+			}
+			if raw != "" {
+				return !isCachedNull(raw), nil
+			}
+		}
+	}
+	if locked {
+		defer r.ReleaseLock(ctx, lockKey, token)
+	}
+
+	value, found, err := load(ctx)
+	if err != nil {
+		return false, err
+	}
+	if !found {
+		_ = r.SetNull(ctx, key, time.Minute, 30*time.Second)
+		return false, nil
+	}
+	if err := r.SetJSONWithJitter(ctx, key, value, expiration, expiration/10); err != nil {
+		return false, err
+	}
+	data, err := json.Marshal(value)
+	if err != nil {
+		return false, err
+	}
+	return true, json.Unmarshal(data, dest)
+}
+
 // Del 删除一个或多个键
 func (r *RedisClient) Del(ctx context.Context, keys ...string) error {
 	return r.client.Del(ctx, keys...).Err()
+}
+
+// AcquireLock attempts to acquire a Redis SETNX lock and returns its random token.
+func (r *RedisClient) AcquireLock(ctx context.Context, key string, ttl time.Duration) (string, bool, error) {
+	token, err := randomToken()
+	if err != nil {
+		return "", false, err
+	}
+	ok, err := r.client.SetNX(ctx, key, token, ttl).Result()
+	return token, ok, err
+}
+
+// ReleaseLock releases a Redis lock only when the token still matches the owner.
+func (r *RedisClient) ReleaseLock(ctx context.Context, key, token string) error {
+	return releaseLockScript.Run(ctx, r.client, []string{key}, token).Err()
 }
 
 // Exists 检查键是否存在
@@ -178,4 +294,38 @@ func (r *RedisClient) Close() error {
 // 用于需要使用原生Redis命令的场景
 func (r *RedisClient) GetClient() *redis.Client {
 	return r.client
+}
+
+func jitterExpiration(base, jitter time.Duration) time.Duration {
+	if base <= 0 || jitter <= 0 {
+		return base
+	}
+	max := big.NewInt(int64(jitter)*2 + 1)
+	n, err := rand.Int(rand.Reader, max)
+	if err != nil {
+		return base
+	}
+	offset := time.Duration(n.Int64()) - jitter
+	got := base + offset
+	if got <= 0 {
+		return base
+	}
+	return got
+}
+
+func isCachedNull(raw string) bool {
+	return raw == cacheNullValue
+}
+
+func randomToken() (string, error) {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b[:]), nil
+}
+
+func hashKey(key string) string {
+	sum := sha1.Sum([]byte(key))
+	return hex.EncodeToString(sum[:])
 }

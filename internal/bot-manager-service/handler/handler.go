@@ -1,3 +1,4 @@
+// Package handler implements bot-manager-service Kitex RPC handlers.
 package handler
 
 import (
@@ -7,11 +8,13 @@ import (
 	"context"
 )
 
+// BotServiceImpl is the Kitex server implementation for bot-manager-service.
 type BotServiceImpl struct {
 	svc service.BotService
 	cfg *config.Config
 }
 
+// NewBotServiceImpl wires the business service and process config into Kitex.
 func NewBotServiceImpl(svc service.BotService, cfg *config.Config) bot.BotService {
 	return &BotServiceImpl{svc: svc, cfg: cfg}
 }
@@ -20,6 +23,7 @@ func (h *BotServiceImpl) defaultLLM() (apiKey, baseURL, model string) {
 	return h.cfg.LLM.DefaultAPIKey, h.cfg.LLM.DefaultBaseURL, h.cfg.LLM.DefaultModel
 }
 
+// CreateBot handles RPC bot creation with default LLM config fallback.
 func (h *BotServiceImpl) CreateBot(ctx context.Context, req *bot.CreateBotReq) (resp *bot.CreateBotResp, err error) {
 	apiKey, baseURL, model := h.defaultLLM()
 	b, err := h.svc.CreateBot(ctx, req.Name, req.Type, req.Description, req.ModelName, req.ApiKey, req.BaseUrl, req.SystemPrompt, req.SkillsDir, req.AgentRoot, req.OwnerId, apiKey, baseURL, model)
@@ -29,6 +33,7 @@ func (h *BotServiceImpl) CreateBot(ctx context.Context, req *bot.CreateBotReq) (
 	return &bot.CreateBotResp{Success: true, BotId: b.ID, Msg: "创建成功"}, nil
 }
 
+// UpdateBot handles RPC bot updates and service-level ownership checks.
 func (h *BotServiceImpl) UpdateBot(ctx context.Context, req *bot.UpdateBotReq) (resp *bot.UpdateBotResp, err error) {
 	apiKey, baseURL, model := h.defaultLLM()
 	err = h.svc.UpdateBot(ctx, req.BotId, req.OperatorId, req.Name, req.Description, req.ModelName, req.ApiKey, req.BaseUrl, req.SystemPrompt, req.SkillsDir, req.AgentRoot, req.IsActive, apiKey, baseURL, model)
@@ -38,6 +43,7 @@ func (h *BotServiceImpl) UpdateBot(ctx context.Context, req *bot.UpdateBotReq) (
 	return &bot.UpdateBotResp{Success: true, Msg: "更新成功"}, nil
 }
 
+// GetBot returns one bot config and masks internal bot API keys.
 func (h *BotServiceImpl) GetBot(ctx context.Context, req *bot.GetBotReq) (resp *bot.GetBotResp, err error) {
 	b, err := h.svc.GetBot(ctx, req.BotId)
 	if err != nil {
@@ -71,6 +77,7 @@ func (h *BotServiceImpl) GetBot(ctx context.Context, req *bot.GetBotReq) (resp *
 	}, nil
 }
 
+// ListBots returns bot configs and masks internal bot API keys.
 func (h *BotServiceImpl) ListBots(ctx context.Context, req *bot.ListBotsReq) (resp *bot.ListBotsResp, err error) {
 	bots, err := h.svc.ListBots(ctx, req.OwnerId, req.Type)
 	if err != nil {
@@ -102,6 +109,7 @@ func (h *BotServiceImpl) ListBots(ctx context.Context, req *bot.ListBotsReq) (re
 	return &bot.ListBotsResp{Success: true, Bots: botList}, nil
 }
 
+// DeleteBot deletes a bot after service-level ownership checks.
 func (h *BotServiceImpl) DeleteBot(ctx context.Context, req *bot.DeleteBotReq) (resp *bot.DeleteBotResp, err error) {
 	err = h.svc.DeleteBot(ctx, req.BotId, req.OperatorId)
 	if err != nil {
@@ -110,6 +118,7 @@ func (h *BotServiceImpl) DeleteBot(ctx context.Context, req *bot.DeleteBotReq) (
 	return &bot.DeleteBotResp{Success: true, Msg: "删除成功"}, nil
 }
 
+// ChatWithBot runs one bot chat turn and returns the assistant reply.
 func (h *BotServiceImpl) ChatWithBot(ctx context.Context, req *bot.ChatWithBotReq) (resp *bot.ChatWithBotResp, err error) {
 	reply, _, err := h.svc.ChatWithBot(ctx, req.BotId, req.UserId, req.ConversationId, req.Message)
 	if err != nil {
@@ -118,6 +127,7 @@ func (h *BotServiceImpl) ChatWithBot(ctx context.Context, req *bot.ChatWithBotRe
 	return &bot.ChatWithBotResp{Success: true, Reply: reply}, nil
 }
 
+// CreateRoute creates a bot routing rule.
 func (h *BotServiceImpl) CreateRoute(ctx context.Context, req *bot.CreateRouteReq) (resp *bot.CreateRouteResp, err error) {
 	route, err := h.svc.CreateRoute(ctx, req.BotId, req.RoutePattern, req.RouteType, req.Priority)
 	if err != nil {
@@ -126,6 +136,7 @@ func (h *BotServiceImpl) CreateRoute(ctx context.Context, req *bot.CreateRouteRe
 	return &bot.CreateRouteResp{Success: true, RouteId: route.ID, Msg: "创建成功"}, nil
 }
 
+// ListRoutes returns routing rules for a bot.
 func (h *BotServiceImpl) ListRoutes(ctx context.Context, req *bot.ListRoutesReq) (resp *bot.ListRoutesResp, err error) {
 	routes, err := h.svc.ListRoutes(ctx, req.BotId)
 	if err != nil {
@@ -145,6 +156,7 @@ func (h *BotServiceImpl) ListRoutes(ctx context.Context, req *bot.ListRoutesReq)
 	return &bot.ListRoutesResp{Success: true, Routes: routeList}, nil
 }
 
+// DeleteRoute removes one routing rule.
 func (h *BotServiceImpl) DeleteRoute(ctx context.Context, req *bot.DeleteRouteReq) (resp *bot.DeleteRouteResp, err error) {
 	err = h.svc.DeleteRoute(ctx, req.RouteId, req.OperatorId)
 	if err != nil {
@@ -153,6 +165,7 @@ func (h *BotServiceImpl) DeleteRoute(ctx context.Context, req *bot.DeleteRouteRe
 	return &bot.DeleteRouteResp{Success: true, Msg: "删除成功"}, nil
 }
 
+// GetBilling returns measured token/cost records.
 func (h *BotServiceImpl) GetBilling(ctx context.Context, req *bot.GetBillingReq) (resp *bot.GetBillingResp, err error) {
 	records, total, err := h.svc.GetBilling(ctx, req.BotId, req.UserId, req.Limit, req.Offset)
 	if err != nil {

@@ -16,10 +16,14 @@ import (
 // 处理客户端的WebSocket连接请求
 // 实现了 http.Handler 接口，可直接用于 http.Handle 注册路由
 type WSHandler struct {
-	Hub        *hub.Hub           // WebSocket连接管理中心
-	Redis      *redis.RedisClient // Redis客户端（用于在线状态缓存）
+	Hub   *hub.Hub           // WebSocket连接管理中心
+	Redis *redis.RedisClient // Redis客户端（用于在线状态缓存）
 }
 
+// NewWSHandler 创建 WebSocket HTTP handler。
+//
+// Hub 负责连接注册和广播，Redis 用于记录在线状态；Redis 为空时仍可建立连接，
+// 只是不会写入在线状态缓存。
 func NewWSHandler(h *hub.Hub, r *redis.RedisClient) *WSHandler {
 	return &WSHandler{Hub: h, Redis: r}
 }
@@ -27,12 +31,12 @@ func NewWSHandler(h *hub.Hub, r *redis.RedisClient) *WSHandler {
 // ServeHTTP 处理WebSocket连接请求
 // 连接地址：ws://host:port/ws?token=JWT_TOKEN
 // 流程：
-//   1. 从URL参数中提取JWT Token
-//   2. 验证Token有效性，提取用户信息
-//   3. 将HTTP连接升级为WebSocket连接
-//   4. 创建WSClient并注册到Hub
-//   5. 在Redis中记录用户在线状态
-//   6. 启动读写goroutine处理消息
+//  1. 从URL参数中提取JWT Token
+//  2. 验证Token有效性，提取用户信息
+//  3. 将HTTP连接升级为WebSocket连接
+//  4. 创建WSClient并注册到Hub
+//  5. 在Redis中记录用户在线状态
+//  6. 启动读写goroutine处理消息
 func (h *WSHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// 第1步：从URL参数获取JWT Token
 	token := r.URL.Query().Get("token")
@@ -69,7 +73,7 @@ func (h *WSHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// 第5步：在Redis中记录用户在线状态（30秒过期，需定期续期）
 	if h.Redis != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		h.Redis.Set(ctx, "online:user:"+strconv.FormatInt(claims.UserID, 10), "1", 30*time.Second)
+		h.Redis.SetWithJitter(ctx, "online:user:"+strconv.FormatInt(claims.UserID, 10), "1", 30*time.Second, 5*time.Second)
 		cancel()
 	}
 

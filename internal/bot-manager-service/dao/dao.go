@@ -1,3 +1,4 @@
+// Package dao contains bot-manager-service persistence adapters.
 package dao
 
 import (
@@ -8,6 +9,7 @@ import (
 	"gorm.io/gorm"
 )
 
+// InitDB opens MySQL and performs non-destructive migrations for bot tables.
 func InitDB(dsn string) (*gorm.DB, error) {
 	db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{})
 	if err != nil {
@@ -29,6 +31,7 @@ func InitDB(dsn string) (*gorm.DB, error) {
 	return db, nil
 }
 
+// BotRepository stores bot configurations.
 type BotRepository interface {
 	CreateBot(ctx context.Context, bot *model.Bot) error
 	GetBotByID(ctx context.Context, id int64) (*model.Bot, error)
@@ -41,14 +44,17 @@ type botRepositoryImpl struct {
 	db *gorm.DB
 }
 
+// NewBotRepo creates a GORM-backed bot repository.
 func NewBotRepo(db *gorm.DB) BotRepository {
 	return &botRepositoryImpl{db: db}
 }
 
+// CreateBot inserts a bot configuration.
 func (r *botRepositoryImpl) CreateBot(ctx context.Context, bot *model.Bot) error {
 	return r.db.WithContext(ctx).Create(bot).Error
 }
 
+// GetBotByID returns one bot or nil when it does not exist.
 func (r *botRepositoryImpl) GetBotByID(ctx context.Context, id int64) (*model.Bot, error) {
 	var bot model.Bot
 	if err := r.db.WithContext(ctx).Where("id = ?", id).First(&bot).Error; err != nil {
@@ -60,6 +66,7 @@ func (r *botRepositoryImpl) GetBotByID(ctx context.Context, id int64) (*model.Bo
 	return &bot, nil
 }
 
+// ListBots returns bot configurations filtered by owner and optional type.
 func (r *botRepositoryImpl) ListBots(ctx context.Context, ownerID int64, botType string) ([]model.Bot, error) {
 	var bots []model.Bot
 	query := r.db.WithContext(ctx)
@@ -75,14 +82,17 @@ func (r *botRepositoryImpl) ListBots(ctx context.Context, ownerID int64, botType
 	return bots, nil
 }
 
+// UpdateBot saves a changed bot configuration.
 func (r *botRepositoryImpl) UpdateBot(ctx context.Context, bot *model.Bot) error {
 	return r.db.WithContext(ctx).Save(bot).Error
 }
 
+// DeleteBot removes a bot configuration by primary key.
 func (r *botRepositoryImpl) DeleteBot(ctx context.Context, id int64) error {
 	return r.db.WithContext(ctx).Delete(&model.Bot{}, id).Error
 }
 
+// RouteRepository stores bot routing rules.
 type RouteRepository interface {
 	CreateRoute(ctx context.Context, route *model.BotRoute) error
 	ListRoutes(ctx context.Context, botID int64) ([]model.BotRoute, error)
@@ -93,14 +103,17 @@ type routeRepositoryImpl struct {
 	db *gorm.DB
 }
 
+// NewRouteRepo creates a GORM-backed route repository.
 func NewRouteRepo(db *gorm.DB) RouteRepository {
 	return &routeRepositoryImpl{db: db}
 }
 
+// CreateRoute inserts a route rule.
 func (r *routeRepositoryImpl) CreateRoute(ctx context.Context, route *model.BotRoute) error {
 	return r.db.WithContext(ctx).Create(route).Error
 }
 
+// ListRoutes returns routes ordered by priority for one bot.
 func (r *routeRepositoryImpl) ListRoutes(ctx context.Context, botID int64) ([]model.BotRoute, error) {
 	var routes []model.BotRoute
 	if err := r.db.WithContext(ctx).Where("bot_id = ?", botID).Order("priority DESC").Find(&routes).Error; err != nil {
@@ -109,10 +122,12 @@ func (r *routeRepositoryImpl) ListRoutes(ctx context.Context, botID int64) ([]mo
 	return routes, nil
 }
 
+// DeleteRoute removes a route rule.
 func (r *routeRepositoryImpl) DeleteRoute(ctx context.Context, id int64) error {
 	return r.db.WithContext(ctx).Delete(&model.BotRoute{}, id).Error
 }
 
+// BillingRepository stores actual token usage and cost records.
 type BillingRepository interface {
 	CreateRecord(ctx context.Context, record *model.BillingRecord) error
 	ListRecords(ctx context.Context, botID, userID int64, limit, offset int64) ([]model.BillingRecord, int64, error)
@@ -122,14 +137,17 @@ type billingRepositoryImpl struct {
 	db *gorm.DB
 }
 
+// NewBillingRepo creates a GORM-backed billing repository.
 func NewBillingRepo(db *gorm.DB) BillingRepository {
 	return &billingRepositoryImpl{db: db}
 }
 
+// CreateRecord inserts one billing record.
 func (r *billingRepositoryImpl) CreateRecord(ctx context.Context, record *model.BillingRecord) error {
 	return r.db.WithContext(ctx).Create(record).Error
 }
 
+// ListRecords returns a paginated billing page and total count.
 func (r *billingRepositoryImpl) ListRecords(ctx context.Context, botID, userID int64, limit, offset int64) ([]model.BillingRecord, int64, error) {
 	var records []model.BillingRecord
 	var total int64

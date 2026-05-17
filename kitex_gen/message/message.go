@@ -85,6 +85,9 @@ type Message struct {
 	EditedAt       string  `thrift:"edited_at,10" frugal:"10,default,string" json:"edited_at"`
 	MentionUserIds []int64 `thrift:"mention_user_ids,11" frugal:"11,default,list<i64>" json:"mention_user_ids"`
 	MentionAll     bool    `thrift:"mention_all,12" frugal:"12,default,bool" json:"mention_all"`
+	ReadCount      int64   `thrift:"read_count,13" frugal:"13,default,i64" json:"read_count"`
+	RecipientCount int64   `thrift:"recipient_count,14" frugal:"14,default,i64" json:"recipient_count"`
+	IsReadByMe     bool    `thrift:"is_read_by_me,15" frugal:"15,default,bool" json:"is_read_by_me"`
 }
 
 func NewMessage() *Message {
@@ -141,6 +144,18 @@ func (p *Message) GetMentionUserIds() (v []int64) {
 func (p *Message) GetMentionAll() (v bool) {
 	return p.MentionAll
 }
+
+func (p *Message) GetReadCount() (v int64) {
+	return p.ReadCount
+}
+
+func (p *Message) GetRecipientCount() (v int64) {
+	return p.RecipientCount
+}
+
+func (p *Message) GetIsReadByMe() (v bool) {
+	return p.IsReadByMe
+}
 func (p *Message) SetId(val int64) {
 	p.Id = val
 }
@@ -177,6 +192,15 @@ func (p *Message) SetMentionUserIds(val []int64) {
 func (p *Message) SetMentionAll(val bool) {
 	p.MentionAll = val
 }
+func (p *Message) SetReadCount(val int64) {
+	p.ReadCount = val
+}
+func (p *Message) SetRecipientCount(val int64) {
+	p.RecipientCount = val
+}
+func (p *Message) SetIsReadByMe(val bool) {
+	p.IsReadByMe = val
+}
 
 func (p *Message) String() string {
 	if p == nil {
@@ -198,6 +222,9 @@ var fieldIDToName_Message = map[int16]string{
 	10: "edited_at",
 	11: "mention_user_ids",
 	12: "mention_all",
+	13: "read_count",
+	14: "recipient_count",
+	15: "is_read_by_me",
 }
 
 type CreateConversationReq struct {
@@ -1098,6 +1125,91 @@ var fieldIDToName_MarkConversationReadResp = map[int16]string{
 	2: "msg",
 }
 
+type DeleteLocalMessageReq struct {
+	ConversationId int64 `thrift:"conversation_id,1" frugal:"1,default,i64" json:"conversation_id"`
+	UserId         int64 `thrift:"user_id,2" frugal:"2,default,i64" json:"user_id"`
+	MessageId      int64 `thrift:"message_id,3" frugal:"3,default,i64" json:"message_id"`
+}
+
+func NewDeleteLocalMessageReq() *DeleteLocalMessageReq {
+	return &DeleteLocalMessageReq{}
+}
+
+func (p *DeleteLocalMessageReq) InitDefault() {
+}
+
+func (p *DeleteLocalMessageReq) GetConversationId() (v int64) {
+	return p.ConversationId
+}
+
+func (p *DeleteLocalMessageReq) GetUserId() (v int64) {
+	return p.UserId
+}
+
+func (p *DeleteLocalMessageReq) GetMessageId() (v int64) {
+	return p.MessageId
+}
+func (p *DeleteLocalMessageReq) SetConversationId(val int64) {
+	p.ConversationId = val
+}
+func (p *DeleteLocalMessageReq) SetUserId(val int64) {
+	p.UserId = val
+}
+func (p *DeleteLocalMessageReq) SetMessageId(val int64) {
+	p.MessageId = val
+}
+
+func (p *DeleteLocalMessageReq) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("DeleteLocalMessageReq(%+v)", *p)
+}
+
+var fieldIDToName_DeleteLocalMessageReq = map[int16]string{
+	1: "conversation_id",
+	2: "user_id",
+	3: "message_id",
+}
+
+type DeleteLocalMessageResp struct {
+	Success bool   `thrift:"success,1" frugal:"1,default,bool" json:"success"`
+	Msg     string `thrift:"msg,2" frugal:"2,default,string" json:"msg"`
+}
+
+func NewDeleteLocalMessageResp() *DeleteLocalMessageResp {
+	return &DeleteLocalMessageResp{}
+}
+
+func (p *DeleteLocalMessageResp) InitDefault() {
+}
+
+func (p *DeleteLocalMessageResp) GetSuccess() (v bool) {
+	return p.Success
+}
+
+func (p *DeleteLocalMessageResp) GetMsg() (v string) {
+	return p.Msg
+}
+func (p *DeleteLocalMessageResp) SetSuccess(val bool) {
+	p.Success = val
+}
+func (p *DeleteLocalMessageResp) SetMsg(val string) {
+	p.Msg = val
+}
+
+func (p *DeleteLocalMessageResp) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("DeleteLocalMessageResp(%+v)", *p)
+}
+
+var fieldIDToName_DeleteLocalMessageResp = map[int16]string{
+	1: "success",
+	2: "msg",
+}
+
 type EditMessageReq struct {
 	MessageId int64  `thrift:"message_id,1" frugal:"1,default,i64" json:"message_id"`
 	EditorId  int64  `thrift:"editor_id,2" frugal:"2,default,i64" json:"editor_id"`
@@ -1693,6 +1805,8 @@ type MessageService interface {
 
 	MarkConversationRead(ctx context.Context, req *MarkConversationReadReq) (r *MarkConversationReadResp, err error)
 
+	DeleteLocalMessage(ctx context.Context, req *DeleteLocalMessageReq) (r *DeleteLocalMessageResp, err error)
+
 	EditMessage(ctx context.Context, req *EditMessageReq) (r *EditMessageResp, err error)
 
 	RecallMessage(ctx context.Context, req *RecallMessageReq) (r *RecallMessageResp, err error)
@@ -2081,6 +2195,82 @@ func (p *MessageServiceMarkConversationReadResult) String() string {
 }
 
 var fieldIDToName_MessageServiceMarkConversationReadResult = map[int16]string{
+	0: "success",
+}
+
+type MessageServiceDeleteLocalMessageArgs struct {
+	Req *DeleteLocalMessageReq `thrift:"req,1" frugal:"1,default,DeleteLocalMessageReq" json:"req"`
+}
+
+func NewMessageServiceDeleteLocalMessageArgs() *MessageServiceDeleteLocalMessageArgs {
+	return &MessageServiceDeleteLocalMessageArgs{}
+}
+
+func (p *MessageServiceDeleteLocalMessageArgs) InitDefault() {
+}
+
+var MessageServiceDeleteLocalMessageArgs_Req_DEFAULT *DeleteLocalMessageReq
+
+func (p *MessageServiceDeleteLocalMessageArgs) GetReq() (v *DeleteLocalMessageReq) {
+	if !p.IsSetReq() {
+		return MessageServiceDeleteLocalMessageArgs_Req_DEFAULT
+	}
+	return p.Req
+}
+func (p *MessageServiceDeleteLocalMessageArgs) SetReq(val *DeleteLocalMessageReq) {
+	p.Req = val
+}
+
+func (p *MessageServiceDeleteLocalMessageArgs) IsSetReq() bool {
+	return p.Req != nil
+}
+
+func (p *MessageServiceDeleteLocalMessageArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("MessageServiceDeleteLocalMessageArgs(%+v)", *p)
+}
+
+var fieldIDToName_MessageServiceDeleteLocalMessageArgs = map[int16]string{
+	1: "req",
+}
+
+type MessageServiceDeleteLocalMessageResult struct {
+	Success *DeleteLocalMessageResp `thrift:"success,0,optional" frugal:"0,optional,DeleteLocalMessageResp" json:"success,omitempty"`
+}
+
+func NewMessageServiceDeleteLocalMessageResult() *MessageServiceDeleteLocalMessageResult {
+	return &MessageServiceDeleteLocalMessageResult{}
+}
+
+func (p *MessageServiceDeleteLocalMessageResult) InitDefault() {
+}
+
+var MessageServiceDeleteLocalMessageResult_Success_DEFAULT *DeleteLocalMessageResp
+
+func (p *MessageServiceDeleteLocalMessageResult) GetSuccess() (v *DeleteLocalMessageResp) {
+	if !p.IsSetSuccess() {
+		return MessageServiceDeleteLocalMessageResult_Success_DEFAULT
+	}
+	return p.Success
+}
+func (p *MessageServiceDeleteLocalMessageResult) SetSuccess(x interface{}) {
+	p.Success = x.(*DeleteLocalMessageResp)
+}
+
+func (p *MessageServiceDeleteLocalMessageResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *MessageServiceDeleteLocalMessageResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("MessageServiceDeleteLocalMessageResult(%+v)", *p)
+}
+
+var fieldIDToName_MessageServiceDeleteLocalMessageResult = map[int16]string{
 	0: "success",
 }
 

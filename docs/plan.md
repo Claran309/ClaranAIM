@@ -62,10 +62,6 @@ AIM 的长期目标不是“在聊天里加一个 AI 按钮”，而是让 Agent
 - [x] 完成 bot-manager-service 基础能力：内部 Bot、自部署 Bot、计费管理、配置管理、路由管理。
 - [x] 完成 JWT 认证、权限校验、日志记录、异常处理、MySQL/GORM、Redis。
 - [x] 完成 Kitex TTHeader、Etcd 注册发现、Viper 配置、MinIO/本地对象存储和 Docker Compose 基础设施。
-- [ ] 回归验证登录注册、好友、群聊、消息收发、历史消息、文件、图片、语音消息。
-- [ ] 自查历史消息、群权限、多端同步、未读数、会话切换等边界问题。
-- [ ] 补充前端基础冒烟测试，确保核心聊天体验稳定。
-- [ ] 统一 README、docs、代码注释的 UTF-8 编码要求。
 
 ### Phase 1：高级 IM 能力补完
 
@@ -82,13 +78,6 @@ AIM 的长期目标不是“在聊天里加一个 AI 按钮”，而是让 Agent
 - [ ] 实现实时审核。
 - [ ] 实现实时多语言翻译。
 - [x] 为 Agent 提供消息状态、引用关系、同步状态和群内事件数据。
-
-Phase 1 当前交付说明：
-
-- 已完成 msg-core-service 内可闭环的高级 IM 基础：`messages.reply_to_id/status/is_edited/edited_at/mention_user_ids/mention_all`，`conversation_participants.last_read_message_id/last_read_at`，以及 `message_edit_records`。
-- 已新增 HTTP/RPC 接口：发送消息扩展字段、标记已读、编辑消息、撤回消息、搜索时间范围。
-- 输入状态提示目前作为 WebSocket 事件入口预留，后续可从浏览器直接发送 typing 事件，经 websocket-gateway 广播给会话其他成员。
-- 离线推送、多端草稿/通知设置、实时审核、实时翻译需要 msg-history-service、notification-service 或 msg-filter-service 继续承接，不在本批次里硬塞到 msg-core-service。
 
 ### Phase 2：Agent 会话感知层
 
@@ -168,13 +157,15 @@ Phase 1 当前交付说明：
 
 ### Phase 7：治理、观测与生产化
 
-- [ ] 引入 Kafka 事件流，承载消息事件、文件事件、Agent 事件、知识入库事件、搜索索引事件和审计事件。
+- [x] 引入 Kafka 事件流一期：承载群组成员事件与消息实时推送事件。
+- [ ] 扩展 Kafka 事件流二期：承载文件事件、Agent 事件、知识入库事件、搜索索引事件和审计事件。
 - [ ] 引入 Nacos 或等价配置中心。
-- [ ] 完善服务超时控制。
+- [x] 完善服务超时控制：API Gateway 到 Kitex 服务的客户端默认启用 5s RPC timeout。
 - [ ] 完善服务降级。
 - [ ] 完善服务重试。
-- [ ] 完善服务熔断。
-- [ ] 完善限流和成本控制。
+- [x] 完善服务熔断：Kitex 客户端默认启用 circuit breaker。
+- [x] 完善限流和成本控制：API Gateway 已接入用户/IP 令牌桶限流，Bot 计费已严格按模型 usage token 记录；生产多实例限流仍需 Redis/网关层共享实现。
+- [x] 接入并默认开启 DTM 分布式事务基础设施：Docker Compose 提供 dtm-server，`pkg/config` 默认启用 DTM，`pkg/dtm` 提供 Saga 构建器；当前不改造高频消息链路，后续用于低频跨服务补偿事务。
 - [ ] 引入 Prometheus 指标采集。
 - [ ] 引入 Jaeger 链路追踪。
 - [ ] 引入 Grafana 可视化。
@@ -205,15 +196,15 @@ Phase 1 当前交付说明：
 ### 4.1 服务拆分演进
 
 - [ ] 保持 HTTP 网关与内部 RPC 服务分层，浏览器不直接访问内部微服务。
-- [ ] 保持 WebSocket 网关与 msg-core-service 解耦，消息核心只负责发推送请求。
+- [x] 保持 WebSocket 网关与 msg-core-service 解耦，消息核心同事务写 `message.*` Outbox 事件，Outbox worker 发布 Kafka，WebSocket 网关消费后推送；HTTP `/push` 仅作为兼容入口。
 - [ ] 将历史、归档、冷存储、离线同步逻辑逐步从 msg-core-service 拆到 msg-history-service。
 - [ ] 未来 AI 服务可按需要使用 Python 或独立运行时，但通过 RPC/API 与 Go 主系统解耦。
 - [ ] Bot 路由未来可扩展为 API Gateway 级别的路由分发。
 
 ### 4.2 消息与推送性能
 
-- [ ] 消息存储从同步写 MySQL 演进为先写 Redis、再批量落盘。
-- [ ] 消息推送从 HTTP 调用 `/push` 演进为 Redis Pub/Sub 或事件总线。
+- [x] 消息存储保持 MySQL 作为服务端事实来源，`group.*` 与 `message.*` 事件通过 Transactional Outbox/Kafka 做写后处理。只有在 Redis Stream + AOF + 消费 ACK + 重放补偿完备时，才考虑 Redis 缓冲写入，不能把普通 Redis 缓存当消息 WAL。
+- [x] 消息推送从 HTTP 调用 `/push` 演进为 MySQL Outbox + Kafka 事件总线，`/push` 保留为兼容入口。
 - [ ] 会话列表从每次查 DB 拼装演进为 Redis Sorted Set 维护。
 - [ ] 在线状态从 Redis String + TTL 演进为 Redis Set + 定时刷新。
 - [x] 历史消息分页使用游标分页 `before_id`。
@@ -221,14 +212,14 @@ Phase 1 当前交付说明：
 
 ### 4.3 数据库与迁移
 
-- [x] 开发阶段使用 DropTable + AutoMigrate 支持模型频繁变化。
-- [ ] 生产环境迁移到 golang-migrate 或等价迁移工具，避免删表重建。
+- [x] 启动阶段改为非破坏性 AutoMigrate，禁止 DropTable 清空开发数据。
+- [ ] 引入 golang-migrate 或等价迁移工具，覆盖字段删除、类型变更和数据回填。
 - [ ] 为消息编辑、撤回、引用、已读游标、离线同步、知识库、记忆和审计补充增量迁移策略。
 
 ### 4.4 计费与成本
 
-- [x] 当前 Bot 计费使用字符数估算 Token。
-- [ ] 未来接入模型 API 返回的实际 Token 用量。
+- [x] 当前 Bot 计费使用 Eino `ResponseMeta.Usage` 中的真实 Token 用量，不再按字符数估算。
+- [ ] 扩展更多模型供应商的 usage 字段兼容映射，并对缺失 usage 的模型接入做告警和配置拦截。
 - [ ] 为 Agent 工具调用、RAG 检索、长任务、多 Agent 协作建立成本记录。
 - [ ] 为群空间、用户、Bot 增加配额、限流和成本告警。
 
@@ -253,8 +244,12 @@ Phase 1 当前交付说明：
 - [ ] rag-service：知识库、文档上传、向量检索、聊天知识入库。
 - [ ] memory-service：用户记忆、群记忆、项目状态和向量化记忆。
 - [ ] msg-filter-service：敏感内容检测、实时审核、多语言翻译。
-- [ ] event-service 或 Kafka consumer：处理消息后处理、搜索索引、AI 摘要、知识候选和审计事件。
+- [x] msg-core-service Kafka consumer：消费 `group.*` 事件，同步群聊 conversation 和参与者。
+- [x] websocket-gateway Kafka consumer：消费 `message.*` 事件，推送在线 WebSocket 连接。
+- [ ] event-service 或更多 Kafka consumer：处理消息后处理、搜索索引、AI 摘要、知识候选和审计事件。
 - [ ] notification-service：处理离线推送、上线同步和跨端通知。
+- [x] Outbox worker 一期：group-service 和 msg-core-service 内置 worker，扫描 MySQL `event_outbox` 表，将业务事务内写入的待发布事件可靠投递到 Kafka。
+- [ ] processed-events 表：为 Kafka 消费者提供幂等去重，避免“处理成功但 offset 未提交”后重复副作用。
 
 ## 6. 安全、权限与治理原则
 

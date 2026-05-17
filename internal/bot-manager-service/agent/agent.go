@@ -21,6 +21,11 @@ import (
 	"github.com/coze-dev/cozeloop-go"
 )
 
+// NewDeepAgent constructs the Eino ADK deep agent used by bots.
+//
+// It wires local tool execution, optional CozeLoop tracing, skill middleware and
+// the project's domain tools into a single agent instance. bot-manager-service
+// caches the returned agent per bot configuration.
 func NewDeepAgent(ctx context.Context, model *openai.ChatModel, agentRoot string, cozeloopApiToken string, cozeloopWorkspaceID string, skillDir string, agentName string, agentDescription string, systemPrompt string, includeDomainTools bool) (adk.Agent, error) {
 	// 创建LocalBackend Tools 后端工具实例
 	backend, err := local.NewBackend(ctx, &local.Config{})

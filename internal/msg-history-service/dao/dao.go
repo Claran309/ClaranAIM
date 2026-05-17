@@ -56,6 +56,7 @@ type historyRepositoryImpl struct {
 	db *gorm.DB
 }
 
+// NewHistoryRepo 创建消息历史仓储实现。
 func NewHistoryRepo(db *gorm.DB) HistoryRepository {
 	return &historyRepositoryImpl{db: db}
 }
