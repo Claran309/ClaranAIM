@@ -45,7 +45,12 @@ func NewUserServiceImpl(svc service.UserService) user.UserService {
 // Register 用户注册 RPC 方法
 // 流程：校验参数 → Service 注册（用户名去重 + bcrypt 加密 + 写库 + 缓存）→ 返回结果
 func (h *UserServiceImpl) Register(ctx context.Context, req *user.RegisterReq) (resp *user.RegisterResp, err error) {
-	u, err := h.svc.Register(ctx, req.Username, req.Password, req.Nickname)
+	var u *model.User
+	if req.IsSystem {
+		u, err = h.svc.RegisterSystemUser(ctx, req.Username, req.Password, req.Nickname)
+	} else {
+		u, err = h.svc.Register(ctx, req.Username, req.Password, req.Nickname)
+	}
 	if err != nil {
 		return &user.RegisterResp{Success: false, Msg: err.Error()}, nil
 	}
@@ -240,6 +245,7 @@ func toRPCUser(u model.User) *user.User {
 		Email:     u.Email,
 		Phone:     u.Phone,
 		Role:      u.Role,
+		IsSystem:  u.IsSystem,
 		Status:    u.Status,
 		CreatedAt: u.CreatedAt.Format("2006-01-02 15:04:05"),
 		UpdatedAt: u.UpdatedAt.Format("2006-01-02 15:04:05"),

@@ -15,6 +15,8 @@ const (
 	TopicGroupEvents = "claran.group.events"
 	// TopicMessageEvents carries message write, edit, recall and read events.
 	TopicMessageEvents = "claran.message.events"
+	// TopicAgentEvents carries Agent execution, tool and audit events.
+	TopicAgentEvents = "claran.agent.events"
 
 	// EventTypeGroupCreated is emitted after a group and initial members commit.
 	EventTypeGroupCreated = "group.created"
@@ -33,6 +35,17 @@ const (
 	EventTypeMessageRecalled = "message.recalled"
 	// EventTypeMessageRead is emitted after a user's read cursor advances.
 	EventTypeMessageRead = "message.read"
+
+	// EventTypeAgentInvoked is emitted when an Agent starts handling a request.
+	EventTypeAgentInvoked = "agent.invoked"
+	// EventTypeAgentCompleted is emitted when an Agent finishes successfully.
+	EventTypeAgentCompleted = "agent.completed"
+	// EventTypeAgentFailed is emitted when an Agent run fails.
+	EventTypeAgentFailed = "agent.failed"
+	// EventTypeAgentToolCalled is emitted for auditable tool calls.
+	EventTypeAgentToolCalled = "agent.tool_called"
+	// EventTypeAgentAuditRecorded is emitted after an Agent audit record is stored.
+	EventTypeAgentAuditRecorded = "agent.audit_recorded"
 )
 
 // Envelope 是所有 Kafka 域事件的统一外壳。
@@ -90,6 +103,8 @@ func (e Envelope) Topic() string {
 		return TopicGroupEvents
 	case EventTypeMessageCreated, EventTypeMessageEdited, EventTypeMessageRecalled, EventTypeMessageRead:
 		return TopicMessageEvents
+	case EventTypeAgentInvoked, EventTypeAgentCompleted, EventTypeAgentFailed, EventTypeAgentToolCalled, EventTypeAgentAuditRecorded:
+		return TopicAgentEvents
 	default:
 		return ""
 	}
@@ -149,6 +164,20 @@ type MessagePayload struct {
 	MentionAll     bool    `json:"mention_all"`
 	UserID         int64   `json:"user_id"`
 	TargetUserIDs  []int64 `json:"target_user_ids"`
+}
+
+// AgentPayload describes runtime events for audit and async subscribers.
+type AgentPayload struct {
+	BotID          int64  `json:"bot_id"`
+	AgentUserID    int64  `json:"agent_user_id"`
+	UserID         int64  `json:"user_id"`
+	ConversationID int64  `json:"conversation_id"`
+	SessionID      string `json:"session_id"`
+	Action         string `json:"action"`
+	Status         string `json:"status"`
+	Message        string `json:"message"`
+	InputTokens    int64  `json:"input_tokens"`
+	OutputTokens   int64  `json:"output_tokens"`
 }
 
 // WebSocketMessage wraps a message payload in the websocket-gateway protocol.

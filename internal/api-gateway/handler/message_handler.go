@@ -96,6 +96,7 @@ func (h *MessageHandler) SendMessage(ctx context.Context, c *app.RequestContext)
 		ReplyToID      json.Number   `json:"reply_to_id"`      // 引用消息ID
 		MentionUserIDs []json.Number `json:"mention_user_ids"` // @用户列表
 		MentionAll     bool          `json:"mention_all"`      // 是否@所有人
+		ClientMsgID    string        `json:"client_msg_id"`    // 客户端幂等键，重试发送时复用同一条消息
 	}
 	var req sendMsgReq
 	if err := bindJSONUseNumber(c, &req); err != nil {
@@ -144,7 +145,7 @@ func (h *MessageHandler) SendMessage(ctx context.Context, c *app.RequestContext)
 		}
 	}
 
-	resp, err := client.MessageClient.SendMessage(ctx, client.NewSendMessageExtReq(conversationID, id, req.Content, req.MsgType, replyToID, mentionUserIDs, req.MentionAll))
+	resp, err := client.MessageClient.SendMessage(ctx, client.NewSendMessageExtReqWithClientID(conversationID, id, req.Content, req.MsgType, replyToID, mentionUserIDs, req.MentionAll, req.ClientMsgID))
 	if err != nil {
 		response.Error(c, err.Error())
 		return

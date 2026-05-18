@@ -1,0 +1,10 @@
+[msg-history-service] 2026-05-18 22:45:37.112	INFO	health/health.go:28	MySQL连接正常	{"service": "msg-history-service", "version": "8.0.32"}
+[msg-history-service] 2026-05-18 22:45:37.126	INFO	health/health.go:56	Etcd注册地址	{"service": "msg-history-service", "endpoints": "[http://localhost:2379]"}
+[msg-history-service] 2026-05-18 22:45:37.126	INFO	health/health.go:69	========================================
+[msg-history-service] 2026-05-18 22:45:37.126	INFO	health/health.go:70	服务启动完成	{"service": "msg-history-service", "version": "1.0.0", "port": "127.0.0.1:9004"}
+[msg-history-service] 2026-05-18 22:45:37.126	INFO	health/health.go:71	========================================
+[msg-history-service] 2026-05-18 23:33:53.197	INFO	health/health.go:28	MySQL连接正常	{"service": "msg-history-service", "version": "8.0.32"}
+[msg-history-service] 2026-05-18 23:33:53.212	INFO	health/health.go:56	Etcd注册地址	{"service": "msg-history-service", "endpoints": "[http://localhost:2379]"}
+[msg-history-service] 2026-05-18 23:33:53.212	INFO	health/health.go:69	========================================
+[msg-history-service] 2026-05-18 23:33:53.212	INFO	health/health.go:70	服务启动完成	{"service": "msg-history-service", "version": "1.0.0", "port": "127.0.0.1:9004"}
+[msg-history-service] 2026-05-18 23:33:53.212	INFO	health/health.go:71	========================================

@@ -1,0 +1,14 @@
+[api-gateway] 2026-05-18 22:45:37.516	INFO	logger/logger.go:338	RPC客户端初始化成功
+[api-gateway] 2026-05-18 22:45:37.529	INFO	health/health.go:56	Etcd注册地址	{"service": "api-gateway", "endpoints": "[http://localhost:2379]"}
+[api-gateway] 2026-05-18 22:45:37.578	INFO	handler/file_handler.go:70	文件上传使用MinIO	{"bucket": "claran-aim"}
+[api-gateway] 2026-05-18 22:45:37.578	INFO	api-gateway/main.go:32	DTM分布式事务配置已启用	{"server": "http://localhost:36789"}
+[api-gateway] 2026-05-18 22:45:37.584	INFO	health/health.go:69	========================================
+[api-gateway] 2026-05-18 22:45:37.584	INFO	health/health.go:70	服务启动完成	{"service": "api-gateway", "version": "1.0.0", "port": "127.0.0.1:8080"}
+[api-gateway] 2026-05-18 22:45:37.584	INFO	health/health.go:71	========================================
+[api-gateway] 2026-05-18 23:34:01.516	INFO	logger/logger.go:338	RPC客户端初始化成功
+[api-gateway] 2026-05-18 23:34:01.532	INFO	health/health.go:56	Etcd注册地址	{"service": "api-gateway", "endpoints": "[http://localhost:2379]"}
+[api-gateway] 2026-05-18 23:34:01.545	INFO	handler/file_handler.go:70	文件上传使用MinIO	{"bucket": "claran-aim"}
+[api-gateway] 2026-05-18 23:34:01.545	INFO	api-gateway/main.go:32	DTM分布式事务配置已启用	{"server": "http://localhost:36789"}
+[api-gateway] 2026-05-18 23:34:01.547	INFO	health/health.go:69	========================================
+[api-gateway] 2026-05-18 23:34:01.547	INFO	health/health.go:70	服务启动完成	{"service": "api-gateway", "version": "1.0.0", "port": "127.0.0.1:8080"}
+[api-gateway] 2026-05-18 23:34:01.548	INFO	health/health.go:71	========================================

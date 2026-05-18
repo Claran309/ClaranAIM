@@ -29,6 +29,10 @@ kafka:
 dtm:
   enabled: true
   server: "http://localhost:36789"
+  group_service_url: "http://127.0.0.1:9102"
+  msg_core_service_url: "http://127.0.0.1:9103"
+  group_branch_address: "127.0.0.1:9102"
+  msg_core_branch_address: "127.0.0.1:9103"
 
 governance:
   rate_limit:

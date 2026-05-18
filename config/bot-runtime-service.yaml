@@ -1,0 +1,37 @@
+service:
+  name: "bot-runtime-service"
+  address: "127.0.0.1:9007"
+
+mysql:
+  dsn: ""
+
+redis:
+  addr: ""
+  password: ""
+  db: 0
+
+jwt:
+  secret_key: ""
+  expiration: 0
+
+etcd:
+  endpoints: []
+
+llm:
+  default_api_key: ""
+  default_base_url: ""
+  default_model: ""
+
+agent:
+  session_dir: "storage/agent/sessionStore"
+  agent_root: "storage/agent/workspaces"
+  cozeloop_api_token: ""
+  cozeloop_workspace_id: ""
+  skills_dir: ""
+
+governance:
+  rpc:
+    timeout_ms: 120000
+    circuit_breaker: true
+    max_connections: 1000
+    max_qps: 500

@@ -1,0 +1,46 @@
+[bot-runtime-service] 2026-05-19 00:15:56.246	INFO	health/health.go:56	Etcd注册地址	{"service": "bot-runtime-service", "endpoints": "[http://localhost:2379]"}
+[bot-runtime-service] 2026-05-19 00:15:56.267	INFO	health/health.go:69	========================================
+[bot-runtime-service] 2026-05-19 00:15:56.267	INFO	health/health.go:70	服务启动完成	{"service": "bot-runtime-service", "version": "1.0.0", "port": "127.0.0.1:9007"}
+[bot-runtime-service] 2026-05-19 00:15:56.267	INFO	health/health.go:71	========================================
+[bot-runtime-service] 2026-05-19 00:24:12.949	INFO	health/health.go:56	Etcd注册地址	{"service": "bot-runtime-service", "endpoints": "[http://localhost:2379]"}
+[bot-runtime-service] 2026-05-19 00:24:12.966	INFO	health/health.go:69	========================================
+[bot-runtime-service] 2026-05-19 00:24:12.966	INFO	health/health.go:70	服务启动完成	{"service": "bot-runtime-service", "version": "1.0.0", "port": "127.0.0.1:9007"}
+[bot-runtime-service] 2026-05-19 00:24:12.966	INFO	health/health.go:71	========================================
+[bot-runtime-service] 2026-05-19 00:28:45.959	INFO	logger/logger.go:344	CozeLoop追踪已启用
+[bot-runtime-service] 2026-05-19 00:28:45.959	INFO	logger/logger.go:344	工具 operator_query 初始化成功
+[bot-runtime-service] 2026-05-19 00:28:45.960	INFO	logger/logger.go:344	工具 resource_query 初始化成功
+[bot-runtime-service] 2026-05-19 00:28:45.960	INFO	logger/logger.go:344	工具 battle_plan 初始化成功
+[bot-runtime-service] 2026-05-19 00:28:45.961	INFO	logger/logger.go:344	工具 rag 初始化成功
+[bot-runtime-service] 2026-05-19 00:28:45.961	INFO	logger/logger.go:344	工具 web_search 初始化成功
+[bot-runtime-service] 2026-05-19 00:28:50.962	INFO	logger/logger.go:344	会话文件不存在，创建新会话: storage\bot\sessionStore\agent_49895688258818048_user_1_conv_0.jsonl
+[bot-runtime-service] 2026-05-19 00:28:50.969	INFO	logger/logger.go:344	[trace] Chain/1 start
+[bot-runtime-service] 2026-05-19 00:28:50.971	INFO	logger/logger.go:344	[trace] Lambda/ start
+[bot-runtime-service] 2026-05-19 00:28:50.971	INFO	logger/logger.go:344	[trace] Lambda/ end
+[bot-runtime-service] 2026-05-19 00:28:50.972	INFO	logger/logger.go:344	[trace] Graph/ReAct start
+[bot-runtime-service] 2026-05-19 00:28:50.972	INFO	logger/logger.go:344	[trace] Lambda/Init start
+[bot-runtime-service] 2026-05-19 00:28:50.972	INFO	logger/logger.go:344	[trace] Lambda/Init end
+[bot-runtime-service] 2026-05-19 00:28:50.986	INFO	logger/logger.go:344	[trace] ChatModel/ChatModel start
+[bot-runtime-service] 2026-05-19 00:29:14.940	INFO	logger/logger.go:344	[trace] ChatModel/ChatModel end
+[bot-runtime-service] 2026-05-19 00:29:14.945	INFO	logger/logger.go:344	[trace] Graph/ReAct end
+[bot-runtime-service] 2026-05-19 00:29:14.948	INFO	logger/logger.go:344	[trace] Chain/1 end
+[bot-runtime-service] 2026-05-19 00:46:43.130	INFO	health/health.go:56	Etcd注册地址	{"service": "bot-runtime-service", "endpoints": "[http://localhost:2379]"}
+[bot-runtime-service] 2026-05-19 00:46:43.147	INFO	health/health.go:69	========================================
+[bot-runtime-service] 2026-05-19 00:46:43.147	INFO	health/health.go:70	服务启动完成	{"service": "bot-runtime-service", "version": "1.0.0", "port": "127.0.0.1:9007"}
+[bot-runtime-service] 2026-05-19 00:46:43.147	INFO	health/health.go:71	========================================
+[bot-runtime-service] 2026-05-19 00:47:31.522	INFO	logger/logger.go:344	CozeLoop追踪已启用
+[bot-runtime-service] 2026-05-19 00:47:31.523	INFO	logger/logger.go:344	工具 operator_query 初始化成功
+[bot-runtime-service] 2026-05-19 00:47:31.523	INFO	logger/logger.go:344	工具 resource_query 初始化成功
+[bot-runtime-service] 2026-05-19 00:47:31.523	INFO	logger/logger.go:344	工具 battle_plan 初始化成功
+[bot-runtime-service] 2026-05-19 00:47:31.524	INFO	logger/logger.go:344	工具 rag 初始化成功
+[bot-runtime-service] 2026-05-19 00:47:31.525	INFO	logger/logger.go:344	工具 web_search 初始化成功
+[bot-runtime-service] 2026-05-19 00:47:36.526	INFO	logger/logger.go:344	会话文件不存在，创建新会话: storage\bot\sessionStore\agent_49895688258818048_user_1_conv_49113398354591744.jsonl
+[bot-runtime-service] 2026-05-19 00:47:36.533	INFO	logger/logger.go:344	[trace] Chain/1 start
+[bot-runtime-service] 2026-05-19 00:47:36.533	INFO	logger/logger.go:344	[trace] Lambda/ start
+[bot-runtime-service] 2026-05-19 00:47:36.533	INFO	logger/logger.go:344	[trace] Lambda/ end
+[bot-runtime-service] 2026-05-19 00:47:36.533	INFO	logger/logger.go:344	[trace] Graph/ReAct start
+[bot-runtime-service] 2026-05-19 00:47:36.536	INFO	logger/logger.go:344	[trace] Lambda/Init start
+[bot-runtime-service] 2026-05-19 00:47:36.536	INFO	logger/logger.go:344	[trace] Lambda/Init end
+[bot-runtime-service] 2026-05-19 00:47:36.555	INFO	logger/logger.go:344	[trace] ChatModel/ChatModel start
+[bot-runtime-service] 2026-05-19 00:48:05.086	INFO	logger/logger.go:344	[trace] ChatModel/ChatModel end
+[bot-runtime-service] 2026-05-19 00:48:05.094	INFO	logger/logger.go:344	[trace] Graph/ReAct end
+[bot-runtime-service] 2026-05-19 00:48:05.101	INFO	logger/logger.go:344	[trace] Chain/1 end

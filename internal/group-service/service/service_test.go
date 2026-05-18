@@ -213,6 +213,33 @@ func TestCreateGroupPublishesGroupCreatedEvent(t *testing.T) {
 	}
 }
 
+func TestCreateGroupWithIDUsesPreallocatedIDForDTMSaga(t *testing.T) {
+	repo := newFakeGroupRepo()
+	svc := NewGroupService(repo, nil)
+
+	group, err := svc.CreateGroupWithID(context.Background(), 99, "dtm team", 1, []int64{2, 3})
+	if err != nil {
+		t.Fatalf("CreateGroupWithID returned error: %v", err)
+	}
+
+	if group.ID != 99 {
+		t.Fatalf("group id = %d, want 99", group.ID)
+	}
+	if repo.groups[99] == nil {
+		t.Fatal("expected preallocated group to be stored")
+	}
+	if len(repo.outbox) != 1 {
+		t.Fatalf("outbox len = %d, want 1", len(repo.outbox))
+	}
+	envelope, err := repo.outbox[0].Envelope()
+	if err != nil {
+		t.Fatalf("outbox envelope decode failed: %v", err)
+	}
+	if envelope.Key != "99" {
+		t.Fatalf("event key = %q, want 99", envelope.Key)
+	}
+}
+
 func TestInviteMemberPublishesFullMemberSnapshot(t *testing.T) {
 	repo := newFakeGroupRepo()
 	repo.groups[10] = &model.Group{ID: 10, Name: "team", OwnerID: 1}

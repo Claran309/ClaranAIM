@@ -2,6 +2,7 @@ package main
 
 import (
 	"ClaranAIM/internal/group-service/dao"
+	"ClaranAIM/internal/group-service/dtmbranch"
 	"ClaranAIM/internal/group-service/handler"
 	"ClaranAIM/internal/group-service/service"
 	"ClaranAIM/kitex_gen/group/groupservice"
@@ -14,6 +15,7 @@ import (
 	"ClaranAIM/pkg/outbox"
 	"context"
 	"net"
+	"net/http"
 
 	"github.com/cloudwego/kitex/pkg/rpcinfo"
 	"github.com/cloudwego/kitex/pkg/transmeta"
@@ -58,6 +60,16 @@ func main() {
 	}
 	groupService := service.NewGroupService(groupRepo, redisClient)
 	groupHandler := handler.NewGroupServiceImpl(groupService)
+	if cfg.DTM.Enabled && cfg.DTM.GroupBranchAddress != "" {
+		mux := http.NewServeMux()
+		dtmbranch.NewHandler(groupService).RegisterRoutes(mux)
+		go func() {
+			logger.Info("DTM群组分支HTTP服务已启动", "address", cfg.DTM.GroupBranchAddress)
+			if err := http.ListenAndServe(cfg.DTM.GroupBranchAddress, mux); err != nil {
+				logger.Error("DTM群组分支HTTP服务停止", "error", err)
+			}
+		}()
+	}
 
 	r, err := etcd.NewEtcdRegistry(cfg.Etcd.Endpoints)
 	if err != nil {

@@ -21,11 +21,11 @@ func InitDB(dsn string) (*gorm.DB, error) {
 		return nil, err
 	}
 
-	// 需要自动迁移的模型列表
+	// 需要自动迁移的模型列表。FriendGroup 迁移前先清理历史重复分组，
+	// 否则新增 (user_id,name) 唯一索引时会因为旧数据重复导致服务无法启动。
 	models := []interface{}{
 		&model.User{},
 		&model.Friend{},
-		&model.FriendGroup{},
 	}
 
 	for _, m := range models {
@@ -33,8 +33,70 @@ func InitDB(dsn string) (*gorm.DB, error) {
 			return nil, err
 		}
 	}
+	if err := mergeDuplicateFriendGroups(db); err != nil {
+		return nil, err
+	}
+	if err := db.AutoMigrate(&model.FriendGroup{}); err != nil {
+		return nil, err
+	}
 
 	return db, nil
+}
+
+type duplicateFriendGroup struct {
+	UserID int64
+	Name   string
+	KeepID int64
+}
+
+// mergeDuplicateFriendGroups 合并旧版本可能已经写入的重复好友分组。
+//
+// 历史表在没有唯一索引时允许同一用户创建多个同名分组。现在模型要求
+// (user_id,name) 唯一，AutoMigrate 创建索引前必须先把重复数据收敛：
+// 1. 每组重复数据保留 ID 最小的一条；
+// 2. friends.group_id 指向重复分组的记录迁移到保留分组；
+// 3. 删除其余重复 friend_groups。
+//
+// 这个过程只在 friend_groups 表已存在时执行，不会创建新表或清空数据。
+func mergeDuplicateFriendGroups(db *gorm.DB) error {
+	if !db.Migrator().HasTable(&model.FriendGroup{}) {
+		return nil
+	}
+
+	var groups []duplicateFriendGroup
+	if err := db.
+		Table("friend_groups").
+		Select("user_id, name, MIN(id) AS keep_id").
+		Group("user_id, name").
+		Having("COUNT(*) > 1").
+		Scan(&groups).Error; err != nil {
+		return err
+	}
+
+	for _, g := range groups {
+		var duplicateIDs []int64
+		if err := db.
+			Model(&model.FriendGroup{}).
+			Where("user_id = ? AND name = ? AND id <> ?", g.UserID, g.Name, g.KeepID).
+			Pluck("id", &duplicateIDs).Error; err != nil {
+			return err
+		}
+		if len(duplicateIDs) == 0 {
+			continue
+		}
+		if err := db.
+			Model(&model.Friend{}).
+			Where("group_id IN ?", duplicateIDs).
+			Update("group_id", g.KeepID).Error; err != nil {
+			return err
+		}
+		if err := db.
+			Where("id IN ?", duplicateIDs).
+			Delete(&model.FriendGroup{}).Error; err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // UserRepository 用户数据访问接口

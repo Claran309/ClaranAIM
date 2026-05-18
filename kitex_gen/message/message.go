@@ -5,6 +5,7 @@ package message
 import (
 	"context"
 	"fmt"
+	"strings"
 )
 
 type Conversation struct {
@@ -62,6 +63,66 @@ func (p *Conversation) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("Conversation(%+v)", *p)
+}
+
+func (p *Conversation) DeepEqual(ano *Conversation) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.Id) {
+		return false
+	}
+	if !p.Field2DeepEqual(ano.Type) {
+		return false
+	}
+	if !p.Field3DeepEqual(ano.GroupId) {
+		return false
+	}
+	if !p.Field4DeepEqual(ano.CreatedAt) {
+		return false
+	}
+	if !p.Field5DeepEqual(ano.UpdatedAt) {
+		return false
+	}
+	return true
+}
+
+func (p *Conversation) Field1DeepEqual(src int64) bool {
+
+	if p.Id != src {
+		return false
+	}
+	return true
+}
+func (p *Conversation) Field2DeepEqual(src string) bool {
+
+	if strings.Compare(p.Type, src) != 0 {
+		return false
+	}
+	return true
+}
+func (p *Conversation) Field3DeepEqual(src int64) bool {
+
+	if p.GroupId != src {
+		return false
+	}
+	return true
+}
+func (p *Conversation) Field4DeepEqual(src string) bool {
+
+	if strings.Compare(p.CreatedAt, src) != 0 {
+		return false
+	}
+	return true
+}
+func (p *Conversation) Field5DeepEqual(src string) bool {
+
+	if strings.Compare(p.UpdatedAt, src) != 0 {
+		return false
+	}
+	return true
 }
 
 var fieldIDToName_Conversation = map[int16]string{
@@ -209,6 +270,172 @@ func (p *Message) String() string {
 	return fmt.Sprintf("Message(%+v)", *p)
 }
 
+func (p *Message) DeepEqual(ano *Message) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.Id) {
+		return false
+	}
+	if !p.Field2DeepEqual(ano.ConversationId) {
+		return false
+	}
+	if !p.Field3DeepEqual(ano.SenderId) {
+		return false
+	}
+	if !p.Field4DeepEqual(ano.Content) {
+		return false
+	}
+	if !p.Field5DeepEqual(ano.MsgType) {
+		return false
+	}
+	if !p.Field6DeepEqual(ano.CreatedAt) {
+		return false
+	}
+	if !p.Field7DeepEqual(ano.ReplyToId) {
+		return false
+	}
+	if !p.Field8DeepEqual(ano.Status) {
+		return false
+	}
+	if !p.Field9DeepEqual(ano.IsEdited) {
+		return false
+	}
+	if !p.Field10DeepEqual(ano.EditedAt) {
+		return false
+	}
+	if !p.Field11DeepEqual(ano.MentionUserIds) {
+		return false
+	}
+	if !p.Field12DeepEqual(ano.MentionAll) {
+		return false
+	}
+	if !p.Field13DeepEqual(ano.ReadCount) {
+		return false
+	}
+	if !p.Field14DeepEqual(ano.RecipientCount) {
+		return false
+	}
+	if !p.Field15DeepEqual(ano.IsReadByMe) {
+		return false
+	}
+	return true
+}
+
+func (p *Message) Field1DeepEqual(src int64) bool {
+
+	if p.Id != src {
+		return false
+	}
+	return true
+}
+func (p *Message) Field2DeepEqual(src int64) bool {
+
+	if p.ConversationId != src {
+		return false
+	}
+	return true
+}
+func (p *Message) Field3DeepEqual(src int64) bool {
+
+	if p.SenderId != src {
+		return false
+	}
+	return true
+}
+func (p *Message) Field4DeepEqual(src string) bool {
+
+	if strings.Compare(p.Content, src) != 0 {
+		return false
+	}
+	return true
+}
+func (p *Message) Field5DeepEqual(src string) bool {
+
+	if strings.Compare(p.MsgType, src) != 0 {
+		return false
+	}
+	return true
+}
+func (p *Message) Field6DeepEqual(src string) bool {
+
+	if strings.Compare(p.CreatedAt, src) != 0 {
+		return false
+	}
+	return true
+}
+func (p *Message) Field7DeepEqual(src int64) bool {
+
+	if p.ReplyToId != src {
+		return false
+	}
+	return true
+}
+func (p *Message) Field8DeepEqual(src string) bool {
+
+	if strings.Compare(p.Status, src) != 0 {
+		return false
+	}
+	return true
+}
+func (p *Message) Field9DeepEqual(src bool) bool {
+
+	if p.IsEdited != src {
+		return false
+	}
+	return true
+}
+func (p *Message) Field10DeepEqual(src string) bool {
+
+	if strings.Compare(p.EditedAt, src) != 0 {
+		return false
+	}
+	return true
+}
+func (p *Message) Field11DeepEqual(src []int64) bool {
+
+	if len(p.MentionUserIds) != len(src) {
+		return false
+	}
+	for i, v := range p.MentionUserIds {
+		_src := src[i]
+		if v != _src {
+			return false
+		}
+	}
+	return true
+}
+func (p *Message) Field12DeepEqual(src bool) bool {
+
+	if p.MentionAll != src {
+		return false
+	}
+	return true
+}
+func (p *Message) Field13DeepEqual(src int64) bool {
+
+	if p.ReadCount != src {
+		return false
+	}
+	return true
+}
+func (p *Message) Field14DeepEqual(src int64) bool {
+
+	if p.RecipientCount != src {
+		return false
+	}
+	return true
+}
+func (p *Message) Field15DeepEqual(src bool) bool {
+
+	if p.IsReadByMe != src {
+		return false
+	}
+	return true
+}
+
 var fieldIDToName_Message = map[int16]string{
 	1:  "id",
 	2:  "conversation_id",
@@ -268,6 +495,52 @@ func (p *CreateConversationReq) String() string {
 	return fmt.Sprintf("CreateConversationReq(%+v)", *p)
 }
 
+func (p *CreateConversationReq) DeepEqual(ano *CreateConversationReq) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.Type) {
+		return false
+	}
+	if !p.Field2DeepEqual(ano.ParticipantIds) {
+		return false
+	}
+	if !p.Field3DeepEqual(ano.GroupId) {
+		return false
+	}
+	return true
+}
+
+func (p *CreateConversationReq) Field1DeepEqual(src string) bool {
+
+	if strings.Compare(p.Type, src) != 0 {
+		return false
+	}
+	return true
+}
+func (p *CreateConversationReq) Field2DeepEqual(src []int64) bool {
+
+	if len(p.ParticipantIds) != len(src) {
+		return false
+	}
+	for i, v := range p.ParticipantIds {
+		_src := src[i]
+		if v != _src {
+			return false
+		}
+	}
+	return true
+}
+func (p *CreateConversationReq) Field3DeepEqual(src int64) bool {
+
+	if p.GroupId != src {
+		return false
+	}
+	return true
+}
+
 var fieldIDToName_CreateConversationReq = map[int16]string{
 	1: "type",
 	2: "participant_ids",
@@ -315,6 +588,46 @@ func (p *CreateConversationResp) String() string {
 	return fmt.Sprintf("CreateConversationResp(%+v)", *p)
 }
 
+func (p *CreateConversationResp) DeepEqual(ano *CreateConversationResp) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.Success) {
+		return false
+	}
+	if !p.Field2DeepEqual(ano.ConversationId) {
+		return false
+	}
+	if !p.Field3DeepEqual(ano.Msg) {
+		return false
+	}
+	return true
+}
+
+func (p *CreateConversationResp) Field1DeepEqual(src bool) bool {
+
+	if p.Success != src {
+		return false
+	}
+	return true
+}
+func (p *CreateConversationResp) Field2DeepEqual(src int64) bool {
+
+	if p.ConversationId != src {
+		return false
+	}
+	return true
+}
+func (p *CreateConversationResp) Field3DeepEqual(src string) bool {
+
+	if strings.Compare(p.Msg, src) != 0 {
+		return false
+	}
+	return true
+}
+
 var fieldIDToName_CreateConversationResp = map[int16]string{
 	1: "success",
 	2: "conversation_id",
@@ -344,6 +657,26 @@ func (p *GetConversationReq) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("GetConversationReq(%+v)", *p)
+}
+
+func (p *GetConversationReq) DeepEqual(ano *GetConversationReq) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.ConversationId) {
+		return false
+	}
+	return true
+}
+
+func (p *GetConversationReq) Field1DeepEqual(src int64) bool {
+
+	if p.ConversationId != src {
+		return false
+	}
+	return true
 }
 
 var fieldIDToName_GetConversationReq = map[int16]string{
@@ -400,6 +733,46 @@ func (p *GetConversationResp) String() string {
 	return fmt.Sprintf("GetConversationResp(%+v)", *p)
 }
 
+func (p *GetConversationResp) DeepEqual(ano *GetConversationResp) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.Success) {
+		return false
+	}
+	if !p.Field2DeepEqual(ano.Conversation) {
+		return false
+	}
+	if !p.Field3DeepEqual(ano.Msg) {
+		return false
+	}
+	return true
+}
+
+func (p *GetConversationResp) Field1DeepEqual(src bool) bool {
+
+	if p.Success != src {
+		return false
+	}
+	return true
+}
+func (p *GetConversationResp) Field2DeepEqual(src *Conversation) bool {
+
+	if !p.Conversation.DeepEqual(src) {
+		return false
+	}
+	return true
+}
+func (p *GetConversationResp) Field3DeepEqual(src string) bool {
+
+	if strings.Compare(p.Msg, src) != 0 {
+		return false
+	}
+	return true
+}
+
 var fieldIDToName_GetConversationResp = map[int16]string{
 	1: "success",
 	2: "conversation",
@@ -429,6 +802,26 @@ func (p *GetUserConversationsReq) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("GetUserConversationsReq(%+v)", *p)
+}
+
+func (p *GetUserConversationsReq) DeepEqual(ano *GetUserConversationsReq) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.UserId) {
+		return false
+	}
+	return true
+}
+
+func (p *GetUserConversationsReq) Field1DeepEqual(src int64) bool {
+
+	if p.UserId != src {
+		return false
+	}
+	return true
 }
 
 var fieldIDToName_GetUserConversationsReq = map[int16]string{
@@ -540,6 +933,132 @@ func (p *UserConversationInfo) String() string {
 	return fmt.Sprintf("UserConversationInfo(%+v)", *p)
 }
 
+func (p *UserConversationInfo) DeepEqual(ano *UserConversationInfo) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.ConversationId) {
+		return false
+	}
+	if !p.Field2DeepEqual(ano.Type) {
+		return false
+	}
+	if !p.Field3DeepEqual(ano.LastMessage) {
+		return false
+	}
+	if !p.Field4DeepEqual(ano.LastMessageTime) {
+		return false
+	}
+	if !p.Field5DeepEqual(ano.UnreadCount) {
+		return false
+	}
+	if !p.Field6DeepEqual(ano.TargetName) {
+		return false
+	}
+	if !p.Field7DeepEqual(ano.TargetAvatar) {
+		return false
+	}
+	if !p.Field8DeepEqual(ano.ParticipantIds) {
+		return false
+	}
+	if !p.Field9DeepEqual(ano.LastSenderId) {
+		return false
+	}
+	if !p.Field10DeepEqual(ano.GroupId) {
+		return false
+	}
+	if !p.Field11DeepEqual(ano.IsDeletedGroup) {
+		return false
+	}
+	return true
+}
+
+func (p *UserConversationInfo) Field1DeepEqual(src int64) bool {
+
+	if p.ConversationId != src {
+		return false
+	}
+	return true
+}
+func (p *UserConversationInfo) Field2DeepEqual(src string) bool {
+
+	if strings.Compare(p.Type, src) != 0 {
+		return false
+	}
+	return true
+}
+func (p *UserConversationInfo) Field3DeepEqual(src string) bool {
+
+	if strings.Compare(p.LastMessage, src) != 0 {
+		return false
+	}
+	return true
+}
+func (p *UserConversationInfo) Field4DeepEqual(src string) bool {
+
+	if strings.Compare(p.LastMessageTime, src) != 0 {
+		return false
+	}
+	return true
+}
+func (p *UserConversationInfo) Field5DeepEqual(src int64) bool {
+
+	if p.UnreadCount != src {
+		return false
+	}
+	return true
+}
+func (p *UserConversationInfo) Field6DeepEqual(src string) bool {
+
+	if strings.Compare(p.TargetName, src) != 0 {
+		return false
+	}
+	return true
+}
+func (p *UserConversationInfo) Field7DeepEqual(src string) bool {
+
+	if strings.Compare(p.TargetAvatar, src) != 0 {
+		return false
+	}
+	return true
+}
+func (p *UserConversationInfo) Field8DeepEqual(src []int64) bool {
+
+	if len(p.ParticipantIds) != len(src) {
+		return false
+	}
+	for i, v := range p.ParticipantIds {
+		_src := src[i]
+		if v != _src {
+			return false
+		}
+	}
+	return true
+}
+func (p *UserConversationInfo) Field9DeepEqual(src int64) bool {
+
+	if p.LastSenderId != src {
+		return false
+	}
+	return true
+}
+func (p *UserConversationInfo) Field10DeepEqual(src int64) bool {
+
+	if p.GroupId != src {
+		return false
+	}
+	return true
+}
+func (p *UserConversationInfo) Field11DeepEqual(src bool) bool {
+
+	if p.IsDeletedGroup != src {
+		return false
+	}
+	return true
+}
+
 var fieldIDToName_UserConversationInfo = map[int16]string{
 	1:  "conversation_id",
 	2:  "type",
@@ -595,6 +1114,52 @@ func (p *GetUserConversationsResp) String() string {
 	return fmt.Sprintf("GetUserConversationsResp(%+v)", *p)
 }
 
+func (p *GetUserConversationsResp) DeepEqual(ano *GetUserConversationsResp) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.Success) {
+		return false
+	}
+	if !p.Field2DeepEqual(ano.Conversations) {
+		return false
+	}
+	if !p.Field3DeepEqual(ano.Msg) {
+		return false
+	}
+	return true
+}
+
+func (p *GetUserConversationsResp) Field1DeepEqual(src bool) bool {
+
+	if p.Success != src {
+		return false
+	}
+	return true
+}
+func (p *GetUserConversationsResp) Field2DeepEqual(src []*UserConversationInfo) bool {
+
+	if len(p.Conversations) != len(src) {
+		return false
+	}
+	for i, v := range p.Conversations {
+		_src := src[i]
+		if !v.DeepEqual(_src) {
+			return false
+		}
+	}
+	return true
+}
+func (p *GetUserConversationsResp) Field3DeepEqual(src string) bool {
+
+	if strings.Compare(p.Msg, src) != 0 {
+		return false
+	}
+	return true
+}
+
 var fieldIDToName_GetUserConversationsResp = map[int16]string{
 	1: "success",
 	2: "conversations",
@@ -609,6 +1174,7 @@ type SendMessageReq struct {
 	ReplyToId      int64   `thrift:"reply_to_id,5" frugal:"5,default,i64" json:"reply_to_id"`
 	MentionUserIds []int64 `thrift:"mention_user_ids,6" frugal:"6,default,list<i64>" json:"mention_user_ids"`
 	MentionAll     bool    `thrift:"mention_all,7" frugal:"7,default,bool" json:"mention_all"`
+	ClientMsgId    string  `thrift:"client_msg_id,8" frugal:"8,default,string" json:"client_msg_id"`
 }
 
 func NewSendMessageReq() *SendMessageReq {
@@ -645,6 +1211,10 @@ func (p *SendMessageReq) GetMentionUserIds() (v []int64) {
 func (p *SendMessageReq) GetMentionAll() (v bool) {
 	return p.MentionAll
 }
+
+func (p *SendMessageReq) GetClientMsgId() (v string) {
+	return p.ClientMsgId
+}
 func (p *SendMessageReq) SetConversationId(val int64) {
 	p.ConversationId = val
 }
@@ -666,12 +1236,111 @@ func (p *SendMessageReq) SetMentionUserIds(val []int64) {
 func (p *SendMessageReq) SetMentionAll(val bool) {
 	p.MentionAll = val
 }
+func (p *SendMessageReq) SetClientMsgId(val string) {
+	p.ClientMsgId = val
+}
 
 func (p *SendMessageReq) String() string {
 	if p == nil {
 		return "<nil>"
 	}
 	return fmt.Sprintf("SendMessageReq(%+v)", *p)
+}
+
+func (p *SendMessageReq) DeepEqual(ano *SendMessageReq) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.ConversationId) {
+		return false
+	}
+	if !p.Field2DeepEqual(ano.SenderId) {
+		return false
+	}
+	if !p.Field3DeepEqual(ano.Content) {
+		return false
+	}
+	if !p.Field4DeepEqual(ano.MsgType) {
+		return false
+	}
+	if !p.Field5DeepEqual(ano.ReplyToId) {
+		return false
+	}
+	if !p.Field6DeepEqual(ano.MentionUserIds) {
+		return false
+	}
+	if !p.Field7DeepEqual(ano.MentionAll) {
+		return false
+	}
+	if !p.Field8DeepEqual(ano.ClientMsgId) {
+		return false
+	}
+	return true
+}
+
+func (p *SendMessageReq) Field1DeepEqual(src int64) bool {
+
+	if p.ConversationId != src {
+		return false
+	}
+	return true
+}
+func (p *SendMessageReq) Field2DeepEqual(src int64) bool {
+
+	if p.SenderId != src {
+		return false
+	}
+	return true
+}
+func (p *SendMessageReq) Field3DeepEqual(src string) bool {
+
+	if strings.Compare(p.Content, src) != 0 {
+		return false
+	}
+	return true
+}
+func (p *SendMessageReq) Field4DeepEqual(src string) bool {
+
+	if strings.Compare(p.MsgType, src) != 0 {
+		return false
+	}
+	return true
+}
+func (p *SendMessageReq) Field5DeepEqual(src int64) bool {
+
+	if p.ReplyToId != src {
+		return false
+	}
+	return true
+}
+func (p *SendMessageReq) Field6DeepEqual(src []int64) bool {
+
+	if len(p.MentionUserIds) != len(src) {
+		return false
+	}
+	for i, v := range p.MentionUserIds {
+		_src := src[i]
+		if v != _src {
+			return false
+		}
+	}
+	return true
+}
+func (p *SendMessageReq) Field7DeepEqual(src bool) bool {
+
+	if p.MentionAll != src {
+		return false
+	}
+	return true
+}
+func (p *SendMessageReq) Field8DeepEqual(src string) bool {
+
+	if strings.Compare(p.ClientMsgId, src) != 0 {
+		return false
+	}
+	return true
 }
 
 var fieldIDToName_SendMessageReq = map[int16]string{
@@ -682,6 +1351,7 @@ var fieldIDToName_SendMessageReq = map[int16]string{
 	5: "reply_to_id",
 	6: "mention_user_ids",
 	7: "mention_all",
+	8: "client_msg_id",
 }
 
 type SendMessageResp struct {
@@ -731,6 +1401,56 @@ func (p *SendMessageResp) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("SendMessageResp(%+v)", *p)
+}
+
+func (p *SendMessageResp) DeepEqual(ano *SendMessageResp) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.Success) {
+		return false
+	}
+	if !p.Field2DeepEqual(ano.MsgId) {
+		return false
+	}
+	if !p.Field3DeepEqual(ano.SendTime) {
+		return false
+	}
+	if !p.Field4DeepEqual(ano.Msg) {
+		return false
+	}
+	return true
+}
+
+func (p *SendMessageResp) Field1DeepEqual(src bool) bool {
+
+	if p.Success != src {
+		return false
+	}
+	return true
+}
+func (p *SendMessageResp) Field2DeepEqual(src int64) bool {
+
+	if p.MsgId != src {
+		return false
+	}
+	return true
+}
+func (p *SendMessageResp) Field3DeepEqual(src string) bool {
+
+	if strings.Compare(p.SendTime, src) != 0 {
+		return false
+	}
+	return true
+}
+func (p *SendMessageResp) Field4DeepEqual(src string) bool {
+
+	if strings.Compare(p.Msg, src) != 0 {
+		return false
+	}
+	return true
 }
 
 var fieldIDToName_SendMessageResp = map[int16]string{
@@ -789,6 +1509,56 @@ func (p *GetHistoryReq) String() string {
 	return fmt.Sprintf("GetHistoryReq(%+v)", *p)
 }
 
+func (p *GetHistoryReq) DeepEqual(ano *GetHistoryReq) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.ConversationId) {
+		return false
+	}
+	if !p.Field2DeepEqual(ano.UserId) {
+		return false
+	}
+	if !p.Field3DeepEqual(ano.Limit) {
+		return false
+	}
+	if !p.Field4DeepEqual(ano.BeforeId) {
+		return false
+	}
+	return true
+}
+
+func (p *GetHistoryReq) Field1DeepEqual(src int64) bool {
+
+	if p.ConversationId != src {
+		return false
+	}
+	return true
+}
+func (p *GetHistoryReq) Field2DeepEqual(src int64) bool {
+
+	if p.UserId != src {
+		return false
+	}
+	return true
+}
+func (p *GetHistoryReq) Field3DeepEqual(src int64) bool {
+
+	if p.Limit != src {
+		return false
+	}
+	return true
+}
+func (p *GetHistoryReq) Field4DeepEqual(src int64) bool {
+
+	if p.BeforeId != src {
+		return false
+	}
+	return true
+}
+
 var fieldIDToName_GetHistoryReq = map[int16]string{
 	1: "conversation_id",
 	2: "user_id",
@@ -835,6 +1605,52 @@ func (p *GetHistoryResp) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("GetHistoryResp(%+v)", *p)
+}
+
+func (p *GetHistoryResp) DeepEqual(ano *GetHistoryResp) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.Success) {
+		return false
+	}
+	if !p.Field2DeepEqual(ano.Messages) {
+		return false
+	}
+	if !p.Field3DeepEqual(ano.Msg) {
+		return false
+	}
+	return true
+}
+
+func (p *GetHistoryResp) Field1DeepEqual(src bool) bool {
+
+	if p.Success != src {
+		return false
+	}
+	return true
+}
+func (p *GetHistoryResp) Field2DeepEqual(src []*Message) bool {
+
+	if len(p.Messages) != len(src) {
+		return false
+	}
+	for i, v := range p.Messages {
+		_src := src[i]
+		if !v.DeepEqual(_src) {
+			return false
+		}
+	}
+	return true
+}
+func (p *GetHistoryResp) Field3DeepEqual(src string) bool {
+
+	if strings.Compare(p.Msg, src) != 0 {
+		return false
+	}
+	return true
 }
 
 var fieldIDToName_GetHistoryResp = map[int16]string{
@@ -908,6 +1724,82 @@ func (p *SearchMessagesReq) String() string {
 	return fmt.Sprintf("SearchMessagesReq(%+v)", *p)
 }
 
+func (p *SearchMessagesReq) DeepEqual(ano *SearchMessagesReq) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.UserId) {
+		return false
+	}
+	if !p.Field2DeepEqual(ano.ConversationIds) {
+		return false
+	}
+	if !p.Field3DeepEqual(ano.Keyword) {
+		return false
+	}
+	if !p.Field4DeepEqual(ano.Limit) {
+		return false
+	}
+	if !p.Field5DeepEqual(ano.StartAt) {
+		return false
+	}
+	if !p.Field6DeepEqual(ano.EndAt) {
+		return false
+	}
+	return true
+}
+
+func (p *SearchMessagesReq) Field1DeepEqual(src int64) bool {
+
+	if p.UserId != src {
+		return false
+	}
+	return true
+}
+func (p *SearchMessagesReq) Field2DeepEqual(src []int64) bool {
+
+	if len(p.ConversationIds) != len(src) {
+		return false
+	}
+	for i, v := range p.ConversationIds {
+		_src := src[i]
+		if v != _src {
+			return false
+		}
+	}
+	return true
+}
+func (p *SearchMessagesReq) Field3DeepEqual(src string) bool {
+
+	if strings.Compare(p.Keyword, src) != 0 {
+		return false
+	}
+	return true
+}
+func (p *SearchMessagesReq) Field4DeepEqual(src int64) bool {
+
+	if p.Limit != src {
+		return false
+	}
+	return true
+}
+func (p *SearchMessagesReq) Field5DeepEqual(src string) bool {
+
+	if strings.Compare(p.StartAt, src) != 0 {
+		return false
+	}
+	return true
+}
+func (p *SearchMessagesReq) Field6DeepEqual(src string) bool {
+
+	if strings.Compare(p.EndAt, src) != 0 {
+		return false
+	}
+	return true
+}
+
 var fieldIDToName_SearchMessagesReq = map[int16]string{
 	1: "user_id",
 	2: "conversation_ids",
@@ -958,6 +1850,52 @@ func (p *SearchMessagesResp) String() string {
 	return fmt.Sprintf("SearchMessagesResp(%+v)", *p)
 }
 
+func (p *SearchMessagesResp) DeepEqual(ano *SearchMessagesResp) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.Success) {
+		return false
+	}
+	if !p.Field2DeepEqual(ano.Messages) {
+		return false
+	}
+	if !p.Field3DeepEqual(ano.Msg) {
+		return false
+	}
+	return true
+}
+
+func (p *SearchMessagesResp) Field1DeepEqual(src bool) bool {
+
+	if p.Success != src {
+		return false
+	}
+	return true
+}
+func (p *SearchMessagesResp) Field2DeepEqual(src []*Message) bool {
+
+	if len(p.Messages) != len(src) {
+		return false
+	}
+	for i, v := range p.Messages {
+		_src := src[i]
+		if !v.DeepEqual(_src) {
+			return false
+		}
+	}
+	return true
+}
+func (p *SearchMessagesResp) Field3DeepEqual(src string) bool {
+
+	if strings.Compare(p.Msg, src) != 0 {
+		return false
+	}
+	return true
+}
+
 var fieldIDToName_SearchMessagesResp = map[int16]string{
 	1: "success",
 	2: "messages",
@@ -987,6 +1925,26 @@ func (p *GetConversationParticipantsReq) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("GetConversationParticipantsReq(%+v)", *p)
+}
+
+func (p *GetConversationParticipantsReq) DeepEqual(ano *GetConversationParticipantsReq) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.ConversationId) {
+		return false
+	}
+	return true
+}
+
+func (p *GetConversationParticipantsReq) Field1DeepEqual(src int64) bool {
+
+	if p.ConversationId != src {
+		return false
+	}
+	return true
 }
 
 var fieldIDToName_GetConversationParticipantsReq = map[int16]string{
@@ -1032,6 +1990,52 @@ func (p *GetConversationParticipantsResp) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("GetConversationParticipantsResp(%+v)", *p)
+}
+
+func (p *GetConversationParticipantsResp) DeepEqual(ano *GetConversationParticipantsResp) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.Success) {
+		return false
+	}
+	if !p.Field2DeepEqual(ano.UserIds) {
+		return false
+	}
+	if !p.Field3DeepEqual(ano.Msg) {
+		return false
+	}
+	return true
+}
+
+func (p *GetConversationParticipantsResp) Field1DeepEqual(src bool) bool {
+
+	if p.Success != src {
+		return false
+	}
+	return true
+}
+func (p *GetConversationParticipantsResp) Field2DeepEqual(src []int64) bool {
+
+	if len(p.UserIds) != len(src) {
+		return false
+	}
+	for i, v := range p.UserIds {
+		_src := src[i]
+		if v != _src {
+			return false
+		}
+	}
+	return true
+}
+func (p *GetConversationParticipantsResp) Field3DeepEqual(src string) bool {
+
+	if strings.Compare(p.Msg, src) != 0 {
+		return false
+	}
+	return true
 }
 
 var fieldIDToName_GetConversationParticipantsResp = map[int16]string{
@@ -1081,6 +2085,46 @@ func (p *MarkConversationReadReq) String() string {
 	return fmt.Sprintf("MarkConversationReadReq(%+v)", *p)
 }
 
+func (p *MarkConversationReadReq) DeepEqual(ano *MarkConversationReadReq) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.ConversationId) {
+		return false
+	}
+	if !p.Field2DeepEqual(ano.UserId) {
+		return false
+	}
+	if !p.Field3DeepEqual(ano.MessageId) {
+		return false
+	}
+	return true
+}
+
+func (p *MarkConversationReadReq) Field1DeepEqual(src int64) bool {
+
+	if p.ConversationId != src {
+		return false
+	}
+	return true
+}
+func (p *MarkConversationReadReq) Field2DeepEqual(src int64) bool {
+
+	if p.UserId != src {
+		return false
+	}
+	return true
+}
+func (p *MarkConversationReadReq) Field3DeepEqual(src int64) bool {
+
+	if p.MessageId != src {
+		return false
+	}
+	return true
+}
+
 var fieldIDToName_MarkConversationReadReq = map[int16]string{
 	1: "conversation_id",
 	2: "user_id",
@@ -1118,6 +2162,36 @@ func (p *MarkConversationReadResp) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("MarkConversationReadResp(%+v)", *p)
+}
+
+func (p *MarkConversationReadResp) DeepEqual(ano *MarkConversationReadResp) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.Success) {
+		return false
+	}
+	if !p.Field2DeepEqual(ano.Msg) {
+		return false
+	}
+	return true
+}
+
+func (p *MarkConversationReadResp) Field1DeepEqual(src bool) bool {
+
+	if p.Success != src {
+		return false
+	}
+	return true
+}
+func (p *MarkConversationReadResp) Field2DeepEqual(src string) bool {
+
+	if strings.Compare(p.Msg, src) != 0 {
+		return false
+	}
+	return true
 }
 
 var fieldIDToName_MarkConversationReadResp = map[int16]string{
@@ -1166,6 +2240,46 @@ func (p *DeleteLocalMessageReq) String() string {
 	return fmt.Sprintf("DeleteLocalMessageReq(%+v)", *p)
 }
 
+func (p *DeleteLocalMessageReq) DeepEqual(ano *DeleteLocalMessageReq) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.ConversationId) {
+		return false
+	}
+	if !p.Field2DeepEqual(ano.UserId) {
+		return false
+	}
+	if !p.Field3DeepEqual(ano.MessageId) {
+		return false
+	}
+	return true
+}
+
+func (p *DeleteLocalMessageReq) Field1DeepEqual(src int64) bool {
+
+	if p.ConversationId != src {
+		return false
+	}
+	return true
+}
+func (p *DeleteLocalMessageReq) Field2DeepEqual(src int64) bool {
+
+	if p.UserId != src {
+		return false
+	}
+	return true
+}
+func (p *DeleteLocalMessageReq) Field3DeepEqual(src int64) bool {
+
+	if p.MessageId != src {
+		return false
+	}
+	return true
+}
+
 var fieldIDToName_DeleteLocalMessageReq = map[int16]string{
 	1: "conversation_id",
 	2: "user_id",
@@ -1203,6 +2317,36 @@ func (p *DeleteLocalMessageResp) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("DeleteLocalMessageResp(%+v)", *p)
+}
+
+func (p *DeleteLocalMessageResp) DeepEqual(ano *DeleteLocalMessageResp) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.Success) {
+		return false
+	}
+	if !p.Field2DeepEqual(ano.Msg) {
+		return false
+	}
+	return true
+}
+
+func (p *DeleteLocalMessageResp) Field1DeepEqual(src bool) bool {
+
+	if p.Success != src {
+		return false
+	}
+	return true
+}
+func (p *DeleteLocalMessageResp) Field2DeepEqual(src string) bool {
+
+	if strings.Compare(p.Msg, src) != 0 {
+		return false
+	}
+	return true
 }
 
 var fieldIDToName_DeleteLocalMessageResp = map[int16]string{
@@ -1249,6 +2393,46 @@ func (p *EditMessageReq) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("EditMessageReq(%+v)", *p)
+}
+
+func (p *EditMessageReq) DeepEqual(ano *EditMessageReq) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.MessageId) {
+		return false
+	}
+	if !p.Field2DeepEqual(ano.EditorId) {
+		return false
+	}
+	if !p.Field3DeepEqual(ano.Content) {
+		return false
+	}
+	return true
+}
+
+func (p *EditMessageReq) Field1DeepEqual(src int64) bool {
+
+	if p.MessageId != src {
+		return false
+	}
+	return true
+}
+func (p *EditMessageReq) Field2DeepEqual(src int64) bool {
+
+	if p.EditorId != src {
+		return false
+	}
+	return true
+}
+func (p *EditMessageReq) Field3DeepEqual(src string) bool {
+
+	if strings.Compare(p.Content, src) != 0 {
+		return false
+	}
+	return true
 }
 
 var fieldIDToName_EditMessageReq = map[int16]string{
@@ -1307,6 +2491,46 @@ func (p *EditMessageResp) String() string {
 	return fmt.Sprintf("EditMessageResp(%+v)", *p)
 }
 
+func (p *EditMessageResp) DeepEqual(ano *EditMessageResp) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.Success) {
+		return false
+	}
+	if !p.Field2DeepEqual(ano.Message) {
+		return false
+	}
+	if !p.Field3DeepEqual(ano.Msg) {
+		return false
+	}
+	return true
+}
+
+func (p *EditMessageResp) Field1DeepEqual(src bool) bool {
+
+	if p.Success != src {
+		return false
+	}
+	return true
+}
+func (p *EditMessageResp) Field2DeepEqual(src *Message) bool {
+
+	if !p.Message.DeepEqual(src) {
+		return false
+	}
+	return true
+}
+func (p *EditMessageResp) Field3DeepEqual(src string) bool {
+
+	if strings.Compare(p.Msg, src) != 0 {
+		return false
+	}
+	return true
+}
+
 var fieldIDToName_EditMessageResp = map[int16]string{
 	1: "success",
 	2: "message",
@@ -1346,6 +2570,36 @@ func (p *RecallMessageReq) String() string {
 	return fmt.Sprintf("RecallMessageReq(%+v)", *p)
 }
 
+func (p *RecallMessageReq) DeepEqual(ano *RecallMessageReq) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.MessageId) {
+		return false
+	}
+	if !p.Field2DeepEqual(ano.OperatorId) {
+		return false
+	}
+	return true
+}
+
+func (p *RecallMessageReq) Field1DeepEqual(src int64) bool {
+
+	if p.MessageId != src {
+		return false
+	}
+	return true
+}
+func (p *RecallMessageReq) Field2DeepEqual(src int64) bool {
+
+	if p.OperatorId != src {
+		return false
+	}
+	return true
+}
+
 var fieldIDToName_RecallMessageReq = map[int16]string{
 	1: "message_id",
 	2: "operator_id",
@@ -1382,6 +2636,36 @@ func (p *RecallMessageResp) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("RecallMessageResp(%+v)", *p)
+}
+
+func (p *RecallMessageResp) DeepEqual(ano *RecallMessageResp) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.Success) {
+		return false
+	}
+	if !p.Field2DeepEqual(ano.Msg) {
+		return false
+	}
+	return true
+}
+
+func (p *RecallMessageResp) Field1DeepEqual(src bool) bool {
+
+	if p.Success != src {
+		return false
+	}
+	return true
+}
+func (p *RecallMessageResp) Field2DeepEqual(src string) bool {
+
+	if strings.Compare(p.Msg, src) != 0 {
+		return false
+	}
+	return true
 }
 
 var fieldIDToName_RecallMessageResp = map[int16]string{
@@ -1438,6 +2722,56 @@ func (p *SaveMessageReq) String() string {
 	return fmt.Sprintf("SaveMessageReq(%+v)", *p)
 }
 
+func (p *SaveMessageReq) DeepEqual(ano *SaveMessageReq) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.ConversationId) {
+		return false
+	}
+	if !p.Field2DeepEqual(ano.SenderId) {
+		return false
+	}
+	if !p.Field3DeepEqual(ano.Content) {
+		return false
+	}
+	if !p.Field4DeepEqual(ano.MsgType) {
+		return false
+	}
+	return true
+}
+
+func (p *SaveMessageReq) Field1DeepEqual(src int64) bool {
+
+	if p.ConversationId != src {
+		return false
+	}
+	return true
+}
+func (p *SaveMessageReq) Field2DeepEqual(src int64) bool {
+
+	if p.SenderId != src {
+		return false
+	}
+	return true
+}
+func (p *SaveMessageReq) Field3DeepEqual(src string) bool {
+
+	if strings.Compare(p.Content, src) != 0 {
+		return false
+	}
+	return true
+}
+func (p *SaveMessageReq) Field4DeepEqual(src string) bool {
+
+	if strings.Compare(p.MsgType, src) != 0 {
+		return false
+	}
+	return true
+}
+
 var fieldIDToName_SaveMessageReq = map[int16]string{
 	1: "conversation_id",
 	2: "sender_id",
@@ -1484,6 +2818,46 @@ func (p *SaveMessageResp) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("SaveMessageResp(%+v)", *p)
+}
+
+func (p *SaveMessageResp) DeepEqual(ano *SaveMessageResp) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.Success) {
+		return false
+	}
+	if !p.Field2DeepEqual(ano.MessageId) {
+		return false
+	}
+	if !p.Field3DeepEqual(ano.Msg) {
+		return false
+	}
+	return true
+}
+
+func (p *SaveMessageResp) Field1DeepEqual(src bool) bool {
+
+	if p.Success != src {
+		return false
+	}
+	return true
+}
+func (p *SaveMessageResp) Field2DeepEqual(src int64) bool {
+
+	if p.MessageId != src {
+		return false
+	}
+	return true
+}
+func (p *SaveMessageResp) Field3DeepEqual(src string) bool {
+
+	if strings.Compare(p.Msg, src) != 0 {
+		return false
+	}
+	return true
 }
 
 var fieldIDToName_SaveMessageResp = map[int16]string{
@@ -1557,6 +2931,76 @@ func (p *OfflineMessage) String() string {
 	return fmt.Sprintf("OfflineMessage(%+v)", *p)
 }
 
+func (p *OfflineMessage) DeepEqual(ano *OfflineMessage) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.Id) {
+		return false
+	}
+	if !p.Field2DeepEqual(ano.UserId) {
+		return false
+	}
+	if !p.Field3DeepEqual(ano.MessageId) {
+		return false
+	}
+	if !p.Field4DeepEqual(ano.IsRead) {
+		return false
+	}
+	if !p.Field5DeepEqual(ano.CreatedAt) {
+		return false
+	}
+	if !p.Field6DeepEqual(ano.ReadAt) {
+		return false
+	}
+	return true
+}
+
+func (p *OfflineMessage) Field1DeepEqual(src int64) bool {
+
+	if p.Id != src {
+		return false
+	}
+	return true
+}
+func (p *OfflineMessage) Field2DeepEqual(src int64) bool {
+
+	if p.UserId != src {
+		return false
+	}
+	return true
+}
+func (p *OfflineMessage) Field3DeepEqual(src int64) bool {
+
+	if p.MessageId != src {
+		return false
+	}
+	return true
+}
+func (p *OfflineMessage) Field4DeepEqual(src bool) bool {
+
+	if p.IsRead != src {
+		return false
+	}
+	return true
+}
+func (p *OfflineMessage) Field5DeepEqual(src string) bool {
+
+	if strings.Compare(p.CreatedAt, src) != 0 {
+		return false
+	}
+	return true
+}
+func (p *OfflineMessage) Field6DeepEqual(src string) bool {
+
+	if strings.Compare(p.ReadAt, src) != 0 {
+		return false
+	}
+	return true
+}
+
 var fieldIDToName_OfflineMessage = map[int16]string{
 	1: "id",
 	2: "user_id",
@@ -1589,6 +3033,26 @@ func (p *GetOfflineMessagesReq) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("GetOfflineMessagesReq(%+v)", *p)
+}
+
+func (p *GetOfflineMessagesReq) DeepEqual(ano *GetOfflineMessagesReq) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.UserId) {
+		return false
+	}
+	return true
+}
+
+func (p *GetOfflineMessagesReq) Field1DeepEqual(src int64) bool {
+
+	if p.UserId != src {
+		return false
+	}
+	return true
 }
 
 var fieldIDToName_GetOfflineMessagesReq = map[int16]string{
@@ -1636,6 +3100,52 @@ func (p *GetOfflineMessagesResp) String() string {
 	return fmt.Sprintf("GetOfflineMessagesResp(%+v)", *p)
 }
 
+func (p *GetOfflineMessagesResp) DeepEqual(ano *GetOfflineMessagesResp) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.Success) {
+		return false
+	}
+	if !p.Field2DeepEqual(ano.Messages) {
+		return false
+	}
+	if !p.Field3DeepEqual(ano.Msg) {
+		return false
+	}
+	return true
+}
+
+func (p *GetOfflineMessagesResp) Field1DeepEqual(src bool) bool {
+
+	if p.Success != src {
+		return false
+	}
+	return true
+}
+func (p *GetOfflineMessagesResp) Field2DeepEqual(src []*OfflineMessage) bool {
+
+	if len(p.Messages) != len(src) {
+		return false
+	}
+	for i, v := range p.Messages {
+		_src := src[i]
+		if !v.DeepEqual(_src) {
+			return false
+		}
+	}
+	return true
+}
+func (p *GetOfflineMessagesResp) Field3DeepEqual(src string) bool {
+
+	if strings.Compare(p.Msg, src) != 0 {
+		return false
+	}
+	return true
+}
+
 var fieldIDToName_GetOfflineMessagesResp = map[int16]string{
 	1: "success",
 	2: "messages",
@@ -1673,6 +3183,42 @@ func (p *MarkOfflineReadReq) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("MarkOfflineReadReq(%+v)", *p)
+}
+
+func (p *MarkOfflineReadReq) DeepEqual(ano *MarkOfflineReadReq) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.UserId) {
+		return false
+	}
+	if !p.Field2DeepEqual(ano.MessageIds) {
+		return false
+	}
+	return true
+}
+
+func (p *MarkOfflineReadReq) Field1DeepEqual(src int64) bool {
+
+	if p.UserId != src {
+		return false
+	}
+	return true
+}
+func (p *MarkOfflineReadReq) Field2DeepEqual(src []int64) bool {
+
+	if len(p.MessageIds) != len(src) {
+		return false
+	}
+	for i, v := range p.MessageIds {
+		_src := src[i]
+		if v != _src {
+			return false
+		}
+	}
+	return true
 }
 
 var fieldIDToName_MarkOfflineReadReq = map[int16]string{
@@ -1713,6 +3259,36 @@ func (p *MarkOfflineReadResp) String() string {
 	return fmt.Sprintf("MarkOfflineReadResp(%+v)", *p)
 }
 
+func (p *MarkOfflineReadResp) DeepEqual(ano *MarkOfflineReadResp) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.Success) {
+		return false
+	}
+	if !p.Field2DeepEqual(ano.Msg) {
+		return false
+	}
+	return true
+}
+
+func (p *MarkOfflineReadResp) Field1DeepEqual(src bool) bool {
+
+	if p.Success != src {
+		return false
+	}
+	return true
+}
+func (p *MarkOfflineReadResp) Field2DeepEqual(src string) bool {
+
+	if strings.Compare(p.Msg, src) != 0 {
+		return false
+	}
+	return true
+}
+
 var fieldIDToName_MarkOfflineReadResp = map[int16]string{
 	1: "success",
 	2: "msg",
@@ -1741,6 +3317,26 @@ func (p *GetUnreadCountReq) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("GetUnreadCountReq(%+v)", *p)
+}
+
+func (p *GetUnreadCountReq) DeepEqual(ano *GetUnreadCountReq) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.UserId) {
+		return false
+	}
+	return true
+}
+
+func (p *GetUnreadCountReq) Field1DeepEqual(src int64) bool {
+
+	if p.UserId != src {
+		return false
+	}
+	return true
 }
 
 var fieldIDToName_GetUnreadCountReq = map[int16]string{
@@ -1786,6 +3382,46 @@ func (p *GetUnreadCountResp) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("GetUnreadCountResp(%+v)", *p)
+}
+
+func (p *GetUnreadCountResp) DeepEqual(ano *GetUnreadCountResp) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.Success) {
+		return false
+	}
+	if !p.Field2DeepEqual(ano.Count) {
+		return false
+	}
+	if !p.Field3DeepEqual(ano.Msg) {
+		return false
+	}
+	return true
+}
+
+func (p *GetUnreadCountResp) Field1DeepEqual(src bool) bool {
+
+	if p.Success != src {
+		return false
+	}
+	return true
+}
+func (p *GetUnreadCountResp) Field2DeepEqual(src int64) bool {
+
+	if p.Count != src {
+		return false
+	}
+	return true
+}
+func (p *GetUnreadCountResp) Field3DeepEqual(src string) bool {
+
+	if strings.Compare(p.Msg, src) != 0 {
+		return false
+	}
+	return true
 }
 
 var fieldIDToName_GetUnreadCountResp = map[int16]string{
@@ -1852,6 +3488,26 @@ func (p *MessageServiceCreateConversationArgs) String() string {
 	return fmt.Sprintf("MessageServiceCreateConversationArgs(%+v)", *p)
 }
 
+func (p *MessageServiceCreateConversationArgs) DeepEqual(ano *MessageServiceCreateConversationArgs) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.Req) {
+		return false
+	}
+	return true
+}
+
+func (p *MessageServiceCreateConversationArgs) Field1DeepEqual(src *CreateConversationReq) bool {
+
+	if !p.Req.DeepEqual(src) {
+		return false
+	}
+	return true
+}
+
 var fieldIDToName_MessageServiceCreateConversationArgs = map[int16]string{
 	1: "req",
 }
@@ -1888,6 +3544,26 @@ func (p *MessageServiceCreateConversationResult) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("MessageServiceCreateConversationResult(%+v)", *p)
+}
+
+func (p *MessageServiceCreateConversationResult) DeepEqual(ano *MessageServiceCreateConversationResult) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field0DeepEqual(ano.Success) {
+		return false
+	}
+	return true
+}
+
+func (p *MessageServiceCreateConversationResult) Field0DeepEqual(src *CreateConversationResp) bool {
+
+	if !p.Success.DeepEqual(src) {
+		return false
+	}
+	return true
 }
 
 var fieldIDToName_MessageServiceCreateConversationResult = map[int16]string{
@@ -1928,6 +3604,26 @@ func (p *MessageServiceGetConversationArgs) String() string {
 	return fmt.Sprintf("MessageServiceGetConversationArgs(%+v)", *p)
 }
 
+func (p *MessageServiceGetConversationArgs) DeepEqual(ano *MessageServiceGetConversationArgs) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.Req) {
+		return false
+	}
+	return true
+}
+
+func (p *MessageServiceGetConversationArgs) Field1DeepEqual(src *GetConversationReq) bool {
+
+	if !p.Req.DeepEqual(src) {
+		return false
+	}
+	return true
+}
+
 var fieldIDToName_MessageServiceGetConversationArgs = map[int16]string{
 	1: "req",
 }
@@ -1964,6 +3660,26 @@ func (p *MessageServiceGetConversationResult) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("MessageServiceGetConversationResult(%+v)", *p)
+}
+
+func (p *MessageServiceGetConversationResult) DeepEqual(ano *MessageServiceGetConversationResult) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field0DeepEqual(ano.Success) {
+		return false
+	}
+	return true
+}
+
+func (p *MessageServiceGetConversationResult) Field0DeepEqual(src *GetConversationResp) bool {
+
+	if !p.Success.DeepEqual(src) {
+		return false
+	}
+	return true
 }
 
 var fieldIDToName_MessageServiceGetConversationResult = map[int16]string{
@@ -2004,6 +3720,26 @@ func (p *MessageServiceGetUserConversationsArgs) String() string {
 	return fmt.Sprintf("MessageServiceGetUserConversationsArgs(%+v)", *p)
 }
 
+func (p *MessageServiceGetUserConversationsArgs) DeepEqual(ano *MessageServiceGetUserConversationsArgs) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.Req) {
+		return false
+	}
+	return true
+}
+
+func (p *MessageServiceGetUserConversationsArgs) Field1DeepEqual(src *GetUserConversationsReq) bool {
+
+	if !p.Req.DeepEqual(src) {
+		return false
+	}
+	return true
+}
+
 var fieldIDToName_MessageServiceGetUserConversationsArgs = map[int16]string{
 	1: "req",
 }
@@ -2040,6 +3776,26 @@ func (p *MessageServiceGetUserConversationsResult) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("MessageServiceGetUserConversationsResult(%+v)", *p)
+}
+
+func (p *MessageServiceGetUserConversationsResult) DeepEqual(ano *MessageServiceGetUserConversationsResult) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field0DeepEqual(ano.Success) {
+		return false
+	}
+	return true
+}
+
+func (p *MessageServiceGetUserConversationsResult) Field0DeepEqual(src *GetUserConversationsResp) bool {
+
+	if !p.Success.DeepEqual(src) {
+		return false
+	}
+	return true
 }
 
 var fieldIDToName_MessageServiceGetUserConversationsResult = map[int16]string{
@@ -2080,6 +3836,26 @@ func (p *MessageServiceSendMessageArgs) String() string {
 	return fmt.Sprintf("MessageServiceSendMessageArgs(%+v)", *p)
 }
 
+func (p *MessageServiceSendMessageArgs) DeepEqual(ano *MessageServiceSendMessageArgs) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.Req) {
+		return false
+	}
+	return true
+}
+
+func (p *MessageServiceSendMessageArgs) Field1DeepEqual(src *SendMessageReq) bool {
+
+	if !p.Req.DeepEqual(src) {
+		return false
+	}
+	return true
+}
+
 var fieldIDToName_MessageServiceSendMessageArgs = map[int16]string{
 	1: "req",
 }
@@ -2116,6 +3892,26 @@ func (p *MessageServiceSendMessageResult) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("MessageServiceSendMessageResult(%+v)", *p)
+}
+
+func (p *MessageServiceSendMessageResult) DeepEqual(ano *MessageServiceSendMessageResult) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field0DeepEqual(ano.Success) {
+		return false
+	}
+	return true
+}
+
+func (p *MessageServiceSendMessageResult) Field0DeepEqual(src *SendMessageResp) bool {
+
+	if !p.Success.DeepEqual(src) {
+		return false
+	}
+	return true
 }
 
 var fieldIDToName_MessageServiceSendMessageResult = map[int16]string{
@@ -2156,6 +3952,26 @@ func (p *MessageServiceMarkConversationReadArgs) String() string {
 	return fmt.Sprintf("MessageServiceMarkConversationReadArgs(%+v)", *p)
 }
 
+func (p *MessageServiceMarkConversationReadArgs) DeepEqual(ano *MessageServiceMarkConversationReadArgs) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.Req) {
+		return false
+	}
+	return true
+}
+
+func (p *MessageServiceMarkConversationReadArgs) Field1DeepEqual(src *MarkConversationReadReq) bool {
+
+	if !p.Req.DeepEqual(src) {
+		return false
+	}
+	return true
+}
+
 var fieldIDToName_MessageServiceMarkConversationReadArgs = map[int16]string{
 	1: "req",
 }
@@ -2192,6 +4008,26 @@ func (p *MessageServiceMarkConversationReadResult) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("MessageServiceMarkConversationReadResult(%+v)", *p)
+}
+
+func (p *MessageServiceMarkConversationReadResult) DeepEqual(ano *MessageServiceMarkConversationReadResult) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field0DeepEqual(ano.Success) {
+		return false
+	}
+	return true
+}
+
+func (p *MessageServiceMarkConversationReadResult) Field0DeepEqual(src *MarkConversationReadResp) bool {
+
+	if !p.Success.DeepEqual(src) {
+		return false
+	}
+	return true
 }
 
 var fieldIDToName_MessageServiceMarkConversationReadResult = map[int16]string{
@@ -2232,6 +4068,26 @@ func (p *MessageServiceDeleteLocalMessageArgs) String() string {
 	return fmt.Sprintf("MessageServiceDeleteLocalMessageArgs(%+v)", *p)
 }
 
+func (p *MessageServiceDeleteLocalMessageArgs) DeepEqual(ano *MessageServiceDeleteLocalMessageArgs) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.Req) {
+		return false
+	}
+	return true
+}
+
+func (p *MessageServiceDeleteLocalMessageArgs) Field1DeepEqual(src *DeleteLocalMessageReq) bool {
+
+	if !p.Req.DeepEqual(src) {
+		return false
+	}
+	return true
+}
+
 var fieldIDToName_MessageServiceDeleteLocalMessageArgs = map[int16]string{
 	1: "req",
 }
@@ -2268,6 +4124,26 @@ func (p *MessageServiceDeleteLocalMessageResult) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("MessageServiceDeleteLocalMessageResult(%+v)", *p)
+}
+
+func (p *MessageServiceDeleteLocalMessageResult) DeepEqual(ano *MessageServiceDeleteLocalMessageResult) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field0DeepEqual(ano.Success) {
+		return false
+	}
+	return true
+}
+
+func (p *MessageServiceDeleteLocalMessageResult) Field0DeepEqual(src *DeleteLocalMessageResp) bool {
+
+	if !p.Success.DeepEqual(src) {
+		return false
+	}
+	return true
 }
 
 var fieldIDToName_MessageServiceDeleteLocalMessageResult = map[int16]string{
@@ -2308,6 +4184,26 @@ func (p *MessageServiceEditMessageArgs) String() string {
 	return fmt.Sprintf("MessageServiceEditMessageArgs(%+v)", *p)
 }
 
+func (p *MessageServiceEditMessageArgs) DeepEqual(ano *MessageServiceEditMessageArgs) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.Req) {
+		return false
+	}
+	return true
+}
+
+func (p *MessageServiceEditMessageArgs) Field1DeepEqual(src *EditMessageReq) bool {
+
+	if !p.Req.DeepEqual(src) {
+		return false
+	}
+	return true
+}
+
 var fieldIDToName_MessageServiceEditMessageArgs = map[int16]string{
 	1: "req",
 }
@@ -2344,6 +4240,26 @@ func (p *MessageServiceEditMessageResult) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("MessageServiceEditMessageResult(%+v)", *p)
+}
+
+func (p *MessageServiceEditMessageResult) DeepEqual(ano *MessageServiceEditMessageResult) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field0DeepEqual(ano.Success) {
+		return false
+	}
+	return true
+}
+
+func (p *MessageServiceEditMessageResult) Field0DeepEqual(src *EditMessageResp) bool {
+
+	if !p.Success.DeepEqual(src) {
+		return false
+	}
+	return true
 }
 
 var fieldIDToName_MessageServiceEditMessageResult = map[int16]string{
@@ -2384,6 +4300,26 @@ func (p *MessageServiceRecallMessageArgs) String() string {
 	return fmt.Sprintf("MessageServiceRecallMessageArgs(%+v)", *p)
 }
 
+func (p *MessageServiceRecallMessageArgs) DeepEqual(ano *MessageServiceRecallMessageArgs) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.Req) {
+		return false
+	}
+	return true
+}
+
+func (p *MessageServiceRecallMessageArgs) Field1DeepEqual(src *RecallMessageReq) bool {
+
+	if !p.Req.DeepEqual(src) {
+		return false
+	}
+	return true
+}
+
 var fieldIDToName_MessageServiceRecallMessageArgs = map[int16]string{
 	1: "req",
 }
@@ -2420,6 +4356,26 @@ func (p *MessageServiceRecallMessageResult) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("MessageServiceRecallMessageResult(%+v)", *p)
+}
+
+func (p *MessageServiceRecallMessageResult) DeepEqual(ano *MessageServiceRecallMessageResult) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field0DeepEqual(ano.Success) {
+		return false
+	}
+	return true
+}
+
+func (p *MessageServiceRecallMessageResult) Field0DeepEqual(src *RecallMessageResp) bool {
+
+	if !p.Success.DeepEqual(src) {
+		return false
+	}
+	return true
 }
 
 var fieldIDToName_MessageServiceRecallMessageResult = map[int16]string{
@@ -2460,6 +4416,26 @@ func (p *MessageServiceGetHistoryArgs) String() string {
 	return fmt.Sprintf("MessageServiceGetHistoryArgs(%+v)", *p)
 }
 
+func (p *MessageServiceGetHistoryArgs) DeepEqual(ano *MessageServiceGetHistoryArgs) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.Req) {
+		return false
+	}
+	return true
+}
+
+func (p *MessageServiceGetHistoryArgs) Field1DeepEqual(src *GetHistoryReq) bool {
+
+	if !p.Req.DeepEqual(src) {
+		return false
+	}
+	return true
+}
+
 var fieldIDToName_MessageServiceGetHistoryArgs = map[int16]string{
 	1: "req",
 }
@@ -2496,6 +4472,26 @@ func (p *MessageServiceGetHistoryResult) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("MessageServiceGetHistoryResult(%+v)", *p)
+}
+
+func (p *MessageServiceGetHistoryResult) DeepEqual(ano *MessageServiceGetHistoryResult) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field0DeepEqual(ano.Success) {
+		return false
+	}
+	return true
+}
+
+func (p *MessageServiceGetHistoryResult) Field0DeepEqual(src *GetHistoryResp) bool {
+
+	if !p.Success.DeepEqual(src) {
+		return false
+	}
+	return true
 }
 
 var fieldIDToName_MessageServiceGetHistoryResult = map[int16]string{
@@ -2536,6 +4532,26 @@ func (p *MessageServiceSearchMessagesArgs) String() string {
 	return fmt.Sprintf("MessageServiceSearchMessagesArgs(%+v)", *p)
 }
 
+func (p *MessageServiceSearchMessagesArgs) DeepEqual(ano *MessageServiceSearchMessagesArgs) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.Req) {
+		return false
+	}
+	return true
+}
+
+func (p *MessageServiceSearchMessagesArgs) Field1DeepEqual(src *SearchMessagesReq) bool {
+
+	if !p.Req.DeepEqual(src) {
+		return false
+	}
+	return true
+}
+
 var fieldIDToName_MessageServiceSearchMessagesArgs = map[int16]string{
 	1: "req",
 }
@@ -2572,6 +4588,26 @@ func (p *MessageServiceSearchMessagesResult) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("MessageServiceSearchMessagesResult(%+v)", *p)
+}
+
+func (p *MessageServiceSearchMessagesResult) DeepEqual(ano *MessageServiceSearchMessagesResult) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field0DeepEqual(ano.Success) {
+		return false
+	}
+	return true
+}
+
+func (p *MessageServiceSearchMessagesResult) Field0DeepEqual(src *SearchMessagesResp) bool {
+
+	if !p.Success.DeepEqual(src) {
+		return false
+	}
+	return true
 }
 
 var fieldIDToName_MessageServiceSearchMessagesResult = map[int16]string{
@@ -2612,6 +4648,26 @@ func (p *MessageServiceGetConversationParticipantsArgs) String() string {
 	return fmt.Sprintf("MessageServiceGetConversationParticipantsArgs(%+v)", *p)
 }
 
+func (p *MessageServiceGetConversationParticipantsArgs) DeepEqual(ano *MessageServiceGetConversationParticipantsArgs) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.Req) {
+		return false
+	}
+	return true
+}
+
+func (p *MessageServiceGetConversationParticipantsArgs) Field1DeepEqual(src *GetConversationParticipantsReq) bool {
+
+	if !p.Req.DeepEqual(src) {
+		return false
+	}
+	return true
+}
+
 var fieldIDToName_MessageServiceGetConversationParticipantsArgs = map[int16]string{
 	1: "req",
 }
@@ -2648,6 +4704,26 @@ func (p *MessageServiceGetConversationParticipantsResult) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("MessageServiceGetConversationParticipantsResult(%+v)", *p)
+}
+
+func (p *MessageServiceGetConversationParticipantsResult) DeepEqual(ano *MessageServiceGetConversationParticipantsResult) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field0DeepEqual(ano.Success) {
+		return false
+	}
+	return true
+}
+
+func (p *MessageServiceGetConversationParticipantsResult) Field0DeepEqual(src *GetConversationParticipantsResp) bool {
+
+	if !p.Success.DeepEqual(src) {
+		return false
+	}
+	return true
 }
 
 var fieldIDToName_MessageServiceGetConversationParticipantsResult = map[int16]string{
@@ -2702,6 +4778,26 @@ func (p *HistoryServiceSaveMessageArgs) String() string {
 	return fmt.Sprintf("HistoryServiceSaveMessageArgs(%+v)", *p)
 }
 
+func (p *HistoryServiceSaveMessageArgs) DeepEqual(ano *HistoryServiceSaveMessageArgs) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.Req) {
+		return false
+	}
+	return true
+}
+
+func (p *HistoryServiceSaveMessageArgs) Field1DeepEqual(src *SaveMessageReq) bool {
+
+	if !p.Req.DeepEqual(src) {
+		return false
+	}
+	return true
+}
+
 var fieldIDToName_HistoryServiceSaveMessageArgs = map[int16]string{
 	1: "req",
 }
@@ -2738,6 +4834,26 @@ func (p *HistoryServiceSaveMessageResult) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("HistoryServiceSaveMessageResult(%+v)", *p)
+}
+
+func (p *HistoryServiceSaveMessageResult) DeepEqual(ano *HistoryServiceSaveMessageResult) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field0DeepEqual(ano.Success) {
+		return false
+	}
+	return true
+}
+
+func (p *HistoryServiceSaveMessageResult) Field0DeepEqual(src *SaveMessageResp) bool {
+
+	if !p.Success.DeepEqual(src) {
+		return false
+	}
+	return true
 }
 
 var fieldIDToName_HistoryServiceSaveMessageResult = map[int16]string{
@@ -2778,6 +4894,26 @@ func (p *HistoryServiceGetHistoryArgs) String() string {
 	return fmt.Sprintf("HistoryServiceGetHistoryArgs(%+v)", *p)
 }
 
+func (p *HistoryServiceGetHistoryArgs) DeepEqual(ano *HistoryServiceGetHistoryArgs) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.Req) {
+		return false
+	}
+	return true
+}
+
+func (p *HistoryServiceGetHistoryArgs) Field1DeepEqual(src *GetHistoryReq) bool {
+
+	if !p.Req.DeepEqual(src) {
+		return false
+	}
+	return true
+}
+
 var fieldIDToName_HistoryServiceGetHistoryArgs = map[int16]string{
 	1: "req",
 }
@@ -2814,6 +4950,26 @@ func (p *HistoryServiceGetHistoryResult) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("HistoryServiceGetHistoryResult(%+v)", *p)
+}
+
+func (p *HistoryServiceGetHistoryResult) DeepEqual(ano *HistoryServiceGetHistoryResult) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field0DeepEqual(ano.Success) {
+		return false
+	}
+	return true
+}
+
+func (p *HistoryServiceGetHistoryResult) Field0DeepEqual(src *GetHistoryResp) bool {
+
+	if !p.Success.DeepEqual(src) {
+		return false
+	}
+	return true
 }
 
 var fieldIDToName_HistoryServiceGetHistoryResult = map[int16]string{
@@ -2854,6 +5010,26 @@ func (p *HistoryServiceSearchHistoryArgs) String() string {
 	return fmt.Sprintf("HistoryServiceSearchHistoryArgs(%+v)", *p)
 }
 
+func (p *HistoryServiceSearchHistoryArgs) DeepEqual(ano *HistoryServiceSearchHistoryArgs) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.Req) {
+		return false
+	}
+	return true
+}
+
+func (p *HistoryServiceSearchHistoryArgs) Field1DeepEqual(src *SearchMessagesReq) bool {
+
+	if !p.Req.DeepEqual(src) {
+		return false
+	}
+	return true
+}
+
 var fieldIDToName_HistoryServiceSearchHistoryArgs = map[int16]string{
 	1: "req",
 }
@@ -2890,6 +5066,26 @@ func (p *HistoryServiceSearchHistoryResult) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("HistoryServiceSearchHistoryResult(%+v)", *p)
+}
+
+func (p *HistoryServiceSearchHistoryResult) DeepEqual(ano *HistoryServiceSearchHistoryResult) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field0DeepEqual(ano.Success) {
+		return false
+	}
+	return true
+}
+
+func (p *HistoryServiceSearchHistoryResult) Field0DeepEqual(src *SearchMessagesResp) bool {
+
+	if !p.Success.DeepEqual(src) {
+		return false
+	}
+	return true
 }
 
 var fieldIDToName_HistoryServiceSearchHistoryResult = map[int16]string{
@@ -2930,6 +5126,26 @@ func (p *HistoryServiceGetOfflineMessagesArgs) String() string {
 	return fmt.Sprintf("HistoryServiceGetOfflineMessagesArgs(%+v)", *p)
 }
 
+func (p *HistoryServiceGetOfflineMessagesArgs) DeepEqual(ano *HistoryServiceGetOfflineMessagesArgs) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.Req) {
+		return false
+	}
+	return true
+}
+
+func (p *HistoryServiceGetOfflineMessagesArgs) Field1DeepEqual(src *GetOfflineMessagesReq) bool {
+
+	if !p.Req.DeepEqual(src) {
+		return false
+	}
+	return true
+}
+
 var fieldIDToName_HistoryServiceGetOfflineMessagesArgs = map[int16]string{
 	1: "req",
 }
@@ -2966,6 +5182,26 @@ func (p *HistoryServiceGetOfflineMessagesResult) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("HistoryServiceGetOfflineMessagesResult(%+v)", *p)
+}
+
+func (p *HistoryServiceGetOfflineMessagesResult) DeepEqual(ano *HistoryServiceGetOfflineMessagesResult) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field0DeepEqual(ano.Success) {
+		return false
+	}
+	return true
+}
+
+func (p *HistoryServiceGetOfflineMessagesResult) Field0DeepEqual(src *GetOfflineMessagesResp) bool {
+
+	if !p.Success.DeepEqual(src) {
+		return false
+	}
+	return true
 }
 
 var fieldIDToName_HistoryServiceGetOfflineMessagesResult = map[int16]string{
@@ -3006,6 +5242,26 @@ func (p *HistoryServiceMarkOfflineReadArgs) String() string {
 	return fmt.Sprintf("HistoryServiceMarkOfflineReadArgs(%+v)", *p)
 }
 
+func (p *HistoryServiceMarkOfflineReadArgs) DeepEqual(ano *HistoryServiceMarkOfflineReadArgs) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.Req) {
+		return false
+	}
+	return true
+}
+
+func (p *HistoryServiceMarkOfflineReadArgs) Field1DeepEqual(src *MarkOfflineReadReq) bool {
+
+	if !p.Req.DeepEqual(src) {
+		return false
+	}
+	return true
+}
+
 var fieldIDToName_HistoryServiceMarkOfflineReadArgs = map[int16]string{
 	1: "req",
 }
@@ -3042,6 +5298,26 @@ func (p *HistoryServiceMarkOfflineReadResult) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("HistoryServiceMarkOfflineReadResult(%+v)", *p)
+}
+
+func (p *HistoryServiceMarkOfflineReadResult) DeepEqual(ano *HistoryServiceMarkOfflineReadResult) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field0DeepEqual(ano.Success) {
+		return false
+	}
+	return true
+}
+
+func (p *HistoryServiceMarkOfflineReadResult) Field0DeepEqual(src *MarkOfflineReadResp) bool {
+
+	if !p.Success.DeepEqual(src) {
+		return false
+	}
+	return true
 }
 
 var fieldIDToName_HistoryServiceMarkOfflineReadResult = map[int16]string{
@@ -3082,6 +5358,26 @@ func (p *HistoryServiceGetUnreadCountArgs) String() string {
 	return fmt.Sprintf("HistoryServiceGetUnreadCountArgs(%+v)", *p)
 }
 
+func (p *HistoryServiceGetUnreadCountArgs) DeepEqual(ano *HistoryServiceGetUnreadCountArgs) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.Req) {
+		return false
+	}
+	return true
+}
+
+func (p *HistoryServiceGetUnreadCountArgs) Field1DeepEqual(src *GetUnreadCountReq) bool {
+
+	if !p.Req.DeepEqual(src) {
+		return false
+	}
+	return true
+}
+
 var fieldIDToName_HistoryServiceGetUnreadCountArgs = map[int16]string{
 	1: "req",
 }
@@ -3118,6 +5414,26 @@ func (p *HistoryServiceGetUnreadCountResult) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("HistoryServiceGetUnreadCountResult(%+v)", *p)
+}
+
+func (p *HistoryServiceGetUnreadCountResult) DeepEqual(ano *HistoryServiceGetUnreadCountResult) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field0DeepEqual(ano.Success) {
+		return false
+	}
+	return true
+}
+
+func (p *HistoryServiceGetUnreadCountResult) Field0DeepEqual(src *GetUnreadCountResp) bool {
+
+	if !p.Success.DeepEqual(src) {
+		return false
+	}
+	return true
 }
 
 var fieldIDToName_HistoryServiceGetUnreadCountResult = map[int16]string{

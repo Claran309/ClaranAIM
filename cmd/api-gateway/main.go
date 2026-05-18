@@ -27,6 +27,7 @@ func main() {
 	health.CheckEtcd(cfg.Etcd.Endpoints, "api-gateway")
 
 	handler.InitFileStorage(cfg)
+	handler.InitDTMConfig(cfg.DTM)
 	if cfg.DTM.Enabled {
 		logger.Info("DTM分布式事务配置已启用", "server", cfg.DTM.Server)
 	} else {

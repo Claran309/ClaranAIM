@@ -2,6 +2,7 @@ package main
 
 import (
 	"ClaranAIM/internal/msg-core-service/dao"
+	"ClaranAIM/internal/msg-core-service/dtmbranch"
 	"ClaranAIM/internal/msg-core-service/eventconsumer"
 	"ClaranAIM/internal/msg-core-service/handler"
 	"ClaranAIM/internal/msg-core-service/service"
@@ -16,6 +17,7 @@ import (
 	"ClaranAIM/pkg/outbox"
 	"context"
 	"net"
+	"net/http"
 
 	"github.com/cloudwego/kitex/pkg/rpcinfo"
 	"github.com/cloudwego/kitex/pkg/transmeta"
@@ -64,6 +66,16 @@ func main() {
 
 	msgService := service.NewMessageServiceWithPublisher(msgRepo, redisClient, cfg.Etcd.Endpoints)
 	msgHandler := handler.NewMessageServiceImpl(msgService)
+	if cfg.DTM.Enabled && cfg.DTM.MsgCoreBranchAddress != "" {
+		mux := http.NewServeMux()
+		dtmbranch.NewHandler(msgService).RegisterRoutes(mux)
+		go func() {
+			logger.Info("DTM消息分支HTTP服务已启动", "address", cfg.DTM.MsgCoreBranchAddress)
+			if err := http.ListenAndServe(cfg.DTM.MsgCoreBranchAddress, mux); err != nil {
+				logger.Error("DTM消息分支HTTP服务停止", "error", err)
+			}
+		}()
+	}
 
 	if cfg.Kafka.Enabled && len(cfg.Kafka.Brokers) > 0 {
 		consumer := eventbus.NewKafkaConsumer(cfg.Kafka.Brokers, events.TopicGroupEvents, "msg-core-service")

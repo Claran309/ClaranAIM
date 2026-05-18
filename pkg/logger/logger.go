@@ -1,9 +1,10 @@
 // Package logger centralizes zap logging for all backend services.
 //
-// Logs are written both to stdout and to local daily files under
-// logs/<service>/<YYYY-MM-DD>/INFO.log and ERR.log. The package also redirects
-// the standard library log package into zap so older code paths share the same
-// sink.
+// Logs are written both to stdout and to local daily files. INFO logs stay under
+// logs/<service>/<YYYY-MM-DD>/INFO.log, while all services share
+// logs/ERR/<YYYY-MM-DD>/ERR.log so fatal/errors can be inspected from one place.
+// The package also redirects the standard library log package into zap so older
+// code paths share the same sink.
 package logger
 
 import (
@@ -64,7 +65,7 @@ func initLocked(name, logDir string) {
 	}
 
 	service = name
-	sink = newDailySink(filepath.Join(logDir, name))
+	sink = newDailySink(filepath.Join(logDir, name), filepath.Join(logDir, "ERR"))
 
 	encoderCfg := zap.NewDevelopmentEncoderConfig()
 	encoderCfg.TimeKey = "time"
@@ -191,14 +192,15 @@ func (e *serviceConsoleEncoder) EncodeEntry(entry zapcore.Entry, fields []zapcor
 
 type dailySink struct {
 	mu      sync.Mutex
-	baseDir string
+	infoDir string
+	errDir  string
 	date    string
 	info    *os.File
 	err     *os.File
 }
 
-func newDailySink(baseDir string) *dailySink {
-	return &dailySink{baseDir: baseDir}
+func newDailySink(infoDir, errDir string) *dailySink {
+	return &dailySink{infoDir: infoDir, errDir: errDir}
 }
 
 // WriteInfo writes one encoded log line to the current INFO.log file.
@@ -239,15 +241,19 @@ func (s *dailySink) rotateLocked(now time.Time) error {
 		return nil
 	}
 	_ = s.closeLocked()
-	dir := filepath.Join(s.baseDir, date)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return fmt.Errorf("创建日志目录失败: %w", err)
+	infoDir := filepath.Join(s.infoDir, date)
+	errDir := filepath.Join(s.errDir, date)
+	if err := os.MkdirAll(infoDir, 0o755); err != nil {
+		return fmt.Errorf("创建INFO日志目录失败: %w", err)
 	}
-	infoFile, err := os.OpenFile(filepath.Join(dir, "INFO.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	if err := os.MkdirAll(errDir, 0o755); err != nil {
+		return fmt.Errorf("创建ERR日志目录失败: %w", err)
+	}
+	infoFile, err := os.OpenFile(filepath.Join(infoDir, "INFO.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {
 		return fmt.Errorf("打开INFO日志失败: %w", err)
 	}
-	errFile, err := os.OpenFile(filepath.Join(dir, "ERR.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	errFile, err := os.OpenFile(filepath.Join(errDir, "ERR.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {
 		_ = infoFile.Close()
 		return fmt.Errorf("打开ERR日志失败: %w", err)

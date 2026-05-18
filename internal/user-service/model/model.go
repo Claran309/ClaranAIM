@@ -28,6 +28,7 @@ type User struct {
 	Email     string    `json:"email" gorm:"size:100"`                        // 邮箱
 	Phone     string    `json:"phone" gorm:"size:20"`                         // 手机号
 	Role      string    `json:"role" gorm:"size:20;default:user;index"`       // 系统角色：user/admin，用于管理层接口鉴权
+	IsSystem  bool      `json:"is_system" gorm:"default:false;index"`         // 是否为系统账号，如 Agent 用户；系统账号不能直接登录
 	Status    string    `json:"status" gorm:"size:20;default:offline"`        // 在线状态：online/offline
 	CreatedAt time.Time `json:"created_at" gorm:"autoCreateTime"`             // 创建时间
 	UpdatedAt time.Time `json:"updated_at" gorm:"autoUpdateTime"`             // 更新时间
@@ -78,10 +79,10 @@ func (Friend) TableName() string {
 // FriendGroup 好友分组表模型
 // 用于对好友进行分类管理，如"同事""家人""同学"
 type FriendGroup struct {
-	ID        int64     `json:"id" gorm:"primaryKey;autoIncrement:false"` // 分组ID，雪花ID
-	UserID    int64     `json:"user_id" gorm:"index;not null"`            // 所属用户ID，索引
-	Name      string    `json:"name" gorm:"size:50;not null"`             // 分组名称
-	CreatedAt time.Time `json:"created_at" gorm:"autoCreateTime"`         // 创建时间
+	ID        int64     `json:"id" gorm:"primaryKey;autoIncrement:false"`                            // 分组ID，雪花ID
+	UserID    int64     `json:"user_id" gorm:"uniqueIndex:idx_user_friend_group_name;not null"`      // 所属用户ID
+	Name      string    `json:"name" gorm:"uniqueIndex:idx_user_friend_group_name;size:50;not null"` // 分组名称
+	CreatedAt time.Time `json:"created_at" gorm:"autoCreateTime"`                                    // 创建时间
 }
 
 // BeforeCreate 在好友分组写入前补充分布式雪花 ID。

@@ -81,6 +81,15 @@ AIM 需要一个可配置的 Agent 能力层，而不是写死几个 Bot：
 
 未来 bot-manager-service 更偏管理面，bot-runtime-service 更偏执行面。manager 负责 Bot 配置、路由、权限、计费和审计；runtime 负责 Agent 会话、工具调用、长期任务、流式事件、多 Agent 协作。
 
+当前 Phase 2 已将这个边界落到代码层：
+
+- `bot-manager-service` 保存 Bot/Agent 配置、`agent_user_id`、工作目录、工具策略和 `bot_permissions`。
+- `bot-runtime-service` 独立暴露 Kitex RPC，负责 Eino DeepAgent、JSONL 长会话、web_search、answer_from_document/RAG、Skill 和本地工具后端。
+- Agent 在 IM 里不是虚拟 sender，而是 user-service 中的真实系统用户；群聊 @Agent 时，bot-manager 消费 `claran.message.events` 的 `message.created` 事件，识别 `mention_user_ids` 中的 Agent 用户，调用 runtime 后再通过 msg-core-service 以 Agent 用户身份写回消息。
+- user-service 会将 Agent 用户标记为 `is_system=true`，这类账号可作为群成员和消息发送者，但不能通过密码登录。
+- Agent @ 分发使用 `agent_dispatch_records(event_id, agent_user_id)` 记录执行状态，Agent 回复使用 msg-core-service 的 `client_msg_id=agent:{event_id}:{agent_user_id}` 做消息落库幂等，避免 Kafka 重投或 offset 提交前崩溃导致重复回复。
+- 高频聊天与 Agent 响应继续走 MySQL 消息事实表 + Transactional Outbox + Kafka；DTM 只适合后续低频强一致管理流程，例如创建系统用户和 Bot 记录的 Saga 补偿。
+
 ### 4. Agent 在 IM 中为什么重要
 
 Agent 的价值来自真实上下文。IM 是上下文密度最高的软件形态之一：
@@ -177,7 +186,7 @@ Agent 的价值来自真实上下文。IM 是上下文密度最高的软件形�
 
 - `conversations`：会话 ID、类型、群 ID、更新时间。
 - `conversation_participants`：会话参与者，用于私聊/群聊会话列表、推送目标，同时保存 per-user 已读游标、草稿、置顶和通知设置。
-- `messages`：消息 ID、会话 ID、发送者、消息内容、消息类型、引用消息、消息状态、编辑标记、@ 列表、创建时间。
+- `messages`：消息 ID、会话 ID、发送者、客户端/内部幂等键、消息内容、消息类型、引用消息、消息状态、编辑标记、@ 列表、创建时间。
 - `message_user_states`：用户级消息视图，保存投递时间、已读时间和本地删除时间。
 - `message_edit_records`：消息编辑历史，保存原内容、新内容、编辑人和编辑时间。
 
@@ -337,7 +346,8 @@ AI 对话链路：
 | msg-core-service | 9003 | Kitex | 会话管理/消息发送/消息搜索/禁言校验/实时推送 |
 | msg-history-service | 9004 | Kitex | 消息历史归档/离线消息/已读未读 |
 | file-service | 9005 | Kitex | 文件元数据管理/MinIO 对象存储集成 |
-| bot-manager-service | 9006 | Kitex | Bot 配置/路由/计费/内部Bot/自部署Bot/Agent 对话 |
+| bot-manager-service | 9006 | Kitex | Bot/Agent 配置、真实用户身份绑定、权限、路由、计费、审计、@Agent 调度 |
+| bot-runtime-service | 9007 | Kitex | Agent 执行、长会话、Eino DeepAgent、工具调用、RAG/WebSearch、结构化理解输出 |
 
 ---
 
@@ -1035,7 +1045,7 @@ services:
 - Etcd: `http://localhost:2379`
 - MinIO: `localhost:9000`，Bucket 由 `MINIO_BUCKET_NAME` 或服务配置决定；当前 `config/file-service.yaml` 默认 `claranaim`
 - Kafka: `127.0.0.1:9092`，当前使用 topic `claran.group.events` 和 `claran.message.events`
-- DTM: `http://localhost:36789`，配置默认开启，并通过 `pkg/dtm` 提供 Saga 构建器；不替代 Outbox 高频事件可靠发布。
+- DTM: `http://localhost:36789`，配置默认开启，并通过 `pkg/dtm` 提供 Saga 构建器；当前用于“创建群组 + 创建群聊会话”的低频跨服务 Saga，不替代 Outbox 高频事件可靠发布。
 
 ---
 
@@ -1483,7 +1493,7 @@ WebSocket 断开时:
 - msg-filter-service：敏感内容检测、实时审核、多语言翻译。
 - 服务降级与重试：API 网关已接入令牌桶限流；Kitex 客户端已接入 RPC 超时、加权轮询和熔断；Kitex 服务端已接入连接数/QPS 限制。后续仍需补充按业务错误码的降级策略和幂等重试。
 - Kafka：已用于群组事件同步和消息实时推送；`group.*` 与 `message.*` 已通过 MySQL Transactional Outbox 覆盖生产前崩溃窗口。后续继续补消费者幂等、搜索索引、AI 后处理和审计事件流，详见 `docs/ReliabilityAndEventConsistency.md`。
-- DTM：已作为默认开启的基础设施接入 Docker Compose、配置系统和 `pkg/dtm`。当前不强行改造高频消息链路，避免把 Outbox 已覆盖的事件可靠发布问题复杂化；后续低频跨服务补偿事务可按 Saga/TCC 接入。
+- DTM：已作为默认开启的基础设施接入 Docker Compose、配置系统和 `pkg/dtm`，并用于创建群组时协调 group-service 与 msg-core-service。当前不强行改造高频消息链路，避免把 Outbox 已覆盖的事件可靠发布问题复杂化；后续低频跨服务补偿事务可按 Saga/TCC 接入。
 - 可观测性：Prometheus、Jaeger、Grafana、ELK。
 - 压测：K6 场景覆盖登录、会话列表、群聊消息、文件上传、Bot 对话。
 - 部署：Kubernetes、滚动升级、配置中心、灰度发布。

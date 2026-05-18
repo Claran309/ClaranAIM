@@ -884,6 +884,7 @@
 | reply_to_id      | int64    | 否  | 被引用/回复的消息ID                  |
 | mention_user_ids | []int64  | 否  | @ 的用户ID列表                     |
 | mention_all      | bool     | 否  | 是否 @ 所有人                      |
+| client_msg_id    | string   | 否  | 消息幂等键；普通前端可不传，内部 Agent 回复会使用稳定键防重复 |
 
 请求示例（文本消息）：
 
@@ -1344,6 +1345,10 @@ curl -X POST http://localhost:8080/api/v1/file/upload \
 | system_prompt | string | 否  | 系统提示词                           |
 | skills_dir    | string | 否  | 技能目录路径                          |
 | agent_root    | string | 否  | Agent 根目录路径                     |
+| avatar        | string | 否  | Agent 作为用户展示时的头像 URL          |
+| signature     | string | 否  | Agent 作为用户展示时的个性签名           |
+| workspace_root | string | 否 | Agent 文件/代码工具允许使用的工作目录       |
+| tool_policy   | string | 否  | 工具策略，默认 `safe`                  |
 
 请求示例：
 
@@ -1376,8 +1381,9 @@ curl -X POST http://localhost:8080/api/v1/file/upload \
 核心逻辑：
 
 - 创建 Bot 记录到 MySQL（bots 表）
-- internal 类型使用内置 Agent 框架（eino adk）
-- custom 类型支持自部署 Bot 接入
+- 创建或绑定一个真实系统用户作为 `agent_user_id`，Agent 在 IM 中以该用户身份被 @ 和发送消息；该用户 `is_system=true`，不能通过密码登录
+- 创建者自动拥有 `owner` 权限
+- internal/custom 配置都由 bot-manager 保存，执行交给 bot-runtime-service
 
 ***
 
@@ -1398,12 +1404,16 @@ curl -X POST http://localhost:8080/api/v1/file/upload \
 | system_prompt | string  | 否  | 新系统提示词    |
 | skills_dir    | string  | 否  | 新技能目录     |
 | agent_root    | string  | 否  | 新 Agent 根目录 |
+| avatar        | string  | 否  | 新头像 URL      |
+| signature     | string  | 否  | 新个性签名       |
+| workspace_root | string | 否  | 新工作目录       |
+| tool_policy   | string  | 否  | 新工具策略       |
 | is_active     | bool    | 否  | 是否启用      |
 
 核心逻辑：
 
-- 仅 Bot 所有者可操作
-- 更新后清除 Agent 缓存（下次对话时重新创建 Agent）
+- `owner/admin` 可操作，创建者可给其他用户授予 Agent 权限
+- 更新配置后 bot-runtime-service 下次调用会按新的配置快照创建/复用 Agent
 
 ***
 
@@ -1433,6 +1443,11 @@ curl -X POST http://localhost:8080/api/v1/file/upload \
       "model_name": "gpt-4o-mini",
       "base_url": "https://api.openai.com/v1",
       "system_prompt": "你是一个友好的技术助手...",
+      "agent_user_id": 1000000001,
+      "avatar": "/files/agent.png",
+      "signature": "项目协作 Agent",
+      "workspace_root": "storage/agent/workspaces/1",
+      "tool_policy": "safe",
       "owner_id": 1,
       "is_active": true,
       "created_at": "2026-05-12 10:00:00",
@@ -1538,16 +1553,58 @@ curl -X POST http://localhost:8080/api/v1/file/upload \
 核心逻辑：
 
 1. 检查 Bot 是否存在且启用
-2. 获取或创建 Agent 实例（缓存到 agentCache）
-3. 调用 Agent.Run() 执行对话
+2. bot-manager-service 做权限、路由、计费入口校验
+3. bot-runtime-service 获取或创建 Eino DeepAgent 并调用 Agent.Run()
 4. 从 Eino `schema.Message.ResponseMeta.Usage` 读取模型返回的真实 Token 用量，并按模型单价计算费用
 5. 记录计费信息到 billing_records 表
-6. 如果关联了会话ID，AI 回复也会推送到聊天界面
+6. 如果通过群聊 @Agent 触发，bot-manager-service 消费 `message.created` Kafka 事件，调用 runtime 后用 Agent 的 `agent_user_id` 写回消息
+7. @Agent 分发通过 `agent_dispatch_records(event_id, agent_user_id)` 记录状态，Agent 回复通过 msg-core-service `client_msg_id=agent:{event_id}:{agent_user_id}` 做消息幂等，Kafka 重投不会重复生成多条回复
 
 说明：
 
 - 当前计费严格以模型响应中的 usage 为准，不再按字符数估算。
 - 如果模型或兼容接口没有返回 usage，系统会记录 `action=chat_usage_missing`，`input_tokens/output_tokens/token_count/cost` 均按 0 写入，避免用猜测值计费。
+
+***
+
+### 5.6.1 Agent 原生运行与会话理解接口
+
+以下接口均需要认证，路径前缀为 `/api/v1`。
+
+| 接口 | 方法 | 说明 |
+| --- | --- | --- |
+| `/agent/run` | POST | Agent 原生运行入口，参数与 `/bot/chat` 相同 |
+| `/agent/summarize` | POST | 对指定会话生成总结 |
+| `/agent/ask` | POST | 基于会话上下文问答 |
+| `/agent/insights` | POST | 提取结论、分歧、风险、待办和负责人 |
+| `/agent/reply-candidates` | POST | 生成可选回复候选 |
+
+任务接口请求参数：
+
+| 参数 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| bot_id | int64 | 是 | Agent/Bot ID |
+| conversation_id | int64 | 否 | 会话 ID |
+| question | string | 否 | 问题或附加指令 |
+
+***
+
+### 5.6.2 Agent 权限接口
+
+| 接口 | 方法 | 说明 |
+| --- | --- | --- |
+| `/agent/permission/grant` | POST | 授予其他用户 Agent 权限 |
+| `/agent/permission/revoke` | POST | 撤销其他用户 Agent 权限 |
+| `/agent/:id/permissions` | GET | 查看 Agent 权限列表 |
+
+角色说明：
+
+| 角色 | 权限 |
+| --- | --- |
+| owner | 创建者，拥有全部权限，不可被撤销 |
+| admin | 可修改配置、授权、运行 Agent |
+| operator | 可运行 Agent、查看运行结果 |
+| viewer | 只读基础信息和权限列表 |
 
 ***
 

@@ -51,6 +51,8 @@ type MessageRepository interface {
 	GetConversationByID(ctx context.Context, id int64) (*model.Conversation, error)
 	// UpdateConversation 更新会话信息（主要用于更新UpdatedAt时间戳）
 	UpdateConversation(ctx context.Context, conv *model.Conversation) error
+	// DeleteConversation deletes one conversation and its participants.
+	DeleteConversation(ctx context.Context, conversationID int64) error
 	// AddParticipant 添加会话参与者
 	AddParticipant(ctx context.Context, p *model.ConversationParticipant) error
 	// RemoveParticipant 移除会话参与者
@@ -63,6 +65,8 @@ type MessageRepository interface {
 	CreateMessage(ctx context.Context, msg *model.Message) error
 	// GetMessageByID returns a message fact by ID, or nil when it does not exist.
 	GetMessageByID(ctx context.Context, messageID int64) (*model.Message, error)
+	// GetMessageByClientMsgID returns the existing message for an idempotent send key.
+	GetMessageByClientMsgID(ctx context.Context, clientMsgID string) (*model.Message, error)
 	// UpdateMessage persists changes such as edit metadata or recalled status.
 	UpdateMessage(ctx context.Context, msg *model.Message) error
 	// CreateEditRecord appends an immutable audit record for message edits.
@@ -148,6 +152,18 @@ func (r *messageRepositoryImpl) UpdateConversation(ctx context.Context, conv *mo
 	return r.db.WithContext(ctx).Save(conv).Error
 }
 
+// DeleteConversation 删除会话及其参与者关系。
+//
+// 当前只用于 DTM Saga 补偿创建群聊会话失败后的清理；普通用户删除消息历史不应调用它。
+func (r *messageRepositoryImpl) DeleteConversation(ctx context.Context, conversationID int64) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("conversation_id = ?", conversationID).Delete(&model.ConversationParticipant{}).Error; err != nil {
+			return err
+		}
+		return tx.Where("id = ?", conversationID).Delete(&model.Conversation{}).Error
+	})
+}
+
 // AddParticipant 添加会话参与者
 // 用户加入会话时调用，建立用户与会话的关联
 func (r *messageRepositoryImpl) AddParticipant(ctx context.Context, p *model.ConversationParticipant) error {
@@ -186,6 +202,19 @@ func (r *messageRepositoryImpl) CreateMessage(ctx context.Context, msg *model.Me
 func (r *messageRepositoryImpl) GetMessageByID(ctx context.Context, messageID int64) (*model.Message, error) {
 	var msg model.Message
 	err := r.db.WithContext(ctx).Where("id = ?", messageID).First(&msg).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	return &msg, err
+}
+
+// GetMessageByClientMsgID loads a message produced by a previous idempotent send.
+func (r *messageRepositoryImpl) GetMessageByClientMsgID(ctx context.Context, clientMsgID string) (*model.Message, error) {
+	if clientMsgID == "" {
+		return nil, nil
+	}
+	var msg model.Message
+	err := r.db.WithContext(ctx).Where("client_msg_id = ?", clientMsgID).First(&msg).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil
 	}

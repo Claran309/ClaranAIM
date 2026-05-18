@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -17,6 +18,7 @@ import (
 // 定义用户服务所需的所有业务方法
 type UserService interface {
 	Register(ctx context.Context, username, pwd, nickname string) (*model.User, error)
+	RegisterSystemUser(ctx context.Context, username, pwd, nickname string) (*model.User, error)
 	Login(ctx context.Context, username, pwd, jwtSecret string, accessExpiration, refreshExpiration int64) (TokenPair, *model.User, error)
 	GetUserInfo(ctx context.Context, userID int64) (*model.User, error)
 	UpdateUserInfo(ctx context.Context, userID int64, profile UserProfileUpdate) error
@@ -88,6 +90,17 @@ func NewUserService(repo dao.UserRepository, r *redis.RedisClient) UserService {
 // Register 用户注册
 // 流程：校验参数 → 用户名去重 → bcrypt加密密码 → 写库 → 缓存用户信息
 func (s *userServiceImpl) Register(ctx context.Context, username, pwd, nickname string) (*model.User, error) {
+	return s.register(ctx, username, pwd, nickname, false)
+}
+
+// RegisterSystemUser creates an account for internal actors such as Agents.
+// System users can appear in IM membership and message sender fields, but they
+// are blocked from password login so they cannot be used as human accounts.
+func (s *userServiceImpl) RegisterSystemUser(ctx context.Context, username, pwd, nickname string) (*model.User, error) {
+	return s.register(ctx, username, pwd, nickname, true)
+}
+
+func (s *userServiceImpl) register(ctx context.Context, username, pwd, nickname string, isSystem bool) (*model.User, error) {
 	if username == "" || pwd == "" {
 		return nil, errors.New("用户名和密码不能为空")
 	}
@@ -128,6 +141,7 @@ func (s *userServiceImpl) Register(ctx context.Context, username, pwd, nickname 
 			Password: hashedPwd,
 			Nickname: nickname,
 			Role:     jwt.RoleUser,
+			IsSystem: isSystem,
 			Status:   "offline",
 		}
 		if err := s.repo.CreateUser(ctx, user); err != nil {
@@ -157,6 +171,9 @@ func (s *userServiceImpl) Login(ctx context.Context, username, pwd, jwtSecret st
 	}
 	if user == nil {
 		return TokenPair{}, nil, errors.New("用户不存在")
+	}
+	if user.IsSystem {
+		return TokenPair{}, nil, errors.New("系统用户不允许密码登录")
 	}
 
 	if !password.CheckPassword(pwd, user.Password) {
@@ -485,6 +502,19 @@ func (s *userServiceImpl) UpdateFriendRemark(ctx context.Context, userID, friend
 // CreateFriendGroup 创建好友分组
 // 创建后清除好友分组缓存
 func (s *userServiceImpl) CreateFriendGroup(ctx context.Context, userID int64, name string) (*model.FriendGroup, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil, errors.New("分组名称不能为空")
+	}
+	groups, err := s.repo.GetFriendGroups(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	for _, group := range groups {
+		if strings.EqualFold(group.Name, name) {
+			return nil, errors.New("分组已存在")
+		}
+	}
 	group := &model.FriendGroup{
 		UserID: userID,
 		Name:   name,

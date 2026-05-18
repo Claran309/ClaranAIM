@@ -80,6 +80,7 @@ struct SendMessageReq {
     5: i64 reply_to_id
     6: list<i64> mention_user_ids
     7: bool mention_all
+    8: string client_msg_id
 }
 
 struct SendMessageResp {

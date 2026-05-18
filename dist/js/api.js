@@ -174,6 +174,7 @@ const userAPI = {
     updateFriendRemark: (friendID, groupID, remark) =>
         request('PUT', '/user/friend/remark', { friend_id: apiID(friendID), group_id: apiID(groupID || 0), remark: remark || '' }),
     getFriendList: () => request('GET', '/user/friend/list'),
+    createFriendGroup: (name) => request('POST', '/user/friend/group', { name }),
     getFriendGroups: () => request('GET', '/user/friend/groups'),
     batchGetInfo: (ids) => request('GET', `/user/batch?ids=${ids.join(',')}`),
 };
@@ -222,6 +223,8 @@ const messageAPI = {
         request('PUT', '/message/edit', { message_id: apiID(messageID), content }),
     recall: (messageID) =>
         request('POST', '/message/recall', { message_id: apiID(messageID) }),
+    deleteLocal: (conversationID, messageID) =>
+        request('POST', '/message/delete-local', { conversation_id: apiID(conversationID), message_id: apiID(messageID) }),
     getHistory: (conversationID, limit = 50, beforeID = 0) =>
         request('GET', `/message/history/${conversationID}?limit=${limit}&before_id=${beforeID}`),
     search: (keyword, conversationID = 0, limit = 20, startAt = '', endAt = '') =>
@@ -291,8 +294,8 @@ const fileAPI = {
 };
 
 const botAPI = {
-    create: (name, type, description, modelName, apiKey, baseURL, systemPrompt, skillsDir, agentRoot) =>
-        request('POST', '/bot/create', { name, type, description, model_name: modelName, api_key: apiKey, base_url: baseURL, system_prompt: systemPrompt, skills_dir: skillsDir, agent_root: agentRoot }),
+    create: (name, type, description, modelName, apiKey, baseURL, systemPrompt, skillsDir, agentRoot, extra = {}) =>
+        request('POST', '/bot/create', { name, type, description, model_name: modelName, api_key: apiKey, base_url: baseURL, system_prompt: systemPrompt, skills_dir: skillsDir, agent_root: agentRoot, ...extra }),
     update: (botID, data) =>
         request('PUT', '/bot/update', { bot_id: apiID(botID), ...data }),
     get: (id) => request('GET', `/bot/${id}`),
@@ -306,6 +309,26 @@ const botAPI = {
     deleteRoute: (routeID) => request('DELETE', '/bot/route/delete', { route_id: apiID(routeID) }),
     getBilling: (botID, limit = 20, offset = 0) =>
         request('GET', `/bot/${botID}/billing?limit=${limit}&offset=${offset}`),
+};
+
+const agentAPI = {
+    run: (botID, conversationID, question = '') =>
+        request('POST', '/agent/run', { bot_id: apiID(botID), conversation_id: apiID(conversationID), question, message: question }),
+    summarize: (botID, conversationID, question = '') =>
+        request('POST', '/agent/summarize', { bot_id: apiID(botID), conversation_id: apiID(conversationID), question }),
+    ask: (botID, conversationID, question) =>
+        request('POST', '/agent/ask', { bot_id: apiID(botID), conversation_id: apiID(conversationID), question }),
+    insights: (botID, conversationID, question = '') =>
+        request('POST', '/agent/insights', { bot_id: apiID(botID), conversation_id: apiID(conversationID), question }),
+    replyCandidates: (botID, conversationID, question = '') =>
+        request('POST', '/agent/reply-candidates', { bot_id: apiID(botID), conversation_id: apiID(conversationID), question }),
+    grantPermission: (botID, userID, role) =>
+        request('POST', '/agent/permission/grant', { bot_id: apiID(botID), user_id: apiID(userID), role }),
+    revokePermission: (botID, userID) =>
+        request('POST', '/agent/permission/revoke', { bot_id: apiID(botID), user_id: apiID(userID) }),
+    listPermissions: (botID) => request('GET', `/agent/${botID}/permissions`),
+    listSessions: (botID, conversationID = 0) =>
+        request('GET', `/agent/${botID}/sessions?conversation_id=${apiID(conversationID)}`),
 };
 
 async function connectWS() {
@@ -439,4 +462,16 @@ function renderAvatarHTML(avatarURL, fallbackChar, extraClass) {
         return `<div class="avatar ${extraClass || ''}"><img src="${avatarURL}" style="width:100%;height:100%;border-radius:50%;object-fit:cover;"></div>`;
     }
     return `<div class="avatar ${extraClass || ''}">${fallbackChar}</div>`;
+}
+
+function isAgentUser(userID) {
+    return !!agentUserIDToBot[String(userID)];
+}
+
+function getAgentBotByUserID(userID) {
+    return agentUserIDToBot[String(userID)] || null;
+}
+
+function getBotDisplayName(bot) {
+    return bot ? (bot.nickname || bot.name || ('助手 ' + bot.id)) : '智能助手';
 }

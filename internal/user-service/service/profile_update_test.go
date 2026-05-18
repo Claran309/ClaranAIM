@@ -2,7 +2,10 @@ package service
 
 import (
 	"ClaranAIM/internal/user-service/model"
+	"ClaranAIM/pkg/jwt"
+	"ClaranAIM/pkg/password"
 	"context"
+	"strings"
 	"testing"
 )
 
@@ -140,5 +143,26 @@ func TestUpdateUserInfoPartialUpdateKeepsExistingFieldsOnEmptyInput(t *testing.T
 	}
 	if repo.user.Email != "old@example.com" || repo.user.Signature != "old signature" {
 		t.Fatalf("partial update should keep existing fields on empty input, got user: %+v", repo.user)
+	}
+}
+
+func TestSystemUserCannotPasswordLogin(t *testing.T) {
+	hashed, err := password.HashPassword("secret")
+	if err != nil {
+		t.Fatalf("HashPassword returned error: %v", err)
+	}
+	repo := &fakeUserRepo{user: &model.User{
+		ID:       1000000001,
+		Username: "agent_1000000001",
+		Password: hashed,
+		Nickname: "Agent",
+		Role:     jwt.RoleUser,
+		IsSystem: true,
+	}}
+	svc := NewUserService(repo, nil)
+
+	_, _, err = svc.Login(context.Background(), "agent_1000000001", "secret", "test-secret", 3600, 7200)
+	if err == nil || !strings.Contains(err.Error(), "系统用户") {
+		t.Fatalf("Login error = %v, want system user rejection", err)
 	}
 }

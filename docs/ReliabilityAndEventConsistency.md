@@ -16,7 +16,7 @@
 - Kafka 是服务间事件总线和可重放提交日志，但只有“生产者收到 broker ack 之后”的消息才进入 Kafka 的可靠性边界。
 - 当前代码已经为 `group.*` 和 `message.*` 接入 MySQL Transactional Outbox，覆盖“业务 DB 已提交，但 Kafka 发布前进程崩溃”的事件丢失窗口。
 - DTM 已作为默认开启的分布式事务基础设施接入，但它不是 Outbox 的替代品。Outbox 继续负责高频事件可靠发布；DTM 更适合低频跨服务补偿事务，例如配额、计费、资源开通等需要明确正向/补偿分支的 Saga/TCC 场景。
-- 下一步仍需补消费者幂等表 `processed_events`、对账任务和生产环境 Kafka 副本/acks 策略。
+- 下一步仍需补通用消费者幂等表 `processed_events`、对账任务和生产环境 Kafka 副本/acks 策略；当前 @Agent 分发链路已先用 `agent_dispatch_records` 与消息 `client_msg_id` 做专项幂等。
 
 ## 2. 当前架构事实
 
@@ -56,7 +56,7 @@
 
 当前不足：
 
-- 没有 `processed_events` 幂等表。
+- 没有通用 `processed_events` 幂等表；@Agent 分发已有专用 `agent_dispatch_records`。
 - 没有按 `event_id` 做消费去重。
 - Kafka producer 当前 `RequiredAcks=RequireOne`，只等 leader ack，不等所有副本确认。单机开发环境可接受，生产环境建议改为 `RequireAll` 并配置合理副本数。
 
@@ -80,8 +80,8 @@
 | --- | --- | --- | --- |
 | MySQL 消息写入成功，Kafka `message.created` 发布前服务崩溃 | `event_outbox` 中保留待发布事件，重启后 worker 补发 | 低 | 已接入 Outbox，继续补监控告警 |
 | MySQL 群成员写入成功，Kafka `group.member_invited` 发布前服务崩溃 | `event_outbox` 中保留待发布事件，重启后 worker 补发 | 中 | 已接入 Outbox，仍建议提供按 group_id 对账同步任务 |
-| Kafka 发布成功，消费者处理前崩溃 | offset 未提交，重启后会重试 | 中 | handler 保持幂等，写 `processed_events` |
-| 消费者完成副作用，但提交 offset 前崩溃 | 重启后重复消费，可能重复写入或重复推送 | 中 | 消费者按 `event_id` 去重，数据库写入使用唯一键或 upsert |
+| Kafka 发布成功，消费者处理前崩溃 | offset 未提交，重启后会重试 | 中 | handler 保持幂等，通用链路写 `processed_events`；@Agent 分发写 `agent_dispatch_records` |
+| 消费者完成副作用，但提交 offset 前崩溃 | 重启后重复消费，可能重复写入或重复推送 | 中 | 消费者按 `event_id` 去重，数据库写入使用唯一键或 upsert；Agent 回复使用 `client_msg_id` 复用已落库消息 |
 | Redis 删除缓存成功，Kafka 发布失败 | 缓存一致性不受影响，但实时事件可能丢失 | 中 | 缓存删除与事件发布分开看；事件可靠性靠 Outbox |
 | Redis 扣减成功，Kafka 未发布，服务崩溃 | 如果 Redis 是唯一扣减事实，则可能永久丢业务事件 | 高 | 不允许普通 Redis Key 承担最终扣减事实；改为 DB 事务 + Outbox，或 Redis Stream + AOF + 对账 |
 | Kafka broker 暂不可用 | Outbox worker 发布失败后记录 retry_count/next_retry_at，稍后重试 | 中 | 增加告警和失败事件巡检 |
@@ -326,7 +326,7 @@ CREATE TABLE processed_events (
 
 - `event_outbox` 模型、DAO 和非破坏性 AutoMigrate 已完成。
 - group-service 和 msg-core-service 已内置 outbox worker。
-- 待新增 `processed_events` 模型、DAO 和迁移脚本。
+- 待新增通用 `processed_events` 模型、DAO 和迁移脚本；@Agent 专项幂等已通过 `agent_dispatch_records(event_id, agent_user_id)` 落地。
 - Kafka producer 改为可配置 `RequiredAcks`，生产环境建议 `RequireAll`。
 
 ### Phase C：关键事件改造
@@ -355,7 +355,14 @@ CREATE TABLE processed_events (
 
 ## 10.1 DTM 在当前项目中的合理位置
 
-当前项目中 DTM 的实际落点是基础设施层：`docker-compose.yaml` 提供 dtm-server，`pkg/config` 默认启用 `dtm.enabled=true`，`pkg/dtm` 封装 Saga 构建器和 GID 生成。业务层暂未把具体用户、群组、消息或文件流程提交给 DTM 协调；这是刻意保留的边界，避免把 Outbox 已能解决的高频消息可靠发布链路复杂化。
+当前项目中 DTM 已经落到一个低频跨服务业务：创建群组时由 api-gateway 提交 Saga，先调用 group-service DTM 分支创建群元数据和成员，再调用 msg-core-service DTM 分支创建群聊 conversation 和参与者。api-gateway 会预生成 `group_id` 与 `conversation_id`，避免 Saga 分支之间依赖上一步 HTTP 返回值。
+
+已接入的分支接口：
+
+- group-service：`POST /dtm/group/create`，补偿接口 `POST /dtm/group/create_compensate`。
+- msg-core-service：`POST /dtm/message/group-conversation/create`，补偿接口 `POST /dtm/message/group-conversation/create_compensate`。
+
+这条链路适合 DTM 的原因是：建群是低频操作，涉及两个服务的业务事实，并且有清晰补偿语义。如果 msg-core-service 创建群聊会话失败，DTM 可以回调 group-service 补偿删除刚创建的群。
 
 DTM 适合解决“一个业务动作必须跨多个服务完成，失败时还要按业务语义补偿”的问题。例如：
 
@@ -377,7 +384,7 @@ DTM 适合解决“一个业务动作必须跨多个服务完成，失败时还�
 中期补强：
 
 - 用 MySQL Transactional Outbox 作为应用层 WAL。
-- 用 `processed_events` 保证消费者幂等。
+- 用通用 `processed_events` 保证消费者幂等；对会产生消息副作用的链路，同时为目标事实表设计业务幂等键，例如 Agent 回复的 `client_msg_id`。
 - 用对账任务修复投影和下游索引。
 
 这样设计后，即使出现“Redis 已变更、Kafka 未推送、服务重启”“Kafka 暂时不可用”“消费者重复处理”等情况，系统也有明确的事实来源、重试入口和补偿路径，而不是依赖某一次请求内的内存状态或临时缓存状态。

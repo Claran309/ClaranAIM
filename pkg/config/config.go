@@ -107,8 +107,12 @@ type KafkaConfig struct {
 
 // DTMConfig controls optional distributed transaction integration.
 type DTMConfig struct {
-	Enabled bool   `yaml:"enabled"`
-	Server  string `yaml:"server"`
+	Enabled              bool   `yaml:"enabled"`
+	Server               string `yaml:"server"`
+	GroupServiceURL      string `yaml:"group_service_url"`
+	MsgCoreServiceURL    string `yaml:"msg_core_service_url"`
+	GroupBranchAddress   string `yaml:"group_branch_address"`
+	MsgCoreBranchAddress string `yaml:"msg_core_branch_address"`
 }
 
 // GovernanceConfig groups rate-limit and RPC governance settings.
@@ -146,10 +150,14 @@ func Load(configPath string) (*Config, error) {
 	v.SetDefault("kafka.brokers", []string{"127.0.0.1:9092"})
 	v.SetDefault("dtm.enabled", true)
 	v.SetDefault("dtm.server", "http://localhost:36789")
+	v.SetDefault("dtm.group_service_url", "http://127.0.0.1:9102")
+	v.SetDefault("dtm.msg_core_service_url", "http://127.0.0.1:9103")
+	v.SetDefault("dtm.group_branch_address", "127.0.0.1:9102")
+	v.SetDefault("dtm.msg_core_branch_address", "127.0.0.1:9103")
 	v.SetDefault("governance.rate_limit.enabled", true)
 	v.SetDefault("governance.rate_limit.burst", 120)
 	v.SetDefault("governance.rate_limit.window_seconds", 60)
-	v.SetDefault("governance.rpc.timeout_ms", 5000)
+	v.SetDefault("governance.rpc.timeout_ms", 60000)
 	v.SetDefault("governance.rpc.circuit_breaker", true)
 	v.SetDefault("governance.rpc.max_connections", 1000)
 	v.SetDefault("governance.rpc.max_qps", 1000)
@@ -330,6 +338,18 @@ func applyEnvOverrides(cfg *Config) {
 	}
 	if server := os.Getenv("DTM_SERVER"); server != "" {
 		cfg.DTM.Server = server
+	}
+	if url := os.Getenv("DTM_GROUP_SERVICE_URL"); url != "" {
+		cfg.DTM.GroupServiceURL = url
+	}
+	if url := os.Getenv("DTM_MSG_CORE_SERVICE_URL"); url != "" {
+		cfg.DTM.MsgCoreServiceURL = url
+	}
+	if address := os.Getenv("DTM_GROUP_BRANCH_ADDRESS"); address != "" {
+		cfg.DTM.GroupBranchAddress = address
+	}
+	if address := os.Getenv("DTM_MSG_CORE_BRANCH_ADDRESS"); address != "" {
+		cfg.DTM.MsgCoreBranchAddress = address
 	}
 
 	if enabled := os.Getenv("RATE_LIMIT_ENABLED"); enabled != "" {

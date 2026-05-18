@@ -5,12 +5,16 @@ package handler
 
 import (
 	"ClaranAIM/internal/api-gateway/client"
+	"ClaranAIM/pkg/config"
+	clardtm "ClaranAIM/pkg/dtm"
+	"ClaranAIM/pkg/idgen"
 	"ClaranAIM/pkg/response"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/cloudwego/hertz/pkg/app"
 )
@@ -19,6 +23,13 @@ import (
 // Permission checks live in group-service; this layer only validates transport
 // shape and enriches requests with the current operator ID.
 type GroupHandler struct{}
+
+var dtmCfg *config.DTMConfig
+
+// InitDTMConfig stores the DTM branch addresses used by group creation Saga.
+func InitDTMConfig(cfg config.DTMConfig) {
+	dtmCfg = &cfg
+}
 
 // NewGroupHandler constructs the stateless group HTTP handler used by the router.
 func NewGroupHandler() *GroupHandler {
@@ -92,6 +103,11 @@ func (h *GroupHandler) CreateGroup(ctx context.Context, c *app.RequestContext) {
 		}
 	}
 
+	if dtmCfg != nil && dtmCfg.Enabled {
+		h.createGroupWithDTM(ctx, c, req.Name, id, memberIDs)
+		return
+	}
+
 	resp, err := client.GroupClient.CreateGroup(ctx, client.NewCreateGroupReq(req.Name, id, memberIDs))
 	if err != nil {
 		response.Error(c, err.Error())
@@ -99,6 +115,68 @@ func (h *GroupHandler) CreateGroup(ctx context.Context, c *app.RequestContext) {
 	}
 
 	response.Success(c, resp)
+}
+
+func (h *GroupHandler) createGroupWithDTM(ctx context.Context, c *app.RequestContext, name string, ownerID int64, memberIDs []int64) {
+	groupID, err := idgen.NextID()
+	if err != nil {
+		response.Error(c, err.Error())
+		return
+	}
+	conversationID, err := idgen.NextID()
+	if err != nil {
+		response.Error(c, err.Error())
+		return
+	}
+	participants := dedupeGroupParticipants(ownerID, memberIDs)
+	manager := clardtm.NewManager(dtmCfg.Server)
+	saga, err := manager.NewSagaLocal()
+	if err != nil {
+		response.Error(c, err.Error())
+		return
+	}
+	groupPayload := map[string]interface{}{
+		"group_id":   groupID,
+		"name":       name,
+		"owner_id":   ownerID,
+		"member_ids": memberIDs,
+	}
+	conversationPayload := map[string]interface{}{
+		"conversation_id": conversationID,
+		"group_id":        groupID,
+		"participant_ids": participants,
+	}
+	groupURL := strings.TrimRight(dtmCfg.GroupServiceURL, "/")
+	msgURL := strings.TrimRight(dtmCfg.MsgCoreServiceURL, "/")
+	saga.AddStep(groupURL+"/dtm/group/create", groupURL+"/dtm/group/create_compensate", groupPayload)
+	saga.AddStep(msgURL+"/dtm/message/group-conversation/create", msgURL+"/dtm/message/group-conversation/create_compensate", conversationPayload)
+	if err := saga.Submit(ctx); err != nil {
+		response.Error(c, "DTM创建群组事务提交失败: "+err.Error())
+		return
+	}
+	response.Success(c, map[string]interface{}{
+		"success":         true,
+		"group_id":        groupID,
+		"conversation_id": conversationID,
+		"gid":             saga.GID(),
+		"msg":             "创建群组事务已提交",
+	})
+}
+
+func dedupeGroupParticipants(ownerID int64, memberIDs []int64) []int64 {
+	seen := map[int64]struct{}{}
+	result := make([]int64, 0, len(memberIDs)+1)
+	for _, id := range append([]int64{ownerID}, memberIDs...) {
+		if id <= 0 {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		result = append(result, id)
+	}
+	return result
 }
 
 // GetGroup returns group metadata such as name, owner, avatar and announcement.

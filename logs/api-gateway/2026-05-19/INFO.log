@@ -1,0 +1,21 @@
+[api-gateway] 2026-05-19 00:15:58.573	INFO	logger/logger.go:338	RPC客户端初始化成功
+[api-gateway] 2026-05-19 00:15:58.585	INFO	health/health.go:56	Etcd注册地址	{"service": "api-gateway", "endpoints": "[http://localhost:2379]"}
+[api-gateway] 2026-05-19 00:15:58.593	INFO	handler/file_handler.go:70	文件上传使用MinIO	{"bucket": "claran-aim"}
+[api-gateway] 2026-05-19 00:15:58.593	INFO	api-gateway/main.go:32	DTM分布式事务配置已启用	{"server": "http://localhost:36789"}
+[api-gateway] 2026-05-19 00:15:58.596	INFO	health/health.go:69	========================================
+[api-gateway] 2026-05-19 00:15:58.596	INFO	health/health.go:70	服务启动完成	{"service": "api-gateway", "version": "1.0.0", "port": "127.0.0.1:8080"}
+[api-gateway] 2026-05-19 00:15:58.596	INFO	health/health.go:71	========================================
+[api-gateway] 2026-05-19 00:24:19.197	INFO	logger/logger.go:344	RPC客户端初始化成功
+[api-gateway] 2026-05-19 00:24:19.213	INFO	health/health.go:56	Etcd注册地址	{"service": "api-gateway", "endpoints": "[http://localhost:2379]"}
+[api-gateway] 2026-05-19 00:24:19.232	INFO	handler/file_handler.go:70	文件上传使用MinIO	{"bucket": "claran-aim"}
+[api-gateway] 2026-05-19 00:24:19.232	INFO	api-gateway/main.go:32	DTM分布式事务配置已启用	{"server": "http://localhost:36789"}
+[api-gateway] 2026-05-19 00:24:19.235	INFO	health/health.go:69	========================================
+[api-gateway] 2026-05-19 00:24:19.235	INFO	health/health.go:70	服务启动完成	{"service": "api-gateway", "version": "1.0.0", "port": "127.0.0.1:8080"}
+[api-gateway] 2026-05-19 00:24:19.235	INFO	health/health.go:71	========================================
+[api-gateway] 2026-05-19 00:46:49.405	INFO	logger/logger.go:344	RPC客户端初始化成功
+[api-gateway] 2026-05-19 00:46:49.424	INFO	health/health.go:56	Etcd注册地址	{"service": "api-gateway", "endpoints": "[http://localhost:2379]"}
+[api-gateway] 2026-05-19 00:46:49.436	INFO	handler/file_handler.go:70	文件上传使用MinIO	{"bucket": "claran-aim"}
+[api-gateway] 2026-05-19 00:46:49.436	INFO	api-gateway/main.go:32	DTM分布式事务配置已启用	{"server": "http://localhost:36789"}
+[api-gateway] 2026-05-19 00:46:49.440	INFO	health/health.go:69	========================================
+[api-gateway] 2026-05-19 00:46:49.440	INFO	health/health.go:70	服务启动完成	{"service": "api-gateway", "version": "1.0.0", "port": "127.0.0.1:8080"}
+[api-gateway] 2026-05-19 00:46:49.440	INFO	health/health.go:71	========================================

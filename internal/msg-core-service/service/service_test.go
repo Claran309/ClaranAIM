@@ -22,6 +22,7 @@ type fakeMessageRepo struct {
 	conversations      map[int64]*model.Conversation
 	participants       map[int64]map[int64]model.ConversationParticipant
 	messages           map[int64][]model.Message
+	messagesByClientID map[string]model.Message
 	userStates         map[int64]map[int64]model.MessageUserState
 	editRecords        []model.MessageEditRecord
 	outbox             []outbox.Event
@@ -35,6 +36,7 @@ func newFakeMessageRepo() *fakeMessageRepo {
 		conversations:      map[int64]*model.Conversation{},
 		participants:       map[int64]map[int64]model.ConversationParticipant{},
 		messages:           map[int64][]model.Message{},
+		messagesByClientID: map[string]model.Message{},
 		userStates:         map[int64]map[int64]model.MessageUserState{},
 		editRecords:        []model.MessageEditRecord{},
 		outbox:             []outbox.Event{},
@@ -98,6 +100,12 @@ func (r *fakeMessageRepo) RemoveParticipant(ctx context.Context, conversationID,
 	return nil
 }
 
+func (r *fakeMessageRepo) DeleteConversation(ctx context.Context, conversationID int64) error {
+	delete(r.conversations, conversationID)
+	delete(r.participants, conversationID)
+	return nil
+}
+
 func (r *fakeMessageRepo) GetParticipants(ctx context.Context, conversationID int64) ([]model.ConversationParticipant, error) {
 	var result []model.ConversationParticipant
 	for _, p := range r.participants[conversationID] {
@@ -117,13 +125,30 @@ func (r *fakeMessageRepo) GetUserConversations(ctx context.Context, userID int64
 }
 
 func (r *fakeMessageRepo) CreateMessage(ctx context.Context, msg *model.Message) error {
+	if msg.ClientMsgID != nil && *msg.ClientMsgID != "" {
+		if existing, ok := r.messagesByClientID[*msg.ClientMsgID]; ok {
+			*msg = existing
+			return nil
+		}
+	}
 	if msg.ID == 0 {
 		msg.ID = r.nextMessageID
 		r.nextMessageID++
 	}
 	msg.CreatedAt = time.Now()
 	r.messages[msg.ConversationID] = append(r.messages[msg.ConversationID], *msg)
+	if msg.ClientMsgID != nil && *msg.ClientMsgID != "" {
+		r.messagesByClientID[*msg.ClientMsgID] = *msg
+	}
 	return nil
+}
+
+func (r *fakeMessageRepo) GetMessageByClientMsgID(ctx context.Context, clientMsgID string) (*model.Message, error) {
+	if msg, ok := r.messagesByClientID[clientMsgID]; ok {
+		cp := msg
+		return &cp, nil
+	}
+	return nil, nil
 }
 
 func (r *fakeMessageRepo) GetMessageByID(ctx context.Context, messageID int64) (*model.Message, error) {
@@ -482,6 +507,32 @@ func TestCreateConversationSyncsParticipantsForExistingGroupConversation(t *test
 	}
 }
 
+func TestCompensateGroupConversationDeletesDTMSagaConversation(t *testing.T) {
+	repo := newFakeMessageRepo()
+	svc := &messageServiceImpl{repo: repo}
+
+	conv, err := svc.CreateGroupConversationWithID(context.Background(), 77, 99, []int64{1, 2, 3})
+	if err != nil {
+		t.Fatalf("CreateGroupConversationWithID returned error: %v", err)
+	}
+	if conv.ID != 77 {
+		t.Fatalf("conversation id = %d, want 77", conv.ID)
+	}
+
+	if err := svc.CompensateGroupConversation(context.Background(), 99, 77); err != nil {
+		t.Fatalf("CompensateGroupConversation returned error: %v", err)
+	}
+	if repo.conversations[77] != nil {
+		t.Fatal("expected compensated conversation to be deleted")
+	}
+	if len(repo.participants[77]) != 0 {
+		t.Fatalf("participants left after compensation: %#v", repo.participants[77])
+	}
+	if err := svc.CompensateGroupConversation(context.Background(), 99, 77); err != nil {
+		t.Fatalf("second compensation should be idempotent, got %v", err)
+	}
+}
+
 func TestGetHistoryRejectsNonParticipant(t *testing.T) {
 	repo := newFakeMessageRepo()
 	svc := &messageServiceImpl{repo: repo}
@@ -630,6 +681,75 @@ func TestSendMessagePublishesMessageCreatedEvent(t *testing.T) {
 	}
 	if payload.MsgID != msg.ID || payload.ConversationID != conv.ID || len(payload.TargetUserIDs) != 2 {
 		t.Fatalf("payload = %#v, want msg/conversation targets", payload)
+	}
+}
+
+func TestSendMessageExtReusesMessageForSameClientMsgID(t *testing.T) {
+	repo := newFakeMessageRepo()
+	svc := NewMessageServiceWithPublisher(repo, nil, nil)
+	conv, err := svc.CreateConversation(context.Background(), "private", []int64{1, 2}, 0)
+	if err != nil {
+		t.Fatalf("CreateConversation returned error: %v", err)
+	}
+
+	first, err := svc.SendMessageExt(context.Background(), SendMessageOptions{
+		ConversationID: conv.ID,
+		SenderID:       1,
+		Content:        "agent reply",
+		MsgType:        "text",
+		ClientMsgID:    "agent:evt-1:1001",
+	})
+	if err != nil {
+		t.Fatalf("first SendMessageExt returned error: %v", err)
+	}
+	second, err := svc.SendMessageExt(context.Background(), SendMessageOptions{
+		ConversationID: conv.ID,
+		SenderID:       1,
+		Content:        "agent reply should not duplicate",
+		MsgType:        "text",
+		ClientMsgID:    "agent:evt-1:1001",
+	})
+	if err != nil {
+		t.Fatalf("second SendMessageExt returned error: %v", err)
+	}
+
+	if second.ID != first.ID {
+		t.Fatalf("second message id = %d, want original id %d", second.ID, first.ID)
+	}
+	if got := len(repo.messages[conv.ID]); got != 1 {
+		t.Fatalf("message count = %d, want 1", got)
+	}
+	if got := len(repo.outbox); got != 1 {
+		t.Fatalf("outbox events = %d, want 1", got)
+	}
+}
+
+func TestSendMessageExtRejectsClientMsgIDReuseAcrossSender(t *testing.T) {
+	repo := newFakeMessageRepo()
+	svc := NewMessageServiceWithPublisher(repo, nil, nil)
+	conv, err := svc.CreateConversation(context.Background(), "private", []int64{1, 2}, 0)
+	if err != nil {
+		t.Fatalf("CreateConversation returned error: %v", err)
+	}
+	if _, err := svc.SendMessageExt(context.Background(), SendMessageOptions{
+		ConversationID: conv.ID,
+		SenderID:       1,
+		Content:        "first",
+		MsgType:        "text",
+		ClientMsgID:    "shared-key",
+	}); err != nil {
+		t.Fatalf("first SendMessageExt returned error: %v", err)
+	}
+
+	_, err = svc.SendMessageExt(context.Background(), SendMessageOptions{
+		ConversationID: conv.ID,
+		SenderID:       2,
+		Content:        "second",
+		MsgType:        "text",
+		ClientMsgID:    "shared-key",
+	})
+	if err == nil || !strings.Contains(err.Error(), "client_msg_id") {
+		t.Fatalf("second SendMessageExt error = %v, want client_msg_id reuse rejection", err)
 	}
 }
 

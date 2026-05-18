@@ -11,7 +11,7 @@
         <div class="auth-container">
             <div class="auth-logo">💬</div>
             <h1>ClaranAIM</h1>
-            <p class="subtitle">即时通讯 + AI 深度融合</p>
+            <p class="subtitle">即时通讯 + 智能体协作</p>
             <div class="tab-switch">
                 <button class="tab-btn active" onclick="switchAuthTab('login')">登录</button>
                 <button class="tab-btn" onclick="switchAuthTab('register')">注册</button>
@@ -64,7 +64,7 @@
                     </button>
                     <button class="sidebar-tab" onclick="switchSidebar('friends', this)">好友</button>
                     <button class="sidebar-tab" onclick="switchSidebar('groups', this)">群组</button>
-                    <button class="sidebar-tab" onclick="switchSidebar('bots', this)">AI</button>
+                    <button class="sidebar-tab" onclick="switchSidebar('bots', this)">助手</button>
                 </div>
                 <div id="conversations-panel" class="sidebar-panel active">
                     <div class="panel-header">
@@ -88,7 +88,7 @@
                 </div>
                 <div id="bots-panel" class="sidebar-panel">
                     <div class="panel-header">
-                        <span>AI 助手</span>
+                        <span>智能助手</span>
                         <button class="btn-small" onclick="showCreateBotForm()">+ 创建</button>
                     </div>
                     <div id="bot-list" class="list-container"></div>
@@ -105,6 +105,9 @@
                         <div class="chat-header-right">
                             <button class="btn-icon" onclick="showSearchMessages()" title="搜索消息">
                                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                            </button>
+                            <button class="btn-icon" onclick="showAgentConversationTools()" title="智能助手">
+                                <span style="font-size:16px;">A</span>
                             </button>
                             <div class="dropdown-wrapper">
                                 <button class="btn-icon" onclick="toggleChatMenu()" title="更多操作">
@@ -136,6 +139,7 @@
                         <button id="broadcast-btn" class="btn-icon broadcast-btn" onclick="sendBroadcastMessage()" title="发送群广播" style="display:none;">
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m3 11 18-5v12L3 13v-2Z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></svg>
                         </button>
+                        <button id="mention-btn" class="btn-icon mention-btn" onclick="showMentionPicker()" title="@ 成员" style="display:none;">@</button>
                         <input type="text" id="msg-input" placeholder="输入消息..." onkeydown="if(event.key==='Enter'){if(currentBotID)sendBotChatMsg();else sendMessage();}">
                         <button id="send-btn" class="btn-send" onclick="sendMessage()">发送</button>
                     </div>
@@ -152,7 +156,7 @@
                     <div class="welcome-tips">
                         <div class="tip-item">💡 点击左侧「好友」可以开始私聊</div>
                         <div class="tip-item">💡 点击「群组」可以进入群聊</div>
-                        <div class="tip-item">💡 点击「AI」可以与AI助手对话</div>
+                        <div class="tip-item">💡 点击「助手」可以与智能助手对话</div>
                     </div>
                 </div>
             </div>

@@ -21,6 +21,7 @@ import (
 // group.* outbox events consumed by msg-core-service to maintain message fanout.
 type GroupService interface {
 	CreateGroup(ctx context.Context, name string, ownerID int64, memberIDs []int64) (*model.Group, error)
+	CreateGroupWithID(ctx context.Context, groupID int64, name string, ownerID int64, memberIDs []int64) (*model.Group, error)
 	DeleteGroup(ctx context.Context, groupID, operatorID int64) error
 	UpdateGroup(ctx context.Context, groupID, operatorID int64, name, announcement string) error
 	GetGroup(ctx context.Context, groupID int64) (*model.Group, error)
@@ -50,6 +51,21 @@ func NewGroupService(repo dao.GroupRepository, r *redis.RedisClient) GroupServic
 // CreateGroup 创建群组
 // 流程：创建群组记录 → 群主自动成为成员(role=owner) → 添加其他成员(role=member)
 func (s *groupServiceImpl) CreateGroup(ctx context.Context, name string, ownerID int64, memberIDs []int64) (*model.Group, error) {
+	return s.createGroup(ctx, 0, name, ownerID, memberIDs)
+}
+
+// CreateGroupWithID 创建使用外部分配群 ID 的群组。
+//
+// DTM Saga 分支不能依赖前一个 HTTP 分支的返回值继续传参，因此 api-gateway 会在
+// 提交 Saga 前预生成 group_id，并把同一个 ID 传给 group-service 和 msg-core-service。
+func (s *groupServiceImpl) CreateGroupWithID(ctx context.Context, groupID int64, name string, ownerID int64, memberIDs []int64) (*model.Group, error) {
+	if groupID <= 0 {
+		return nil, errors.New("group_id不能为空")
+	}
+	return s.createGroup(ctx, groupID, name, ownerID, memberIDs)
+}
+
+func (s *groupServiceImpl) createGroup(ctx context.Context, groupID int64, name string, ownerID int64, memberIDs []int64) (*model.Group, error) {
 	if name == "" {
 		return nil, errors.New("群名不能为空")
 	}
@@ -65,6 +81,7 @@ func (s *groupServiceImpl) CreateGroup(ctx context.Context, name string, ownerID
 	}
 
 	group := &model.Group{
+		ID:      groupID,
 		Name:    name,
 		OwnerID: ownerID,
 	}

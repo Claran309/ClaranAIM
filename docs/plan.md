@@ -81,21 +81,23 @@ AIM 的长期目标不是“在聊天里加一个 AI 按钮”，而是让 Agent
 
 ### Phase 2：Agent 会话感知层
 
-- [ ] 将 bot-manager-service 与 bot-runtime-service 职责拆清：manager 负责配置、路由、权限、计费和审计，runtime 负责执行、上下文、工具调用、长期任务、流式事件和多 Agent 协作。
-- [ ] 实现 bot-runtime-service 基础运行时。
-- [ ] 支持 Agent 按会话拉取消息上下文。
+- [x] 将 bot-manager-service 与 bot-runtime-service 职责拆清：manager 负责配置、路由、权限、计费和审计，runtime 负责执行、上下文、工具调用和长会话；长期任务、流式事件和多 Agent 协作保留扩展边界。
+- [x] 实现 bot-runtime-service 基础运行时。
+- [x] 支持 Agent 按会话构建基础上下文。
 - [ ] 支持 Agent 按时间窗口拉取消息上下文。
-- [ ] 支持 Agent 按消息数量拉取消息上下文。
+- [x] 支持 Agent 按最近消息数量构建上下文。
 - [ ] 支持 Agent 按主题聚合消息上下文。
-- [ ] 实现私聊总结。
-- [ ] 实现群聊总结。
+- [x] 实现私聊总结。
+- [x] 实现群聊总结。
 - [ ] 实现未读摘要。
 - [ ] 实现“我错过了什么”会话摘要。
-- [ ] 实现上下文问答。
-- [ ] 从历史消息中提取结论、分歧、风险、待办和负责人。
-- [ ] 根据上下文生成回复候选，用户可一键选用。
-- [ ] 接入 msg-core-service、msg-history-service、group-service 权限校验。
-- [ ] 输出结构化 Agent 理解结果，供任务生成、RAG 入库和用户画像使用。
+- [x] 实现上下文问答。
+- [x] 从历史消息中提取结论、分歧、风险、待办和负责人。
+- [x] 根据上下文生成回复候选，用户可一键选用。
+- [x] 接入 msg-core-service 基础上下文读取和 bot-manager 权限校验。
+- [x] 输出结构化 Agent 理解结果，供前端展示；RAG 入库和用户画像仍为后续阶段。
+
+说明：Phase 2 已完成基础后端闭环：Agent 真实系统用户身份、bot-runtime-service、bot-manager 权限表、HTTP `/agent/*` 接口和 Kafka `message.created` @Agent 触发已接入；Agent @ 分发使用 `agent_dispatch_records` 和 msg-core-service `client_msg_id` 避免 Kafka 重投造成重复回复。深度时间窗口检索、主题聚合、未读专用摘要、向量化记忆和多 Agent 协作继续放在后续阶段增强。
 
 ### Phase 3：Agent 记忆与用户/群画像
 
@@ -165,7 +167,7 @@ AIM 的长期目标不是“在聊天里加一个 AI 按钮”，而是让 Agent
 - [ ] 完善服务重试。
 - [x] 完善服务熔断：Kitex 客户端默认启用 circuit breaker。
 - [x] 完善限流和成本控制：API Gateway 已接入用户/IP 令牌桶限流，Bot 计费已严格按模型 usage token 记录；生产多实例限流仍需 Redis/网关层共享实现。
-- [x] 接入并默认开启 DTM 分布式事务基础设施：Docker Compose 提供 dtm-server，`pkg/config` 默认启用 DTM，`pkg/dtm` 提供 Saga 构建器；当前不改造高频消息链路，后续用于低频跨服务补偿事务。
+- [x] 接入并默认开启 DTM 分布式事务基础设施：Docker Compose 提供 dtm-server，`pkg/config` 默认启用 DTM，`pkg/dtm` 提供 Saga 构建器；已用于创建群组时协调 group-service 创建群元数据和 msg-core-service 创建群聊会话，当前不改造高频消息链路。
 - [ ] 引入 Prometheus 指标采集。
 - [ ] 引入 Jaeger 链路追踪。
 - [ ] 引入 Grafana 可视化。
@@ -229,7 +231,7 @@ AIM 的长期目标不是“在聊天里加一个 AI 按钮”，而是让 Agent
 
 | 服务 | 端口 | 状态 |
 |------|------|------|
-| user-service | 9001 | 已完成 |
+| user-service | 9001 | 已完成，支持 Agent 系统用户标记 |
 | group-service | 9002 | 已完成 |
 | msg-core-service | 9003 | 已完成 |
 | msg-history-service | 9004 | 已完成 |
@@ -240,7 +242,7 @@ AIM 的长期目标不是“在聊天里加一个 AI 按钮”，而是让 Agent
 
 ### 5.2 待新增或增强服务
 
-- [ ] bot-runtime-service：Agent 执行面，负责上下文、工具调用、长期任务、流式事件、多 Agent 协作。
+- [x] bot-runtime-service：Agent 执行面，负责基础上下文、工具调用、JSONL 长会话和结构化理解；长期任务、流式事件、多 Agent 协作待增强。
 - [ ] rag-service：知识库、文档上传、向量检索、聊天知识入库。
 - [ ] memory-service：用户记忆、群记忆、项目状态和向量化记忆。
 - [ ] msg-filter-service：敏感内容检测、实时审核、多语言翻译。
@@ -249,7 +251,7 @@ AIM 的长期目标不是“在聊天里加一个 AI 按钮”，而是让 Agent
 - [ ] event-service 或更多 Kafka consumer：处理消息后处理、搜索索引、AI 摘要、知识候选和审计事件。
 - [ ] notification-service：处理离线推送、上线同步和跨端通知。
 - [x] Outbox worker 一期：group-service 和 msg-core-service 内置 worker，扫描 MySQL `event_outbox` 表，将业务事务内写入的待发布事件可靠投递到 Kafka。
-- [ ] processed-events 表：为 Kafka 消费者提供幂等去重，避免“处理成功但 offset 未提交”后重复副作用。
+- [ ] 通用 processed-events 表：为所有 Kafka 消费者提供统一幂等去重；当前 Agent @ 分发链路已先使用专用 `agent_dispatch_records` 和消息 `client_msg_id` 做幂等。
 
 ## 6. 安全、权限与治理原则
 

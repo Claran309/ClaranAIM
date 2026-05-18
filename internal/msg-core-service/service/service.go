@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"log"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/cloudwego/kitex/client"
@@ -29,6 +30,8 @@ import (
 // interface instead of touching message tables directly.
 type MessageService interface {
 	CreateConversation(ctx context.Context, convType string, participantIDs []int64, groupID int64) (*model.Conversation, error)
+	CreateGroupConversationWithID(ctx context.Context, conversationID, groupID int64, participantIDs []int64) (*model.Conversation, error)
+	CompensateGroupConversation(ctx context.Context, groupID, conversationID int64) error
 	GetConversation(ctx context.Context, conversationID int64) (*model.Conversation, error)
 	GetUserConversations(ctx context.Context, userID int64) ([]UserConversationInfo, error)
 	SendMessage(ctx context.Context, conversationID, senderID int64, content, msgType string) (*model.Message, error)
@@ -65,6 +68,7 @@ type SendMessageOptions struct {
 	ReplyToID      int64
 	MentionUserIDs []int64
 	MentionAll     bool
+	ClientMsgID    string
 }
 
 // SearchMessagesOptions describes an advanced history search scoped by user,
@@ -210,6 +214,87 @@ func (s *messageServiceImpl) CreateConversation(ctx context.Context, convType st
 	return conv, nil
 }
 
+// CreateGroupConversationWithID creates a group conversation using a caller-provided ID.
+//
+// This is the msg-core-service DTM Saga action branch for group creation. The
+// gateway preallocates both group_id and conversation_id before submitting the
+// Saga so DTM can call independent HTTP branches without depending on branch
+// return values.
+func (s *messageServiceImpl) CreateGroupConversationWithID(ctx context.Context, conversationID, groupID int64, participantIDs []int64) (*model.Conversation, error) {
+	if conversationID <= 0 {
+		return nil, errors.New("conversation_id不能为空")
+	}
+	if groupID <= 0 {
+		return nil, errors.New("group_id不能为空")
+	}
+	participantIDs = dedupeUserIDs(participantIDs)
+	if len(participantIDs) < 2 {
+		return nil, errors.New("参与者至少为2人")
+	}
+
+	existing, err := s.repo.GetConversationByID(ctx, conversationID)
+	if err != nil {
+		return nil, err
+	}
+	if existing != nil {
+		if existing.Type != "group" || existing.GroupID != groupID {
+			return nil, errors.New("conversation_id已被其他会话占用")
+		}
+		if err := s.syncConversationParticipants(ctx, existing.ID, participantIDs); err != nil {
+			return nil, err
+		}
+		return existing, nil
+	}
+
+	groupExisting, err := s.repo.FindGroupConversation(ctx, groupID)
+	if err != nil {
+		return nil, err
+	}
+	if groupExisting != nil {
+		if groupExisting.ID != conversationID {
+			return nil, errors.New("group_id已绑定其他会话")
+		}
+		if err := s.syncConversationParticipants(ctx, groupExisting.ID, participantIDs); err != nil {
+			return nil, err
+		}
+		return groupExisting, nil
+	}
+
+	conv := &model.Conversation{
+		ID:      conversationID,
+		Type:    "group",
+		GroupID: groupID,
+	}
+	if err := s.repo.CreateConversation(ctx, conv); err != nil {
+		return nil, err
+	}
+	if err := s.syncConversationParticipants(ctx, conv.ID, participantIDs); err != nil {
+		return nil, err
+	}
+	return conv, nil
+}
+
+// CompensateGroupConversation removes a group conversation created by the DTM Saga.
+//
+// The method is idempotent: DTM may retry compensation, and retrying after the
+// conversation has already been deleted should still be treated as success.
+func (s *messageServiceImpl) CompensateGroupConversation(ctx context.Context, groupID, conversationID int64) error {
+	if conversationID <= 0 || groupID <= 0 {
+		return nil
+	}
+	conv, err := s.repo.GetConversationByID(ctx, conversationID)
+	if err != nil {
+		return err
+	}
+	if conv == nil {
+		return nil
+	}
+	if conv.Type != "group" || conv.GroupID != groupID {
+		return errors.New("补偿目标会话与群组不匹配")
+	}
+	return s.repo.DeleteConversation(ctx, conversationID)
+}
+
 // GetConversation returns one conversation fact or an explicit not-found error.
 func (s *messageServiceImpl) GetConversation(ctx context.Context, conversationID int64) (*model.Conversation, error) {
 	conv, err := s.repo.GetConversationByID(ctx, conversationID)
@@ -333,6 +418,20 @@ func (s *messageServiceImpl) SendMessageExt(ctx context.Context, opts SendMessag
 	if content == "" {
 		return nil, errors.New("消息内容不能为空")
 	}
+	clientMsgID := strings.TrimSpace(opts.ClientMsgID)
+	if clientMsgID != "" {
+		existing, err := s.repo.GetMessageByClientMsgID(ctx, clientMsgID)
+		if err != nil {
+			return nil, err
+		}
+		if existing != nil {
+			if existing.ConversationID != opts.ConversationID || existing.SenderID != opts.SenderID {
+				return nil, errors.New("client_msg_id已被其他消息使用")
+			}
+			hydrateMessageRuntimeFields(existing)
+			return existing, nil
+		}
+	}
 
 	conv, err := s.repo.GetConversationByID(ctx, opts.ConversationID)
 	if err != nil {
@@ -379,6 +478,9 @@ func (s *messageServiceImpl) SendMessageExt(ctx context.Context, opts SendMessag
 		MentionUserIDs: mentions,
 		MentionsJSON:   mentionsJSON,
 		MentionAll:     opts.MentionAll,
+	}
+	if clientMsgID != "" {
+		msg.ClientMsgID = &clientMsgID
 	}
 	var participants []model.ConversationParticipant
 	var msgEvent messageEvent

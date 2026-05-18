@@ -96,6 +96,7 @@ func (h *MessageServiceImpl) SendMessage(ctx context.Context, req *message.SendM
 		ReplyToID:      req.ReplyToId,
 		MentionUserIDs: req.MentionUserIds,
 		MentionAll:     req.MentionAll,
+		ClientMsgID:    req.ClientMsgId,
 	})
 	if err != nil {
 		return &message.SendMessageResp{Success: false, Msg: err.Error()}, nil

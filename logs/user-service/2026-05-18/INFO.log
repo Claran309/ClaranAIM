@@ -1,0 +1,12 @@
+[user-service] 2026-05-18 22:45:38.080	INFO	health/health.go:28	MySQL连接正常	{"service": "user-service", "version": "8.0.32"}
+[user-service] 2026-05-18 22:45:38.142	INFO	health/health.go:47	Redis连接正常	{"service": "user-service"}
+[user-service] 2026-05-18 22:45:38.143	INFO	health/health.go:56	Etcd注册地址	{"service": "user-service", "endpoints": "[http://localhost:2379]"}
+[user-service] 2026-05-18 22:45:38.144	INFO	health/health.go:69	========================================
+[user-service] 2026-05-18 22:45:38.144	INFO	health/health.go:70	服务启动完成	{"service": "user-service", "version": "1.0.0", "port": "127.0.0.1:9001"}
+[user-service] 2026-05-18 22:45:38.144	INFO	health/health.go:71	========================================
+[user-service] 2026-05-18 23:33:46.429	INFO	health/health.go:28	MySQL连接正常	{"service": "user-service", "version": "8.0.32"}
+[user-service] 2026-05-18 23:33:46.467	INFO	health/health.go:47	Redis连接正常	{"service": "user-service"}
+[user-service] 2026-05-18 23:33:46.468	INFO	health/health.go:56	Etcd注册地址	{"service": "user-service", "endpoints": "[http://localhost:2379]"}
+[user-service] 2026-05-18 23:33:46.468	INFO	health/health.go:69	========================================
+[user-service] 2026-05-18 23:33:46.468	INFO	health/health.go:70	服务启动完成	{"service": "user-service", "version": "1.0.0", "port": "127.0.0.1:9001"}
+[user-service] 2026-05-18 23:33:46.468	INFO	health/health.go:71	========================================

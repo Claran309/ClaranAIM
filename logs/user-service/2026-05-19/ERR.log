@@ -1,0 +1,1 @@
+[user-service] 2026-05-19 00:15:42.566	FATAL	user-service/main.go:31	初始化数据库失败	{"error": "Error 1062 (23000): Duplicate entry '1-爱人' for key 'friend_groups.idx_user_friend_group_name'"}

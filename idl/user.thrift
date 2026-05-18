@@ -18,12 +18,14 @@ struct User {
     15: string gender
     16: string birthday
     17: string role
+    18: bool is_system
 }
 
 struct RegisterReq {
     1: string username
     2: string password
     3: string nickname
+    4: bool is_system
 }
 
 struct RegisterResp {

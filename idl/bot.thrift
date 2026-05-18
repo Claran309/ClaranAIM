@@ -11,6 +11,10 @@ struct CreateBotReq {
     8: string skills_dir
     9: string agent_root
     10: i64 owner_id
+    11: string avatar
+    12: string signature
+    13: string workspace_root
+    14: string tool_policy
 }
 
 struct CreateBotResp {
@@ -31,6 +35,11 @@ struct UpdateBotReq {
     9: string skills_dir
     10: string agent_root
     11: bool is_active
+    12: string avatar
+    13: string signature
+    14: string workspace_root
+    15: string tool_policy
+    16: bool is_active_set
 }
 
 struct UpdateBotResp {
@@ -56,6 +65,20 @@ struct BotInfo {
     11: bool is_active
     12: string created_at
     13: string updated_at
+    14: i64 agent_user_id
+    15: string avatar
+    16: string signature
+    17: string workspace_root
+    18: string tool_policy
+}
+
+struct BotPermission {
+    1: i64 id
+    2: i64 bot_id
+    3: i64 user_id
+    4: string role
+    5: string created_at
+    6: string updated_at
 }
 
 struct GetBotResp {
@@ -99,6 +122,53 @@ struct ChatWithBotResp {
     4: i64 output_tokens
     5: double cost
     6: string msg
+}
+
+struct AgentTaskReq {
+    1: i64 bot_id
+    2: i64 user_id
+    3: i64 conversation_id
+    4: string question
+}
+
+struct AgentTaskResp {
+    1: bool success
+    2: string result
+    3: string msg
+}
+
+struct GrantPermissionReq {
+    1: i64 bot_id
+    2: i64 operator_id
+    3: i64 user_id
+    4: string role
+}
+
+struct GrantPermissionResp {
+    1: bool success
+    2: string msg
+}
+
+struct RevokePermissionReq {
+    1: i64 bot_id
+    2: i64 operator_id
+    3: i64 user_id
+}
+
+struct RevokePermissionResp {
+    1: bool success
+    2: string msg
+}
+
+struct ListPermissionsReq {
+    1: i64 bot_id
+    2: i64 operator_id
+}
+
+struct ListPermissionsResp {
+    1: bool success
+    2: list<BotPermission> permissions
+    3: string msg
 }
 
 struct CreateRouteReq {
@@ -176,6 +246,13 @@ service BotService {
     ListBotsResp ListBots(1: ListBotsReq req)
     DeleteBotResp DeleteBot(1: DeleteBotReq req)
     ChatWithBotResp ChatWithBot(1: ChatWithBotReq req)
+    AgentTaskResp SummarizeConversation(1: AgentTaskReq req)
+    AgentTaskResp AskConversation(1: AgentTaskReq req)
+    AgentTaskResp ExtractInsights(1: AgentTaskReq req)
+    AgentTaskResp GenerateReplyCandidates(1: AgentTaskReq req)
+    GrantPermissionResp GrantPermission(1: GrantPermissionReq req)
+    RevokePermissionResp RevokePermission(1: RevokePermissionReq req)
+    ListPermissionsResp ListPermissions(1: ListPermissionsReq req)
     CreateRouteResp CreateRoute(1: CreateRouteReq req)
     ListRoutesResp ListRoutes(1: ListRoutesReq req)
     DeleteRouteResp DeleteRoute(1: DeleteRouteReq req)

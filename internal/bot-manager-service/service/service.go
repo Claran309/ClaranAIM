@@ -1,20 +1,19 @@
 package service
 
 import (
-	"ClaranAIM/internal/bot-manager-service/agent"
-	"ClaranAIM/internal/bot-manager-service/component"
 	"ClaranAIM/internal/bot-manager-service/dao"
 	"ClaranAIM/internal/bot-manager-service/model"
+	"ClaranAIM/kitex_gen/bot_runtime"
+	"ClaranAIM/kitex_gen/bot_runtime/botruntimeservice"
+	"ClaranAIM/kitex_gen/user"
+	"ClaranAIM/kitex_gen/user/userservice"
 	"context"
 	"errors"
 	"fmt"
 	"log"
+	"path/filepath"
 	"strings"
-	"sync"
 	"time"
-
-	"github.com/cloudwego/eino/adk"
-	"github.com/cloudwego/eino/schema"
 )
 
 // BotService defines the bot management and runtime chat contract.
@@ -23,8 +22,8 @@ import (
 // memory and billing records. The current implementation executes bot chats in
 // this service; a future bot-runtime-service can reuse this interface boundary.
 type BotService interface {
-	CreateBot(ctx context.Context, name, botType, description, modelName, apiKey, baseURL, systemPrompt, skillsDir, agentRoot string, ownerID int64, defaultAPIKey, defaultBaseURL, defaultModel string) (*model.Bot, error)
-	UpdateBot(ctx context.Context, botID, operatorID int64, name, description, modelName, apiKey, baseURL, systemPrompt, skillsDir, agentRoot string, isActive bool, defaultAPIKey, defaultBaseURL, defaultModel string) error
+	CreateBot(ctx context.Context, name, botType, description, modelName, apiKey, baseURL, systemPrompt, skillsDir, agentRoot, avatar, signature, workspaceRoot, toolPolicy string, ownerID int64, defaultAPIKey, defaultBaseURL, defaultModel string) (*model.Bot, error)
+	UpdateBot(ctx context.Context, botID, operatorID int64, name, description, modelName, apiKey, baseURL, systemPrompt, skillsDir, agentRoot, avatar, signature, workspaceRoot, toolPolicy string, isActive bool, isActiveSet bool, defaultAPIKey, defaultBaseURL, defaultModel string) error
 	GetBot(ctx context.Context, botID int64) (*model.Bot, error)
 	ListBots(ctx context.Context, ownerID int64, botType string) ([]model.Bot, error)
 	DeleteBot(ctx context.Context, botID, operatorID int64) error
@@ -33,40 +32,35 @@ type BotService interface {
 	ListRoutes(ctx context.Context, botID int64) ([]model.BotRoute, error)
 	DeleteRoute(ctx context.Context, routeID, operatorID int64) error
 	GetBilling(ctx context.Context, botID, userID int64, limit, offset int64) ([]model.BillingRecord, int64, error)
+	GrantPermission(ctx context.Context, botID, operatorID, userID int64, role string) error
+	RevokePermission(ctx context.Context, botID, operatorID, userID int64) error
+	ListPermissions(ctx context.Context, botID, operatorID int64) ([]model.BotPermission, error)
+	RunAgentTask(ctx context.Context, botID, userID, conversationID int64, taskType, question string) (string, error)
+	GetBotByAgentUserID(ctx context.Context, agentUserID int64) (*model.Bot, error)
 }
 
 type botServiceImpl struct {
-	botRepo      dao.BotRepository
-	routeRepo    dao.RouteRepository
-	billingRepo  dao.BillingRepository
-	agentCache   map[int64]adk.Agent
-	sessionStore *component.Store
-	mu           sync.RWMutex
+	botRepo        dao.BotRepository
+	permissionRepo dao.PermissionRepository
+	routeRepo      dao.RouteRepository
+	billingRepo    dao.BillingRepository
+	runtimeClient  botruntimeservice.Client
+	userClient     userservice.Client
+	workspaceBase  string
 }
 
 // NewBotService keeps Bot metadata in MySQL and conversational memory on disk.
 // The in-memory agent cache avoids rebuilding the same LLM agent for every chat
 // turn, but UpdateBot/DeleteBot invalidate it when configuration changes.
-func NewBotService(botRepo dao.BotRepository, routeRepo dao.RouteRepository, billingRepo dao.BillingRepository, sessionDir string) BotService {
-	var store *component.Store
-	if sessionDir != "" {
-		var err error
-		store, err = component.NewStore(sessionDir)
-		if err != nil {
-			log.Printf("创建会话存储失败: %v，记忆功能将不可用", err)
-		} else {
-			log.Printf("会话存储已初始化: %s", sessionDir)
-		}
-	} else {
-		log.Println("未配置session_dir，记忆功能将不可用")
-	}
-
+func NewBotService(botRepo dao.BotRepository, permissionRepo dao.PermissionRepository, routeRepo dao.RouteRepository, billingRepo dao.BillingRepository, runtimeClient botruntimeservice.Client, userClient userservice.Client, workspaceBase string) BotService {
 	return &botServiceImpl{
-		botRepo:      botRepo,
-		routeRepo:    routeRepo,
-		billingRepo:  billingRepo,
-		agentCache:   make(map[int64]adk.Agent),
-		sessionStore: store,
+		botRepo:        botRepo,
+		permissionRepo: permissionRepo,
+		routeRepo:      routeRepo,
+		billingRepo:    billingRepo,
+		runtimeClient:  runtimeClient,
+		userClient:     userClient,
+		workspaceBase:  workspaceBase,
 	}
 }
 
@@ -74,7 +68,7 @@ func NewBotService(botRepo dao.BotRepository, routeRepo dao.RouteRepository, bil
 //
 // Internal bots inherit the system default provider credentials; custom bots
 // must provide their own API key and base URL.
-func (s *botServiceImpl) CreateBot(ctx context.Context, name, botType, description, modelName, apiKey, baseURL, systemPrompt, skillsDir, agentRoot string, ownerID int64, defaultAPIKey, defaultBaseURL, defaultModel string) (*model.Bot, error) {
+func (s *botServiceImpl) CreateBot(ctx context.Context, name, botType, description, modelName, apiKey, baseURL, systemPrompt, skillsDir, agentRoot, avatar, signature, workspaceRoot, toolPolicy string, ownerID int64, defaultAPIKey, defaultBaseURL, defaultModel string) (*model.Bot, error) {
 	if name == "" {
 		return nil, errors.New("bot名称不能为空")
 	}
@@ -105,30 +99,55 @@ func (s *botServiceImpl) CreateBot(ctx context.Context, name, botType, descripti
 		}
 	}
 
+	if toolPolicy == "" {
+		toolPolicy = "safe"
+	}
+	if signature == "" {
+		signature = description
+	}
+	agentUserID := int64(0)
+	if s.userClient != nil {
+		var err error
+		agentUserID, err = s.createAgentUser(ctx, name, description)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	bot := &model.Bot{
-		Name:         name,
-		Type:         botType,
-		Description:  description,
-		ModelName:    effectiveModel,
-		APIKey:       effectiveAPIKey,
-		BaseURL:      effectiveBaseURL,
-		SystemPrompt: systemPrompt,
-		SkillsDir:    skillsDir,
-		AgentRoot:    agentRoot,
-		OwnerID:      ownerID,
-		IsActive:     true,
+		Name:          name,
+		Type:          botType,
+		Description:   description,
+		ModelName:     effectiveModel,
+		APIKey:        effectiveAPIKey,
+		BaseURL:       effectiveBaseURL,
+		SystemPrompt:  systemPrompt,
+		SkillsDir:     skillsDir,
+		AgentRoot:     agentRoot,
+		AgentUserID:   agentUserID,
+		Avatar:        avatar,
+		Signature:     signature,
+		WorkspaceRoot: workspaceRoot,
+		ToolPolicy:    toolPolicy,
+		OwnerID:       ownerID,
+		IsActive:      true,
 	}
 
 	if err := s.botRepo.CreateBot(ctx, bot); err != nil {
 		return nil, err
 	}
+	if bot.WorkspaceRoot == "" {
+		bot.WorkspaceRoot = defaultWorkspaceRoot(s.workspaceBase, bot.ID)
+		_ = s.botRepo.UpdateBot(ctx, bot)
+	}
+	_ = s.permissionRepo.UpsertPermission(ctx, &model.BotPermission{BotID: bot.ID, UserID: ownerID, Role: "owner"})
 
 	log.Printf("Bot创建成功: %s (id=%d, type=%s)", name, bot.ID, botType)
 	return bot, nil
 }
 
 // UpdateBot modifies bot settings and invalidates the cached runtime agent.
-func (s *botServiceImpl) UpdateBot(ctx context.Context, botID, operatorID int64, name, description, modelName, apiKey, baseURL, systemPrompt, skillsDir, agentRoot string, isActive bool, defaultAPIKey, defaultBaseURL, defaultModel string) error {
+func (s *botServiceImpl) UpdateBot(ctx context.Context, botID, operatorID int64, name, description, modelName, apiKey, baseURL, systemPrompt, skillsDir, agentRoot, avatar, signature, workspaceRoot, toolPolicy string, isActive bool, isActiveSet bool, defaultAPIKey, defaultBaseURL, defaultModel string) error {
 	bot, err := s.botRepo.GetBotByID(ctx, botID)
 	if err != nil {
 		return err
@@ -136,8 +155,8 @@ func (s *botServiceImpl) UpdateBot(ctx context.Context, botID, operatorID int64,
 	if bot == nil {
 		return errors.New("bot不存在")
 	}
-	if bot.OwnerID != operatorID {
-		return errors.New("只能修改自己创建的bot")
+	if err := s.requireRole(ctx, bot, operatorID, "admin"); err != nil {
+		return err
 	}
 
 	if name != "" {
@@ -174,16 +193,27 @@ func (s *botServiceImpl) UpdateBot(ctx context.Context, botID, operatorID int64,
 	}
 	if agentRoot != "" {
 		bot.AgentRoot = agentRoot
+		bot.WorkspaceRoot = agentRoot
 	}
-	bot.IsActive = isActive
+	if avatar != "" {
+		bot.Avatar = avatar
+	}
+	if signature != "" {
+		bot.Signature = signature
+	}
+	if workspaceRoot != "" {
+		bot.WorkspaceRoot = workspaceRoot
+	}
+	if toolPolicy != "" {
+		bot.ToolPolicy = toolPolicy
+	}
+	if isActiveSet {
+		bot.IsActive = isActive
+	}
 
 	if err := s.botRepo.UpdateBot(ctx, bot); err != nil {
 		return err
 	}
-
-	s.mu.Lock()
-	delete(s.agentCache, botID)
-	s.mu.Unlock()
 
 	log.Printf("Bot更新成功: id=%d", botID)
 	return nil
@@ -217,10 +247,6 @@ func (s *botServiceImpl) DeleteBot(ctx context.Context, botID, operatorID int64)
 		return err
 	}
 
-	s.mu.Lock()
-	delete(s.agentCache, botID)
-	s.mu.Unlock()
-
 	log.Printf("Bot删除成功: id=%d", botID)
 	return nil
 }
@@ -249,126 +275,48 @@ func (s *botServiceImpl) ChatWithBot(ctx context.Context, botID, userID, convers
 		return "", conversationID, errors.New("bot未配置Base URL，请联系管理员或配置自部署Bot的Base URL")
 	}
 
-	ag, err := s.getOrCreateAgent(ctx, botInfo)
-	if err != nil {
-		return "", conversationID, fmt.Errorf("创建Agent失败: %w", err)
+	if err := s.requireRole(ctx, botInfo, userID, "operator"); err != nil {
+		return "", conversationID, err
 	}
-
-	// Conversation ID scopes memory so the same Bot can behave independently in
-	// different chats. This is the AIM bridge: AI replies are driven by IM context.
-	sessionID := fmt.Sprintf("bot_%d_conv_%d", botID, conversationID)
-
-	var historyMsgs []adk.Message
-	if s.sessionStore != nil {
-		session, sessErr := s.sessionStore.GetSession(sessionID)
-		if sessErr != nil {
-			log.Printf("获取会话记忆失败: %v，将不使用历史记忆", sessErr)
-		} else {
-			historyMsgs = session.GetMessages()
-			log.Printf("加载会话记忆: session=%s, 历史消息数=%d", sessionID, len(historyMsgs))
-		}
+	if s.runtimeClient == nil {
+		return "", conversationID, errors.New("bot-runtime-service未配置")
 	}
-
-	userMsg := schema.UserMessage(message)
-
-	inputMsgs := make([]adk.Message, 0, len(historyMsgs)+1)
-	inputMsgs = append(inputMsgs, historyMsgs...)
-	inputMsgs = append(inputMsgs, userMsg)
-
-	startTime := time.Now()
-	iter := ag.Run(ctx, &adk.AgentInput{
-		Messages: inputMsgs,
+	resp, err := s.runtimeClient.RunAgent(ctx, &bot_runtime.RunAgentReq{
+		Bot:            s.runtimeConfig(botInfo),
+		UserId:         userID,
+		ConversationId: conversationID,
+		Input:          message,
 	})
-
-	var reply string
-	var replyCollector botReplyCollector
-	var usage modelTokenUsage
-	for {
-		event, ok := iter.Next()
-		if !ok {
-			break
-		}
-		if event.Err != nil {
-			s.recordBilling(ctx, botID, userID, conversationID, "chat_error", 0, 0, 0, botInfo.ModelName)
-			return "", conversationID, fmt.Errorf("对话失败: %w", event.Err)
-		}
-		if event.Output != nil && event.Output.MessageOutput != nil {
-			msg, err := event.Output.MessageOutput.GetMessage()
-			if err == nil && msg != nil {
-				replyCollector.mergeResolvedMessage(event.Output.MessageOutput.Role, msg)
-				usage.mergeMessageUsage(msg)
-			}
-		}
+	if err != nil {
+		s.recordBilling(ctx, botID, userID, conversationID, "chat_error", 0, 0, 0, botInfo.ModelName)
+		return "", conversationID, err
 	}
-
-	elapsed := time.Since(startTime)
-	reply = replyCollector.String()
-
-	if reply == "" {
-		s.recordBilling(ctx, botID, userID, conversationID, "chat_empty", 0, 0, 0, botInfo.ModelName)
-		return "", conversationID, errors.New("对话返回为空")
-	}
-
-	if s.sessionStore != nil {
-		session, sessErr := s.sessionStore.GetSession(sessionID)
-		if sessErr == nil {
-			if appendErr := session.Append(userMsg); appendErr != nil {
-				log.Printf("保存用户消息到记忆失败: %v", appendErr)
-			}
-			assistantMsg := schema.AssistantMessage(reply, nil)
-			if appendErr := session.Append(assistantMsg); appendErr != nil {
-				log.Printf("保存AI回复到记忆失败: %v", appendErr)
-			}
-			log.Printf("会话记忆已保存: session=%s", sessionID)
+	if resp == nil || !resp.Success {
+		s.recordBilling(ctx, botID, userID, conversationID, "chat_error", 0, 0, 0, botInfo.ModelName)
+		if resp != nil && resp.Msg != "" {
+			return "", conversationID, errors.New(resp.Msg)
 		}
+		return "", conversationID, errors.New("Agent执行失败")
 	}
-
-	inputTokens := usage.InputTokens
-	outputTokens := usage.OutputTokens
+	inputTokens := int64(0)
+	outputTokens := int64(0)
+	usageSeen := false
+	if resp.Usage != nil {
+		inputTokens = resp.Usage.InputTokens
+		outputTokens = resp.Usage.OutputTokens
+		usageSeen = resp.Usage.UsageSeen
+	}
 	actualCost := tokenCost(botInfo.ModelName, inputTokens, outputTokens)
 	action := "chat"
-	if !usage.Seen {
+	if !usageSeen {
 		action = "chat_usage_missing"
-		log.Printf("Bot对话缺少模型usage，计费token按0记录: bot_id=%d, user_id=%d, session=%s", botID, userID, sessionID)
 	}
 	s.recordBilling(ctx, botID, userID, conversationID, action, inputTokens, outputTokens, actualCost, botInfo.ModelName)
 
-	log.Printf("Bot对话完成: bot_id=%d, user_id=%d, session=%s, input_tokens=%d, output_tokens=%d, cost=%.6f, usage_seen=%v, elapsed=%v",
-		botID, userID, sessionID, inputTokens, outputTokens, actualCost, usage.Seen, elapsed)
+	log.Printf("Bot对话完成: bot_id=%d, user_id=%d, input_tokens=%d, output_tokens=%d, cost=%.6f, usage_seen=%v",
+		botID, userID, inputTokens, outputTokens, actualCost, usageSeen)
 
-	return reply, conversationID, nil
-}
-
-func (s *botServiceImpl) getOrCreateAgent(ctx context.Context, botInfo *model.Bot) (adk.Agent, error) {
-	s.mu.RLock()
-	if ag, ok := s.agentCache[botInfo.ID]; ok {
-		s.mu.RUnlock()
-		return ag, nil
-	}
-	s.mu.RUnlock()
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if ag, ok := s.agentCache[botInfo.ID]; ok {
-		return ag, nil
-	}
-
-	chatModel, err := component.NewChatModel(ctx, botInfo.APIKey, botInfo.BaseURL, botInfo.ModelName)
-	if err != nil {
-		return nil, fmt.Errorf("创建ChatModel失败: %w", err)
-	}
-
-	// Internal bots receive the project's built-in tool set; custom bots can be
-	// configured as lighter external assistants with their own model endpoint.
-	includeDomainTools := botInfo.Name == "Amiya" || botInfo.Type == "internal"
-	ag, err := agent.NewDeepAgent(ctx, chatModel, botInfo.AgentRoot, "", "", botInfo.SkillsDir, botInfo.Name, botInfo.Description, botInfo.SystemPrompt, includeDomainTools)
-	if err != nil {
-		return nil, fmt.Errorf("创建Agent失败: %w", err)
-	}
-
-	s.agentCache[botInfo.ID] = ag
-	return ag, nil
+	return resp.Reply, conversationID, nil
 }
 
 func (s *botServiceImpl) recordBilling(ctx context.Context, botID, userID, conversationID int64, action string, inputTokens, outputTokens int64, cost float64, modelName string) {
@@ -394,77 +342,105 @@ type modelTokenUsage struct {
 	Seen         bool
 }
 
-type botReplyCollector struct {
-	parts []string
-}
-
-func (r *botReplyCollector) mergeMessage(output *adk.MessageVariant) {
-	if output == nil {
-		return
-	}
-	msg, err := output.GetMessage()
-	if err != nil {
-		return
-	}
-	r.mergeResolvedMessage(output.Role, msg)
-}
-
-func (r *botReplyCollector) mergeResolvedMessage(role schema.RoleType, msg *schema.Message) {
-	if msg == nil {
-		return
-	}
-	if role != "" && role != schema.Assistant {
-		return
-	}
-	if msg.Role != "" && msg.Role != schema.Assistant {
-		return
-	}
-	content := strings.TrimSpace(msg.Content)
-	if content == "" {
-		return
-	}
-	if len(r.parts) > 0 && r.parts[len(r.parts)-1] == content {
-		return
-	}
-	r.parts = append(r.parts, content)
-}
-
-// String joins assistant message chunks into the final visible bot reply.
-func (r *botReplyCollector) String() string {
-	if len(r.parts) == 0 {
-		return ""
-	}
-	var sb strings.Builder
-	for _, part := range r.parts {
-		if sb.Len() > 0 && needsReplySpace(sb.String(), part) {
-			sb.WriteByte(' ')
+func (s *botServiceImpl) createAgentUser(ctx context.Context, name, description string) (int64, error) {
+	username := fmt.Sprintf("agent_%d", timeNowUnixNano())
+	resp, err := s.userClient.Register(ctx, &user.RegisterReq{
+		Username: username,
+		Password: fmt.Sprintf("agent-%d", timeNowUnixNano()),
+		Nickname: name,
+		IsSystem: true,
+	})
+	if err != nil || resp == nil || !resp.Success {
+		log.Printf("创建Agent系统用户失败: err=%v resp=%v", err, resp)
+		if err != nil {
+			return 0, fmt.Errorf("创建Agent系统用户失败: %w", err)
 		}
-		sb.WriteString(part)
+		msg := "user-service返回失败"
+		if resp != nil && resp.Msg != "" {
+			msg = resp.Msg
+		}
+		return 0, fmt.Errorf("创建Agent系统用户失败: %s", msg)
 	}
-	return strings.TrimSpace(sb.String())
+	if description != "" {
+		_, _ = s.userClient.UpdateUserInfo(ctx, &user.UpdateUserInfoReq{
+			UserId:     resp.UserId,
+			Nickname:   name,
+			Signature:  description,
+			FullUpdate: false,
+		})
+	}
+	return resp.UserId, nil
 }
 
-func needsReplySpace(prev, next string) bool {
-	if prev == "" || next == "" {
-		return false
+func (s *botServiceImpl) requireRole(ctx context.Context, bot *model.Bot, userID int64, minRole string) error {
+	if bot.OwnerID == userID {
+		return nil
 	}
-	last := []rune(prev)[len([]rune(prev))-1]
-	first := []rune(next)[0]
-	return isASCIIWord(last) && isASCIIWord(first)
+	permission, err := s.permissionRepo.GetPermission(ctx, bot.ID, userID)
+	if err != nil {
+		return err
+	}
+	if permission == nil {
+		return errors.New("无权操作该Agent")
+	}
+	if roleRank(permission.Role) < roleRank(minRole) {
+		return errors.New("Agent权限不足")
+	}
+	return nil
 }
 
-func isASCIIWord(r rune) bool {
-	return (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9')
+func roleRank(role string) int {
+	switch role {
+	case "owner":
+		return 4
+	case "admin":
+		return 3
+	case "operator":
+		return 2
+	case "viewer":
+		return 1
+	default:
+		return 0
+	}
 }
 
-func (u *modelTokenUsage) mergeMessageUsage(msg *schema.Message) {
-	if msg == nil || msg.ResponseMeta == nil || msg.ResponseMeta.Usage == nil {
-		return
+func validPermissionRole(role string) bool {
+	return role == "admin" || role == "operator" || role == "viewer"
+}
+
+func (s *botServiceImpl) runtimeConfig(bot *model.Bot) *bot_runtime.RuntimeBotConfig {
+	workspace := bot.WorkspaceRoot
+	if workspace == "" {
+		workspace = defaultWorkspaceRoot(s.workspaceBase, bot.ID)
 	}
-	usage := msg.ResponseMeta.Usage
-	u.Seen = true
-	u.InputTokens += int64(usage.PromptTokens)
-	u.OutputTokens += int64(usage.CompletionTokens)
+	return &bot_runtime.RuntimeBotConfig{
+		BotId:              bot.ID,
+		AgentUserId:        bot.AgentUserID,
+		Name:               bot.Name,
+		Description:        bot.Description,
+		ModelName:          bot.ModelName,
+		ApiKey:             bot.APIKey,
+		BaseUrl:            bot.BaseURL,
+		SystemPrompt:       bot.SystemPrompt,
+		SkillsDir:          bot.SkillsDir,
+		WorkspaceRoot:      workspace,
+		ToolPolicy:         bot.ToolPolicy,
+		IncludeDomainTools: bot.Name == "Amiya" || bot.Type == "internal",
+	}
+}
+
+func defaultWorkspaceRoot(base string, botID int64) string {
+	if base == "" {
+		base = "storage/agent/workspaces"
+	}
+	if botID <= 0 {
+		return filepath.Join(base, "pending")
+	}
+	return filepath.Join(base, fmt.Sprintf("%d", botID))
+}
+
+func timeNowUnixNano() int64 {
+	return time.Now().UnixNano()
 }
 
 func tokenCost(modelName string, inputTokens, outputTokens int64) float64 {
@@ -526,4 +502,123 @@ func (s *botServiceImpl) GetBilling(ctx context.Context, botID, userID int64, li
 		limit = 20
 	}
 	return s.billingRepo.ListRecords(ctx, botID, userID, limit, offset)
+}
+
+// GrantPermission allows Agent owners/admins to share operation access.
+func (s *botServiceImpl) GrantPermission(ctx context.Context, botID, operatorID, userID int64, role string) error {
+	if !validPermissionRole(role) {
+		return errors.New("无效的Agent权限角色")
+	}
+	bot, err := s.botRepo.GetBotByID(ctx, botID)
+	if err != nil {
+		return err
+	}
+	if bot == nil {
+		return errors.New("bot不存在")
+	}
+	if err := s.requireRole(ctx, bot, operatorID, "admin"); err != nil {
+		return err
+	}
+	if userID == bot.OwnerID {
+		return errors.New("不能修改创建者权限")
+	}
+	return s.permissionRepo.UpsertPermission(ctx, &model.BotPermission{BotID: botID, UserID: userID, Role: role})
+}
+
+// RevokePermission removes a collaborator role.
+func (s *botServiceImpl) RevokePermission(ctx context.Context, botID, operatorID, userID int64) error {
+	bot, err := s.botRepo.GetBotByID(ctx, botID)
+	if err != nil {
+		return err
+	}
+	if bot == nil {
+		return errors.New("bot不存在")
+	}
+	if err := s.requireRole(ctx, bot, operatorID, "admin"); err != nil {
+		return err
+	}
+	if userID == bot.OwnerID {
+		return errors.New("不能撤销创建者权限")
+	}
+	return s.permissionRepo.DeletePermission(ctx, botID, userID)
+}
+
+// ListPermissions returns collaborator roles after viewer-level access.
+func (s *botServiceImpl) ListPermissions(ctx context.Context, botID, operatorID int64) ([]model.BotPermission, error) {
+	bot, err := s.botRepo.GetBotByID(ctx, botID)
+	if err != nil {
+		return nil, err
+	}
+	if bot == nil {
+		return nil, errors.New("bot不存在")
+	}
+	if err := s.requireRole(ctx, bot, operatorID, "viewer"); err != nil {
+		return nil, err
+	}
+	return s.permissionRepo.ListPermissions(ctx, botID)
+}
+
+// RunAgentTask delegates structured Agent tasks to bot-runtime-service.
+func (s *botServiceImpl) RunAgentTask(ctx context.Context, botID, userID, conversationID int64, taskType, question string) (string, error) {
+	bot, err := s.botRepo.GetBotByID(ctx, botID)
+	if err != nil {
+		return "", err
+	}
+	if bot == nil {
+		return "", errors.New("bot不存在")
+	}
+	if err := s.requireRole(ctx, bot, userID, "operator"); err != nil {
+		return "", err
+	}
+	if s.runtimeClient == nil {
+		return "", errors.New("bot-runtime-service未配置")
+	}
+	req := &bot_runtime.AgentTaskReq{
+		Bot:            s.runtimeConfig(bot),
+		UserId:         userID,
+		ConversationId: conversationID,
+		TaskType:       taskType,
+		Question:       question,
+	}
+	var resp *bot_runtime.AgentTaskResp
+	switch taskType {
+	case "summary":
+		resp, err = s.runtimeClient.SummarizeConversation(ctx, req)
+	case "ask":
+		resp, err = s.runtimeClient.AskConversation(ctx, req)
+	case "insights":
+		resp, err = s.runtimeClient.ExtractInsights(ctx, req)
+	case "reply_candidates":
+		resp, err = s.runtimeClient.GenerateReplyCandidates(ctx, req)
+	default:
+		return "", errors.New("未知Agent任务类型")
+	}
+	if err != nil {
+		return "", err
+	}
+	if resp == nil || !resp.Success {
+		if resp != nil && resp.Msg != "" {
+			return "", errors.New(resp.Msg)
+		}
+		return "", errors.New("Agent任务执行失败")
+	}
+	usage := resp.Usage
+	inputTokens, outputTokens := int64(0), int64(0)
+	usageSeen := false
+	if usage != nil {
+		inputTokens = usage.InputTokens
+		outputTokens = usage.OutputTokens
+		usageSeen = usage.UsageSeen
+	}
+	action := taskType
+	if !usageSeen {
+		action = taskType + "_usage_missing"
+	}
+	s.recordBilling(ctx, botID, userID, conversationID, action, inputTokens, outputTokens, tokenCost(bot.ModelName, inputTokens, outputTokens), bot.ModelName)
+	return resp.Result_, nil
+}
+
+// GetBotByAgentUserID finds an Agent config from its IM user identity.
+func (s *botServiceImpl) GetBotByAgentUserID(ctx context.Context, agentUserID int64) (*model.Bot, error) {
+	return s.botRepo.GetBotByAgentUserID(ctx, agentUserID)
 }

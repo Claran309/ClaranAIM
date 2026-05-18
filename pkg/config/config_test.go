@@ -50,13 +50,19 @@ service:
 	if secondCfg.Kafka.ClientID != "second-service" {
 		t.Fatalf("second Kafka client id = %q, want second-service", secondCfg.Kafka.ClientID)
 	}
-	if secondCfg.Governance.RPC.TimeoutMS != 5000 {
-		t.Fatalf("second RPC timeout = %d, want default 5000", secondCfg.Governance.RPC.TimeoutMS)
+	if secondCfg.Governance.RPC.TimeoutMS != 60000 {
+		t.Fatalf("second RPC timeout = %d, want default 60000", secondCfg.Governance.RPC.TimeoutMS)
 	}
 	if !secondCfg.DTM.Enabled {
 		t.Fatal("second DTM enabled = false, want default true")
 	}
 	if secondCfg.DTM.Server != "http://localhost:36789" {
 		t.Fatalf("second DTM server = %q, want http://localhost:36789", secondCfg.DTM.Server)
+	}
+	if secondCfg.DTM.GroupServiceURL != "http://127.0.0.1:9102" {
+		t.Fatalf("second DTM group service url = %q, want http://127.0.0.1:9102", secondCfg.DTM.GroupServiceURL)
+	}
+	if secondCfg.DTM.MsgCoreServiceURL != "http://127.0.0.1:9103" {
+		t.Fatalf("second DTM msg-core service url = %q, want http://127.0.0.1:9103", secondCfg.DTM.MsgCoreServiceURL)
 	}
 }

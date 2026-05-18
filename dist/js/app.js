@@ -14,6 +14,12 @@ let mediaPayloadCache = {};
 let currentMessages = [];
 let pendingReplyMessage = null;
 let currentConversationRecipientCount = 0;
+let botCache = [];
+let agentUserIDToBot = {};
+let groupMembersCache = {};
+let avatarLongPressTimer = null;
+let pendingMentionTargets = {};
+let botCreateSubmitting = false;
 const LOCAL_LOG_KEY = 'claran_frontend_logs';
 const LOCAL_LOG_LIMIT = 500;
 
@@ -112,6 +118,44 @@ document.addEventListener('keydown', event => {
 
 function sameID(a, b) {
     return String(a) === String(b);
+}
+
+function escapeRegExp(value) {
+    return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function agentRoleLabel(role) {
+    const labels = {
+        owner: '创建者',
+        admin: '协管员',
+        operator: '使用者',
+        viewer: '查看者',
+    };
+    return labels[role] || role || '未知权限';
+}
+
+function toolPolicyLabel(policy) {
+    const labels = {
+        safe: '常规模式',
+        approval_required: '操作前确认',
+        readonly: '只读模式',
+        disabled: '禁用工具',
+    };
+    return labels[policy] || policy || '常规模式';
+}
+
+function agentSourceLabel(type) {
+    return type === 'custom' ? '自定义模型' : '系统模型';
+}
+
+function routeTypeLabel(type) {
+    const labels = {
+        exact: '精确匹配',
+        prefix: '前缀匹配',
+        regex: '规则匹配',
+        keyword: '关键词匹配',
+    };
+    return labels[type] || type || '未知规则';
 }
 
 function jsArg(value) {
@@ -338,12 +382,112 @@ function setPendingReply(messageID) {
 
 function extractMentions(content) {
     const ids = [];
-    const re = /@(\d+)/g;
+    const re = /@\[(?:[^\]]+)\]\((\d+)\)|@(\d+)/g;
     let match;
     while ((match = re.exec(content || '')) !== null) {
-        ids.push(match[1]);
+        const id = match[1] || match[2];
+        if (!sameID(id, currentUser.id)) ids.push(id);
     }
+    const pendingKey = String(currentConversationID || '');
+    (pendingMentionTargets[pendingKey] || []).forEach(item => {
+        const namePattern = new RegExp(`(^|\\s)@${escapeRegExp(item.name)}(?=\\s|$)`);
+        if (namePattern.test(content || '') && !sameID(item.id, currentUser.id)) {
+            ids.push(item.id);
+        }
+    });
     return [...new Set(ids)];
+}
+
+function insertMention(userID, displayName) {
+    const input = document.getElementById('msg-input');
+    if (!input) return;
+    if (sameID(userID, currentUser.id)) {
+        showToast('不能 @ 自己', 'warning');
+        return;
+    }
+    const name = displayName || ('用户' + userID);
+    const token = `@${name} `;
+    const start = input.selectionStart || input.value.length;
+    const end = input.selectionEnd || input.value.length;
+    input.value = input.value.slice(0, start) + token + input.value.slice(end);
+    const pendingKey = String(currentConversationID || '');
+    pendingMentionTargets[pendingKey] = (pendingMentionTargets[pendingKey] || []).filter(item => !sameID(item.id, userID));
+    pendingMentionTargets[pendingKey].push({ id: String(userID), name });
+    input.focus();
+    input.selectionStart = input.selectionEnd = start + token.length;
+    closeModal();
+}
+
+function startAvatarMentionPress(event, userID, displayName) {
+    if (event.button !== undefined && event.button !== 0) return;
+    clearTimeout(avatarLongPressTimer);
+    avatarLongPressTimer = setTimeout(() => {
+        avatarLongPressTimer = null;
+        mentionFromAvatar(userID, displayName);
+    }, 520);
+}
+
+function cancelAvatarMentionPress() {
+    if (avatarLongPressTimer) {
+        clearTimeout(avatarLongPressTimer);
+        avatarLongPressTimer = null;
+    }
+}
+
+function mentionFromAvatar(userID, displayName) {
+    cancelAvatarMentionPress();
+    if (!currentConversationID || currentConversationType !== 'group') {
+        showToast('只有群聊里可以 @ 成员', 'warning');
+        return;
+    }
+    if (!userID || sameID(userID, currentUser.id)) return;
+    insertMention(userID, displayName || getUserName(userID));
+    showToast(`已插入 @${displayName || getUserName(userID)}`, 'success');
+}
+
+async function showMentionPicker() {
+    if (!currentConversationID || currentConversationType !== 'group') {
+        showToast('@ 仅支持群聊', 'warning');
+        return;
+    }
+    const groupID = conversationGroupMap[currentConversationID];
+    if (!groupID) {
+        showToast('无法获取当前群组', 'warning');
+        return;
+    }
+    const members = await getGroupMembersCached(groupID, true);
+    if (!members.length) {
+        showToast('当前没有可 @ 的成员', 'warning');
+        return;
+    }
+    const mentionableMembers = members.filter(m => !sameID(m.user_id, currentUser.id));
+    showModal('@ 成员', `
+        <div class="mention-grid">
+            <button class="mention-item mention-all" onclick="insertRawMentionAll()">所有人</button>
+            ${mentionableMembers.map(m => {
+                const userID = m.user_id;
+                const agent = getAgentBotByUserID(userID);
+                const name = agent ? getBotDisplayName(agent) : getUserName(userID);
+                const avatar = agent && agent.avatar ? renderAvatarHTML(agent.avatar, 'A', 'small agent-avatar') : `<div class="avatar small">${getUserAvatarHTML(userID, 'small')}</div>`;
+                return `
+                    <button class="mention-item" onclick="insertMention(${jsArg(userID)}, ${jsStringArg(name)})">
+                        ${avatar}
+                        <span>${escapeHTML(name)}</span>
+                        ${agent ? '<em>智能助手</em>' : ''}
+                    </button>
+                `;
+            }).join('')}
+        </div>
+    `);
+}
+
+function insertRawMentionAll() {
+    const input = document.getElementById('msg-input');
+    if (!input) return;
+    const start = input.selectionStart || input.value.length;
+    input.value = input.value.slice(0, start) + '@所有人 ' + input.value.slice(input.selectionEnd || start);
+    input.focus();
+    closeModal();
 }
 
 function applyMessageStateUpdate(data) {
@@ -532,6 +676,9 @@ async function logout() {
     conversationGroupMap = {};
     friendsCache = [];
     groupsCache = [];
+    botCache = [];
+    agentUserIDToBot = {};
+    groupMembersCache = {};
     userNickCache = {};
     conversationNameCache = {};
     friendRemarkCache = {};
@@ -582,9 +729,24 @@ async function enterMainPage() {
 
     updateUnreadBadge();
     await loadGroups();
+    await refreshAgentCache();
     loadConversations();
     loadFriends();
     connectWS();
+}
+
+async function refreshAgentCache() {
+    const resp = await botAPI.list();
+    if (!(resp && resp.code === 0 && resp.data && resp.data.bots)) return;
+    botCache = resp.data.bots;
+    agentUserIDToBot = {};
+    botCache.forEach(bot => {
+        if (bot.agent_user_id) {
+            agentUserIDToBot[String(bot.agent_user_id)] = bot;
+            userNickCache[bot.agent_user_id] = getBotDisplayName(bot);
+            if (bot.avatar) userAvatarCache[bot.agent_user_id] = bot.avatar;
+        }
+    });
 }
 
 async function loadConversations() {
@@ -711,6 +873,7 @@ function resetChatView(message = '已删除会话，可通过搜索历史消息�
     document.getElementById('welcome-area').style.display = 'flex';
     document.getElementById('message-list').innerHTML = '';
     document.getElementById('group-announcement-bar').style.display = 'none';
+    document.getElementById('mention-btn').style.display = 'none';
     if (message) showToast(message, 'success');
 }
 
@@ -737,10 +900,14 @@ async function loadFriends() {
         friendsCache = resp.data.friends;
         const friends = friendsCache;
         if (friends.length === 0) {
-            list.innerHTML = '<div class="empty-tip">暂无好友<br><small>点击右上角「+ 添加」添加好友</small></div>';
+            list.innerHTML = '<div class="empty-tip">暂无好友<br><small>点击右上角「+ 添加」添加好友</small><br><button class="btn-inline" onclick="showCreateFriendGroup()">新建分组</button></div>';
             return;
         }
 
+        const groupsResp = await userAPI.getFriendGroups();
+        const friendGroups = groupsResp && groupsResp.code === 0 && groupsResp.data && groupsResp.data.groups ? groupsResp.data.groups : [];
+        const groupNames = {};
+        friendGroups.forEach(g => { groupNames[g.id] = g.name; });
         friends.forEach(f => {
             if (f.friend_id) {
                 userNickCache[f.friend_id] = f.friend_name || '用户' + f.friend_id;
@@ -755,7 +922,13 @@ async function loadFriends() {
             }
         });
 
-        list.innerHTML = friends.map(f => {
+        const groupsBar = `
+            <div class="friend-group-bar">
+                <span>分组 ${friendGroups.length}</span>
+                <button class="btn-small-outline" onclick="showCreateFriendGroup()">新建分组</button>
+            </div>
+        `;
+        list.innerHTML = groupsBar + friends.map(f => {
             const statusClass = f.friend_status === 'online' ? 'online' : 'offline';
             const statusDot = f.friend_status === 'online' ? '●' : '○';
             const statusText = f.friend_status === 'online' ? '在线' : '离线';
@@ -766,7 +939,7 @@ async function loadFriends() {
                     ${avatarHTML}
                     <div class="list-item-info">
                         <div class="list-item-name">${escapeHTML(displayName)}</div>
-                        <div class="list-item-msg ${statusClass}">${statusDot} ${statusText}</div>
+                        <div class="list-item-msg ${statusClass}">${statusDot} ${statusText}${f.group_id && groupNames[f.group_id] ? ' · ' + escapeHTML(groupNames[f.group_id]) : ''}</div>
                     </div>
                     <div class="friend-actions">
                         <button class="btn-chat" onclick="showEditFriend(${jsArg(f.friend_id)}, ${jsStringArg(displayName)}, ${jsStringArg(f.remark || '')})">修改</button>
@@ -912,6 +1085,7 @@ async function openConversation(conversationID, type, isDeletedGroup = false) {
     document.getElementById('voice-record-btn').disabled = false;
     document.getElementById('msg-input').placeholder = '输入消息...';
     document.getElementById('broadcast-btn').style.display = type === 'group' ? 'inline-flex' : 'none';
+    document.getElementById('mention-btn').style.display = type === 'group' ? 'inline-flex' : 'none';
 
     const convName = await resolveConversationName(conversationID, type);
     if (openSeq !== conversationOpenSeq || !sameID(currentConversationID, targetConversationID) || currentBotID !== null) return;
@@ -1010,21 +1184,26 @@ function createMessageHTML(m) {
                 <div class="msg-avatar received">🤖</div>
                 <div class="msg-body">
                     <div class="msg-meta">
-                        <span class="message-sender">🤖 AI助手</span>
+                        <span class="message-sender">智能助手</span>
                     </div>
-                    <div class="message-bubble thinking"><div class="spinner"></div> AI思考中...</div>
+                    <div class="message-bubble thinking"><div class="spinner"></div> 智能助手处理中...</div>
                 </div>
             </div>
         `;
     }
     const isSent = sameID(m.sender_id, currentUser.id);
-    const isBot = sameID(m.sender_id, 0) || m.is_bot;
-    const senderName = isBot ? '🤖 AI助手' : (isSent ? '我' : getUserName(m.sender_id));
+    const agentBot = getAgentBotByUserID(m.sender_id);
+    const isBot = sameID(m.sender_id, 0) || m.is_bot || !!agentBot;
+    const senderName = agentBot ? getBotDisplayName(agentBot) : (isBot ? '智能助手' : (isSent ? '我' : getUserName(m.sender_id)));
     const time = m.created_at || '';
-    const avatarContent = isBot ? '🤖' : (isSent
+    const avatarContent = agentBot && agentBot.avatar ? `<img src="${escapeHTML(agentBot.avatar)}" class="avatar-img">` : (isBot ? 'A' : (isSent
         ? (currentUser.avatar ? `<img src="${currentUser.avatar}" class="avatar-img">` : (currentUser.nickname || currentUser.username).charAt(0).toUpperCase())
-        : getUserAvatarHTML(m.sender_id));
+        : getUserAvatarHTML(m.sender_id)));
     const avatarBg = isSent ? '' : 'received';
+    const mentionableAvatar = !isSent && currentConversationType === 'group' && m.sender_id && !sameID(m.sender_id, 0);
+    const avatarMentionAttrs = mentionableAvatar
+        ? ` title="长按或右键 @ ${escapeHTML(senderName)}" onpointerdown="startAvatarMentionPress(event, ${jsArg(m.sender_id)}, ${jsStringArg(senderName)})" onpointerup="cancelAvatarMentionPress()" onpointerleave="cancelAvatarMentionPress()" oncontextmenu="event.preventDefault(); mentionFromAvatar(${jsArg(m.sender_id)}, ${jsStringArg(senderName)})"`
+        : '';
     const messageID = m.id || m.msg_id || 0;
     const status = m.status || 'sent';
     const originalContent = status === 'recalled' ? '[消息已撤回]' : (m.content || '');
@@ -1039,6 +1218,7 @@ function createMessageHTML(m) {
     const actionsHTML = (!isBot && status !== 'recalled' && messageID) ? `
         <div class="message-actions">
             <button type="button" onclick="setPendingReply(${jsArg(messageID)})">回复</button>
+            <button type="button" onclick="deleteLocalMessage(${jsArg(messageID)})">删除</button>
             ${isSent ? `<button type="button" onclick="editMessage(${jsArg(messageID)})">编辑</button><button type="button" onclick="recallMessage(${jsArg(messageID)})">撤回</button>` : ''}
         </div>
     ` : '';
@@ -1046,7 +1226,7 @@ function createMessageHTML(m) {
     const errorClass = m.is_error ? 'error-bubble' : '';
     return `
         <div class="message-item ${isSent ? 'sent' : 'received'} ${isBot ? 'bot-msg' : ''}" data-message-id="${messageID}">
-            <div class="msg-avatar ${avatarBg}">${avatarContent}</div>
+            <div class="msg-avatar ${avatarBg} ${mentionableAvatar ? 'mentionable-avatar' : ''}"${avatarMentionAttrs}>${avatarContent}</div>
             <div class="msg-body">
                 <div class="msg-meta">
                     <span class="message-sender">${escapeHTML(senderName)}</span>
@@ -1097,6 +1277,7 @@ async function sendMessage() {
     const mentionUserIDs = extractMentions(content);
     const mentionAll = content.includes('@all') || content.includes('@所有人');
     input.value = '';
+    delete pendingMentionTargets[String(sendConversationID || '')];
 
     const now = new Date();
     const timeStr = now.getFullYear() + '-' +
@@ -1234,6 +1415,20 @@ async function recallMessage(messageID) {
     }
 }
 
+async function deleteLocalMessage(messageID) {
+    if (!currentConversationID || !messageID) return;
+    if (!confirm('只在你的本地消息历史中删除这条消息，其他人仍可看到。继续吗？')) return;
+    const resp = await messageAPI.deleteLocal(currentConversationID, messageID);
+    if (resp && resp.code === 0 && resp.data && resp.data.success) {
+        currentMessages = currentMessages.filter(m => !sameID(m.id || m.msg_id, messageID));
+        renderCurrentMessages();
+        showToast('本地消息已删除', 'success');
+        loadConversations();
+    } else {
+        showToast(resp?.data?.msg || '删除失败', 'error');
+    }
+}
+
 async function startPrivateChat(friendID) {
     const resp = await messageAPI.createConversation('private', [currentUser.id, friendID]);
     if (resp && resp.code === 0 && resp.data) {
@@ -1312,13 +1507,21 @@ function showEditFriend(friendID, displayName, currentRemark) {
             <label>好友备注</label>
             <input type="text" id="edit-friend-remark" value="${escapeHTML(currentRemark || displayName || '')}" placeholder="留空则显示好友昵称">
         </div>
+        <div class="form-group">
+            <label>好友分组</label>
+            <select id="edit-friend-group" class="form-select">
+                <option value="0">默认分组</option>
+            </select>
+        </div>
         <button class="btn-primary" onclick="saveFriendRemark(${jsArg(friendID)})">保存</button>
     `);
+    loadFriendGroupOptions('edit-friend-group', friendID);
 }
 
 async function saveFriendRemark(friendID) {
     const remark = document.getElementById('edit-friend-remark').value.trim();
-    const resp = await userAPI.updateFriendRemark(friendID, 0, remark);
+    const groupID = document.getElementById('edit-friend-group')?.value || 0;
+    const resp = await userAPI.updateFriendRemark(friendID, groupID, remark);
     if (resp && resp.code === 0 && resp.data && resp.data.success) {
         const friend = friendsCache.find(f => sameID(f.friend_id, friendID));
         const fallbackName = friend?.friend_name || userNickCache[friendID] || '用户' + friendID;
@@ -1340,6 +1543,18 @@ async function saveFriendRemark(friendID) {
     }
 }
 
+async function loadFriendGroupOptions(selectID, friendID = 0) {
+    const select = document.getElementById(selectID);
+    if (!select) return;
+    const resp = await userAPI.getFriendGroups();
+    if (!(resp && resp.code === 0 && resp.data && resp.data.groups)) return;
+    const friend = friendsCache.find(f => sameID(f.friend_id, friendID));
+    const currentGroupID = friend ? String(friend.group_id || 0) : '0';
+    select.innerHTML = '<option value="0">默认分组</option>' + resp.data.groups.map(g =>
+        `<option value="${escapeHTML(String(g.id))}" ${sameID(g.id, currentGroupID) ? 'selected' : ''}>${escapeHTML(g.name)}</option>`
+    ).join('');
+}
+
 function showAddFriend() {
     showModal('添加好友', `
         <div class="form-group">
@@ -1347,21 +1562,67 @@ function showAddFriend() {
             <input type="number" id="add-friend-id" placeholder="请输入用户ID">
         </div>
         <div class="form-group">
+            <label>好友分组</label>
+            <select id="add-friend-group" class="form-select">
+                <option value="0">默认分组</option>
+            </select>
+        </div>
+        <div class="form-group">
             <label>备注</label>
             <input type="text" id="add-friend-remark" placeholder="备注（可选）">
         </div>
         <button class="btn-primary" onclick="addFriend()">添加</button>
     `);
+    loadFriendGroupOptions('add-friend-group');
+}
+
+function showCreateFriendGroup() {
+    showModal('新建好友分组', `
+        <div class="form-group">
+            <label>分组名称</label>
+            <input type="text" id="friend-group-name" placeholder="例如：同学、项目组、家人" onkeydown="if(event.key==='Enter')createFriendGroup()">
+        </div>
+        <button class="btn-primary" onclick="createFriendGroup()">创建分组</button>
+    `);
+    setTimeout(() => document.getElementById('friend-group-name')?.focus(), 0);
+}
+
+async function createFriendGroup() {
+    const name = document.getElementById('friend-group-name')?.value.trim() || '';
+    if (!name) {
+        showToast('请输入分组名称', 'warning');
+        return;
+    }
+    const exists = await friendGroupNameExists(name);
+    if (exists) {
+        showToast('分组已存在', 'warning');
+        return;
+    }
+    const resp = await userAPI.createFriendGroup(name);
+    if (resp && resp.code === 0 && resp.data && resp.data.success) {
+        showToast('分组已创建', 'success');
+        closeModal();
+        loadFriends();
+    } else {
+        showToast(resp?.data?.msg || '创建失败', 'error');
+    }
+}
+
+async function friendGroupNameExists(name) {
+    const resp = await userAPI.getFriendGroups();
+    if (!(resp && resp.code === 0 && resp.data && resp.data.groups)) return false;
+    return resp.data.groups.some(g => (g.name || '').trim().toLowerCase() === name.trim().toLowerCase());
 }
 
 async function addFriend() {
     const friendID = document.getElementById('add-friend-id').value.trim();
     const remark = document.getElementById('add-friend-remark').value.trim();
+    const groupID = document.getElementById('add-friend-group')?.value || 0;
     if (!/^\d{10}$/.test(friendID)) {
         showToast('请输入有效的用户ID', 'warning');
         return;
     }
-    const resp = await userAPI.addFriend(friendID, 0, remark);
+    const resp = await userAPI.addFriend(friendID, groupID, remark);
     if (resp && resp.code === 0 && resp.data && resp.data.success) {
         closeModal();
         loadFriends();
@@ -1423,6 +1684,7 @@ async function showGroupMembers(groupID) {
     let membersHTML = '<div class="empty-tip">加载中...</div>';
     if (membersResp && membersResp.code === 0 && membersResp.data && membersResp.data.members) {
         const members = membersResp.data.members;
+        groupMembersCache[groupID] = members;
         if (members.length === 0) {
             membersHTML = '<div class="empty-tip">暂无成员</div>';
         } else {
@@ -1447,12 +1709,13 @@ async function showGroupMembers(groupID) {
                 <div class="member-list">
                     ${members.map(m => {
                         const roleClass = m.role === 'owner' ? 'owner' : (m.role === 'admin' ? 'admin' : '');
+                        const agent = getAgentBotByUserID(m.user_id);
                         const roleLabel = m.role === 'owner' ? '群主' : (m.role === 'admin' ? '管理员' : '成员');
                         const canKick = !sameID(currentUser.id, m.user_id) && m.role !== 'owner' && (isOwner || (isAdmin && m.role === 'member'));
                         const canMute = canManage && !sameID(currentUser.id, m.user_id) && m.role !== 'owner';
                         const canSetRole = isOwner && m.role !== 'owner';
-                        const memberName = getUserName(m.user_id);
-                        const avatarHTML = getUserAvatarHTML(m.user_id, 'small');
+                        const memberName = agent ? getBotDisplayName(agent) : getUserName(m.user_id);
+                        const avatarHTML = agent && agent.avatar ? `<img src="${escapeHTML(agent.avatar)}" class="avatar-img small">` : getUserAvatarHTML(m.user_id, 'small');
                         const isMuted = m.muted_until && m.muted_until !== '';
                         return `
                             <div class="member-item ${isMuted ? 'muted' : ''}">
@@ -1460,9 +1723,11 @@ async function showGroupMembers(groupID) {
                                 <div class="member-info">
                                     <span class="member-name">${escapeHTML(memberName)}</span>
                                     <span class="member-tag ${roleClass}">${roleLabel}</span>
+                                    ${agent ? '<span class="member-tag agent-tag">智能助手</span>' : ''}
                                     ${isMuted ? '<span class="member-tag muted-tag">🔇 禁言中</span>' : ''}
                                 </div>
                                 <div class="member-actions">
+                                    <button class="btn-kick" onclick="insertMention(${jsArg(m.user_id)}, ${jsStringArg(memberName)})">@</button>
                                     ${canMute && !isMuted ? `<button class="btn-kick" onclick="showMuteMember(${jsArg(groupID)}, ${jsArg(m.user_id)}, ${jsStringArg(memberName)})">禁言</button>` : ''}
                                     ${canMute && isMuted ? `<button class="btn-kick" onclick="unmuteMember(${jsArg(groupID)}, ${jsArg(m.user_id)})">解禁</button>` : ''}
                                     ${canSetRole ? `<button class="btn-kick" onclick="showSetRole(${jsArg(groupID)}, ${jsArg(m.user_id)}, ${jsStringArg(memberName)})">角色</button>` : ''}
@@ -1763,6 +2028,75 @@ function showUserProfile() {
         </div>
         <button class="btn-primary" onclick="saveProfile()">保存修改</button>
     `);
+}
+
+async function showAgentConversationTools() {
+    if (!currentConversationID) {
+        showToast('请先打开一个会话', 'warning');
+        return;
+    }
+    await refreshAgentCache();
+    const activeBots = botCache.filter(b => b.is_active !== false);
+    if (activeBots.length === 0) {
+        showToast('请先创建并启用智能助手', 'warning');
+        switchSidebar('bots', document.querySelector('.sidebar-tab:nth-child(4)'));
+        return;
+    }
+    const convName = conversationNameCache[currentConversationID] || '当前会话';
+    showModal(`智能助手 - ${escapeHTML(convName)}`, `
+        <div class="profile-form-grid">
+            <div class="form-group">
+                <label>选择助手</label>
+                <select id="conv-agent-id" class="form-select">
+                    ${activeBots.map(b => `<option value="${escapeHTML(String(b.id))}">${escapeHTML(getBotDisplayName(b))}</option>`).join('')}
+                </select>
+            </div>
+            <div class="form-group">
+                <label>能力</label>
+                <select id="conv-agent-action" class="form-select">
+                    <option value="summarize">会话总结</option>
+                    <option value="ask">上下文问答</option>
+                    <option value="insights">结论/分歧/风险/待办</option>
+                    <option value="replyCandidates">回复候选</option>
+                    <option value="run">直接运行</option>
+                </select>
+            </div>
+        </div>
+        <div class="form-group">
+            <label>问题 / 指令</label>
+            <textarea id="conv-agent-question" rows="3" placeholder="例如：我错过了什么？有哪些风险和待办？"></textarea>
+        </div>
+        <div class="btn-row">
+            <button class="btn-inline btn-primary" onclick="submitConversationAgentTask()">执行</button>
+            <button class="btn-inline" onclick="showMentionPicker()">在输入框 @ 成员/助手</button>
+        </div>
+        <div id="conv-agent-result" class="agent-result-area"></div>
+    `);
+}
+
+function submitConversationAgentTask() {
+    const botID = document.getElementById('conv-agent-id').value;
+    const action = document.getElementById('conv-agent-action').value;
+    const question = document.getElementById('conv-agent-question').value.trim();
+    runAgentTask(action, botID, currentConversationID, question, 'conv-agent-result');
+}
+
+async function getGroupMembersCached(groupID, force = false) {
+    if (!force && groupMembersCache[groupID]) return groupMembersCache[groupID];
+    const membersResp = await groupAPI.getMembers(groupID);
+    if (membersResp && membersResp.code === 0 && membersResp.data && membersResp.data.members) {
+        groupMembersCache[groupID] = membersResp.data.members;
+        const ids = groupMembersCache[groupID].map(m => m.user_id);
+        await resolveUserNames(ids);
+        groupMembersCache[groupID].forEach(m => {
+            if ((m.username || m.nickname) && !friendRemarkCache[m.user_id]) {
+                userNickCache[m.user_id] = m.nickname || m.username;
+            }
+            if (m.avatar) userAvatarCache[m.user_id] = m.avatar;
+        });
+        return groupMembersCache[groupID];
+    }
+    return [];
 }
 
 async function saveProfile() {
@@ -2250,29 +2584,54 @@ function renderMessageContent(content, msgType) {
         }
         return `<a class="media-msg file-msg" href="${escapeHTML(url)}" target="_blank" rel="noopener" download="${escapeHTML(media.name || '')}">文件 ${escapeHTML(media.name || '未命名文件')}</a>`;
     }
-    return escapeHTML(content);
+    return renderTextMessage(content);
+}
+
+function renderTextMessage(content) {
+    const raw = content || '';
+    const placeholders = [];
+    const withoutIDs = raw.replace(/@\[(.*?)\]\(\d+\)/g, (_, name) => `@${name}`);
+    const withMentions = escapeHTML(withoutIDs).replace(/(^|\s)@([^\s@]+)/g, (all, prefix, name) => {
+        const key = `__MENTION_${placeholders.length}__`;
+        placeholders.push(`${prefix}<span class="mention-text">@${escapeHTML(name)}</span>`);
+        return key;
+    });
+    return placeholders.reduce((text, html, idx) => text.replace(`__MENTION_${idx}__`, html), withMentions);
 }
 
 async function loadBotSidebar() {
     const list = document.getElementById('bot-list');
     const resp = await botAPI.list();
     if (resp && resp.code === 0 && resp.data && resp.data.bots) {
-        const bots = resp.data.bots;
+        botCache = resp.data.bots;
+        agentUserIDToBot = {};
+        botCache.forEach(bot => {
+            if (bot.agent_user_id) {
+                agentUserIDToBot[String(bot.agent_user_id)] = bot;
+                userNickCache[bot.agent_user_id] = getBotDisplayName(bot);
+                if (bot.avatar) userAvatarCache[bot.agent_user_id] = bot.avatar;
+            }
+        });
+        const bots = botCache;
         if (bots.length === 0) {
-            list.innerHTML = '<div class="empty-tip">暂无AI助手<br><small>点击右上角「+ 创建」添加</small></div>';
+            list.innerHTML = '<div class="empty-tip">暂无智能助手<br><small>点击右上角「+ 创建」添加</small></div>';
             return;
         }
         list.innerHTML = bots.map(b => `
             <div class="list-item" data-bot-id="${escapeHTML(String(b.id))}" onclick="chatWithBot(${jsArg(b.id)})">
-                <div class="avatar conv-avatar">🤖</div>
+                ${renderAvatarHTML(b.avatar, 'A', 'conv-avatar agent-avatar')}
                 <div class="list-item-info">
                     <div class="list-item-top">
-                        <span class="list-item-name">${escapeHTML(b.name)}</span>
-                        <span class="list-item-type ${b.type}">${b.type === 'internal' ? '内部' : '自部署'}</span>
+                        <span class="list-item-name">${escapeHTML(getBotDisplayName(b))}</span>
+                        <span class="list-item-type ${b.type}">${b.is_active ? '已启用' : '已停用'}</span>
                     </div>
-                    <div class="list-item-msg">${escapeHTML(b.description || '无描述')}</div>
+                    <div class="list-item-msg">${escapeHTML(b.signature || b.description || '可运行、可入群、可被 @')}</div>
+                    <div class="list-item-msg">${escapeHTML(agentSourceLabel(b.type))} · UID: ${escapeHTML(String(b.agent_user_id || '未绑定'))}</div>
                 </div>
                 <div class="bot-item-actions" onclick="event.stopPropagation()">
+                    <button class="btn-icon-sm" onclick="showEditAgentForm(${jsArg(b.id)})" title="编辑助手">✎</button>
+                    <button class="btn-icon-sm" onclick="showAgentPermissions(${jsArg(b.id)}, ${jsStringArg(getBotDisplayName(b))})" title="权限管理">♟</button>
+                    <button class="btn-icon-sm" onclick="showAgentRunModal(${jsArg(b.id)}, ${jsStringArg(getBotDisplayName(b))})" title="运行助手">▶</button>
                     <button class="btn-icon-sm" onclick="showBotRoutes(${jsArg(b.id)}, ${jsStringArg(b.name)})" title="路由管理">🔗</button>
                     <button class="btn-icon-sm" onclick="showBotBilling(${jsArg(b.id)}, ${jsStringArg(b.name)})" title="计费记录">💰</button>
                     <button class="btn-icon-sm" onclick="toggleBot(${jsArg(b.id)}, ${!b.is_active})" title="${b.is_active ? '停用' : '启用'}">${b.is_active ? '⏸' : '▶'}</button>
@@ -2286,41 +2645,62 @@ async function loadBotSidebar() {
 }
 
 function showCreateBotForm() {
-    showModal('创建 AI 助手', `
+    showModal('创建智能助手', `
         <div class="form-group">
-            <label>助手名称</label>
-            <input type="text" id="bot-name" placeholder="例如: Amiya">
+            <label>助手昵称</label>
+            <input type="text" id="bot-name" placeholder="例如: 项目助手">
         </div>
         <div class="form-group">
             <label>类型</label>
             <select id="bot-type" class="form-select" onchange="onBotTypeChange()">
-                <option value="internal">内部Bot（使用系统默认API）</option>
-                <option value="custom">自部署Bot（需要自己的API Key）</option>
+                <option value="internal">系统模型（使用默认模型服务）</option>
+                <option value="custom">自定义模型（填写自己的密钥）</option>
             </select>
         </div>
         <div class="form-group">
             <label>描述</label>
-            <input type="text" id="bot-desc" placeholder="助手功能描述">
+            <input type="text" id="bot-desc" placeholder="这个助手能帮你做什么">
+        </div>
+        <div class="form-group">
+            <label>头像 URL</label>
+            <input type="text" id="bot-avatar" placeholder="/files/agent.png 或 https://...">
+        </div>
+        <div class="form-group">
+            <label>个性签名</label>
+            <input type="text" id="bot-signature" placeholder="展示在成员列表和助手列表中">
         </div>
         <div class="form-group">
             <label>模型名称</label>
-            <input type="text" id="bot-model" placeholder="例如: gpt-4o-mini（内部Bot留空使用默认）">
+            <input type="text" id="bot-model" placeholder="例如: gpt-4o-mini（系统模型留空使用默认）">
         </div>
         <div id="custom-bot-fields" style="display:none;">
             <div class="form-group">
-                <label>API Key <span style="color:var(--danger);">*必填</span></label>
-                <input type="password" id="bot-apikey" placeholder="你的 LLM API Key">
+                <label>模型密钥 <span style="color:var(--danger);">*必填</span></label>
+                <input type="password" id="bot-apikey" placeholder="你的模型服务密钥">
             </div>
             <div class="form-group">
-                <label>Base URL <span style="color:var(--danger);">*必填</span></label>
+                <label>模型服务地址 <span style="color:var(--danger);">*必填</span></label>
                 <input type="text" id="bot-baseurl" placeholder="例如: https://api.openai.com/v1">
             </div>
         </div>
         <div class="form-group">
             <label>系统提示词</label>
-            <textarea id="bot-prompt" rows="3" placeholder="助手的系统提示词"></textarea>
+            <textarea id="bot-prompt" rows="3" placeholder="助手的身份、边界和工作方式"></textarea>
         </div>
-        <button class="btn-primary" onclick="createBot()">创建助手</button>
+        <div class="form-group">
+            <label>工作目录</label>
+            <input type="text" id="bot-workspace" placeholder="留空则使用 storage/agent/workspaces/{bot_id}">
+        </div>
+        <div class="form-group">
+            <label>工具策略</label>
+            <select id="bot-tool-policy" class="form-select">
+                <option value="safe">常规模式</option>
+                <option value="approval_required">操作前确认</option>
+                <option value="readonly">只读模式</option>
+                <option value="disabled">禁用工具</option>
+            </select>
+        </div>
+        <button id="create-bot-submit" class="btn-primary" onclick="createBot()">创建智能助手</button>
     `);
 }
 
@@ -2360,6 +2740,7 @@ function showBotBilling(botID, botName) {
 }
 
 async function createBot() {
+    if (botCreateSubmitting) return;
     const name = document.getElementById('bot-name').value.trim();
     const type = document.getElementById('bot-type').value;
     const description = document.getElementById('bot-desc').value.trim();
@@ -2367,16 +2748,39 @@ async function createBot() {
     const apiKey = document.getElementById('bot-apikey')?.value?.trim() || '';
     const baseURL = document.getElementById('bot-baseurl')?.value?.trim() || '';
     const systemPrompt = document.getElementById('bot-prompt').value.trim();
+    const avatar = document.getElementById('bot-avatar')?.value?.trim() || '';
+    const signature = document.getElementById('bot-signature')?.value?.trim() || '';
+    const workspaceRoot = document.getElementById('bot-workspace')?.value?.trim() || '';
+    const toolPolicy = document.getElementById('bot-tool-policy')?.value || 'safe';
     if (!name) { showToast('请填写助手名称', 'warning'); return; }
-    if (type === 'custom' && !apiKey) { showToast('自部署Bot必须提供API Key', 'warning'); return; }
-    if (type === 'custom' && !baseURL) { showToast('自部署Bot必须提供Base URL', 'warning'); return; }
-    const resp = await botAPI.create(name, type, description, modelName, apiKey, baseURL, systemPrompt, '', '');
-    if (resp && resp.code === 0 && resp.data && resp.data.success) {
-        showToast('助手创建成功', 'success');
-        closeModal();
-        loadBotSidebar();
-    } else {
-        showToast(resp?.data?.msg || '创建失败', 'error');
+    if (type === 'custom' && !apiKey) { showToast('自定义模型必须填写模型密钥', 'warning'); return; }
+    if (type === 'custom' && !baseURL) { showToast('自定义模型必须填写模型服务地址', 'warning'); return; }
+    botCreateSubmitting = true;
+    const submitBtn = document.getElementById('create-bot-submit');
+    if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.textContent = '创建中...';
+    }
+    try {
+        const resp = await botAPI.create(name, type, description, modelName, apiKey, baseURL, systemPrompt, '', '', {
+            avatar,
+            signature,
+            workspace_root: workspaceRoot,
+            tool_policy: toolPolicy,
+        });
+        if (resp && resp.code === 0 && resp.data && resp.data.success) {
+            showToast('智能助手创建成功', 'success');
+            closeModal();
+            loadBotSidebar();
+        } else {
+            showToast(resp?.data?.msg || '创建失败', 'error');
+        }
+    } finally {
+        botCreateSubmitting = false;
+        if (submitBtn && document.body.contains(submitBtn)) {
+            submitBtn.disabled = false;
+            submitBtn.textContent = '创建智能助手';
+        }
     }
 }
 
@@ -2390,14 +2794,281 @@ async function toggleBot(botID, isActive) {
     }
 }
 
+async function showEditAgentForm(botID) {
+    const resp = await botAPI.get(botID);
+    if (!(resp && resp.code === 0 && resp.data && resp.data.bot)) {
+        showToast(resp?.data?.msg || '加载智能助手失败', 'error');
+        return;
+    }
+    const b = resp.data.bot;
+    showModal(`编辑智能助手 - ${escapeHTML(getBotDisplayName(b))}`, `
+        <div class="profile-form-grid">
+            <div class="form-group">
+                <label>昵称</label>
+                <input type="text" id="edit-agent-name" value="${escapeHTML(b.name || '')}">
+            </div>
+            <div class="form-group">
+                <label>模型</label>
+                <input type="text" id="edit-agent-model" value="${escapeHTML(b.model_name || '')}">
+            </div>
+        </div>
+        <div class="form-group">
+            <label>头像 URL</label>
+            <input type="text" id="edit-agent-avatar" value="${escapeHTML(b.avatar || '')}">
+        </div>
+        <div class="form-group">
+            <label>个性签名</label>
+            <input type="text" id="edit-agent-signature" value="${escapeHTML(b.signature || '')}">
+        </div>
+        <div class="form-group">
+            <label>模型服务地址</label>
+            <input type="text" id="edit-agent-baseurl" value="${escapeHTML(b.base_url || '')}">
+        </div>
+        <div class="form-group">
+            <label>模型密钥</label>
+            <input type="password" id="edit-agent-apikey" placeholder="留空表示不修改">
+        </div>
+        <div class="form-group">
+            <label>系统提示词</label>
+            <textarea id="edit-agent-prompt" rows="4">${escapeHTML(b.system_prompt || '')}</textarea>
+        </div>
+        <div class="form-group">
+            <label>工作目录</label>
+            <input type="text" id="edit-agent-workspace" value="${escapeHTML(b.workspace_root || '')}">
+        </div>
+        <div class="form-group">
+            <label>工具策略</label>
+            <select id="edit-agent-tool-policy" class="form-select">
+                ${['safe', 'approval_required', 'readonly', 'disabled'].map(v => `<option value="${v}" ${b.tool_policy === v ? 'selected' : ''}>${toolPolicyLabel(v)}</option>`).join('')}
+            </select>
+        </div>
+        <div class="btn-row">
+            <button class="btn-inline btn-primary" onclick="saveAgentConfig(${jsArg(botID)})">保存</button>
+            <button class="btn-inline" onclick="showAgentPermissions(${jsArg(botID)}, ${jsStringArg(getBotDisplayName(b))})">权限管理</button>
+        </div>
+    `);
+}
+
+async function saveAgentConfig(botID) {
+    const data = {
+        name: document.getElementById('edit-agent-name').value.trim(),
+        model_name: document.getElementById('edit-agent-model').value.trim(),
+        avatar: document.getElementById('edit-agent-avatar').value.trim(),
+        signature: document.getElementById('edit-agent-signature').value.trim(),
+        base_url: document.getElementById('edit-agent-baseurl').value.trim(),
+        api_key: document.getElementById('edit-agent-apikey').value.trim(),
+        system_prompt: document.getElementById('edit-agent-prompt').value.trim(),
+        workspace_root: document.getElementById('edit-agent-workspace').value.trim(),
+        tool_policy: document.getElementById('edit-agent-tool-policy').value,
+    };
+    if (!data.name) {
+        showToast('助手昵称不能为空', 'warning');
+        return;
+    }
+    const resp = await botAPI.update(botID, data);
+    if (resp && resp.code === 0 && resp.data && resp.data.success) {
+        showToast('智能助手已更新', 'success');
+        closeModal();
+        loadBotSidebar();
+    } else {
+        showToast(resp?.data?.msg || '保存失败', 'error');
+    }
+}
+
 async function deleteBot(botID) {
-    if (!confirm('确定要删除该AI助手吗？')) return;
+    if (!confirm('确定要删除该智能助手吗？')) return;
     const resp = await botAPI.delete(botID);
     if (resp && resp.code === 0 && resp.data && resp.data.success) {
         showToast('已删除', 'success');
         loadBotSidebar();
     } else {
         showToast(resp?.data?.msg || '删除失败', 'error');
+    }
+}
+
+function normalizeAgentPayload(resp) {
+    if (!(resp && resp.code === 0 && resp.data)) return null;
+    return resp.data.result || resp.data.result_ || resp.data.reply || resp.data.summary || resp.data.insights || resp.data.candidates || resp.data;
+}
+
+function renderAgentResult(value) {
+    if (value === null || value === undefined || value === '') return '<div class="empty-tip">暂无返回内容</div>';
+    if (typeof value === 'object') {
+        return `<pre class="agent-result-json">${escapeHTML(JSON.stringify(value, null, 2))}</pre>`;
+    }
+    const text = String(value);
+    try {
+        const parsed = JSON.parse(text);
+        return `<pre class="agent-result-json">${escapeHTML(JSON.stringify(parsed, null, 2))}</pre>`;
+    } catch (e) {
+        return `<div class="agent-result-text">${escapeHTML(text)}</div>`;
+    }
+}
+
+async function runAgentTask(action, botID, conversationID, question, resultElID) {
+    const area = document.getElementById(resultElID);
+    if (area) area.innerHTML = '<div class="search-loading"><div class="spinner"></div>智能助手处理中...</div>';
+    const apiMap = {
+        run: agentAPI.run,
+        summarize: agentAPI.summarize,
+        ask: agentAPI.ask,
+        insights: agentAPI.insights,
+        replyCandidates: agentAPI.replyCandidates,
+    };
+    const resp = await apiMap[action](botID, conversationID, question || '');
+    const result = normalizeAgentPayload(resp);
+    if (resp && resp.code === 0 && resp.data && resp.data.success !== false) {
+        if (area) area.innerHTML = renderAgentResult(result);
+    } else if (area) {
+        area.innerHTML = `<div class="bot-reply error">${escapeHTML(resp?.data?.msg || resp?.message || '智能助手执行失败')}</div>`;
+    }
+}
+
+function showAgentRunModal(botID, botName) {
+    const defaultConversationID = currentConversationID || 0;
+    showModal(`运行智能助手 - ${escapeHTML(botName)}`, `
+        <div class="agent-help-box">
+            <strong>智能助手说明</strong>
+            <div>这里的智能助手是一个真实系统用户，可以被邀请入群、被 @、以自己的身份发消息，并保留长会话上下文。</div>
+            <div><b>协作权限</b>控制谁能管理或使用它：创建者和协管员可以改配置与授权，使用者可以运行，查看者只能查看。</div>
+            <div><b>工具策略</b>控制它能否使用文件、代码、搜索等工具；高风险工具可以设置为操作前确认或只读模式。</div>
+        </div>
+        <div class="profile-form-grid">
+            <div class="form-group">
+                <label>上下文会话</label>
+                <select id="agent-run-conversation" class="form-select">
+                    <option value="0">不使用当前会话</option>
+                    ${defaultConversationID ? `<option value="${escapeHTML(String(defaultConversationID))}" selected>${escapeHTML(conversationNameCache[defaultConversationID] || '当前打开的会话')}</option>` : ''}
+                </select>
+            </div>
+            <div class="form-group">
+                <label>任务类型</label>
+                <select id="agent-run-action" class="form-select">
+                    <option value="run">运行</option>
+                    <option value="summarize">总结</option>
+                    <option value="ask">上下文问答</option>
+                    <option value="insights">洞察提取</option>
+                    <option value="replyCandidates">回复候选</option>
+                </select>
+            </div>
+        </div>
+        <div class="form-group">
+            <label>指令 / 问题</label>
+            <textarea id="agent-run-question" rows="3" placeholder="例如：总结这段会话的结论、风险和待办"></textarea>
+        </div>
+        <div class="btn-row">
+            <button class="btn-inline btn-primary" onclick="submitAgentRun(${jsArg(botID)})">执行</button>
+            <button class="btn-inline" onclick="loadAgentSessions(${jsArg(botID)}, ${jsArg(defaultConversationID)}, 'agent-run-result')">查看会话记录</button>
+        </div>
+        <div id="agent-run-result" class="agent-result-area"></div>
+    `);
+}
+
+function submitAgentRun(botID) {
+    const conversationID = document.getElementById('agent-run-conversation').value || 0;
+    const question = document.getElementById('agent-run-question').value.trim();
+    const action = document.getElementById('agent-run-action').value;
+    runAgentTask(action, botID, conversationID, question, 'agent-run-result');
+}
+
+async function loadAgentSessions(botID, conversationID, resultElID) {
+    const area = document.getElementById(resultElID);
+    if (area) area.innerHTML = '<div class="search-loading"><div class="spinner"></div>正在加载会话记录...</div>';
+    const resp = await agentAPI.listSessions(botID, conversationID || 0);
+    if (!(resp && resp.code === 0 && resp.data && resp.data.success)) {
+        if (area) area.innerHTML = `<div class="empty-tip">${escapeHTML(resp?.data?.msg || '会话记录加载失败')}</div>`;
+        return;
+    }
+    const sessions = resp.data.sessions || [];
+    if (sessions.length === 0) {
+        if (area) area.innerHTML = '<div class="empty-tip">暂无会话记录</div>';
+        return;
+    }
+    if (area) area.innerHTML = sessions.map(s => `
+        <div class="bot-item">
+            <div class="bot-info">
+                <span class="bot-name">${escapeHTML(s.title || '未命名会话')}</span>
+                <span class="bot-status active">${escapeHTML(s.created_at || '')}</span>
+                <div class="bot-desc">${escapeHTML(s.session_id || '')}</div>
+            </div>
+        </div>
+    `).join('');
+}
+
+async function showAgentPermissions(botID, botName) {
+    showModal(`协作权限 - ${escapeHTML(botName)}`, `
+        <div class="form-group" style="display:flex;gap:8px;align-items:flex-end;">
+            <div style="flex:1;">
+                <label>用户 UID</label>
+                <input type="text" id="agent-perm-user" placeholder="输入用户 UID">
+            </div>
+            <div style="width:130px;">
+                <label>权限</label>
+                <select id="agent-perm-role" class="form-select">
+                    <option value="viewer">查看者</option>
+                    <option value="operator">使用者</option>
+                    <option value="admin">协管员</option>
+                </select>
+            </div>
+            <button class="btn-inline btn-primary" onclick="grantAgentPermission(${jsArg(botID)}, ${jsStringArg(botName)})">授权</button>
+        </div>
+        <div id="agent-permissions-list" class="bot-list-area">加载中...</div>
+    `);
+    loadAgentPermissions(botID, botName);
+}
+
+async function loadAgentPermissions(botID, botName) {
+    const area = document.getElementById('agent-permissions-list');
+    if (!area) return;
+    area.innerHTML = '<div class="search-loading"><div class="spinner"></div>加载中...</div>';
+    const resp = await agentAPI.listPermissions(botID);
+    const perms = resp?.data?.permissions || [];
+    if (!(resp && resp.code === 0)) {
+        area.innerHTML = `<div class="empty-tip">${escapeHTML(resp?.data?.msg || '权限加载失败')}</div>`;
+        return;
+    }
+    if (perms.length === 0) {
+        area.innerHTML = '<div class="empty-tip">暂无授权用户</div>';
+        return;
+    }
+    area.innerHTML = perms.map(p => `
+        <div class="bot-item">
+            <div class="bot-info">
+                <span class="bot-name">UID ${escapeHTML(String(p.user_id))}</span>
+                <span class="bot-type internal">${escapeHTML(agentRoleLabel(p.role))}</span>
+                <span class="bot-status active">${escapeHTML(p.created_at || '')}</span>
+            </div>
+            <div class="bot-actions">
+                ${p.role === 'owner' ? '' : `<button class="btn-inline btn-danger" onclick="revokeAgentPermission(${jsArg(botID)}, ${jsArg(p.user_id)}, ${jsStringArg(botName)})">撤销</button>`}
+            </div>
+        </div>
+    `).join('');
+}
+
+async function grantAgentPermission(botID, botName) {
+    const userID = document.getElementById('agent-perm-user').value.trim();
+    const role = document.getElementById('agent-perm-role').value;
+    if (!/^\d+$/.test(userID)) {
+        showToast('请输入有效 UID', 'warning');
+        return;
+    }
+    const resp = await agentAPI.grantPermission(botID, userID, role);
+    if (resp && resp.code === 0 && resp.data && resp.data.success) {
+        showToast('授权成功', 'success');
+        loadAgentPermissions(botID, botName);
+    } else {
+        showToast(resp?.data?.msg || '授权失败', 'error');
+    }
+}
+
+async function revokeAgentPermission(botID, userID, botName) {
+    if (!confirm('确定撤销该用户的智能助手权限吗？')) return;
+    const resp = await agentAPI.revokePermission(botID, userID);
+    if (resp && resp.code === 0 && resp.data && resp.data.success) {
+        showToast('权限已撤销', 'success');
+        loadAgentPermissions(botID, botName);
+    } else {
+        showToast(resp?.data?.msg || '撤销失败', 'error');
     }
 }
 
@@ -2416,16 +3087,17 @@ function chatWithBot(botID) {
     currentConversationType = '';
 
     const botEl = Array.from(document.querySelectorAll('[data-bot-id]')).find(el => sameID(el.dataset.botId, botID));
-    const botName = botEl ? botEl.querySelector('.list-item-name')?.textContent || 'AI助手' : 'AI助手';
+    const botName = botEl ? botEl.querySelector('.list-item-name')?.textContent || '智能助手' : '智能助手';
 
     document.getElementById('welcome-area').style.display = 'none';
     document.getElementById('chat-area').style.display = 'flex';
     document.getElementById('chat-title').textContent = `🤖 ${botName}`;
-    document.getElementById('chat-type-badge').textContent = '🤖 AI助手';
+    document.getElementById('chat-type-badge').textContent = '智能助手';
     document.getElementById('chat-type-badge').className = 'chat-type-badge group';
     document.getElementById('group-announcement-bar').style.display = 'none';
     document.getElementById('message-list').innerHTML = '';
     document.getElementById('broadcast-btn').style.display = 'none';
+    document.getElementById('mention-btn').style.display = 'none';
     document.getElementById('msg-input').disabled = false;
     document.getElementById('send-btn').disabled = false;
     document.getElementById('voice-record-btn').disabled = false;
@@ -2472,7 +3144,7 @@ async function sendBotChatMsg() {
 
     const thinkingID = 'thinking-' + Date.now();
     botThinkingID = thinkingID;
-    const thinkingMsg = { sender_id: 0, content: '🤔 AI思考中...', created_at: timeStr, is_thinking: true, _thinkingID: thinkingID };
+    const thinkingMsg = { sender_id: 0, content: '智能助手处理中...', created_at: timeStr, is_thinking: true, _thinkingID: thinkingID };
     appendMessage(thinkingMsg);
     botPendingReplies[activeBotID] = thinkingMsg;
 
@@ -2540,7 +3212,7 @@ async function loadBotRoutes(botID) {
             <div class="bot-item">
                 <div class="bot-info">
                     <span class="bot-name">🔗 ${escapeHTML(r.route_pattern)}</span>
-                    <span class="bot-type ${r.route_type}">${r.route_type}</span>
+                    <span class="bot-type ${r.route_type}">${escapeHTML(routeTypeLabel(r.route_type))}</span>
                     <span class="bot-status active">优先级: ${r.priority || 0}</span>
                 </div>
                 <div class="bot-actions">

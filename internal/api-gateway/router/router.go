@@ -99,6 +99,16 @@ func RegisterRoutes(r *route.Engine, cfg ...*config.Config) {
 		auth.GET("/bot/:id/routes", botHandler.ListRoutes)
 		auth.DELETE("/bot/route/delete", botHandler.DeleteRoute)
 		auth.GET("/bot/:id/billing", botHandler.GetBilling)
+
+		auth.POST("/agent/run", botHandler.RunAgent)
+		auth.POST("/agent/summarize", botHandler.SummarizeConversation)
+		auth.POST("/agent/ask", botHandler.AskConversation)
+		auth.POST("/agent/insights", botHandler.ExtractInsights)
+		auth.POST("/agent/reply-candidates", botHandler.GenerateReplyCandidates)
+		auth.POST("/agent/permission/grant", botHandler.GrantPermission)
+		auth.POST("/agent/permission/revoke", botHandler.RevokePermission)
+		auth.GET("/agent/:id/permissions", botHandler.ListPermissions)
+		auth.GET("/agent/:id/sessions", botHandler.ListAgentSessions)
 	}
 
 	admin := r.Group("/api/v1/admin")

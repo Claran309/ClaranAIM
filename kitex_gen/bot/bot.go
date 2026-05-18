@@ -5,165 +5,24 @@ package bot
 import (
 	"context"
 	"fmt"
+	"strings"
 )
 
-type BotConfig struct {
-	Id           int64  `thrift:"id,1" frugal:"1,default,i64" json:"id"`
-	Name         string `thrift:"name,2" frugal:"2,default,string" json:"name"`
-	Type         string `thrift:"type,3" frugal:"3,default,string" json:"type"`
-	Description  string `thrift:"description,4" frugal:"4,default,string" json:"description"`
-	ModelName    string `thrift:"model_name,5" frugal:"5,default,string" json:"model_name"`
-	ApiKey       string `thrift:"api_key,6" frugal:"6,default,string" json:"api_key"`
-	BaseUrl      string `thrift:"base_url,7" frugal:"7,default,string" json:"base_url"`
-	SystemPrompt string `thrift:"system_prompt,8" frugal:"8,default,string" json:"system_prompt"`
-	SkillsDir    string `thrift:"skills_dir,9" frugal:"9,default,string" json:"skills_dir"`
-	AgentRoot    string `thrift:"agent_root,10" frugal:"10,default,string" json:"agent_root"`
-	IsActive     bool   `thrift:"is_active,11" frugal:"11,default,bool" json:"is_active"`
-	OwnerId      int64  `thrift:"owner_id,12" frugal:"12,default,i64" json:"owner_id"`
-	CreatedAt    string `thrift:"created_at,13" frugal:"13,default,string" json:"created_at"`
-	UpdatedAt    string `thrift:"updated_at,14" frugal:"14,default,string" json:"updated_at"`
-}
-
-func NewBotConfig() *BotConfig {
-	return &BotConfig{}
-}
-
-func (p *BotConfig) InitDefault() {
-}
-
-func (p *BotConfig) GetId() (v int64) {
-	return p.Id
-}
-
-func (p *BotConfig) GetName() (v string) {
-	return p.Name
-}
-
-func (p *BotConfig) GetType() (v string) {
-	return p.Type
-}
-
-func (p *BotConfig) GetDescription() (v string) {
-	return p.Description
-}
-
-func (p *BotConfig) GetModelName() (v string) {
-	return p.ModelName
-}
-
-func (p *BotConfig) GetApiKey() (v string) {
-	return p.ApiKey
-}
-
-func (p *BotConfig) GetBaseUrl() (v string) {
-	return p.BaseUrl
-}
-
-func (p *BotConfig) GetSystemPrompt() (v string) {
-	return p.SystemPrompt
-}
-
-func (p *BotConfig) GetSkillsDir() (v string) {
-	return p.SkillsDir
-}
-
-func (p *BotConfig) GetAgentRoot() (v string) {
-	return p.AgentRoot
-}
-
-func (p *BotConfig) GetIsActive() (v bool) {
-	return p.IsActive
-}
-
-func (p *BotConfig) GetOwnerId() (v int64) {
-	return p.OwnerId
-}
-
-func (p *BotConfig) GetCreatedAt() (v string) {
-	return p.CreatedAt
-}
-
-func (p *BotConfig) GetUpdatedAt() (v string) {
-	return p.UpdatedAt
-}
-func (p *BotConfig) SetId(val int64) {
-	p.Id = val
-}
-func (p *BotConfig) SetName(val string) {
-	p.Name = val
-}
-func (p *BotConfig) SetType(val string) {
-	p.Type = val
-}
-func (p *BotConfig) SetDescription(val string) {
-	p.Description = val
-}
-func (p *BotConfig) SetModelName(val string) {
-	p.ModelName = val
-}
-func (p *BotConfig) SetApiKey(val string) {
-	p.ApiKey = val
-}
-func (p *BotConfig) SetBaseUrl(val string) {
-	p.BaseUrl = val
-}
-func (p *BotConfig) SetSystemPrompt(val string) {
-	p.SystemPrompt = val
-}
-func (p *BotConfig) SetSkillsDir(val string) {
-	p.SkillsDir = val
-}
-func (p *BotConfig) SetAgentRoot(val string) {
-	p.AgentRoot = val
-}
-func (p *BotConfig) SetIsActive(val bool) {
-	p.IsActive = val
-}
-func (p *BotConfig) SetOwnerId(val int64) {
-	p.OwnerId = val
-}
-func (p *BotConfig) SetCreatedAt(val string) {
-	p.CreatedAt = val
-}
-func (p *BotConfig) SetUpdatedAt(val string) {
-	p.UpdatedAt = val
-}
-
-func (p *BotConfig) String() string {
-	if p == nil {
-		return "<nil>"
-	}
-	return fmt.Sprintf("BotConfig(%+v)", *p)
-}
-
-var fieldIDToName_BotConfig = map[int16]string{
-	1:  "id",
-	2:  "name",
-	3:  "type",
-	4:  "description",
-	5:  "model_name",
-	6:  "api_key",
-	7:  "base_url",
-	8:  "system_prompt",
-	9:  "skills_dir",
-	10: "agent_root",
-	11: "is_active",
-	12: "owner_id",
-	13: "created_at",
-	14: "updated_at",
-}
-
 type CreateBotReq struct {
-	Name         string `thrift:"name,1" frugal:"1,default,string" json:"name"`
-	Type         string `thrift:"type,2" frugal:"2,default,string" json:"type"`
-	Description  string `thrift:"description,3" frugal:"3,default,string" json:"description"`
-	ModelName    string `thrift:"model_name,4" frugal:"4,default,string" json:"model_name"`
-	ApiKey       string `thrift:"api_key,5" frugal:"5,default,string" json:"api_key"`
-	BaseUrl      string `thrift:"base_url,6" frugal:"6,default,string" json:"base_url"`
-	SystemPrompt string `thrift:"system_prompt,7" frugal:"7,default,string" json:"system_prompt"`
-	SkillsDir    string `thrift:"skills_dir,8" frugal:"8,default,string" json:"skills_dir"`
-	AgentRoot    string `thrift:"agent_root,9" frugal:"9,default,string" json:"agent_root"`
-	OwnerId      int64  `thrift:"owner_id,10" frugal:"10,default,i64" json:"owner_id"`
+	Name          string `thrift:"name,1" frugal:"1,default,string" json:"name"`
+	Type          string `thrift:"type,2" frugal:"2,default,string" json:"type"`
+	Description   string `thrift:"description,3" frugal:"3,default,string" json:"description"`
+	ModelName     string `thrift:"model_name,4" frugal:"4,default,string" json:"model_name"`
+	ApiKey        string `thrift:"api_key,5" frugal:"5,default,string" json:"api_key"`
+	BaseUrl       string `thrift:"base_url,6" frugal:"6,default,string" json:"base_url"`
+	SystemPrompt  string `thrift:"system_prompt,7" frugal:"7,default,string" json:"system_prompt"`
+	SkillsDir     string `thrift:"skills_dir,8" frugal:"8,default,string" json:"skills_dir"`
+	AgentRoot     string `thrift:"agent_root,9" frugal:"9,default,string" json:"agent_root"`
+	OwnerId       int64  `thrift:"owner_id,10" frugal:"10,default,i64" json:"owner_id"`
+	Avatar        string `thrift:"avatar,11" frugal:"11,default,string" json:"avatar"`
+	Signature     string `thrift:"signature,12" frugal:"12,default,string" json:"signature"`
+	WorkspaceRoot string `thrift:"workspace_root,13" frugal:"13,default,string" json:"workspace_root"`
+	ToolPolicy    string `thrift:"tool_policy,14" frugal:"14,default,string" json:"tool_policy"`
 }
 
 func NewCreateBotReq() *CreateBotReq {
@@ -212,6 +71,22 @@ func (p *CreateBotReq) GetAgentRoot() (v string) {
 func (p *CreateBotReq) GetOwnerId() (v int64) {
 	return p.OwnerId
 }
+
+func (p *CreateBotReq) GetAvatar() (v string) {
+	return p.Avatar
+}
+
+func (p *CreateBotReq) GetSignature() (v string) {
+	return p.Signature
+}
+
+func (p *CreateBotReq) GetWorkspaceRoot() (v string) {
+	return p.WorkspaceRoot
+}
+
+func (p *CreateBotReq) GetToolPolicy() (v string) {
+	return p.ToolPolicy
+}
 func (p *CreateBotReq) SetName(val string) {
 	p.Name = val
 }
@@ -242,12 +117,174 @@ func (p *CreateBotReq) SetAgentRoot(val string) {
 func (p *CreateBotReq) SetOwnerId(val int64) {
 	p.OwnerId = val
 }
+func (p *CreateBotReq) SetAvatar(val string) {
+	p.Avatar = val
+}
+func (p *CreateBotReq) SetSignature(val string) {
+	p.Signature = val
+}
+func (p *CreateBotReq) SetWorkspaceRoot(val string) {
+	p.WorkspaceRoot = val
+}
+func (p *CreateBotReq) SetToolPolicy(val string) {
+	p.ToolPolicy = val
+}
 
 func (p *CreateBotReq) String() string {
 	if p == nil {
 		return "<nil>"
 	}
 	return fmt.Sprintf("CreateBotReq(%+v)", *p)
+}
+
+func (p *CreateBotReq) DeepEqual(ano *CreateBotReq) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.Name) {
+		return false
+	}
+	if !p.Field2DeepEqual(ano.Type) {
+		return false
+	}
+	if !p.Field3DeepEqual(ano.Description) {
+		return false
+	}
+	if !p.Field4DeepEqual(ano.ModelName) {
+		return false
+	}
+	if !p.Field5DeepEqual(ano.ApiKey) {
+		return false
+	}
+	if !p.Field6DeepEqual(ano.BaseUrl) {
+		return false
+	}
+	if !p.Field7DeepEqual(ano.SystemPrompt) {
+		return false
+	}
+	if !p.Field8DeepEqual(ano.SkillsDir) {
+		return false
+	}
+	if !p.Field9DeepEqual(ano.AgentRoot) {
+		return false
+	}
+	if !p.Field10DeepEqual(ano.OwnerId) {
+		return false
+	}
+	if !p.Field11DeepEqual(ano.Avatar) {
+		return false
+	}
+	if !p.Field12DeepEqual(ano.Signature) {
+		return false
+	}
+	if !p.Field13DeepEqual(ano.WorkspaceRoot) {
+		return false
+	}
+	if !p.Field14DeepEqual(ano.ToolPolicy) {
+		return false
+	}
+	return true
+}
+
+func (p *CreateBotReq) Field1DeepEqual(src string) bool {
+
+	if strings.Compare(p.Name, src) != 0 {
+		return false
+	}
+	return true
+}
+func (p *CreateBotReq) Field2DeepEqual(src string) bool {
+
+	if strings.Compare(p.Type, src) != 0 {
+		return false
+	}
+	return true
+}
+func (p *CreateBotReq) Field3DeepEqual(src string) bool {
+
+	if strings.Compare(p.Description, src) != 0 {
+		return false
+	}
+	return true
+}
+func (p *CreateBotReq) Field4DeepEqual(src string) bool {
+
+	if strings.Compare(p.ModelName, src) != 0 {
+		return false
+	}
+	return true
+}
+func (p *CreateBotReq) Field5DeepEqual(src string) bool {
+
+	if strings.Compare(p.ApiKey, src) != 0 {
+		return false
+	}
+	return true
+}
+func (p *CreateBotReq) Field6DeepEqual(src string) bool {
+
+	if strings.Compare(p.BaseUrl, src) != 0 {
+		return false
+	}
+	return true
+}
+func (p *CreateBotReq) Field7DeepEqual(src string) bool {
+
+	if strings.Compare(p.SystemPrompt, src) != 0 {
+		return false
+	}
+	return true
+}
+func (p *CreateBotReq) Field8DeepEqual(src string) bool {
+
+	if strings.Compare(p.SkillsDir, src) != 0 {
+		return false
+	}
+	return true
+}
+func (p *CreateBotReq) Field9DeepEqual(src string) bool {
+
+	if strings.Compare(p.AgentRoot, src) != 0 {
+		return false
+	}
+	return true
+}
+func (p *CreateBotReq) Field10DeepEqual(src int64) bool {
+
+	if p.OwnerId != src {
+		return false
+	}
+	return true
+}
+func (p *CreateBotReq) Field11DeepEqual(src string) bool {
+
+	if strings.Compare(p.Avatar, src) != 0 {
+		return false
+	}
+	return true
+}
+func (p *CreateBotReq) Field12DeepEqual(src string) bool {
+
+	if strings.Compare(p.Signature, src) != 0 {
+		return false
+	}
+	return true
+}
+func (p *CreateBotReq) Field13DeepEqual(src string) bool {
+
+	if strings.Compare(p.WorkspaceRoot, src) != 0 {
+		return false
+	}
+	return true
+}
+func (p *CreateBotReq) Field14DeepEqual(src string) bool {
+
+	if strings.Compare(p.ToolPolicy, src) != 0 {
+		return false
+	}
+	return true
 }
 
 var fieldIDToName_CreateBotReq = map[int16]string{
@@ -261,6 +298,10 @@ var fieldIDToName_CreateBotReq = map[int16]string{
 	8:  "skills_dir",
 	9:  "agent_root",
 	10: "owner_id",
+	11: "avatar",
+	12: "signature",
+	13: "workspace_root",
+	14: "tool_policy",
 }
 
 type CreateBotResp struct {
@@ -304,6 +345,46 @@ func (p *CreateBotResp) String() string {
 	return fmt.Sprintf("CreateBotResp(%+v)", *p)
 }
 
+func (p *CreateBotResp) DeepEqual(ano *CreateBotResp) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.Success) {
+		return false
+	}
+	if !p.Field2DeepEqual(ano.BotId) {
+		return false
+	}
+	if !p.Field3DeepEqual(ano.Msg) {
+		return false
+	}
+	return true
+}
+
+func (p *CreateBotResp) Field1DeepEqual(src bool) bool {
+
+	if p.Success != src {
+		return false
+	}
+	return true
+}
+func (p *CreateBotResp) Field2DeepEqual(src int64) bool {
+
+	if p.BotId != src {
+		return false
+	}
+	return true
+}
+func (p *CreateBotResp) Field3DeepEqual(src string) bool {
+
+	if strings.Compare(p.Msg, src) != 0 {
+		return false
+	}
+	return true
+}
+
 var fieldIDToName_CreateBotResp = map[int16]string{
 	1: "success",
 	2: "bot_id",
@@ -311,17 +392,22 @@ var fieldIDToName_CreateBotResp = map[int16]string{
 }
 
 type UpdateBotReq struct {
-	BotId        int64  `thrift:"bot_id,1" frugal:"1,default,i64" json:"bot_id"`
-	OperatorId   int64  `thrift:"operator_id,2" frugal:"2,default,i64" json:"operator_id"`
-	Name         string `thrift:"name,3" frugal:"3,default,string" json:"name"`
-	Description  string `thrift:"description,4" frugal:"4,default,string" json:"description"`
-	ModelName    string `thrift:"model_name,5" frugal:"5,default,string" json:"model_name"`
-	ApiKey       string `thrift:"api_key,6" frugal:"6,default,string" json:"api_key"`
-	BaseUrl      string `thrift:"base_url,7" frugal:"7,default,string" json:"base_url"`
-	SystemPrompt string `thrift:"system_prompt,8" frugal:"8,default,string" json:"system_prompt"`
-	SkillsDir    string `thrift:"skills_dir,9" frugal:"9,default,string" json:"skills_dir"`
-	AgentRoot    string `thrift:"agent_root,10" frugal:"10,default,string" json:"agent_root"`
-	IsActive     bool   `thrift:"is_active,11" frugal:"11,default,bool" json:"is_active"`
+	BotId         int64  `thrift:"bot_id,1" frugal:"1,default,i64" json:"bot_id"`
+	OperatorId    int64  `thrift:"operator_id,2" frugal:"2,default,i64" json:"operator_id"`
+	Name          string `thrift:"name,3" frugal:"3,default,string" json:"name"`
+	Description   string `thrift:"description,4" frugal:"4,default,string" json:"description"`
+	ModelName     string `thrift:"model_name,5" frugal:"5,default,string" json:"model_name"`
+	ApiKey        string `thrift:"api_key,6" frugal:"6,default,string" json:"api_key"`
+	BaseUrl       string `thrift:"base_url,7" frugal:"7,default,string" json:"base_url"`
+	SystemPrompt  string `thrift:"system_prompt,8" frugal:"8,default,string" json:"system_prompt"`
+	SkillsDir     string `thrift:"skills_dir,9" frugal:"9,default,string" json:"skills_dir"`
+	AgentRoot     string `thrift:"agent_root,10" frugal:"10,default,string" json:"agent_root"`
+	IsActive      bool   `thrift:"is_active,11" frugal:"11,default,bool" json:"is_active"`
+	Avatar        string `thrift:"avatar,12" frugal:"12,default,string" json:"avatar"`
+	Signature     string `thrift:"signature,13" frugal:"13,default,string" json:"signature"`
+	WorkspaceRoot string `thrift:"workspace_root,14" frugal:"14,default,string" json:"workspace_root"`
+	ToolPolicy    string `thrift:"tool_policy,15" frugal:"15,default,string" json:"tool_policy"`
+	IsActiveSet   bool   `thrift:"is_active_set,16" frugal:"16,default,bool" json:"is_active_set"`
 }
 
 func NewUpdateBotReq() *UpdateBotReq {
@@ -374,6 +460,26 @@ func (p *UpdateBotReq) GetAgentRoot() (v string) {
 func (p *UpdateBotReq) GetIsActive() (v bool) {
 	return p.IsActive
 }
+
+func (p *UpdateBotReq) GetAvatar() (v string) {
+	return p.Avatar
+}
+
+func (p *UpdateBotReq) GetSignature() (v string) {
+	return p.Signature
+}
+
+func (p *UpdateBotReq) GetWorkspaceRoot() (v string) {
+	return p.WorkspaceRoot
+}
+
+func (p *UpdateBotReq) GetToolPolicy() (v string) {
+	return p.ToolPolicy
+}
+
+func (p *UpdateBotReq) GetIsActiveSet() (v bool) {
+	return p.IsActiveSet
+}
 func (p *UpdateBotReq) SetBotId(val int64) {
 	p.BotId = val
 }
@@ -407,12 +513,197 @@ func (p *UpdateBotReq) SetAgentRoot(val string) {
 func (p *UpdateBotReq) SetIsActive(val bool) {
 	p.IsActive = val
 }
+func (p *UpdateBotReq) SetAvatar(val string) {
+	p.Avatar = val
+}
+func (p *UpdateBotReq) SetSignature(val string) {
+	p.Signature = val
+}
+func (p *UpdateBotReq) SetWorkspaceRoot(val string) {
+	p.WorkspaceRoot = val
+}
+func (p *UpdateBotReq) SetToolPolicy(val string) {
+	p.ToolPolicy = val
+}
+func (p *UpdateBotReq) SetIsActiveSet(val bool) {
+	p.IsActiveSet = val
+}
 
 func (p *UpdateBotReq) String() string {
 	if p == nil {
 		return "<nil>"
 	}
 	return fmt.Sprintf("UpdateBotReq(%+v)", *p)
+}
+
+func (p *UpdateBotReq) DeepEqual(ano *UpdateBotReq) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.BotId) {
+		return false
+	}
+	if !p.Field2DeepEqual(ano.OperatorId) {
+		return false
+	}
+	if !p.Field3DeepEqual(ano.Name) {
+		return false
+	}
+	if !p.Field4DeepEqual(ano.Description) {
+		return false
+	}
+	if !p.Field5DeepEqual(ano.ModelName) {
+		return false
+	}
+	if !p.Field6DeepEqual(ano.ApiKey) {
+		return false
+	}
+	if !p.Field7DeepEqual(ano.BaseUrl) {
+		return false
+	}
+	if !p.Field8DeepEqual(ano.SystemPrompt) {
+		return false
+	}
+	if !p.Field9DeepEqual(ano.SkillsDir) {
+		return false
+	}
+	if !p.Field10DeepEqual(ano.AgentRoot) {
+		return false
+	}
+	if !p.Field11DeepEqual(ano.IsActive) {
+		return false
+	}
+	if !p.Field12DeepEqual(ano.Avatar) {
+		return false
+	}
+	if !p.Field13DeepEqual(ano.Signature) {
+		return false
+	}
+	if !p.Field14DeepEqual(ano.WorkspaceRoot) {
+		return false
+	}
+	if !p.Field15DeepEqual(ano.ToolPolicy) {
+		return false
+	}
+	if !p.Field16DeepEqual(ano.IsActiveSet) {
+		return false
+	}
+	return true
+}
+
+func (p *UpdateBotReq) Field1DeepEqual(src int64) bool {
+
+	if p.BotId != src {
+		return false
+	}
+	return true
+}
+func (p *UpdateBotReq) Field2DeepEqual(src int64) bool {
+
+	if p.OperatorId != src {
+		return false
+	}
+	return true
+}
+func (p *UpdateBotReq) Field3DeepEqual(src string) bool {
+
+	if strings.Compare(p.Name, src) != 0 {
+		return false
+	}
+	return true
+}
+func (p *UpdateBotReq) Field4DeepEqual(src string) bool {
+
+	if strings.Compare(p.Description, src) != 0 {
+		return false
+	}
+	return true
+}
+func (p *UpdateBotReq) Field5DeepEqual(src string) bool {
+
+	if strings.Compare(p.ModelName, src) != 0 {
+		return false
+	}
+	return true
+}
+func (p *UpdateBotReq) Field6DeepEqual(src string) bool {
+
+	if strings.Compare(p.ApiKey, src) != 0 {
+		return false
+	}
+	return true
+}
+func (p *UpdateBotReq) Field7DeepEqual(src string) bool {
+
+	if strings.Compare(p.BaseUrl, src) != 0 {
+		return false
+	}
+	return true
+}
+func (p *UpdateBotReq) Field8DeepEqual(src string) bool {
+
+	if strings.Compare(p.SystemPrompt, src) != 0 {
+		return false
+	}
+	return true
+}
+func (p *UpdateBotReq) Field9DeepEqual(src string) bool {
+
+	if strings.Compare(p.SkillsDir, src) != 0 {
+		return false
+	}
+	return true
+}
+func (p *UpdateBotReq) Field10DeepEqual(src string) bool {
+
+	if strings.Compare(p.AgentRoot, src) != 0 {
+		return false
+	}
+	return true
+}
+func (p *UpdateBotReq) Field11DeepEqual(src bool) bool {
+
+	if p.IsActive != src {
+		return false
+	}
+	return true
+}
+func (p *UpdateBotReq) Field12DeepEqual(src string) bool {
+
+	if strings.Compare(p.Avatar, src) != 0 {
+		return false
+	}
+	return true
+}
+func (p *UpdateBotReq) Field13DeepEqual(src string) bool {
+
+	if strings.Compare(p.Signature, src) != 0 {
+		return false
+	}
+	return true
+}
+func (p *UpdateBotReq) Field14DeepEqual(src string) bool {
+
+	if strings.Compare(p.WorkspaceRoot, src) != 0 {
+		return false
+	}
+	return true
+}
+func (p *UpdateBotReq) Field15DeepEqual(src string) bool {
+
+	if strings.Compare(p.ToolPolicy, src) != 0 {
+		return false
+	}
+	return true
+}
+func (p *UpdateBotReq) Field16DeepEqual(src bool) bool {
+
+	if p.IsActiveSet != src {
+		return false
+	}
+	return true
 }
 
 var fieldIDToName_UpdateBotReq = map[int16]string{
@@ -427,6 +718,11 @@ var fieldIDToName_UpdateBotReq = map[int16]string{
 	9:  "skills_dir",
 	10: "agent_root",
 	11: "is_active",
+	12: "avatar",
+	13: "signature",
+	14: "workspace_root",
+	15: "tool_policy",
+	16: "is_active_set",
 }
 
 type UpdateBotResp struct {
@@ -462,6 +758,36 @@ func (p *UpdateBotResp) String() string {
 	return fmt.Sprintf("UpdateBotResp(%+v)", *p)
 }
 
+func (p *UpdateBotResp) DeepEqual(ano *UpdateBotResp) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.Success) {
+		return false
+	}
+	if !p.Field2DeepEqual(ano.Msg) {
+		return false
+	}
+	return true
+}
+
+func (p *UpdateBotResp) Field1DeepEqual(src bool) bool {
+
+	if p.Success != src {
+		return false
+	}
+	return true
+}
+func (p *UpdateBotResp) Field2DeepEqual(src string) bool {
+
+	if strings.Compare(p.Msg, src) != 0 {
+		return false
+	}
+	return true
+}
+
 var fieldIDToName_UpdateBotResp = map[int16]string{
 	1: "success",
 	2: "msg",
@@ -492,14 +818,550 @@ func (p *GetBotReq) String() string {
 	return fmt.Sprintf("GetBotReq(%+v)", *p)
 }
 
+func (p *GetBotReq) DeepEqual(ano *GetBotReq) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.BotId) {
+		return false
+	}
+	return true
+}
+
+func (p *GetBotReq) Field1DeepEqual(src int64) bool {
+
+	if p.BotId != src {
+		return false
+	}
+	return true
+}
+
 var fieldIDToName_GetBotReq = map[int16]string{
 	1: "bot_id",
 }
 
+type BotInfo struct {
+	Id            int64  `thrift:"id,1" frugal:"1,default,i64" json:"id"`
+	Name          string `thrift:"name,2" frugal:"2,default,string" json:"name"`
+	Type          string `thrift:"type,3" frugal:"3,default,string" json:"type"`
+	Description   string `thrift:"description,4" frugal:"4,default,string" json:"description"`
+	ModelName     string `thrift:"model_name,5" frugal:"5,default,string" json:"model_name"`
+	BaseUrl       string `thrift:"base_url,6" frugal:"6,default,string" json:"base_url"`
+	SystemPrompt  string `thrift:"system_prompt,7" frugal:"7,default,string" json:"system_prompt"`
+	SkillsDir     string `thrift:"skills_dir,8" frugal:"8,default,string" json:"skills_dir"`
+	AgentRoot     string `thrift:"agent_root,9" frugal:"9,default,string" json:"agent_root"`
+	OwnerId       int64  `thrift:"owner_id,10" frugal:"10,default,i64" json:"owner_id"`
+	IsActive      bool   `thrift:"is_active,11" frugal:"11,default,bool" json:"is_active"`
+	CreatedAt     string `thrift:"created_at,12" frugal:"12,default,string" json:"created_at"`
+	UpdatedAt     string `thrift:"updated_at,13" frugal:"13,default,string" json:"updated_at"`
+	AgentUserId   int64  `thrift:"agent_user_id,14" frugal:"14,default,i64" json:"agent_user_id"`
+	Avatar        string `thrift:"avatar,15" frugal:"15,default,string" json:"avatar"`
+	Signature     string `thrift:"signature,16" frugal:"16,default,string" json:"signature"`
+	WorkspaceRoot string `thrift:"workspace_root,17" frugal:"17,default,string" json:"workspace_root"`
+	ToolPolicy    string `thrift:"tool_policy,18" frugal:"18,default,string" json:"tool_policy"`
+}
+
+func NewBotInfo() *BotInfo {
+	return &BotInfo{}
+}
+
+func (p *BotInfo) InitDefault() {
+}
+
+func (p *BotInfo) GetId() (v int64) {
+	return p.Id
+}
+
+func (p *BotInfo) GetName() (v string) {
+	return p.Name
+}
+
+func (p *BotInfo) GetType() (v string) {
+	return p.Type
+}
+
+func (p *BotInfo) GetDescription() (v string) {
+	return p.Description
+}
+
+func (p *BotInfo) GetModelName() (v string) {
+	return p.ModelName
+}
+
+func (p *BotInfo) GetBaseUrl() (v string) {
+	return p.BaseUrl
+}
+
+func (p *BotInfo) GetSystemPrompt() (v string) {
+	return p.SystemPrompt
+}
+
+func (p *BotInfo) GetSkillsDir() (v string) {
+	return p.SkillsDir
+}
+
+func (p *BotInfo) GetAgentRoot() (v string) {
+	return p.AgentRoot
+}
+
+func (p *BotInfo) GetOwnerId() (v int64) {
+	return p.OwnerId
+}
+
+func (p *BotInfo) GetIsActive() (v bool) {
+	return p.IsActive
+}
+
+func (p *BotInfo) GetCreatedAt() (v string) {
+	return p.CreatedAt
+}
+
+func (p *BotInfo) GetUpdatedAt() (v string) {
+	return p.UpdatedAt
+}
+
+func (p *BotInfo) GetAgentUserId() (v int64) {
+	return p.AgentUserId
+}
+
+func (p *BotInfo) GetAvatar() (v string) {
+	return p.Avatar
+}
+
+func (p *BotInfo) GetSignature() (v string) {
+	return p.Signature
+}
+
+func (p *BotInfo) GetWorkspaceRoot() (v string) {
+	return p.WorkspaceRoot
+}
+
+func (p *BotInfo) GetToolPolicy() (v string) {
+	return p.ToolPolicy
+}
+func (p *BotInfo) SetId(val int64) {
+	p.Id = val
+}
+func (p *BotInfo) SetName(val string) {
+	p.Name = val
+}
+func (p *BotInfo) SetType(val string) {
+	p.Type = val
+}
+func (p *BotInfo) SetDescription(val string) {
+	p.Description = val
+}
+func (p *BotInfo) SetModelName(val string) {
+	p.ModelName = val
+}
+func (p *BotInfo) SetBaseUrl(val string) {
+	p.BaseUrl = val
+}
+func (p *BotInfo) SetSystemPrompt(val string) {
+	p.SystemPrompt = val
+}
+func (p *BotInfo) SetSkillsDir(val string) {
+	p.SkillsDir = val
+}
+func (p *BotInfo) SetAgentRoot(val string) {
+	p.AgentRoot = val
+}
+func (p *BotInfo) SetOwnerId(val int64) {
+	p.OwnerId = val
+}
+func (p *BotInfo) SetIsActive(val bool) {
+	p.IsActive = val
+}
+func (p *BotInfo) SetCreatedAt(val string) {
+	p.CreatedAt = val
+}
+func (p *BotInfo) SetUpdatedAt(val string) {
+	p.UpdatedAt = val
+}
+func (p *BotInfo) SetAgentUserId(val int64) {
+	p.AgentUserId = val
+}
+func (p *BotInfo) SetAvatar(val string) {
+	p.Avatar = val
+}
+func (p *BotInfo) SetSignature(val string) {
+	p.Signature = val
+}
+func (p *BotInfo) SetWorkspaceRoot(val string) {
+	p.WorkspaceRoot = val
+}
+func (p *BotInfo) SetToolPolicy(val string) {
+	p.ToolPolicy = val
+}
+
+func (p *BotInfo) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("BotInfo(%+v)", *p)
+}
+
+func (p *BotInfo) DeepEqual(ano *BotInfo) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.Id) {
+		return false
+	}
+	if !p.Field2DeepEqual(ano.Name) {
+		return false
+	}
+	if !p.Field3DeepEqual(ano.Type) {
+		return false
+	}
+	if !p.Field4DeepEqual(ano.Description) {
+		return false
+	}
+	if !p.Field5DeepEqual(ano.ModelName) {
+		return false
+	}
+	if !p.Field6DeepEqual(ano.BaseUrl) {
+		return false
+	}
+	if !p.Field7DeepEqual(ano.SystemPrompt) {
+		return false
+	}
+	if !p.Field8DeepEqual(ano.SkillsDir) {
+		return false
+	}
+	if !p.Field9DeepEqual(ano.AgentRoot) {
+		return false
+	}
+	if !p.Field10DeepEqual(ano.OwnerId) {
+		return false
+	}
+	if !p.Field11DeepEqual(ano.IsActive) {
+		return false
+	}
+	if !p.Field12DeepEqual(ano.CreatedAt) {
+		return false
+	}
+	if !p.Field13DeepEqual(ano.UpdatedAt) {
+		return false
+	}
+	if !p.Field14DeepEqual(ano.AgentUserId) {
+		return false
+	}
+	if !p.Field15DeepEqual(ano.Avatar) {
+		return false
+	}
+	if !p.Field16DeepEqual(ano.Signature) {
+		return false
+	}
+	if !p.Field17DeepEqual(ano.WorkspaceRoot) {
+		return false
+	}
+	if !p.Field18DeepEqual(ano.ToolPolicy) {
+		return false
+	}
+	return true
+}
+
+func (p *BotInfo) Field1DeepEqual(src int64) bool {
+
+	if p.Id != src {
+		return false
+	}
+	return true
+}
+func (p *BotInfo) Field2DeepEqual(src string) bool {
+
+	if strings.Compare(p.Name, src) != 0 {
+		return false
+	}
+	return true
+}
+func (p *BotInfo) Field3DeepEqual(src string) bool {
+
+	if strings.Compare(p.Type, src) != 0 {
+		return false
+	}
+	return true
+}
+func (p *BotInfo) Field4DeepEqual(src string) bool {
+
+	if strings.Compare(p.Description, src) != 0 {
+		return false
+	}
+	return true
+}
+func (p *BotInfo) Field5DeepEqual(src string) bool {
+
+	if strings.Compare(p.ModelName, src) != 0 {
+		return false
+	}
+	return true
+}
+func (p *BotInfo) Field6DeepEqual(src string) bool {
+
+	if strings.Compare(p.BaseUrl, src) != 0 {
+		return false
+	}
+	return true
+}
+func (p *BotInfo) Field7DeepEqual(src string) bool {
+
+	if strings.Compare(p.SystemPrompt, src) != 0 {
+		return false
+	}
+	return true
+}
+func (p *BotInfo) Field8DeepEqual(src string) bool {
+
+	if strings.Compare(p.SkillsDir, src) != 0 {
+		return false
+	}
+	return true
+}
+func (p *BotInfo) Field9DeepEqual(src string) bool {
+
+	if strings.Compare(p.AgentRoot, src) != 0 {
+		return false
+	}
+	return true
+}
+func (p *BotInfo) Field10DeepEqual(src int64) bool {
+
+	if p.OwnerId != src {
+		return false
+	}
+	return true
+}
+func (p *BotInfo) Field11DeepEqual(src bool) bool {
+
+	if p.IsActive != src {
+		return false
+	}
+	return true
+}
+func (p *BotInfo) Field12DeepEqual(src string) bool {
+
+	if strings.Compare(p.CreatedAt, src) != 0 {
+		return false
+	}
+	return true
+}
+func (p *BotInfo) Field13DeepEqual(src string) bool {
+
+	if strings.Compare(p.UpdatedAt, src) != 0 {
+		return false
+	}
+	return true
+}
+func (p *BotInfo) Field14DeepEqual(src int64) bool {
+
+	if p.AgentUserId != src {
+		return false
+	}
+	return true
+}
+func (p *BotInfo) Field15DeepEqual(src string) bool {
+
+	if strings.Compare(p.Avatar, src) != 0 {
+		return false
+	}
+	return true
+}
+func (p *BotInfo) Field16DeepEqual(src string) bool {
+
+	if strings.Compare(p.Signature, src) != 0 {
+		return false
+	}
+	return true
+}
+func (p *BotInfo) Field17DeepEqual(src string) bool {
+
+	if strings.Compare(p.WorkspaceRoot, src) != 0 {
+		return false
+	}
+	return true
+}
+func (p *BotInfo) Field18DeepEqual(src string) bool {
+
+	if strings.Compare(p.ToolPolicy, src) != 0 {
+		return false
+	}
+	return true
+}
+
+var fieldIDToName_BotInfo = map[int16]string{
+	1:  "id",
+	2:  "name",
+	3:  "type",
+	4:  "description",
+	5:  "model_name",
+	6:  "base_url",
+	7:  "system_prompt",
+	8:  "skills_dir",
+	9:  "agent_root",
+	10: "owner_id",
+	11: "is_active",
+	12: "created_at",
+	13: "updated_at",
+	14: "agent_user_id",
+	15: "avatar",
+	16: "signature",
+	17: "workspace_root",
+	18: "tool_policy",
+}
+
+type BotPermission struct {
+	Id        int64  `thrift:"id,1" frugal:"1,default,i64" json:"id"`
+	BotId     int64  `thrift:"bot_id,2" frugal:"2,default,i64" json:"bot_id"`
+	UserId    int64  `thrift:"user_id,3" frugal:"3,default,i64" json:"user_id"`
+	Role      string `thrift:"role,4" frugal:"4,default,string" json:"role"`
+	CreatedAt string `thrift:"created_at,5" frugal:"5,default,string" json:"created_at"`
+	UpdatedAt string `thrift:"updated_at,6" frugal:"6,default,string" json:"updated_at"`
+}
+
+func NewBotPermission() *BotPermission {
+	return &BotPermission{}
+}
+
+func (p *BotPermission) InitDefault() {
+}
+
+func (p *BotPermission) GetId() (v int64) {
+	return p.Id
+}
+
+func (p *BotPermission) GetBotId() (v int64) {
+	return p.BotId
+}
+
+func (p *BotPermission) GetUserId() (v int64) {
+	return p.UserId
+}
+
+func (p *BotPermission) GetRole() (v string) {
+	return p.Role
+}
+
+func (p *BotPermission) GetCreatedAt() (v string) {
+	return p.CreatedAt
+}
+
+func (p *BotPermission) GetUpdatedAt() (v string) {
+	return p.UpdatedAt
+}
+func (p *BotPermission) SetId(val int64) {
+	p.Id = val
+}
+func (p *BotPermission) SetBotId(val int64) {
+	p.BotId = val
+}
+func (p *BotPermission) SetUserId(val int64) {
+	p.UserId = val
+}
+func (p *BotPermission) SetRole(val string) {
+	p.Role = val
+}
+func (p *BotPermission) SetCreatedAt(val string) {
+	p.CreatedAt = val
+}
+func (p *BotPermission) SetUpdatedAt(val string) {
+	p.UpdatedAt = val
+}
+
+func (p *BotPermission) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("BotPermission(%+v)", *p)
+}
+
+func (p *BotPermission) DeepEqual(ano *BotPermission) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.Id) {
+		return false
+	}
+	if !p.Field2DeepEqual(ano.BotId) {
+		return false
+	}
+	if !p.Field3DeepEqual(ano.UserId) {
+		return false
+	}
+	if !p.Field4DeepEqual(ano.Role) {
+		return false
+	}
+	if !p.Field5DeepEqual(ano.CreatedAt) {
+		return false
+	}
+	if !p.Field6DeepEqual(ano.UpdatedAt) {
+		return false
+	}
+	return true
+}
+
+func (p *BotPermission) Field1DeepEqual(src int64) bool {
+
+	if p.Id != src {
+		return false
+	}
+	return true
+}
+func (p *BotPermission) Field2DeepEqual(src int64) bool {
+
+	if p.BotId != src {
+		return false
+	}
+	return true
+}
+func (p *BotPermission) Field3DeepEqual(src int64) bool {
+
+	if p.UserId != src {
+		return false
+	}
+	return true
+}
+func (p *BotPermission) Field4DeepEqual(src string) bool {
+
+	if strings.Compare(p.Role, src) != 0 {
+		return false
+	}
+	return true
+}
+func (p *BotPermission) Field5DeepEqual(src string) bool {
+
+	if strings.Compare(p.CreatedAt, src) != 0 {
+		return false
+	}
+	return true
+}
+func (p *BotPermission) Field6DeepEqual(src string) bool {
+
+	if strings.Compare(p.UpdatedAt, src) != 0 {
+		return false
+	}
+	return true
+}
+
+var fieldIDToName_BotPermission = map[int16]string{
+	1: "id",
+	2: "bot_id",
+	3: "user_id",
+	4: "role",
+	5: "created_at",
+	6: "updated_at",
+}
+
 type GetBotResp struct {
-	Success bool       `thrift:"success,1" frugal:"1,default,bool" json:"success"`
-	Bot     *BotConfig `thrift:"bot,2" frugal:"2,default,BotConfig" json:"bot"`
-	Msg     string     `thrift:"msg,3" frugal:"3,default,string" json:"msg"`
+	Success bool     `thrift:"success,1" frugal:"1,default,bool" json:"success"`
+	Bot     *BotInfo `thrift:"bot,2" frugal:"2,default,BotInfo" json:"bot"`
+	Msg     string   `thrift:"msg,3" frugal:"3,default,string" json:"msg"`
 }
 
 func NewGetBotResp() *GetBotResp {
@@ -513,9 +1375,9 @@ func (p *GetBotResp) GetSuccess() (v bool) {
 	return p.Success
 }
 
-var GetBotResp_Bot_DEFAULT *BotConfig
+var GetBotResp_Bot_DEFAULT *BotInfo
 
-func (p *GetBotResp) GetBot() (v *BotConfig) {
+func (p *GetBotResp) GetBot() (v *BotInfo) {
 	if !p.IsSetBot() {
 		return GetBotResp_Bot_DEFAULT
 	}
@@ -528,7 +1390,7 @@ func (p *GetBotResp) GetMsg() (v string) {
 func (p *GetBotResp) SetSuccess(val bool) {
 	p.Success = val
 }
-func (p *GetBotResp) SetBot(val *BotConfig) {
+func (p *GetBotResp) SetBot(val *BotInfo) {
 	p.Bot = val
 }
 func (p *GetBotResp) SetMsg(val string) {
@@ -544,6 +1406,46 @@ func (p *GetBotResp) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("GetBotResp(%+v)", *p)
+}
+
+func (p *GetBotResp) DeepEqual(ano *GetBotResp) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.Success) {
+		return false
+	}
+	if !p.Field2DeepEqual(ano.Bot) {
+		return false
+	}
+	if !p.Field3DeepEqual(ano.Msg) {
+		return false
+	}
+	return true
+}
+
+func (p *GetBotResp) Field1DeepEqual(src bool) bool {
+
+	if p.Success != src {
+		return false
+	}
+	return true
+}
+func (p *GetBotResp) Field2DeepEqual(src *BotInfo) bool {
+
+	if !p.Bot.DeepEqual(src) {
+		return false
+	}
+	return true
+}
+func (p *GetBotResp) Field3DeepEqual(src string) bool {
+
+	if strings.Compare(p.Msg, src) != 0 {
+		return false
+	}
+	return true
 }
 
 var fieldIDToName_GetBotResp = map[int16]string{
@@ -585,15 +1487,45 @@ func (p *ListBotsReq) String() string {
 	return fmt.Sprintf("ListBotsReq(%+v)", *p)
 }
 
+func (p *ListBotsReq) DeepEqual(ano *ListBotsReq) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.OwnerId) {
+		return false
+	}
+	if !p.Field2DeepEqual(ano.Type) {
+		return false
+	}
+	return true
+}
+
+func (p *ListBotsReq) Field1DeepEqual(src int64) bool {
+
+	if p.OwnerId != src {
+		return false
+	}
+	return true
+}
+func (p *ListBotsReq) Field2DeepEqual(src string) bool {
+
+	if strings.Compare(p.Type, src) != 0 {
+		return false
+	}
+	return true
+}
+
 var fieldIDToName_ListBotsReq = map[int16]string{
 	1: "owner_id",
 	2: "type",
 }
 
 type ListBotsResp struct {
-	Success bool         `thrift:"success,1" frugal:"1,default,bool" json:"success"`
-	Bots    []*BotConfig `thrift:"bots,2" frugal:"2,default,list<BotConfig>" json:"bots"`
-	Msg     string       `thrift:"msg,3" frugal:"3,default,string" json:"msg"`
+	Success bool       `thrift:"success,1" frugal:"1,default,bool" json:"success"`
+	Bots    []*BotInfo `thrift:"bots,2" frugal:"2,default,list<BotInfo>" json:"bots"`
+	Msg     string     `thrift:"msg,3" frugal:"3,default,string" json:"msg"`
 }
 
 func NewListBotsResp() *ListBotsResp {
@@ -607,7 +1539,7 @@ func (p *ListBotsResp) GetSuccess() (v bool) {
 	return p.Success
 }
 
-func (p *ListBotsResp) GetBots() (v []*BotConfig) {
+func (p *ListBotsResp) GetBots() (v []*BotInfo) {
 	return p.Bots
 }
 
@@ -617,7 +1549,7 @@ func (p *ListBotsResp) GetMsg() (v string) {
 func (p *ListBotsResp) SetSuccess(val bool) {
 	p.Success = val
 }
-func (p *ListBotsResp) SetBots(val []*BotConfig) {
+func (p *ListBotsResp) SetBots(val []*BotInfo) {
 	p.Bots = val
 }
 func (p *ListBotsResp) SetMsg(val string) {
@@ -629,6 +1561,52 @@ func (p *ListBotsResp) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("ListBotsResp(%+v)", *p)
+}
+
+func (p *ListBotsResp) DeepEqual(ano *ListBotsResp) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.Success) {
+		return false
+	}
+	if !p.Field2DeepEqual(ano.Bots) {
+		return false
+	}
+	if !p.Field3DeepEqual(ano.Msg) {
+		return false
+	}
+	return true
+}
+
+func (p *ListBotsResp) Field1DeepEqual(src bool) bool {
+
+	if p.Success != src {
+		return false
+	}
+	return true
+}
+func (p *ListBotsResp) Field2DeepEqual(src []*BotInfo) bool {
+
+	if len(p.Bots) != len(src) {
+		return false
+	}
+	for i, v := range p.Bots {
+		_src := src[i]
+		if !v.DeepEqual(_src) {
+			return false
+		}
+	}
+	return true
+}
+func (p *ListBotsResp) Field3DeepEqual(src string) bool {
+
+	if strings.Compare(p.Msg, src) != 0 {
+		return false
+	}
+	return true
 }
 
 var fieldIDToName_ListBotsResp = map[int16]string{
@@ -670,6 +1648,36 @@ func (p *DeleteBotReq) String() string {
 	return fmt.Sprintf("DeleteBotReq(%+v)", *p)
 }
 
+func (p *DeleteBotReq) DeepEqual(ano *DeleteBotReq) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.BotId) {
+		return false
+	}
+	if !p.Field2DeepEqual(ano.OperatorId) {
+		return false
+	}
+	return true
+}
+
+func (p *DeleteBotReq) Field1DeepEqual(src int64) bool {
+
+	if p.BotId != src {
+		return false
+	}
+	return true
+}
+func (p *DeleteBotReq) Field2DeepEqual(src int64) bool {
+
+	if p.OperatorId != src {
+		return false
+	}
+	return true
+}
+
 var fieldIDToName_DeleteBotReq = map[int16]string{
 	1: "bot_id",
 	2: "operator_id",
@@ -708,92 +1716,972 @@ func (p *DeleteBotResp) String() string {
 	return fmt.Sprintf("DeleteBotResp(%+v)", *p)
 }
 
+func (p *DeleteBotResp) DeepEqual(ano *DeleteBotResp) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.Success) {
+		return false
+	}
+	if !p.Field2DeepEqual(ano.Msg) {
+		return false
+	}
+	return true
+}
+
+func (p *DeleteBotResp) Field1DeepEqual(src bool) bool {
+
+	if p.Success != src {
+		return false
+	}
+	return true
+}
+func (p *DeleteBotResp) Field2DeepEqual(src string) bool {
+
+	if strings.Compare(p.Msg, src) != 0 {
+		return false
+	}
+	return true
+}
+
 var fieldIDToName_DeleteBotResp = map[int16]string{
 	1: "success",
 	2: "msg",
 }
 
-type BotRoute struct {
-	Id           int64  `thrift:"id,1" frugal:"1,default,i64" json:"id"`
-	BotId        int64  `thrift:"bot_id,2" frugal:"2,default,i64" json:"bot_id"`
-	RoutePattern string `thrift:"route_pattern,3" frugal:"3,default,string" json:"route_pattern"`
-	RouteType    string `thrift:"route_type,4" frugal:"4,default,string" json:"route_type"`
-	Priority     int64  `thrift:"priority,5" frugal:"5,default,i64" json:"priority"`
-	IsActive     bool   `thrift:"is_active,6" frugal:"6,default,bool" json:"is_active"`
-	CreatedAt    string `thrift:"created_at,7" frugal:"7,default,string" json:"created_at"`
+type ChatWithBotReq struct {
+	BotId          int64  `thrift:"bot_id,1" frugal:"1,default,i64" json:"bot_id"`
+	UserId         int64  `thrift:"user_id,2" frugal:"2,default,i64" json:"user_id"`
+	ConversationId int64  `thrift:"conversation_id,3" frugal:"3,default,i64" json:"conversation_id"`
+	Message        string `thrift:"message,4" frugal:"4,default,string" json:"message"`
 }
 
-func NewBotRoute() *BotRoute {
-	return &BotRoute{}
+func NewChatWithBotReq() *ChatWithBotReq {
+	return &ChatWithBotReq{}
 }
 
-func (p *BotRoute) InitDefault() {
+func (p *ChatWithBotReq) InitDefault() {
 }
 
-func (p *BotRoute) GetId() (v int64) {
-	return p.Id
-}
-
-func (p *BotRoute) GetBotId() (v int64) {
+func (p *ChatWithBotReq) GetBotId() (v int64) {
 	return p.BotId
 }
 
-func (p *BotRoute) GetRoutePattern() (v string) {
-	return p.RoutePattern
+func (p *ChatWithBotReq) GetUserId() (v int64) {
+	return p.UserId
 }
 
-func (p *BotRoute) GetRouteType() (v string) {
-	return p.RouteType
+func (p *ChatWithBotReq) GetConversationId() (v int64) {
+	return p.ConversationId
 }
 
-func (p *BotRoute) GetPriority() (v int64) {
-	return p.Priority
+func (p *ChatWithBotReq) GetMessage() (v string) {
+	return p.Message
 }
-
-func (p *BotRoute) GetIsActive() (v bool) {
-	return p.IsActive
-}
-
-func (p *BotRoute) GetCreatedAt() (v string) {
-	return p.CreatedAt
-}
-func (p *BotRoute) SetId(val int64) {
-	p.Id = val
-}
-func (p *BotRoute) SetBotId(val int64) {
+func (p *ChatWithBotReq) SetBotId(val int64) {
 	p.BotId = val
 }
-func (p *BotRoute) SetRoutePattern(val string) {
-	p.RoutePattern = val
+func (p *ChatWithBotReq) SetUserId(val int64) {
+	p.UserId = val
 }
-func (p *BotRoute) SetRouteType(val string) {
-	p.RouteType = val
+func (p *ChatWithBotReq) SetConversationId(val int64) {
+	p.ConversationId = val
 }
-func (p *BotRoute) SetPriority(val int64) {
-	p.Priority = val
-}
-func (p *BotRoute) SetIsActive(val bool) {
-	p.IsActive = val
-}
-func (p *BotRoute) SetCreatedAt(val string) {
-	p.CreatedAt = val
+func (p *ChatWithBotReq) SetMessage(val string) {
+	p.Message = val
 }
 
-func (p *BotRoute) String() string {
+func (p *ChatWithBotReq) String() string {
 	if p == nil {
 		return "<nil>"
 	}
-	return fmt.Sprintf("BotRoute(%+v)", *p)
+	return fmt.Sprintf("ChatWithBotReq(%+v)", *p)
 }
 
-var fieldIDToName_BotRoute = map[int16]string{
-	1: "id",
-	2: "bot_id",
-	3: "route_pattern",
-	4: "route_type",
-	5: "priority",
-	6: "is_active",
-	7: "created_at",
+func (p *ChatWithBotReq) DeepEqual(ano *ChatWithBotReq) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.BotId) {
+		return false
+	}
+	if !p.Field2DeepEqual(ano.UserId) {
+		return false
+	}
+	if !p.Field3DeepEqual(ano.ConversationId) {
+		return false
+	}
+	if !p.Field4DeepEqual(ano.Message) {
+		return false
+	}
+	return true
+}
+
+func (p *ChatWithBotReq) Field1DeepEqual(src int64) bool {
+
+	if p.BotId != src {
+		return false
+	}
+	return true
+}
+func (p *ChatWithBotReq) Field2DeepEqual(src int64) bool {
+
+	if p.UserId != src {
+		return false
+	}
+	return true
+}
+func (p *ChatWithBotReq) Field3DeepEqual(src int64) bool {
+
+	if p.ConversationId != src {
+		return false
+	}
+	return true
+}
+func (p *ChatWithBotReq) Field4DeepEqual(src string) bool {
+
+	if strings.Compare(p.Message, src) != 0 {
+		return false
+	}
+	return true
+}
+
+var fieldIDToName_ChatWithBotReq = map[int16]string{
+	1: "bot_id",
+	2: "user_id",
+	3: "conversation_id",
+	4: "message",
+}
+
+type ChatWithBotResp struct {
+	Success      bool    `thrift:"success,1" frugal:"1,default,bool" json:"success"`
+	Reply        string  `thrift:"reply,2" frugal:"2,default,string" json:"reply"`
+	InputTokens  int64   `thrift:"input_tokens,3" frugal:"3,default,i64" json:"input_tokens"`
+	OutputTokens int64   `thrift:"output_tokens,4" frugal:"4,default,i64" json:"output_tokens"`
+	Cost         float64 `thrift:"cost,5" frugal:"5,default,double" json:"cost"`
+	Msg          string  `thrift:"msg,6" frugal:"6,default,string" json:"msg"`
+}
+
+func NewChatWithBotResp() *ChatWithBotResp {
+	return &ChatWithBotResp{}
+}
+
+func (p *ChatWithBotResp) InitDefault() {
+}
+
+func (p *ChatWithBotResp) GetSuccess() (v bool) {
+	return p.Success
+}
+
+func (p *ChatWithBotResp) GetReply() (v string) {
+	return p.Reply
+}
+
+func (p *ChatWithBotResp) GetInputTokens() (v int64) {
+	return p.InputTokens
+}
+
+func (p *ChatWithBotResp) GetOutputTokens() (v int64) {
+	return p.OutputTokens
+}
+
+func (p *ChatWithBotResp) GetCost() (v float64) {
+	return p.Cost
+}
+
+func (p *ChatWithBotResp) GetMsg() (v string) {
+	return p.Msg
+}
+func (p *ChatWithBotResp) SetSuccess(val bool) {
+	p.Success = val
+}
+func (p *ChatWithBotResp) SetReply(val string) {
+	p.Reply = val
+}
+func (p *ChatWithBotResp) SetInputTokens(val int64) {
+	p.InputTokens = val
+}
+func (p *ChatWithBotResp) SetOutputTokens(val int64) {
+	p.OutputTokens = val
+}
+func (p *ChatWithBotResp) SetCost(val float64) {
+	p.Cost = val
+}
+func (p *ChatWithBotResp) SetMsg(val string) {
+	p.Msg = val
+}
+
+func (p *ChatWithBotResp) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("ChatWithBotResp(%+v)", *p)
+}
+
+func (p *ChatWithBotResp) DeepEqual(ano *ChatWithBotResp) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.Success) {
+		return false
+	}
+	if !p.Field2DeepEqual(ano.Reply) {
+		return false
+	}
+	if !p.Field3DeepEqual(ano.InputTokens) {
+		return false
+	}
+	if !p.Field4DeepEqual(ano.OutputTokens) {
+		return false
+	}
+	if !p.Field5DeepEqual(ano.Cost) {
+		return false
+	}
+	if !p.Field6DeepEqual(ano.Msg) {
+		return false
+	}
+	return true
+}
+
+func (p *ChatWithBotResp) Field1DeepEqual(src bool) bool {
+
+	if p.Success != src {
+		return false
+	}
+	return true
+}
+func (p *ChatWithBotResp) Field2DeepEqual(src string) bool {
+
+	if strings.Compare(p.Reply, src) != 0 {
+		return false
+	}
+	return true
+}
+func (p *ChatWithBotResp) Field3DeepEqual(src int64) bool {
+
+	if p.InputTokens != src {
+		return false
+	}
+	return true
+}
+func (p *ChatWithBotResp) Field4DeepEqual(src int64) bool {
+
+	if p.OutputTokens != src {
+		return false
+	}
+	return true
+}
+func (p *ChatWithBotResp) Field5DeepEqual(src float64) bool {
+
+	if p.Cost != src {
+		return false
+	}
+	return true
+}
+func (p *ChatWithBotResp) Field6DeepEqual(src string) bool {
+
+	if strings.Compare(p.Msg, src) != 0 {
+		return false
+	}
+	return true
+}
+
+var fieldIDToName_ChatWithBotResp = map[int16]string{
+	1: "success",
+	2: "reply",
+	3: "input_tokens",
+	4: "output_tokens",
+	5: "cost",
+	6: "msg",
+}
+
+type AgentTaskReq struct {
+	BotId          int64  `thrift:"bot_id,1" frugal:"1,default,i64" json:"bot_id"`
+	UserId         int64  `thrift:"user_id,2" frugal:"2,default,i64" json:"user_id"`
+	ConversationId int64  `thrift:"conversation_id,3" frugal:"3,default,i64" json:"conversation_id"`
+	Question       string `thrift:"question,4" frugal:"4,default,string" json:"question"`
+}
+
+func NewAgentTaskReq() *AgentTaskReq {
+	return &AgentTaskReq{}
+}
+
+func (p *AgentTaskReq) InitDefault() {
+}
+
+func (p *AgentTaskReq) GetBotId() (v int64) {
+	return p.BotId
+}
+
+func (p *AgentTaskReq) GetUserId() (v int64) {
+	return p.UserId
+}
+
+func (p *AgentTaskReq) GetConversationId() (v int64) {
+	return p.ConversationId
+}
+
+func (p *AgentTaskReq) GetQuestion() (v string) {
+	return p.Question
+}
+func (p *AgentTaskReq) SetBotId(val int64) {
+	p.BotId = val
+}
+func (p *AgentTaskReq) SetUserId(val int64) {
+	p.UserId = val
+}
+func (p *AgentTaskReq) SetConversationId(val int64) {
+	p.ConversationId = val
+}
+func (p *AgentTaskReq) SetQuestion(val string) {
+	p.Question = val
+}
+
+func (p *AgentTaskReq) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("AgentTaskReq(%+v)", *p)
+}
+
+func (p *AgentTaskReq) DeepEqual(ano *AgentTaskReq) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.BotId) {
+		return false
+	}
+	if !p.Field2DeepEqual(ano.UserId) {
+		return false
+	}
+	if !p.Field3DeepEqual(ano.ConversationId) {
+		return false
+	}
+	if !p.Field4DeepEqual(ano.Question) {
+		return false
+	}
+	return true
+}
+
+func (p *AgentTaskReq) Field1DeepEqual(src int64) bool {
+
+	if p.BotId != src {
+		return false
+	}
+	return true
+}
+func (p *AgentTaskReq) Field2DeepEqual(src int64) bool {
+
+	if p.UserId != src {
+		return false
+	}
+	return true
+}
+func (p *AgentTaskReq) Field3DeepEqual(src int64) bool {
+
+	if p.ConversationId != src {
+		return false
+	}
+	return true
+}
+func (p *AgentTaskReq) Field4DeepEqual(src string) bool {
+
+	if strings.Compare(p.Question, src) != 0 {
+		return false
+	}
+	return true
+}
+
+var fieldIDToName_AgentTaskReq = map[int16]string{
+	1: "bot_id",
+	2: "user_id",
+	3: "conversation_id",
+	4: "question",
+}
+
+type AgentTaskResp struct {
+	Success bool   `thrift:"success,1" frugal:"1,default,bool" json:"success"`
+	Result_ string `thrift:"result,2" frugal:"2,default,string" json:"result"`
+	Msg     string `thrift:"msg,3" frugal:"3,default,string" json:"msg"`
+}
+
+func NewAgentTaskResp() *AgentTaskResp {
+	return &AgentTaskResp{}
+}
+
+func (p *AgentTaskResp) InitDefault() {
+}
+
+func (p *AgentTaskResp) GetSuccess() (v bool) {
+	return p.Success
+}
+
+func (p *AgentTaskResp) GetResult_() (v string) {
+	return p.Result_
+}
+
+func (p *AgentTaskResp) GetMsg() (v string) {
+	return p.Msg
+}
+func (p *AgentTaskResp) SetSuccess(val bool) {
+	p.Success = val
+}
+func (p *AgentTaskResp) SetResult_(val string) {
+	p.Result_ = val
+}
+func (p *AgentTaskResp) SetMsg(val string) {
+	p.Msg = val
+}
+
+func (p *AgentTaskResp) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("AgentTaskResp(%+v)", *p)
+}
+
+func (p *AgentTaskResp) DeepEqual(ano *AgentTaskResp) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.Success) {
+		return false
+	}
+	if !p.Field2DeepEqual(ano.Result_) {
+		return false
+	}
+	if !p.Field3DeepEqual(ano.Msg) {
+		return false
+	}
+	return true
+}
+
+func (p *AgentTaskResp) Field1DeepEqual(src bool) bool {
+
+	if p.Success != src {
+		return false
+	}
+	return true
+}
+func (p *AgentTaskResp) Field2DeepEqual(src string) bool {
+
+	if strings.Compare(p.Result_, src) != 0 {
+		return false
+	}
+	return true
+}
+func (p *AgentTaskResp) Field3DeepEqual(src string) bool {
+
+	if strings.Compare(p.Msg, src) != 0 {
+		return false
+	}
+	return true
+}
+
+var fieldIDToName_AgentTaskResp = map[int16]string{
+	1: "success",
+	2: "result",
+	3: "msg",
+}
+
+type GrantPermissionReq struct {
+	BotId      int64  `thrift:"bot_id,1" frugal:"1,default,i64" json:"bot_id"`
+	OperatorId int64  `thrift:"operator_id,2" frugal:"2,default,i64" json:"operator_id"`
+	UserId     int64  `thrift:"user_id,3" frugal:"3,default,i64" json:"user_id"`
+	Role       string `thrift:"role,4" frugal:"4,default,string" json:"role"`
+}
+
+func NewGrantPermissionReq() *GrantPermissionReq {
+	return &GrantPermissionReq{}
+}
+
+func (p *GrantPermissionReq) InitDefault() {
+}
+
+func (p *GrantPermissionReq) GetBotId() (v int64) {
+	return p.BotId
+}
+
+func (p *GrantPermissionReq) GetOperatorId() (v int64) {
+	return p.OperatorId
+}
+
+func (p *GrantPermissionReq) GetUserId() (v int64) {
+	return p.UserId
+}
+
+func (p *GrantPermissionReq) GetRole() (v string) {
+	return p.Role
+}
+func (p *GrantPermissionReq) SetBotId(val int64) {
+	p.BotId = val
+}
+func (p *GrantPermissionReq) SetOperatorId(val int64) {
+	p.OperatorId = val
+}
+func (p *GrantPermissionReq) SetUserId(val int64) {
+	p.UserId = val
+}
+func (p *GrantPermissionReq) SetRole(val string) {
+	p.Role = val
+}
+
+func (p *GrantPermissionReq) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("GrantPermissionReq(%+v)", *p)
+}
+
+func (p *GrantPermissionReq) DeepEqual(ano *GrantPermissionReq) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.BotId) {
+		return false
+	}
+	if !p.Field2DeepEqual(ano.OperatorId) {
+		return false
+	}
+	if !p.Field3DeepEqual(ano.UserId) {
+		return false
+	}
+	if !p.Field4DeepEqual(ano.Role) {
+		return false
+	}
+	return true
+}
+
+func (p *GrantPermissionReq) Field1DeepEqual(src int64) bool {
+
+	if p.BotId != src {
+		return false
+	}
+	return true
+}
+func (p *GrantPermissionReq) Field2DeepEqual(src int64) bool {
+
+	if p.OperatorId != src {
+		return false
+	}
+	return true
+}
+func (p *GrantPermissionReq) Field3DeepEqual(src int64) bool {
+
+	if p.UserId != src {
+		return false
+	}
+	return true
+}
+func (p *GrantPermissionReq) Field4DeepEqual(src string) bool {
+
+	if strings.Compare(p.Role, src) != 0 {
+		return false
+	}
+	return true
+}
+
+var fieldIDToName_GrantPermissionReq = map[int16]string{
+	1: "bot_id",
+	2: "operator_id",
+	3: "user_id",
+	4: "role",
+}
+
+type GrantPermissionResp struct {
+	Success bool   `thrift:"success,1" frugal:"1,default,bool" json:"success"`
+	Msg     string `thrift:"msg,2" frugal:"2,default,string" json:"msg"`
+}
+
+func NewGrantPermissionResp() *GrantPermissionResp {
+	return &GrantPermissionResp{}
+}
+
+func (p *GrantPermissionResp) InitDefault() {
+}
+
+func (p *GrantPermissionResp) GetSuccess() (v bool) {
+	return p.Success
+}
+
+func (p *GrantPermissionResp) GetMsg() (v string) {
+	return p.Msg
+}
+func (p *GrantPermissionResp) SetSuccess(val bool) {
+	p.Success = val
+}
+func (p *GrantPermissionResp) SetMsg(val string) {
+	p.Msg = val
+}
+
+func (p *GrantPermissionResp) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("GrantPermissionResp(%+v)", *p)
+}
+
+func (p *GrantPermissionResp) DeepEqual(ano *GrantPermissionResp) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.Success) {
+		return false
+	}
+	if !p.Field2DeepEqual(ano.Msg) {
+		return false
+	}
+	return true
+}
+
+func (p *GrantPermissionResp) Field1DeepEqual(src bool) bool {
+
+	if p.Success != src {
+		return false
+	}
+	return true
+}
+func (p *GrantPermissionResp) Field2DeepEqual(src string) bool {
+
+	if strings.Compare(p.Msg, src) != 0 {
+		return false
+	}
+	return true
+}
+
+var fieldIDToName_GrantPermissionResp = map[int16]string{
+	1: "success",
+	2: "msg",
+}
+
+type RevokePermissionReq struct {
+	BotId      int64 `thrift:"bot_id,1" frugal:"1,default,i64" json:"bot_id"`
+	OperatorId int64 `thrift:"operator_id,2" frugal:"2,default,i64" json:"operator_id"`
+	UserId     int64 `thrift:"user_id,3" frugal:"3,default,i64" json:"user_id"`
+}
+
+func NewRevokePermissionReq() *RevokePermissionReq {
+	return &RevokePermissionReq{}
+}
+
+func (p *RevokePermissionReq) InitDefault() {
+}
+
+func (p *RevokePermissionReq) GetBotId() (v int64) {
+	return p.BotId
+}
+
+func (p *RevokePermissionReq) GetOperatorId() (v int64) {
+	return p.OperatorId
+}
+
+func (p *RevokePermissionReq) GetUserId() (v int64) {
+	return p.UserId
+}
+func (p *RevokePermissionReq) SetBotId(val int64) {
+	p.BotId = val
+}
+func (p *RevokePermissionReq) SetOperatorId(val int64) {
+	p.OperatorId = val
+}
+func (p *RevokePermissionReq) SetUserId(val int64) {
+	p.UserId = val
+}
+
+func (p *RevokePermissionReq) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("RevokePermissionReq(%+v)", *p)
+}
+
+func (p *RevokePermissionReq) DeepEqual(ano *RevokePermissionReq) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.BotId) {
+		return false
+	}
+	if !p.Field2DeepEqual(ano.OperatorId) {
+		return false
+	}
+	if !p.Field3DeepEqual(ano.UserId) {
+		return false
+	}
+	return true
+}
+
+func (p *RevokePermissionReq) Field1DeepEqual(src int64) bool {
+
+	if p.BotId != src {
+		return false
+	}
+	return true
+}
+func (p *RevokePermissionReq) Field2DeepEqual(src int64) bool {
+
+	if p.OperatorId != src {
+		return false
+	}
+	return true
+}
+func (p *RevokePermissionReq) Field3DeepEqual(src int64) bool {
+
+	if p.UserId != src {
+		return false
+	}
+	return true
+}
+
+var fieldIDToName_RevokePermissionReq = map[int16]string{
+	1: "bot_id",
+	2: "operator_id",
+	3: "user_id",
+}
+
+type RevokePermissionResp struct {
+	Success bool   `thrift:"success,1" frugal:"1,default,bool" json:"success"`
+	Msg     string `thrift:"msg,2" frugal:"2,default,string" json:"msg"`
+}
+
+func NewRevokePermissionResp() *RevokePermissionResp {
+	return &RevokePermissionResp{}
+}
+
+func (p *RevokePermissionResp) InitDefault() {
+}
+
+func (p *RevokePermissionResp) GetSuccess() (v bool) {
+	return p.Success
+}
+
+func (p *RevokePermissionResp) GetMsg() (v string) {
+	return p.Msg
+}
+func (p *RevokePermissionResp) SetSuccess(val bool) {
+	p.Success = val
+}
+func (p *RevokePermissionResp) SetMsg(val string) {
+	p.Msg = val
+}
+
+func (p *RevokePermissionResp) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("RevokePermissionResp(%+v)", *p)
+}
+
+func (p *RevokePermissionResp) DeepEqual(ano *RevokePermissionResp) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.Success) {
+		return false
+	}
+	if !p.Field2DeepEqual(ano.Msg) {
+		return false
+	}
+	return true
+}
+
+func (p *RevokePermissionResp) Field1DeepEqual(src bool) bool {
+
+	if p.Success != src {
+		return false
+	}
+	return true
+}
+func (p *RevokePermissionResp) Field2DeepEqual(src string) bool {
+
+	if strings.Compare(p.Msg, src) != 0 {
+		return false
+	}
+	return true
+}
+
+var fieldIDToName_RevokePermissionResp = map[int16]string{
+	1: "success",
+	2: "msg",
+}
+
+type ListPermissionsReq struct {
+	BotId      int64 `thrift:"bot_id,1" frugal:"1,default,i64" json:"bot_id"`
+	OperatorId int64 `thrift:"operator_id,2" frugal:"2,default,i64" json:"operator_id"`
+}
+
+func NewListPermissionsReq() *ListPermissionsReq {
+	return &ListPermissionsReq{}
+}
+
+func (p *ListPermissionsReq) InitDefault() {
+}
+
+func (p *ListPermissionsReq) GetBotId() (v int64) {
+	return p.BotId
+}
+
+func (p *ListPermissionsReq) GetOperatorId() (v int64) {
+	return p.OperatorId
+}
+func (p *ListPermissionsReq) SetBotId(val int64) {
+	p.BotId = val
+}
+func (p *ListPermissionsReq) SetOperatorId(val int64) {
+	p.OperatorId = val
+}
+
+func (p *ListPermissionsReq) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("ListPermissionsReq(%+v)", *p)
+}
+
+func (p *ListPermissionsReq) DeepEqual(ano *ListPermissionsReq) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.BotId) {
+		return false
+	}
+	if !p.Field2DeepEqual(ano.OperatorId) {
+		return false
+	}
+	return true
+}
+
+func (p *ListPermissionsReq) Field1DeepEqual(src int64) bool {
+
+	if p.BotId != src {
+		return false
+	}
+	return true
+}
+func (p *ListPermissionsReq) Field2DeepEqual(src int64) bool {
+
+	if p.OperatorId != src {
+		return false
+	}
+	return true
+}
+
+var fieldIDToName_ListPermissionsReq = map[int16]string{
+	1: "bot_id",
+	2: "operator_id",
+}
+
+type ListPermissionsResp struct {
+	Success     bool             `thrift:"success,1" frugal:"1,default,bool" json:"success"`
+	Permissions []*BotPermission `thrift:"permissions,2" frugal:"2,default,list<BotPermission>" json:"permissions"`
+	Msg         string           `thrift:"msg,3" frugal:"3,default,string" json:"msg"`
+}
+
+func NewListPermissionsResp() *ListPermissionsResp {
+	return &ListPermissionsResp{}
+}
+
+func (p *ListPermissionsResp) InitDefault() {
+}
+
+func (p *ListPermissionsResp) GetSuccess() (v bool) {
+	return p.Success
+}
+
+func (p *ListPermissionsResp) GetPermissions() (v []*BotPermission) {
+	return p.Permissions
+}
+
+func (p *ListPermissionsResp) GetMsg() (v string) {
+	return p.Msg
+}
+func (p *ListPermissionsResp) SetSuccess(val bool) {
+	p.Success = val
+}
+func (p *ListPermissionsResp) SetPermissions(val []*BotPermission) {
+	p.Permissions = val
+}
+func (p *ListPermissionsResp) SetMsg(val string) {
+	p.Msg = val
+}
+
+func (p *ListPermissionsResp) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("ListPermissionsResp(%+v)", *p)
+}
+
+func (p *ListPermissionsResp) DeepEqual(ano *ListPermissionsResp) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.Success) {
+		return false
+	}
+	if !p.Field2DeepEqual(ano.Permissions) {
+		return false
+	}
+	if !p.Field3DeepEqual(ano.Msg) {
+		return false
+	}
+	return true
+}
+
+func (p *ListPermissionsResp) Field1DeepEqual(src bool) bool {
+
+	if p.Success != src {
+		return false
+	}
+	return true
+}
+func (p *ListPermissionsResp) Field2DeepEqual(src []*BotPermission) bool {
+
+	if len(p.Permissions) != len(src) {
+		return false
+	}
+	for i, v := range p.Permissions {
+		_src := src[i]
+		if !v.DeepEqual(_src) {
+			return false
+		}
+	}
+	return true
+}
+func (p *ListPermissionsResp) Field3DeepEqual(src string) bool {
+
+	if strings.Compare(p.Msg, src) != 0 {
+		return false
+	}
+	return true
+}
+
+var fieldIDToName_ListPermissionsResp = map[int16]string{
+	1: "success",
+	2: "permissions",
+	3: "msg",
 }
 
 type CreateRouteReq struct {
@@ -845,6 +2733,56 @@ func (p *CreateRouteReq) String() string {
 	return fmt.Sprintf("CreateRouteReq(%+v)", *p)
 }
 
+func (p *CreateRouteReq) DeepEqual(ano *CreateRouteReq) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.BotId) {
+		return false
+	}
+	if !p.Field2DeepEqual(ano.RoutePattern) {
+		return false
+	}
+	if !p.Field3DeepEqual(ano.RouteType) {
+		return false
+	}
+	if !p.Field4DeepEqual(ano.Priority) {
+		return false
+	}
+	return true
+}
+
+func (p *CreateRouteReq) Field1DeepEqual(src int64) bool {
+
+	if p.BotId != src {
+		return false
+	}
+	return true
+}
+func (p *CreateRouteReq) Field2DeepEqual(src string) bool {
+
+	if strings.Compare(p.RoutePattern, src) != 0 {
+		return false
+	}
+	return true
+}
+func (p *CreateRouteReq) Field3DeepEqual(src string) bool {
+
+	if strings.Compare(p.RouteType, src) != 0 {
+		return false
+	}
+	return true
+}
+func (p *CreateRouteReq) Field4DeepEqual(src int64) bool {
+
+	if p.Priority != src {
+		return false
+	}
+	return true
+}
+
 var fieldIDToName_CreateRouteReq = map[int16]string{
 	1: "bot_id",
 	2: "route_pattern",
@@ -893,10 +2831,194 @@ func (p *CreateRouteResp) String() string {
 	return fmt.Sprintf("CreateRouteResp(%+v)", *p)
 }
 
+func (p *CreateRouteResp) DeepEqual(ano *CreateRouteResp) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.Success) {
+		return false
+	}
+	if !p.Field2DeepEqual(ano.RouteId) {
+		return false
+	}
+	if !p.Field3DeepEqual(ano.Msg) {
+		return false
+	}
+	return true
+}
+
+func (p *CreateRouteResp) Field1DeepEqual(src bool) bool {
+
+	if p.Success != src {
+		return false
+	}
+	return true
+}
+func (p *CreateRouteResp) Field2DeepEqual(src int64) bool {
+
+	if p.RouteId != src {
+		return false
+	}
+	return true
+}
+func (p *CreateRouteResp) Field3DeepEqual(src string) bool {
+
+	if strings.Compare(p.Msg, src) != 0 {
+		return false
+	}
+	return true
+}
+
 var fieldIDToName_CreateRouteResp = map[int16]string{
 	1: "success",
 	2: "route_id",
 	3: "msg",
+}
+
+type BotRoute struct {
+	Id           int64  `thrift:"id,1" frugal:"1,default,i64" json:"id"`
+	BotId        int64  `thrift:"bot_id,2" frugal:"2,default,i64" json:"bot_id"`
+	RoutePattern string `thrift:"route_pattern,3" frugal:"3,default,string" json:"route_pattern"`
+	RouteType    string `thrift:"route_type,4" frugal:"4,default,string" json:"route_type"`
+	Priority     int64  `thrift:"priority,5" frugal:"5,default,i64" json:"priority"`
+	CreatedAt    string `thrift:"created_at,6" frugal:"6,default,string" json:"created_at"`
+}
+
+func NewBotRoute() *BotRoute {
+	return &BotRoute{}
+}
+
+func (p *BotRoute) InitDefault() {
+}
+
+func (p *BotRoute) GetId() (v int64) {
+	return p.Id
+}
+
+func (p *BotRoute) GetBotId() (v int64) {
+	return p.BotId
+}
+
+func (p *BotRoute) GetRoutePattern() (v string) {
+	return p.RoutePattern
+}
+
+func (p *BotRoute) GetRouteType() (v string) {
+	return p.RouteType
+}
+
+func (p *BotRoute) GetPriority() (v int64) {
+	return p.Priority
+}
+
+func (p *BotRoute) GetCreatedAt() (v string) {
+	return p.CreatedAt
+}
+func (p *BotRoute) SetId(val int64) {
+	p.Id = val
+}
+func (p *BotRoute) SetBotId(val int64) {
+	p.BotId = val
+}
+func (p *BotRoute) SetRoutePattern(val string) {
+	p.RoutePattern = val
+}
+func (p *BotRoute) SetRouteType(val string) {
+	p.RouteType = val
+}
+func (p *BotRoute) SetPriority(val int64) {
+	p.Priority = val
+}
+func (p *BotRoute) SetCreatedAt(val string) {
+	p.CreatedAt = val
+}
+
+func (p *BotRoute) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("BotRoute(%+v)", *p)
+}
+
+func (p *BotRoute) DeepEqual(ano *BotRoute) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.Id) {
+		return false
+	}
+	if !p.Field2DeepEqual(ano.BotId) {
+		return false
+	}
+	if !p.Field3DeepEqual(ano.RoutePattern) {
+		return false
+	}
+	if !p.Field4DeepEqual(ano.RouteType) {
+		return false
+	}
+	if !p.Field5DeepEqual(ano.Priority) {
+		return false
+	}
+	if !p.Field6DeepEqual(ano.CreatedAt) {
+		return false
+	}
+	return true
+}
+
+func (p *BotRoute) Field1DeepEqual(src int64) bool {
+
+	if p.Id != src {
+		return false
+	}
+	return true
+}
+func (p *BotRoute) Field2DeepEqual(src int64) bool {
+
+	if p.BotId != src {
+		return false
+	}
+	return true
+}
+func (p *BotRoute) Field3DeepEqual(src string) bool {
+
+	if strings.Compare(p.RoutePattern, src) != 0 {
+		return false
+	}
+	return true
+}
+func (p *BotRoute) Field4DeepEqual(src string) bool {
+
+	if strings.Compare(p.RouteType, src) != 0 {
+		return false
+	}
+	return true
+}
+func (p *BotRoute) Field5DeepEqual(src int64) bool {
+
+	if p.Priority != src {
+		return false
+	}
+	return true
+}
+func (p *BotRoute) Field6DeepEqual(src string) bool {
+
+	if strings.Compare(p.CreatedAt, src) != 0 {
+		return false
+	}
+	return true
+}
+
+var fieldIDToName_BotRoute = map[int16]string{
+	1: "id",
+	2: "bot_id",
+	3: "route_pattern",
+	4: "route_type",
+	5: "priority",
+	6: "created_at",
 }
 
 type ListRoutesReq struct {
@@ -922,6 +3044,26 @@ func (p *ListRoutesReq) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("ListRoutesReq(%+v)", *p)
+}
+
+func (p *ListRoutesReq) DeepEqual(ano *ListRoutesReq) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.BotId) {
+		return false
+	}
+	return true
+}
+
+func (p *ListRoutesReq) Field1DeepEqual(src int64) bool {
+
+	if p.BotId != src {
+		return false
+	}
+	return true
 }
 
 var fieldIDToName_ListRoutesReq = map[int16]string{
@@ -969,6 +3111,52 @@ func (p *ListRoutesResp) String() string {
 	return fmt.Sprintf("ListRoutesResp(%+v)", *p)
 }
 
+func (p *ListRoutesResp) DeepEqual(ano *ListRoutesResp) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.Success) {
+		return false
+	}
+	if !p.Field2DeepEqual(ano.Routes) {
+		return false
+	}
+	if !p.Field3DeepEqual(ano.Msg) {
+		return false
+	}
+	return true
+}
+
+func (p *ListRoutesResp) Field1DeepEqual(src bool) bool {
+
+	if p.Success != src {
+		return false
+	}
+	return true
+}
+func (p *ListRoutesResp) Field2DeepEqual(src []*BotRoute) bool {
+
+	if len(p.Routes) != len(src) {
+		return false
+	}
+	for i, v := range p.Routes {
+		_src := src[i]
+		if !v.DeepEqual(_src) {
+			return false
+		}
+	}
+	return true
+}
+func (p *ListRoutesResp) Field3DeepEqual(src string) bool {
+
+	if strings.Compare(p.Msg, src) != 0 {
+		return false
+	}
+	return true
+}
+
 var fieldIDToName_ListRoutesResp = map[int16]string{
 	1: "success",
 	2: "routes",
@@ -1006,6 +3194,36 @@ func (p *DeleteRouteReq) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("DeleteRouteReq(%+v)", *p)
+}
+
+func (p *DeleteRouteReq) DeepEqual(ano *DeleteRouteReq) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.RouteId) {
+		return false
+	}
+	if !p.Field2DeepEqual(ano.OperatorId) {
+		return false
+	}
+	return true
+}
+
+func (p *DeleteRouteReq) Field1DeepEqual(src int64) bool {
+
+	if p.RouteId != src {
+		return false
+	}
+	return true
+}
+func (p *DeleteRouteReq) Field2DeepEqual(src int64) bool {
+
+	if p.OperatorId != src {
+		return false
+	}
+	return true
 }
 
 var fieldIDToName_DeleteRouteReq = map[int16]string{
@@ -1046,9 +3264,145 @@ func (p *DeleteRouteResp) String() string {
 	return fmt.Sprintf("DeleteRouteResp(%+v)", *p)
 }
 
+func (p *DeleteRouteResp) DeepEqual(ano *DeleteRouteResp) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.Success) {
+		return false
+	}
+	if !p.Field2DeepEqual(ano.Msg) {
+		return false
+	}
+	return true
+}
+
+func (p *DeleteRouteResp) Field1DeepEqual(src bool) bool {
+
+	if p.Success != src {
+		return false
+	}
+	return true
+}
+func (p *DeleteRouteResp) Field2DeepEqual(src string) bool {
+
+	if strings.Compare(p.Msg, src) != 0 {
+		return false
+	}
+	return true
+}
+
 var fieldIDToName_DeleteRouteResp = map[int16]string{
 	1: "success",
 	2: "msg",
+}
+
+type GetBillingReq struct {
+	BotId  int64 `thrift:"bot_id,1" frugal:"1,default,i64" json:"bot_id"`
+	UserId int64 `thrift:"user_id,2" frugal:"2,default,i64" json:"user_id"`
+	Limit  int64 `thrift:"limit,3" frugal:"3,default,i64" json:"limit"`
+	Offset int64 `thrift:"offset,4" frugal:"4,default,i64" json:"offset"`
+}
+
+func NewGetBillingReq() *GetBillingReq {
+	return &GetBillingReq{}
+}
+
+func (p *GetBillingReq) InitDefault() {
+}
+
+func (p *GetBillingReq) GetBotId() (v int64) {
+	return p.BotId
+}
+
+func (p *GetBillingReq) GetUserId() (v int64) {
+	return p.UserId
+}
+
+func (p *GetBillingReq) GetLimit() (v int64) {
+	return p.Limit
+}
+
+func (p *GetBillingReq) GetOffset() (v int64) {
+	return p.Offset
+}
+func (p *GetBillingReq) SetBotId(val int64) {
+	p.BotId = val
+}
+func (p *GetBillingReq) SetUserId(val int64) {
+	p.UserId = val
+}
+func (p *GetBillingReq) SetLimit(val int64) {
+	p.Limit = val
+}
+func (p *GetBillingReq) SetOffset(val int64) {
+	p.Offset = val
+}
+
+func (p *GetBillingReq) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("GetBillingReq(%+v)", *p)
+}
+
+func (p *GetBillingReq) DeepEqual(ano *GetBillingReq) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.BotId) {
+		return false
+	}
+	if !p.Field2DeepEqual(ano.UserId) {
+		return false
+	}
+	if !p.Field3DeepEqual(ano.Limit) {
+		return false
+	}
+	if !p.Field4DeepEqual(ano.Offset) {
+		return false
+	}
+	return true
+}
+
+func (p *GetBillingReq) Field1DeepEqual(src int64) bool {
+
+	if p.BotId != src {
+		return false
+	}
+	return true
+}
+func (p *GetBillingReq) Field2DeepEqual(src int64) bool {
+
+	if p.UserId != src {
+		return false
+	}
+	return true
+}
+func (p *GetBillingReq) Field3DeepEqual(src int64) bool {
+
+	if p.Limit != src {
+		return false
+	}
+	return true
+}
+func (p *GetBillingReq) Field4DeepEqual(src int64) bool {
+
+	if p.Offset != src {
+		return false
+	}
+	return true
+}
+
+var fieldIDToName_GetBillingReq = map[int16]string{
+	1: "bot_id",
+	2: "user_id",
+	3: "limit",
+	4: "offset",
 }
 
 type BillingRecord struct {
@@ -1140,6 +3494,106 @@ func (p *BillingRecord) String() string {
 	return fmt.Sprintf("BillingRecord(%+v)", *p)
 }
 
+func (p *BillingRecord) DeepEqual(ano *BillingRecord) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.Id) {
+		return false
+	}
+	if !p.Field2DeepEqual(ano.BotId) {
+		return false
+	}
+	if !p.Field3DeepEqual(ano.UserId) {
+		return false
+	}
+	if !p.Field4DeepEqual(ano.ConversationId) {
+		return false
+	}
+	if !p.Field5DeepEqual(ano.InputTokens) {
+		return false
+	}
+	if !p.Field6DeepEqual(ano.OutputTokens) {
+		return false
+	}
+	if !p.Field7DeepEqual(ano.Cost) {
+		return false
+	}
+	if !p.Field8DeepEqual(ano.ModelName) {
+		return false
+	}
+	if !p.Field9DeepEqual(ano.CreatedAt) {
+		return false
+	}
+	return true
+}
+
+func (p *BillingRecord) Field1DeepEqual(src int64) bool {
+
+	if p.Id != src {
+		return false
+	}
+	return true
+}
+func (p *BillingRecord) Field2DeepEqual(src int64) bool {
+
+	if p.BotId != src {
+		return false
+	}
+	return true
+}
+func (p *BillingRecord) Field3DeepEqual(src int64) bool {
+
+	if p.UserId != src {
+		return false
+	}
+	return true
+}
+func (p *BillingRecord) Field4DeepEqual(src int64) bool {
+
+	if p.ConversationId != src {
+		return false
+	}
+	return true
+}
+func (p *BillingRecord) Field5DeepEqual(src int64) bool {
+
+	if p.InputTokens != src {
+		return false
+	}
+	return true
+}
+func (p *BillingRecord) Field6DeepEqual(src int64) bool {
+
+	if p.OutputTokens != src {
+		return false
+	}
+	return true
+}
+func (p *BillingRecord) Field7DeepEqual(src float64) bool {
+
+	if p.Cost != src {
+		return false
+	}
+	return true
+}
+func (p *BillingRecord) Field8DeepEqual(src string) bool {
+
+	if strings.Compare(p.ModelName, src) != 0 {
+		return false
+	}
+	return true
+}
+func (p *BillingRecord) Field9DeepEqual(src string) bool {
+
+	if strings.Compare(p.CreatedAt, src) != 0 {
+		return false
+	}
+	return true
+}
+
 var fieldIDToName_BillingRecord = map[int16]string{
 	1: "id",
 	2: "bot_id",
@@ -1152,68 +3606,11 @@ var fieldIDToName_BillingRecord = map[int16]string{
 	9: "created_at",
 }
 
-type GetBillingReq struct {
-	BotId  int64 `thrift:"bot_id,1" frugal:"1,default,i64" json:"bot_id"`
-	UserId int64 `thrift:"user_id,2" frugal:"2,default,i64" json:"user_id"`
-	Limit  int64 `thrift:"limit,3" frugal:"3,default,i64" json:"limit"`
-	Offset int64 `thrift:"offset,4" frugal:"4,default,i64" json:"offset"`
-}
-
-func NewGetBillingReq() *GetBillingReq {
-	return &GetBillingReq{}
-}
-
-func (p *GetBillingReq) InitDefault() {
-}
-
-func (p *GetBillingReq) GetBotId() (v int64) {
-	return p.BotId
-}
-
-func (p *GetBillingReq) GetUserId() (v int64) {
-	return p.UserId
-}
-
-func (p *GetBillingReq) GetLimit() (v int64) {
-	return p.Limit
-}
-
-func (p *GetBillingReq) GetOffset() (v int64) {
-	return p.Offset
-}
-func (p *GetBillingReq) SetBotId(val int64) {
-	p.BotId = val
-}
-func (p *GetBillingReq) SetUserId(val int64) {
-	p.UserId = val
-}
-func (p *GetBillingReq) SetLimit(val int64) {
-	p.Limit = val
-}
-func (p *GetBillingReq) SetOffset(val int64) {
-	p.Offset = val
-}
-
-func (p *GetBillingReq) String() string {
-	if p == nil {
-		return "<nil>"
-	}
-	return fmt.Sprintf("GetBillingReq(%+v)", *p)
-}
-
-var fieldIDToName_GetBillingReq = map[int16]string{
-	1: "bot_id",
-	2: "user_id",
-	3: "limit",
-	4: "offset",
-}
-
 type GetBillingResp struct {
-	Success   bool             `thrift:"success,1" frugal:"1,default,bool" json:"success"`
-	Records   []*BillingRecord `thrift:"records,2" frugal:"2,default,list<BillingRecord>" json:"records"`
-	Total     int64            `thrift:"total,3" frugal:"3,default,i64" json:"total"`
-	TotalCost float64          `thrift:"total_cost,4" frugal:"4,default,double" json:"total_cost"`
-	Msg       string           `thrift:"msg,5" frugal:"5,default,string" json:"msg"`
+	Success bool             `thrift:"success,1" frugal:"1,default,bool" json:"success"`
+	Records []*BillingRecord `thrift:"records,2" frugal:"2,default,list<BillingRecord>" json:"records"`
+	Total   int64            `thrift:"total,3" frugal:"3,default,i64" json:"total"`
+	Msg     string           `thrift:"msg,4" frugal:"4,default,string" json:"msg"`
 }
 
 func NewGetBillingResp() *GetBillingResp {
@@ -1235,10 +3632,6 @@ func (p *GetBillingResp) GetTotal() (v int64) {
 	return p.Total
 }
 
-func (p *GetBillingResp) GetTotalCost() (v float64) {
-	return p.TotalCost
-}
-
 func (p *GetBillingResp) GetMsg() (v string) {
 	return p.Msg
 }
@@ -1251,9 +3644,6 @@ func (p *GetBillingResp) SetRecords(val []*BillingRecord) {
 func (p *GetBillingResp) SetTotal(val int64) {
 	p.Total = val
 }
-func (p *GetBillingResp) SetTotalCost(val float64) {
-	p.TotalCost = val
-}
 func (p *GetBillingResp) SetMsg(val string) {
 	p.Msg = val
 }
@@ -1265,142 +3655,67 @@ func (p *GetBillingResp) String() string {
 	return fmt.Sprintf("GetBillingResp(%+v)", *p)
 }
 
+func (p *GetBillingResp) DeepEqual(ano *GetBillingResp) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.Success) {
+		return false
+	}
+	if !p.Field2DeepEqual(ano.Records) {
+		return false
+	}
+	if !p.Field3DeepEqual(ano.Total) {
+		return false
+	}
+	if !p.Field4DeepEqual(ano.Msg) {
+		return false
+	}
+	return true
+}
+
+func (p *GetBillingResp) Field1DeepEqual(src bool) bool {
+
+	if p.Success != src {
+		return false
+	}
+	return true
+}
+func (p *GetBillingResp) Field2DeepEqual(src []*BillingRecord) bool {
+
+	if len(p.Records) != len(src) {
+		return false
+	}
+	for i, v := range p.Records {
+		_src := src[i]
+		if !v.DeepEqual(_src) {
+			return false
+		}
+	}
+	return true
+}
+func (p *GetBillingResp) Field3DeepEqual(src int64) bool {
+
+	if p.Total != src {
+		return false
+	}
+	return true
+}
+func (p *GetBillingResp) Field4DeepEqual(src string) bool {
+
+	if strings.Compare(p.Msg, src) != 0 {
+		return false
+	}
+	return true
+}
+
 var fieldIDToName_GetBillingResp = map[int16]string{
 	1: "success",
 	2: "records",
 	3: "total",
-	4: "total_cost",
-	5: "msg",
-}
-
-type ChatWithBotReq struct {
-	BotId          int64  `thrift:"bot_id,1" frugal:"1,default,i64" json:"bot_id"`
-	UserId         int64  `thrift:"user_id,2" frugal:"2,default,i64" json:"user_id"`
-	ConversationId int64  `thrift:"conversation_id,3" frugal:"3,default,i64" json:"conversation_id"`
-	Message        string `thrift:"message,4" frugal:"4,default,string" json:"message"`
-}
-
-func NewChatWithBotReq() *ChatWithBotReq {
-	return &ChatWithBotReq{}
-}
-
-func (p *ChatWithBotReq) InitDefault() {
-}
-
-func (p *ChatWithBotReq) GetBotId() (v int64) {
-	return p.BotId
-}
-
-func (p *ChatWithBotReq) GetUserId() (v int64) {
-	return p.UserId
-}
-
-func (p *ChatWithBotReq) GetConversationId() (v int64) {
-	return p.ConversationId
-}
-
-func (p *ChatWithBotReq) GetMessage() (v string) {
-	return p.Message
-}
-func (p *ChatWithBotReq) SetBotId(val int64) {
-	p.BotId = val
-}
-func (p *ChatWithBotReq) SetUserId(val int64) {
-	p.UserId = val
-}
-func (p *ChatWithBotReq) SetConversationId(val int64) {
-	p.ConversationId = val
-}
-func (p *ChatWithBotReq) SetMessage(val string) {
-	p.Message = val
-}
-
-func (p *ChatWithBotReq) String() string {
-	if p == nil {
-		return "<nil>"
-	}
-	return fmt.Sprintf("ChatWithBotReq(%+v)", *p)
-}
-
-var fieldIDToName_ChatWithBotReq = map[int16]string{
-	1: "bot_id",
-	2: "user_id",
-	3: "conversation_id",
-	4: "message",
-}
-
-type ChatWithBotResp struct {
-	Success      bool    `thrift:"success,1" frugal:"1,default,bool" json:"success"`
-	Reply        string  `thrift:"reply,2" frugal:"2,default,string" json:"reply"`
-	InputTokens  int64   `thrift:"input_tokens,3" frugal:"3,default,i64" json:"input_tokens"`
-	OutputTokens int64   `thrift:"output_tokens,4" frugal:"4,default,i64" json:"output_tokens"`
-	Cost         float64 `thrift:"cost,5" frugal:"5,default,double" json:"cost"`
-	Msg          string  `thrift:"msg,6" frugal:"6,default,string" json:"msg"`
-}
-
-func NewChatWithBotResp() *ChatWithBotResp {
-	return &ChatWithBotResp{}
-}
-
-func (p *ChatWithBotResp) InitDefault() {
-}
-
-func (p *ChatWithBotResp) GetSuccess() (v bool) {
-	return p.Success
-}
-
-func (p *ChatWithBotResp) GetReply() (v string) {
-	return p.Reply
-}
-
-func (p *ChatWithBotResp) GetInputTokens() (v int64) {
-	return p.InputTokens
-}
-
-func (p *ChatWithBotResp) GetOutputTokens() (v int64) {
-	return p.OutputTokens
-}
-
-func (p *ChatWithBotResp) GetCost() (v float64) {
-	return p.Cost
-}
-
-func (p *ChatWithBotResp) GetMsg() (v string) {
-	return p.Msg
-}
-func (p *ChatWithBotResp) SetSuccess(val bool) {
-	p.Success = val
-}
-func (p *ChatWithBotResp) SetReply(val string) {
-	p.Reply = val
-}
-func (p *ChatWithBotResp) SetInputTokens(val int64) {
-	p.InputTokens = val
-}
-func (p *ChatWithBotResp) SetOutputTokens(val int64) {
-	p.OutputTokens = val
-}
-func (p *ChatWithBotResp) SetCost(val float64) {
-	p.Cost = val
-}
-func (p *ChatWithBotResp) SetMsg(val string) {
-	p.Msg = val
-}
-
-func (p *ChatWithBotResp) String() string {
-	if p == nil {
-		return "<nil>"
-	}
-	return fmt.Sprintf("ChatWithBotResp(%+v)", *p)
-}
-
-var fieldIDToName_ChatWithBotResp = map[int16]string{
-	1: "success",
-	2: "reply",
-	3: "input_tokens",
-	4: "output_tokens",
-	5: "cost",
-	6: "msg",
+	4: "msg",
 }
 
 type BotService interface {
@@ -1414,6 +3729,22 @@ type BotService interface {
 
 	DeleteBot(ctx context.Context, req *DeleteBotReq) (r *DeleteBotResp, err error)
 
+	ChatWithBot(ctx context.Context, req *ChatWithBotReq) (r *ChatWithBotResp, err error)
+
+	SummarizeConversation(ctx context.Context, req *AgentTaskReq) (r *AgentTaskResp, err error)
+
+	AskConversation(ctx context.Context, req *AgentTaskReq) (r *AgentTaskResp, err error)
+
+	ExtractInsights(ctx context.Context, req *AgentTaskReq) (r *AgentTaskResp, err error)
+
+	GenerateReplyCandidates(ctx context.Context, req *AgentTaskReq) (r *AgentTaskResp, err error)
+
+	GrantPermission(ctx context.Context, req *GrantPermissionReq) (r *GrantPermissionResp, err error)
+
+	RevokePermission(ctx context.Context, req *RevokePermissionReq) (r *RevokePermissionResp, err error)
+
+	ListPermissions(ctx context.Context, req *ListPermissionsReq) (r *ListPermissionsResp, err error)
+
 	CreateRoute(ctx context.Context, req *CreateRouteReq) (r *CreateRouteResp, err error)
 
 	ListRoutes(ctx context.Context, req *ListRoutesReq) (r *ListRoutesResp, err error)
@@ -1421,8 +3752,6 @@ type BotService interface {
 	DeleteRoute(ctx context.Context, req *DeleteRouteReq) (r *DeleteRouteResp, err error)
 
 	GetBilling(ctx context.Context, req *GetBillingReq) (r *GetBillingResp, err error)
-
-	ChatWithBot(ctx context.Context, req *ChatWithBotReq) (r *ChatWithBotResp, err error)
 }
 
 type BotServiceCreateBotArgs struct {
@@ -1457,6 +3786,26 @@ func (p *BotServiceCreateBotArgs) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("BotServiceCreateBotArgs(%+v)", *p)
+}
+
+func (p *BotServiceCreateBotArgs) DeepEqual(ano *BotServiceCreateBotArgs) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.Req) {
+		return false
+	}
+	return true
+}
+
+func (p *BotServiceCreateBotArgs) Field1DeepEqual(src *CreateBotReq) bool {
+
+	if !p.Req.DeepEqual(src) {
+		return false
+	}
+	return true
 }
 
 var fieldIDToName_BotServiceCreateBotArgs = map[int16]string{
@@ -1497,6 +3846,26 @@ func (p *BotServiceCreateBotResult) String() string {
 	return fmt.Sprintf("BotServiceCreateBotResult(%+v)", *p)
 }
 
+func (p *BotServiceCreateBotResult) DeepEqual(ano *BotServiceCreateBotResult) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field0DeepEqual(ano.Success) {
+		return false
+	}
+	return true
+}
+
+func (p *BotServiceCreateBotResult) Field0DeepEqual(src *CreateBotResp) bool {
+
+	if !p.Success.DeepEqual(src) {
+		return false
+	}
+	return true
+}
+
 var fieldIDToName_BotServiceCreateBotResult = map[int16]string{
 	0: "success",
 }
@@ -1533,6 +3902,26 @@ func (p *BotServiceUpdateBotArgs) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("BotServiceUpdateBotArgs(%+v)", *p)
+}
+
+func (p *BotServiceUpdateBotArgs) DeepEqual(ano *BotServiceUpdateBotArgs) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.Req) {
+		return false
+	}
+	return true
+}
+
+func (p *BotServiceUpdateBotArgs) Field1DeepEqual(src *UpdateBotReq) bool {
+
+	if !p.Req.DeepEqual(src) {
+		return false
+	}
+	return true
 }
 
 var fieldIDToName_BotServiceUpdateBotArgs = map[int16]string{
@@ -1573,6 +3962,26 @@ func (p *BotServiceUpdateBotResult) String() string {
 	return fmt.Sprintf("BotServiceUpdateBotResult(%+v)", *p)
 }
 
+func (p *BotServiceUpdateBotResult) DeepEqual(ano *BotServiceUpdateBotResult) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field0DeepEqual(ano.Success) {
+		return false
+	}
+	return true
+}
+
+func (p *BotServiceUpdateBotResult) Field0DeepEqual(src *UpdateBotResp) bool {
+
+	if !p.Success.DeepEqual(src) {
+		return false
+	}
+	return true
+}
+
 var fieldIDToName_BotServiceUpdateBotResult = map[int16]string{
 	0: "success",
 }
@@ -1609,6 +4018,26 @@ func (p *BotServiceGetBotArgs) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("BotServiceGetBotArgs(%+v)", *p)
+}
+
+func (p *BotServiceGetBotArgs) DeepEqual(ano *BotServiceGetBotArgs) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.Req) {
+		return false
+	}
+	return true
+}
+
+func (p *BotServiceGetBotArgs) Field1DeepEqual(src *GetBotReq) bool {
+
+	if !p.Req.DeepEqual(src) {
+		return false
+	}
+	return true
 }
 
 var fieldIDToName_BotServiceGetBotArgs = map[int16]string{
@@ -1649,6 +4078,26 @@ func (p *BotServiceGetBotResult) String() string {
 	return fmt.Sprintf("BotServiceGetBotResult(%+v)", *p)
 }
 
+func (p *BotServiceGetBotResult) DeepEqual(ano *BotServiceGetBotResult) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field0DeepEqual(ano.Success) {
+		return false
+	}
+	return true
+}
+
+func (p *BotServiceGetBotResult) Field0DeepEqual(src *GetBotResp) bool {
+
+	if !p.Success.DeepEqual(src) {
+		return false
+	}
+	return true
+}
+
 var fieldIDToName_BotServiceGetBotResult = map[int16]string{
 	0: "success",
 }
@@ -1685,6 +4134,26 @@ func (p *BotServiceListBotsArgs) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("BotServiceListBotsArgs(%+v)", *p)
+}
+
+func (p *BotServiceListBotsArgs) DeepEqual(ano *BotServiceListBotsArgs) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.Req) {
+		return false
+	}
+	return true
+}
+
+func (p *BotServiceListBotsArgs) Field1DeepEqual(src *ListBotsReq) bool {
+
+	if !p.Req.DeepEqual(src) {
+		return false
+	}
+	return true
 }
 
 var fieldIDToName_BotServiceListBotsArgs = map[int16]string{
@@ -1725,6 +4194,26 @@ func (p *BotServiceListBotsResult) String() string {
 	return fmt.Sprintf("BotServiceListBotsResult(%+v)", *p)
 }
 
+func (p *BotServiceListBotsResult) DeepEqual(ano *BotServiceListBotsResult) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field0DeepEqual(ano.Success) {
+		return false
+	}
+	return true
+}
+
+func (p *BotServiceListBotsResult) Field0DeepEqual(src *ListBotsResp) bool {
+
+	if !p.Success.DeepEqual(src) {
+		return false
+	}
+	return true
+}
+
 var fieldIDToName_BotServiceListBotsResult = map[int16]string{
 	0: "success",
 }
@@ -1761,6 +4250,26 @@ func (p *BotServiceDeleteBotArgs) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("BotServiceDeleteBotArgs(%+v)", *p)
+}
+
+func (p *BotServiceDeleteBotArgs) DeepEqual(ano *BotServiceDeleteBotArgs) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.Req) {
+		return false
+	}
+	return true
+}
+
+func (p *BotServiceDeleteBotArgs) Field1DeepEqual(src *DeleteBotReq) bool {
+
+	if !p.Req.DeepEqual(src) {
+		return false
+	}
+	return true
 }
 
 var fieldIDToName_BotServiceDeleteBotArgs = map[int16]string{
@@ -1801,311 +4310,27 @@ func (p *BotServiceDeleteBotResult) String() string {
 	return fmt.Sprintf("BotServiceDeleteBotResult(%+v)", *p)
 }
 
+func (p *BotServiceDeleteBotResult) DeepEqual(ano *BotServiceDeleteBotResult) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field0DeepEqual(ano.Success) {
+		return false
+	}
+	return true
+}
+
+func (p *BotServiceDeleteBotResult) Field0DeepEqual(src *DeleteBotResp) bool {
+
+	if !p.Success.DeepEqual(src) {
+		return false
+	}
+	return true
+}
+
 var fieldIDToName_BotServiceDeleteBotResult = map[int16]string{
-	0: "success",
-}
-
-type BotServiceCreateRouteArgs struct {
-	Req *CreateRouteReq `thrift:"req,1" frugal:"1,default,CreateRouteReq" json:"req"`
-}
-
-func NewBotServiceCreateRouteArgs() *BotServiceCreateRouteArgs {
-	return &BotServiceCreateRouteArgs{}
-}
-
-func (p *BotServiceCreateRouteArgs) InitDefault() {
-}
-
-var BotServiceCreateRouteArgs_Req_DEFAULT *CreateRouteReq
-
-func (p *BotServiceCreateRouteArgs) GetReq() (v *CreateRouteReq) {
-	if !p.IsSetReq() {
-		return BotServiceCreateRouteArgs_Req_DEFAULT
-	}
-	return p.Req
-}
-func (p *BotServiceCreateRouteArgs) SetReq(val *CreateRouteReq) {
-	p.Req = val
-}
-
-func (p *BotServiceCreateRouteArgs) IsSetReq() bool {
-	return p.Req != nil
-}
-
-func (p *BotServiceCreateRouteArgs) String() string {
-	if p == nil {
-		return "<nil>"
-	}
-	return fmt.Sprintf("BotServiceCreateRouteArgs(%+v)", *p)
-}
-
-var fieldIDToName_BotServiceCreateRouteArgs = map[int16]string{
-	1: "req",
-}
-
-type BotServiceCreateRouteResult struct {
-	Success *CreateRouteResp `thrift:"success,0,optional" frugal:"0,optional,CreateRouteResp" json:"success,omitempty"`
-}
-
-func NewBotServiceCreateRouteResult() *BotServiceCreateRouteResult {
-	return &BotServiceCreateRouteResult{}
-}
-
-func (p *BotServiceCreateRouteResult) InitDefault() {
-}
-
-var BotServiceCreateRouteResult_Success_DEFAULT *CreateRouteResp
-
-func (p *BotServiceCreateRouteResult) GetSuccess() (v *CreateRouteResp) {
-	if !p.IsSetSuccess() {
-		return BotServiceCreateRouteResult_Success_DEFAULT
-	}
-	return p.Success
-}
-func (p *BotServiceCreateRouteResult) SetSuccess(x interface{}) {
-	p.Success = x.(*CreateRouteResp)
-}
-
-func (p *BotServiceCreateRouteResult) IsSetSuccess() bool {
-	return p.Success != nil
-}
-
-func (p *BotServiceCreateRouteResult) String() string {
-	if p == nil {
-		return "<nil>"
-	}
-	return fmt.Sprintf("BotServiceCreateRouteResult(%+v)", *p)
-}
-
-var fieldIDToName_BotServiceCreateRouteResult = map[int16]string{
-	0: "success",
-}
-
-type BotServiceListRoutesArgs struct {
-	Req *ListRoutesReq `thrift:"req,1" frugal:"1,default,ListRoutesReq" json:"req"`
-}
-
-func NewBotServiceListRoutesArgs() *BotServiceListRoutesArgs {
-	return &BotServiceListRoutesArgs{}
-}
-
-func (p *BotServiceListRoutesArgs) InitDefault() {
-}
-
-var BotServiceListRoutesArgs_Req_DEFAULT *ListRoutesReq
-
-func (p *BotServiceListRoutesArgs) GetReq() (v *ListRoutesReq) {
-	if !p.IsSetReq() {
-		return BotServiceListRoutesArgs_Req_DEFAULT
-	}
-	return p.Req
-}
-func (p *BotServiceListRoutesArgs) SetReq(val *ListRoutesReq) {
-	p.Req = val
-}
-
-func (p *BotServiceListRoutesArgs) IsSetReq() bool {
-	return p.Req != nil
-}
-
-func (p *BotServiceListRoutesArgs) String() string {
-	if p == nil {
-		return "<nil>"
-	}
-	return fmt.Sprintf("BotServiceListRoutesArgs(%+v)", *p)
-}
-
-var fieldIDToName_BotServiceListRoutesArgs = map[int16]string{
-	1: "req",
-}
-
-type BotServiceListRoutesResult struct {
-	Success *ListRoutesResp `thrift:"success,0,optional" frugal:"0,optional,ListRoutesResp" json:"success,omitempty"`
-}
-
-func NewBotServiceListRoutesResult() *BotServiceListRoutesResult {
-	return &BotServiceListRoutesResult{}
-}
-
-func (p *BotServiceListRoutesResult) InitDefault() {
-}
-
-var BotServiceListRoutesResult_Success_DEFAULT *ListRoutesResp
-
-func (p *BotServiceListRoutesResult) GetSuccess() (v *ListRoutesResp) {
-	if !p.IsSetSuccess() {
-		return BotServiceListRoutesResult_Success_DEFAULT
-	}
-	return p.Success
-}
-func (p *BotServiceListRoutesResult) SetSuccess(x interface{}) {
-	p.Success = x.(*ListRoutesResp)
-}
-
-func (p *BotServiceListRoutesResult) IsSetSuccess() bool {
-	return p.Success != nil
-}
-
-func (p *BotServiceListRoutesResult) String() string {
-	if p == nil {
-		return "<nil>"
-	}
-	return fmt.Sprintf("BotServiceListRoutesResult(%+v)", *p)
-}
-
-var fieldIDToName_BotServiceListRoutesResult = map[int16]string{
-	0: "success",
-}
-
-type BotServiceDeleteRouteArgs struct {
-	Req *DeleteRouteReq `thrift:"req,1" frugal:"1,default,DeleteRouteReq" json:"req"`
-}
-
-func NewBotServiceDeleteRouteArgs() *BotServiceDeleteRouteArgs {
-	return &BotServiceDeleteRouteArgs{}
-}
-
-func (p *BotServiceDeleteRouteArgs) InitDefault() {
-}
-
-var BotServiceDeleteRouteArgs_Req_DEFAULT *DeleteRouteReq
-
-func (p *BotServiceDeleteRouteArgs) GetReq() (v *DeleteRouteReq) {
-	if !p.IsSetReq() {
-		return BotServiceDeleteRouteArgs_Req_DEFAULT
-	}
-	return p.Req
-}
-func (p *BotServiceDeleteRouteArgs) SetReq(val *DeleteRouteReq) {
-	p.Req = val
-}
-
-func (p *BotServiceDeleteRouteArgs) IsSetReq() bool {
-	return p.Req != nil
-}
-
-func (p *BotServiceDeleteRouteArgs) String() string {
-	if p == nil {
-		return "<nil>"
-	}
-	return fmt.Sprintf("BotServiceDeleteRouteArgs(%+v)", *p)
-}
-
-var fieldIDToName_BotServiceDeleteRouteArgs = map[int16]string{
-	1: "req",
-}
-
-type BotServiceDeleteRouteResult struct {
-	Success *DeleteRouteResp `thrift:"success,0,optional" frugal:"0,optional,DeleteRouteResp" json:"success,omitempty"`
-}
-
-func NewBotServiceDeleteRouteResult() *BotServiceDeleteRouteResult {
-	return &BotServiceDeleteRouteResult{}
-}
-
-func (p *BotServiceDeleteRouteResult) InitDefault() {
-}
-
-var BotServiceDeleteRouteResult_Success_DEFAULT *DeleteRouteResp
-
-func (p *BotServiceDeleteRouteResult) GetSuccess() (v *DeleteRouteResp) {
-	if !p.IsSetSuccess() {
-		return BotServiceDeleteRouteResult_Success_DEFAULT
-	}
-	return p.Success
-}
-func (p *BotServiceDeleteRouteResult) SetSuccess(x interface{}) {
-	p.Success = x.(*DeleteRouteResp)
-}
-
-func (p *BotServiceDeleteRouteResult) IsSetSuccess() bool {
-	return p.Success != nil
-}
-
-func (p *BotServiceDeleteRouteResult) String() string {
-	if p == nil {
-		return "<nil>"
-	}
-	return fmt.Sprintf("BotServiceDeleteRouteResult(%+v)", *p)
-}
-
-var fieldIDToName_BotServiceDeleteRouteResult = map[int16]string{
-	0: "success",
-}
-
-type BotServiceGetBillingArgs struct {
-	Req *GetBillingReq `thrift:"req,1" frugal:"1,default,GetBillingReq" json:"req"`
-}
-
-func NewBotServiceGetBillingArgs() *BotServiceGetBillingArgs {
-	return &BotServiceGetBillingArgs{}
-}
-
-func (p *BotServiceGetBillingArgs) InitDefault() {
-}
-
-var BotServiceGetBillingArgs_Req_DEFAULT *GetBillingReq
-
-func (p *BotServiceGetBillingArgs) GetReq() (v *GetBillingReq) {
-	if !p.IsSetReq() {
-		return BotServiceGetBillingArgs_Req_DEFAULT
-	}
-	return p.Req
-}
-func (p *BotServiceGetBillingArgs) SetReq(val *GetBillingReq) {
-	p.Req = val
-}
-
-func (p *BotServiceGetBillingArgs) IsSetReq() bool {
-	return p.Req != nil
-}
-
-func (p *BotServiceGetBillingArgs) String() string {
-	if p == nil {
-		return "<nil>"
-	}
-	return fmt.Sprintf("BotServiceGetBillingArgs(%+v)", *p)
-}
-
-var fieldIDToName_BotServiceGetBillingArgs = map[int16]string{
-	1: "req",
-}
-
-type BotServiceGetBillingResult struct {
-	Success *GetBillingResp `thrift:"success,0,optional" frugal:"0,optional,GetBillingResp" json:"success,omitempty"`
-}
-
-func NewBotServiceGetBillingResult() *BotServiceGetBillingResult {
-	return &BotServiceGetBillingResult{}
-}
-
-func (p *BotServiceGetBillingResult) InitDefault() {
-}
-
-var BotServiceGetBillingResult_Success_DEFAULT *GetBillingResp
-
-func (p *BotServiceGetBillingResult) GetSuccess() (v *GetBillingResp) {
-	if !p.IsSetSuccess() {
-		return BotServiceGetBillingResult_Success_DEFAULT
-	}
-	return p.Success
-}
-func (p *BotServiceGetBillingResult) SetSuccess(x interface{}) {
-	p.Success = x.(*GetBillingResp)
-}
-
-func (p *BotServiceGetBillingResult) IsSetSuccess() bool {
-	return p.Success != nil
-}
-
-func (p *BotServiceGetBillingResult) String() string {
-	if p == nil {
-		return "<nil>"
-	}
-	return fmt.Sprintf("BotServiceGetBillingResult(%+v)", *p)
-}
-
-var fieldIDToName_BotServiceGetBillingResult = map[int16]string{
 	0: "success",
 }
 
@@ -2141,6 +4366,26 @@ func (p *BotServiceChatWithBotArgs) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("BotServiceChatWithBotArgs(%+v)", *p)
+}
+
+func (p *BotServiceChatWithBotArgs) DeepEqual(ano *BotServiceChatWithBotArgs) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.Req) {
+		return false
+	}
+	return true
+}
+
+func (p *BotServiceChatWithBotArgs) Field1DeepEqual(src *ChatWithBotReq) bool {
+
+	if !p.Req.DeepEqual(src) {
+		return false
+	}
+	return true
 }
 
 var fieldIDToName_BotServiceChatWithBotArgs = map[int16]string{
@@ -2181,6 +4426,1302 @@ func (p *BotServiceChatWithBotResult) String() string {
 	return fmt.Sprintf("BotServiceChatWithBotResult(%+v)", *p)
 }
 
+func (p *BotServiceChatWithBotResult) DeepEqual(ano *BotServiceChatWithBotResult) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field0DeepEqual(ano.Success) {
+		return false
+	}
+	return true
+}
+
+func (p *BotServiceChatWithBotResult) Field0DeepEqual(src *ChatWithBotResp) bool {
+
+	if !p.Success.DeepEqual(src) {
+		return false
+	}
+	return true
+}
+
 var fieldIDToName_BotServiceChatWithBotResult = map[int16]string{
+	0: "success",
+}
+
+type BotServiceSummarizeConversationArgs struct {
+	Req *AgentTaskReq `thrift:"req,1" frugal:"1,default,AgentTaskReq" json:"req"`
+}
+
+func NewBotServiceSummarizeConversationArgs() *BotServiceSummarizeConversationArgs {
+	return &BotServiceSummarizeConversationArgs{}
+}
+
+func (p *BotServiceSummarizeConversationArgs) InitDefault() {
+}
+
+var BotServiceSummarizeConversationArgs_Req_DEFAULT *AgentTaskReq
+
+func (p *BotServiceSummarizeConversationArgs) GetReq() (v *AgentTaskReq) {
+	if !p.IsSetReq() {
+		return BotServiceSummarizeConversationArgs_Req_DEFAULT
+	}
+	return p.Req
+}
+func (p *BotServiceSummarizeConversationArgs) SetReq(val *AgentTaskReq) {
+	p.Req = val
+}
+
+func (p *BotServiceSummarizeConversationArgs) IsSetReq() bool {
+	return p.Req != nil
+}
+
+func (p *BotServiceSummarizeConversationArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("BotServiceSummarizeConversationArgs(%+v)", *p)
+}
+
+func (p *BotServiceSummarizeConversationArgs) DeepEqual(ano *BotServiceSummarizeConversationArgs) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.Req) {
+		return false
+	}
+	return true
+}
+
+func (p *BotServiceSummarizeConversationArgs) Field1DeepEqual(src *AgentTaskReq) bool {
+
+	if !p.Req.DeepEqual(src) {
+		return false
+	}
+	return true
+}
+
+var fieldIDToName_BotServiceSummarizeConversationArgs = map[int16]string{
+	1: "req",
+}
+
+type BotServiceSummarizeConversationResult struct {
+	Success *AgentTaskResp `thrift:"success,0,optional" frugal:"0,optional,AgentTaskResp" json:"success,omitempty"`
+}
+
+func NewBotServiceSummarizeConversationResult() *BotServiceSummarizeConversationResult {
+	return &BotServiceSummarizeConversationResult{}
+}
+
+func (p *BotServiceSummarizeConversationResult) InitDefault() {
+}
+
+var BotServiceSummarizeConversationResult_Success_DEFAULT *AgentTaskResp
+
+func (p *BotServiceSummarizeConversationResult) GetSuccess() (v *AgentTaskResp) {
+	if !p.IsSetSuccess() {
+		return BotServiceSummarizeConversationResult_Success_DEFAULT
+	}
+	return p.Success
+}
+func (p *BotServiceSummarizeConversationResult) SetSuccess(x interface{}) {
+	p.Success = x.(*AgentTaskResp)
+}
+
+func (p *BotServiceSummarizeConversationResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *BotServiceSummarizeConversationResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("BotServiceSummarizeConversationResult(%+v)", *p)
+}
+
+func (p *BotServiceSummarizeConversationResult) DeepEqual(ano *BotServiceSummarizeConversationResult) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field0DeepEqual(ano.Success) {
+		return false
+	}
+	return true
+}
+
+func (p *BotServiceSummarizeConversationResult) Field0DeepEqual(src *AgentTaskResp) bool {
+
+	if !p.Success.DeepEqual(src) {
+		return false
+	}
+	return true
+}
+
+var fieldIDToName_BotServiceSummarizeConversationResult = map[int16]string{
+	0: "success",
+}
+
+type BotServiceAskConversationArgs struct {
+	Req *AgentTaskReq `thrift:"req,1" frugal:"1,default,AgentTaskReq" json:"req"`
+}
+
+func NewBotServiceAskConversationArgs() *BotServiceAskConversationArgs {
+	return &BotServiceAskConversationArgs{}
+}
+
+func (p *BotServiceAskConversationArgs) InitDefault() {
+}
+
+var BotServiceAskConversationArgs_Req_DEFAULT *AgentTaskReq
+
+func (p *BotServiceAskConversationArgs) GetReq() (v *AgentTaskReq) {
+	if !p.IsSetReq() {
+		return BotServiceAskConversationArgs_Req_DEFAULT
+	}
+	return p.Req
+}
+func (p *BotServiceAskConversationArgs) SetReq(val *AgentTaskReq) {
+	p.Req = val
+}
+
+func (p *BotServiceAskConversationArgs) IsSetReq() bool {
+	return p.Req != nil
+}
+
+func (p *BotServiceAskConversationArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("BotServiceAskConversationArgs(%+v)", *p)
+}
+
+func (p *BotServiceAskConversationArgs) DeepEqual(ano *BotServiceAskConversationArgs) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.Req) {
+		return false
+	}
+	return true
+}
+
+func (p *BotServiceAskConversationArgs) Field1DeepEqual(src *AgentTaskReq) bool {
+
+	if !p.Req.DeepEqual(src) {
+		return false
+	}
+	return true
+}
+
+var fieldIDToName_BotServiceAskConversationArgs = map[int16]string{
+	1: "req",
+}
+
+type BotServiceAskConversationResult struct {
+	Success *AgentTaskResp `thrift:"success,0,optional" frugal:"0,optional,AgentTaskResp" json:"success,omitempty"`
+}
+
+func NewBotServiceAskConversationResult() *BotServiceAskConversationResult {
+	return &BotServiceAskConversationResult{}
+}
+
+func (p *BotServiceAskConversationResult) InitDefault() {
+}
+
+var BotServiceAskConversationResult_Success_DEFAULT *AgentTaskResp
+
+func (p *BotServiceAskConversationResult) GetSuccess() (v *AgentTaskResp) {
+	if !p.IsSetSuccess() {
+		return BotServiceAskConversationResult_Success_DEFAULT
+	}
+	return p.Success
+}
+func (p *BotServiceAskConversationResult) SetSuccess(x interface{}) {
+	p.Success = x.(*AgentTaskResp)
+}
+
+func (p *BotServiceAskConversationResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *BotServiceAskConversationResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("BotServiceAskConversationResult(%+v)", *p)
+}
+
+func (p *BotServiceAskConversationResult) DeepEqual(ano *BotServiceAskConversationResult) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field0DeepEqual(ano.Success) {
+		return false
+	}
+	return true
+}
+
+func (p *BotServiceAskConversationResult) Field0DeepEqual(src *AgentTaskResp) bool {
+
+	if !p.Success.DeepEqual(src) {
+		return false
+	}
+	return true
+}
+
+var fieldIDToName_BotServiceAskConversationResult = map[int16]string{
+	0: "success",
+}
+
+type BotServiceExtractInsightsArgs struct {
+	Req *AgentTaskReq `thrift:"req,1" frugal:"1,default,AgentTaskReq" json:"req"`
+}
+
+func NewBotServiceExtractInsightsArgs() *BotServiceExtractInsightsArgs {
+	return &BotServiceExtractInsightsArgs{}
+}
+
+func (p *BotServiceExtractInsightsArgs) InitDefault() {
+}
+
+var BotServiceExtractInsightsArgs_Req_DEFAULT *AgentTaskReq
+
+func (p *BotServiceExtractInsightsArgs) GetReq() (v *AgentTaskReq) {
+	if !p.IsSetReq() {
+		return BotServiceExtractInsightsArgs_Req_DEFAULT
+	}
+	return p.Req
+}
+func (p *BotServiceExtractInsightsArgs) SetReq(val *AgentTaskReq) {
+	p.Req = val
+}
+
+func (p *BotServiceExtractInsightsArgs) IsSetReq() bool {
+	return p.Req != nil
+}
+
+func (p *BotServiceExtractInsightsArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("BotServiceExtractInsightsArgs(%+v)", *p)
+}
+
+func (p *BotServiceExtractInsightsArgs) DeepEqual(ano *BotServiceExtractInsightsArgs) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.Req) {
+		return false
+	}
+	return true
+}
+
+func (p *BotServiceExtractInsightsArgs) Field1DeepEqual(src *AgentTaskReq) bool {
+
+	if !p.Req.DeepEqual(src) {
+		return false
+	}
+	return true
+}
+
+var fieldIDToName_BotServiceExtractInsightsArgs = map[int16]string{
+	1: "req",
+}
+
+type BotServiceExtractInsightsResult struct {
+	Success *AgentTaskResp `thrift:"success,0,optional" frugal:"0,optional,AgentTaskResp" json:"success,omitempty"`
+}
+
+func NewBotServiceExtractInsightsResult() *BotServiceExtractInsightsResult {
+	return &BotServiceExtractInsightsResult{}
+}
+
+func (p *BotServiceExtractInsightsResult) InitDefault() {
+}
+
+var BotServiceExtractInsightsResult_Success_DEFAULT *AgentTaskResp
+
+func (p *BotServiceExtractInsightsResult) GetSuccess() (v *AgentTaskResp) {
+	if !p.IsSetSuccess() {
+		return BotServiceExtractInsightsResult_Success_DEFAULT
+	}
+	return p.Success
+}
+func (p *BotServiceExtractInsightsResult) SetSuccess(x interface{}) {
+	p.Success = x.(*AgentTaskResp)
+}
+
+func (p *BotServiceExtractInsightsResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *BotServiceExtractInsightsResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("BotServiceExtractInsightsResult(%+v)", *p)
+}
+
+func (p *BotServiceExtractInsightsResult) DeepEqual(ano *BotServiceExtractInsightsResult) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field0DeepEqual(ano.Success) {
+		return false
+	}
+	return true
+}
+
+func (p *BotServiceExtractInsightsResult) Field0DeepEqual(src *AgentTaskResp) bool {
+
+	if !p.Success.DeepEqual(src) {
+		return false
+	}
+	return true
+}
+
+var fieldIDToName_BotServiceExtractInsightsResult = map[int16]string{
+	0: "success",
+}
+
+type BotServiceGenerateReplyCandidatesArgs struct {
+	Req *AgentTaskReq `thrift:"req,1" frugal:"1,default,AgentTaskReq" json:"req"`
+}
+
+func NewBotServiceGenerateReplyCandidatesArgs() *BotServiceGenerateReplyCandidatesArgs {
+	return &BotServiceGenerateReplyCandidatesArgs{}
+}
+
+func (p *BotServiceGenerateReplyCandidatesArgs) InitDefault() {
+}
+
+var BotServiceGenerateReplyCandidatesArgs_Req_DEFAULT *AgentTaskReq
+
+func (p *BotServiceGenerateReplyCandidatesArgs) GetReq() (v *AgentTaskReq) {
+	if !p.IsSetReq() {
+		return BotServiceGenerateReplyCandidatesArgs_Req_DEFAULT
+	}
+	return p.Req
+}
+func (p *BotServiceGenerateReplyCandidatesArgs) SetReq(val *AgentTaskReq) {
+	p.Req = val
+}
+
+func (p *BotServiceGenerateReplyCandidatesArgs) IsSetReq() bool {
+	return p.Req != nil
+}
+
+func (p *BotServiceGenerateReplyCandidatesArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("BotServiceGenerateReplyCandidatesArgs(%+v)", *p)
+}
+
+func (p *BotServiceGenerateReplyCandidatesArgs) DeepEqual(ano *BotServiceGenerateReplyCandidatesArgs) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.Req) {
+		return false
+	}
+	return true
+}
+
+func (p *BotServiceGenerateReplyCandidatesArgs) Field1DeepEqual(src *AgentTaskReq) bool {
+
+	if !p.Req.DeepEqual(src) {
+		return false
+	}
+	return true
+}
+
+var fieldIDToName_BotServiceGenerateReplyCandidatesArgs = map[int16]string{
+	1: "req",
+}
+
+type BotServiceGenerateReplyCandidatesResult struct {
+	Success *AgentTaskResp `thrift:"success,0,optional" frugal:"0,optional,AgentTaskResp" json:"success,omitempty"`
+}
+
+func NewBotServiceGenerateReplyCandidatesResult() *BotServiceGenerateReplyCandidatesResult {
+	return &BotServiceGenerateReplyCandidatesResult{}
+}
+
+func (p *BotServiceGenerateReplyCandidatesResult) InitDefault() {
+}
+
+var BotServiceGenerateReplyCandidatesResult_Success_DEFAULT *AgentTaskResp
+
+func (p *BotServiceGenerateReplyCandidatesResult) GetSuccess() (v *AgentTaskResp) {
+	if !p.IsSetSuccess() {
+		return BotServiceGenerateReplyCandidatesResult_Success_DEFAULT
+	}
+	return p.Success
+}
+func (p *BotServiceGenerateReplyCandidatesResult) SetSuccess(x interface{}) {
+	p.Success = x.(*AgentTaskResp)
+}
+
+func (p *BotServiceGenerateReplyCandidatesResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *BotServiceGenerateReplyCandidatesResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("BotServiceGenerateReplyCandidatesResult(%+v)", *p)
+}
+
+func (p *BotServiceGenerateReplyCandidatesResult) DeepEqual(ano *BotServiceGenerateReplyCandidatesResult) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field0DeepEqual(ano.Success) {
+		return false
+	}
+	return true
+}
+
+func (p *BotServiceGenerateReplyCandidatesResult) Field0DeepEqual(src *AgentTaskResp) bool {
+
+	if !p.Success.DeepEqual(src) {
+		return false
+	}
+	return true
+}
+
+var fieldIDToName_BotServiceGenerateReplyCandidatesResult = map[int16]string{
+	0: "success",
+}
+
+type BotServiceGrantPermissionArgs struct {
+	Req *GrantPermissionReq `thrift:"req,1" frugal:"1,default,GrantPermissionReq" json:"req"`
+}
+
+func NewBotServiceGrantPermissionArgs() *BotServiceGrantPermissionArgs {
+	return &BotServiceGrantPermissionArgs{}
+}
+
+func (p *BotServiceGrantPermissionArgs) InitDefault() {
+}
+
+var BotServiceGrantPermissionArgs_Req_DEFAULT *GrantPermissionReq
+
+func (p *BotServiceGrantPermissionArgs) GetReq() (v *GrantPermissionReq) {
+	if !p.IsSetReq() {
+		return BotServiceGrantPermissionArgs_Req_DEFAULT
+	}
+	return p.Req
+}
+func (p *BotServiceGrantPermissionArgs) SetReq(val *GrantPermissionReq) {
+	p.Req = val
+}
+
+func (p *BotServiceGrantPermissionArgs) IsSetReq() bool {
+	return p.Req != nil
+}
+
+func (p *BotServiceGrantPermissionArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("BotServiceGrantPermissionArgs(%+v)", *p)
+}
+
+func (p *BotServiceGrantPermissionArgs) DeepEqual(ano *BotServiceGrantPermissionArgs) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.Req) {
+		return false
+	}
+	return true
+}
+
+func (p *BotServiceGrantPermissionArgs) Field1DeepEqual(src *GrantPermissionReq) bool {
+
+	if !p.Req.DeepEqual(src) {
+		return false
+	}
+	return true
+}
+
+var fieldIDToName_BotServiceGrantPermissionArgs = map[int16]string{
+	1: "req",
+}
+
+type BotServiceGrantPermissionResult struct {
+	Success *GrantPermissionResp `thrift:"success,0,optional" frugal:"0,optional,GrantPermissionResp" json:"success,omitempty"`
+}
+
+func NewBotServiceGrantPermissionResult() *BotServiceGrantPermissionResult {
+	return &BotServiceGrantPermissionResult{}
+}
+
+func (p *BotServiceGrantPermissionResult) InitDefault() {
+}
+
+var BotServiceGrantPermissionResult_Success_DEFAULT *GrantPermissionResp
+
+func (p *BotServiceGrantPermissionResult) GetSuccess() (v *GrantPermissionResp) {
+	if !p.IsSetSuccess() {
+		return BotServiceGrantPermissionResult_Success_DEFAULT
+	}
+	return p.Success
+}
+func (p *BotServiceGrantPermissionResult) SetSuccess(x interface{}) {
+	p.Success = x.(*GrantPermissionResp)
+}
+
+func (p *BotServiceGrantPermissionResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *BotServiceGrantPermissionResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("BotServiceGrantPermissionResult(%+v)", *p)
+}
+
+func (p *BotServiceGrantPermissionResult) DeepEqual(ano *BotServiceGrantPermissionResult) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field0DeepEqual(ano.Success) {
+		return false
+	}
+	return true
+}
+
+func (p *BotServiceGrantPermissionResult) Field0DeepEqual(src *GrantPermissionResp) bool {
+
+	if !p.Success.DeepEqual(src) {
+		return false
+	}
+	return true
+}
+
+var fieldIDToName_BotServiceGrantPermissionResult = map[int16]string{
+	0: "success",
+}
+
+type BotServiceRevokePermissionArgs struct {
+	Req *RevokePermissionReq `thrift:"req,1" frugal:"1,default,RevokePermissionReq" json:"req"`
+}
+
+func NewBotServiceRevokePermissionArgs() *BotServiceRevokePermissionArgs {
+	return &BotServiceRevokePermissionArgs{}
+}
+
+func (p *BotServiceRevokePermissionArgs) InitDefault() {
+}
+
+var BotServiceRevokePermissionArgs_Req_DEFAULT *RevokePermissionReq
+
+func (p *BotServiceRevokePermissionArgs) GetReq() (v *RevokePermissionReq) {
+	if !p.IsSetReq() {
+		return BotServiceRevokePermissionArgs_Req_DEFAULT
+	}
+	return p.Req
+}
+func (p *BotServiceRevokePermissionArgs) SetReq(val *RevokePermissionReq) {
+	p.Req = val
+}
+
+func (p *BotServiceRevokePermissionArgs) IsSetReq() bool {
+	return p.Req != nil
+}
+
+func (p *BotServiceRevokePermissionArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("BotServiceRevokePermissionArgs(%+v)", *p)
+}
+
+func (p *BotServiceRevokePermissionArgs) DeepEqual(ano *BotServiceRevokePermissionArgs) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.Req) {
+		return false
+	}
+	return true
+}
+
+func (p *BotServiceRevokePermissionArgs) Field1DeepEqual(src *RevokePermissionReq) bool {
+
+	if !p.Req.DeepEqual(src) {
+		return false
+	}
+	return true
+}
+
+var fieldIDToName_BotServiceRevokePermissionArgs = map[int16]string{
+	1: "req",
+}
+
+type BotServiceRevokePermissionResult struct {
+	Success *RevokePermissionResp `thrift:"success,0,optional" frugal:"0,optional,RevokePermissionResp" json:"success,omitempty"`
+}
+
+func NewBotServiceRevokePermissionResult() *BotServiceRevokePermissionResult {
+	return &BotServiceRevokePermissionResult{}
+}
+
+func (p *BotServiceRevokePermissionResult) InitDefault() {
+}
+
+var BotServiceRevokePermissionResult_Success_DEFAULT *RevokePermissionResp
+
+func (p *BotServiceRevokePermissionResult) GetSuccess() (v *RevokePermissionResp) {
+	if !p.IsSetSuccess() {
+		return BotServiceRevokePermissionResult_Success_DEFAULT
+	}
+	return p.Success
+}
+func (p *BotServiceRevokePermissionResult) SetSuccess(x interface{}) {
+	p.Success = x.(*RevokePermissionResp)
+}
+
+func (p *BotServiceRevokePermissionResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *BotServiceRevokePermissionResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("BotServiceRevokePermissionResult(%+v)", *p)
+}
+
+func (p *BotServiceRevokePermissionResult) DeepEqual(ano *BotServiceRevokePermissionResult) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field0DeepEqual(ano.Success) {
+		return false
+	}
+	return true
+}
+
+func (p *BotServiceRevokePermissionResult) Field0DeepEqual(src *RevokePermissionResp) bool {
+
+	if !p.Success.DeepEqual(src) {
+		return false
+	}
+	return true
+}
+
+var fieldIDToName_BotServiceRevokePermissionResult = map[int16]string{
+	0: "success",
+}
+
+type BotServiceListPermissionsArgs struct {
+	Req *ListPermissionsReq `thrift:"req,1" frugal:"1,default,ListPermissionsReq" json:"req"`
+}
+
+func NewBotServiceListPermissionsArgs() *BotServiceListPermissionsArgs {
+	return &BotServiceListPermissionsArgs{}
+}
+
+func (p *BotServiceListPermissionsArgs) InitDefault() {
+}
+
+var BotServiceListPermissionsArgs_Req_DEFAULT *ListPermissionsReq
+
+func (p *BotServiceListPermissionsArgs) GetReq() (v *ListPermissionsReq) {
+	if !p.IsSetReq() {
+		return BotServiceListPermissionsArgs_Req_DEFAULT
+	}
+	return p.Req
+}
+func (p *BotServiceListPermissionsArgs) SetReq(val *ListPermissionsReq) {
+	p.Req = val
+}
+
+func (p *BotServiceListPermissionsArgs) IsSetReq() bool {
+	return p.Req != nil
+}
+
+func (p *BotServiceListPermissionsArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("BotServiceListPermissionsArgs(%+v)", *p)
+}
+
+func (p *BotServiceListPermissionsArgs) DeepEqual(ano *BotServiceListPermissionsArgs) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.Req) {
+		return false
+	}
+	return true
+}
+
+func (p *BotServiceListPermissionsArgs) Field1DeepEqual(src *ListPermissionsReq) bool {
+
+	if !p.Req.DeepEqual(src) {
+		return false
+	}
+	return true
+}
+
+var fieldIDToName_BotServiceListPermissionsArgs = map[int16]string{
+	1: "req",
+}
+
+type BotServiceListPermissionsResult struct {
+	Success *ListPermissionsResp `thrift:"success,0,optional" frugal:"0,optional,ListPermissionsResp" json:"success,omitempty"`
+}
+
+func NewBotServiceListPermissionsResult() *BotServiceListPermissionsResult {
+	return &BotServiceListPermissionsResult{}
+}
+
+func (p *BotServiceListPermissionsResult) InitDefault() {
+}
+
+var BotServiceListPermissionsResult_Success_DEFAULT *ListPermissionsResp
+
+func (p *BotServiceListPermissionsResult) GetSuccess() (v *ListPermissionsResp) {
+	if !p.IsSetSuccess() {
+		return BotServiceListPermissionsResult_Success_DEFAULT
+	}
+	return p.Success
+}
+func (p *BotServiceListPermissionsResult) SetSuccess(x interface{}) {
+	p.Success = x.(*ListPermissionsResp)
+}
+
+func (p *BotServiceListPermissionsResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *BotServiceListPermissionsResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("BotServiceListPermissionsResult(%+v)", *p)
+}
+
+func (p *BotServiceListPermissionsResult) DeepEqual(ano *BotServiceListPermissionsResult) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field0DeepEqual(ano.Success) {
+		return false
+	}
+	return true
+}
+
+func (p *BotServiceListPermissionsResult) Field0DeepEqual(src *ListPermissionsResp) bool {
+
+	if !p.Success.DeepEqual(src) {
+		return false
+	}
+	return true
+}
+
+var fieldIDToName_BotServiceListPermissionsResult = map[int16]string{
+	0: "success",
+}
+
+type BotServiceCreateRouteArgs struct {
+	Req *CreateRouteReq `thrift:"req,1" frugal:"1,default,CreateRouteReq" json:"req"`
+}
+
+func NewBotServiceCreateRouteArgs() *BotServiceCreateRouteArgs {
+	return &BotServiceCreateRouteArgs{}
+}
+
+func (p *BotServiceCreateRouteArgs) InitDefault() {
+}
+
+var BotServiceCreateRouteArgs_Req_DEFAULT *CreateRouteReq
+
+func (p *BotServiceCreateRouteArgs) GetReq() (v *CreateRouteReq) {
+	if !p.IsSetReq() {
+		return BotServiceCreateRouteArgs_Req_DEFAULT
+	}
+	return p.Req
+}
+func (p *BotServiceCreateRouteArgs) SetReq(val *CreateRouteReq) {
+	p.Req = val
+}
+
+func (p *BotServiceCreateRouteArgs) IsSetReq() bool {
+	return p.Req != nil
+}
+
+func (p *BotServiceCreateRouteArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("BotServiceCreateRouteArgs(%+v)", *p)
+}
+
+func (p *BotServiceCreateRouteArgs) DeepEqual(ano *BotServiceCreateRouteArgs) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.Req) {
+		return false
+	}
+	return true
+}
+
+func (p *BotServiceCreateRouteArgs) Field1DeepEqual(src *CreateRouteReq) bool {
+
+	if !p.Req.DeepEqual(src) {
+		return false
+	}
+	return true
+}
+
+var fieldIDToName_BotServiceCreateRouteArgs = map[int16]string{
+	1: "req",
+}
+
+type BotServiceCreateRouteResult struct {
+	Success *CreateRouteResp `thrift:"success,0,optional" frugal:"0,optional,CreateRouteResp" json:"success,omitempty"`
+}
+
+func NewBotServiceCreateRouteResult() *BotServiceCreateRouteResult {
+	return &BotServiceCreateRouteResult{}
+}
+
+func (p *BotServiceCreateRouteResult) InitDefault() {
+}
+
+var BotServiceCreateRouteResult_Success_DEFAULT *CreateRouteResp
+
+func (p *BotServiceCreateRouteResult) GetSuccess() (v *CreateRouteResp) {
+	if !p.IsSetSuccess() {
+		return BotServiceCreateRouteResult_Success_DEFAULT
+	}
+	return p.Success
+}
+func (p *BotServiceCreateRouteResult) SetSuccess(x interface{}) {
+	p.Success = x.(*CreateRouteResp)
+}
+
+func (p *BotServiceCreateRouteResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *BotServiceCreateRouteResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("BotServiceCreateRouteResult(%+v)", *p)
+}
+
+func (p *BotServiceCreateRouteResult) DeepEqual(ano *BotServiceCreateRouteResult) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field0DeepEqual(ano.Success) {
+		return false
+	}
+	return true
+}
+
+func (p *BotServiceCreateRouteResult) Field0DeepEqual(src *CreateRouteResp) bool {
+
+	if !p.Success.DeepEqual(src) {
+		return false
+	}
+	return true
+}
+
+var fieldIDToName_BotServiceCreateRouteResult = map[int16]string{
+	0: "success",
+}
+
+type BotServiceListRoutesArgs struct {
+	Req *ListRoutesReq `thrift:"req,1" frugal:"1,default,ListRoutesReq" json:"req"`
+}
+
+func NewBotServiceListRoutesArgs() *BotServiceListRoutesArgs {
+	return &BotServiceListRoutesArgs{}
+}
+
+func (p *BotServiceListRoutesArgs) InitDefault() {
+}
+
+var BotServiceListRoutesArgs_Req_DEFAULT *ListRoutesReq
+
+func (p *BotServiceListRoutesArgs) GetReq() (v *ListRoutesReq) {
+	if !p.IsSetReq() {
+		return BotServiceListRoutesArgs_Req_DEFAULT
+	}
+	return p.Req
+}
+func (p *BotServiceListRoutesArgs) SetReq(val *ListRoutesReq) {
+	p.Req = val
+}
+
+func (p *BotServiceListRoutesArgs) IsSetReq() bool {
+	return p.Req != nil
+}
+
+func (p *BotServiceListRoutesArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("BotServiceListRoutesArgs(%+v)", *p)
+}
+
+func (p *BotServiceListRoutesArgs) DeepEqual(ano *BotServiceListRoutesArgs) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.Req) {
+		return false
+	}
+	return true
+}
+
+func (p *BotServiceListRoutesArgs) Field1DeepEqual(src *ListRoutesReq) bool {
+
+	if !p.Req.DeepEqual(src) {
+		return false
+	}
+	return true
+}
+
+var fieldIDToName_BotServiceListRoutesArgs = map[int16]string{
+	1: "req",
+}
+
+type BotServiceListRoutesResult struct {
+	Success *ListRoutesResp `thrift:"success,0,optional" frugal:"0,optional,ListRoutesResp" json:"success,omitempty"`
+}
+
+func NewBotServiceListRoutesResult() *BotServiceListRoutesResult {
+	return &BotServiceListRoutesResult{}
+}
+
+func (p *BotServiceListRoutesResult) InitDefault() {
+}
+
+var BotServiceListRoutesResult_Success_DEFAULT *ListRoutesResp
+
+func (p *BotServiceListRoutesResult) GetSuccess() (v *ListRoutesResp) {
+	if !p.IsSetSuccess() {
+		return BotServiceListRoutesResult_Success_DEFAULT
+	}
+	return p.Success
+}
+func (p *BotServiceListRoutesResult) SetSuccess(x interface{}) {
+	p.Success = x.(*ListRoutesResp)
+}
+
+func (p *BotServiceListRoutesResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *BotServiceListRoutesResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("BotServiceListRoutesResult(%+v)", *p)
+}
+
+func (p *BotServiceListRoutesResult) DeepEqual(ano *BotServiceListRoutesResult) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field0DeepEqual(ano.Success) {
+		return false
+	}
+	return true
+}
+
+func (p *BotServiceListRoutesResult) Field0DeepEqual(src *ListRoutesResp) bool {
+
+	if !p.Success.DeepEqual(src) {
+		return false
+	}
+	return true
+}
+
+var fieldIDToName_BotServiceListRoutesResult = map[int16]string{
+	0: "success",
+}
+
+type BotServiceDeleteRouteArgs struct {
+	Req *DeleteRouteReq `thrift:"req,1" frugal:"1,default,DeleteRouteReq" json:"req"`
+}
+
+func NewBotServiceDeleteRouteArgs() *BotServiceDeleteRouteArgs {
+	return &BotServiceDeleteRouteArgs{}
+}
+
+func (p *BotServiceDeleteRouteArgs) InitDefault() {
+}
+
+var BotServiceDeleteRouteArgs_Req_DEFAULT *DeleteRouteReq
+
+func (p *BotServiceDeleteRouteArgs) GetReq() (v *DeleteRouteReq) {
+	if !p.IsSetReq() {
+		return BotServiceDeleteRouteArgs_Req_DEFAULT
+	}
+	return p.Req
+}
+func (p *BotServiceDeleteRouteArgs) SetReq(val *DeleteRouteReq) {
+	p.Req = val
+}
+
+func (p *BotServiceDeleteRouteArgs) IsSetReq() bool {
+	return p.Req != nil
+}
+
+func (p *BotServiceDeleteRouteArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("BotServiceDeleteRouteArgs(%+v)", *p)
+}
+
+func (p *BotServiceDeleteRouteArgs) DeepEqual(ano *BotServiceDeleteRouteArgs) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.Req) {
+		return false
+	}
+	return true
+}
+
+func (p *BotServiceDeleteRouteArgs) Field1DeepEqual(src *DeleteRouteReq) bool {
+
+	if !p.Req.DeepEqual(src) {
+		return false
+	}
+	return true
+}
+
+var fieldIDToName_BotServiceDeleteRouteArgs = map[int16]string{
+	1: "req",
+}
+
+type BotServiceDeleteRouteResult struct {
+	Success *DeleteRouteResp `thrift:"success,0,optional" frugal:"0,optional,DeleteRouteResp" json:"success,omitempty"`
+}
+
+func NewBotServiceDeleteRouteResult() *BotServiceDeleteRouteResult {
+	return &BotServiceDeleteRouteResult{}
+}
+
+func (p *BotServiceDeleteRouteResult) InitDefault() {
+}
+
+var BotServiceDeleteRouteResult_Success_DEFAULT *DeleteRouteResp
+
+func (p *BotServiceDeleteRouteResult) GetSuccess() (v *DeleteRouteResp) {
+	if !p.IsSetSuccess() {
+		return BotServiceDeleteRouteResult_Success_DEFAULT
+	}
+	return p.Success
+}
+func (p *BotServiceDeleteRouteResult) SetSuccess(x interface{}) {
+	p.Success = x.(*DeleteRouteResp)
+}
+
+func (p *BotServiceDeleteRouteResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *BotServiceDeleteRouteResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("BotServiceDeleteRouteResult(%+v)", *p)
+}
+
+func (p *BotServiceDeleteRouteResult) DeepEqual(ano *BotServiceDeleteRouteResult) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field0DeepEqual(ano.Success) {
+		return false
+	}
+	return true
+}
+
+func (p *BotServiceDeleteRouteResult) Field0DeepEqual(src *DeleteRouteResp) bool {
+
+	if !p.Success.DeepEqual(src) {
+		return false
+	}
+	return true
+}
+
+var fieldIDToName_BotServiceDeleteRouteResult = map[int16]string{
+	0: "success",
+}
+
+type BotServiceGetBillingArgs struct {
+	Req *GetBillingReq `thrift:"req,1" frugal:"1,default,GetBillingReq" json:"req"`
+}
+
+func NewBotServiceGetBillingArgs() *BotServiceGetBillingArgs {
+	return &BotServiceGetBillingArgs{}
+}
+
+func (p *BotServiceGetBillingArgs) InitDefault() {
+}
+
+var BotServiceGetBillingArgs_Req_DEFAULT *GetBillingReq
+
+func (p *BotServiceGetBillingArgs) GetReq() (v *GetBillingReq) {
+	if !p.IsSetReq() {
+		return BotServiceGetBillingArgs_Req_DEFAULT
+	}
+	return p.Req
+}
+func (p *BotServiceGetBillingArgs) SetReq(val *GetBillingReq) {
+	p.Req = val
+}
+
+func (p *BotServiceGetBillingArgs) IsSetReq() bool {
+	return p.Req != nil
+}
+
+func (p *BotServiceGetBillingArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("BotServiceGetBillingArgs(%+v)", *p)
+}
+
+func (p *BotServiceGetBillingArgs) DeepEqual(ano *BotServiceGetBillingArgs) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.Req) {
+		return false
+	}
+	return true
+}
+
+func (p *BotServiceGetBillingArgs) Field1DeepEqual(src *GetBillingReq) bool {
+
+	if !p.Req.DeepEqual(src) {
+		return false
+	}
+	return true
+}
+
+var fieldIDToName_BotServiceGetBillingArgs = map[int16]string{
+	1: "req",
+}
+
+type BotServiceGetBillingResult struct {
+	Success *GetBillingResp `thrift:"success,0,optional" frugal:"0,optional,GetBillingResp" json:"success,omitempty"`
+}
+
+func NewBotServiceGetBillingResult() *BotServiceGetBillingResult {
+	return &BotServiceGetBillingResult{}
+}
+
+func (p *BotServiceGetBillingResult) InitDefault() {
+}
+
+var BotServiceGetBillingResult_Success_DEFAULT *GetBillingResp
+
+func (p *BotServiceGetBillingResult) GetSuccess() (v *GetBillingResp) {
+	if !p.IsSetSuccess() {
+		return BotServiceGetBillingResult_Success_DEFAULT
+	}
+	return p.Success
+}
+func (p *BotServiceGetBillingResult) SetSuccess(x interface{}) {
+	p.Success = x.(*GetBillingResp)
+}
+
+func (p *BotServiceGetBillingResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *BotServiceGetBillingResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("BotServiceGetBillingResult(%+v)", *p)
+}
+
+func (p *BotServiceGetBillingResult) DeepEqual(ano *BotServiceGetBillingResult) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field0DeepEqual(ano.Success) {
+		return false
+	}
+	return true
+}
+
+func (p *BotServiceGetBillingResult) Field0DeepEqual(src *GetBillingResp) bool {
+
+	if !p.Success.DeepEqual(src) {
+		return false
+	}
+	return true
+}
+
+var fieldIDToName_BotServiceGetBillingResult = map[int16]string{
 	0: "success",
 }

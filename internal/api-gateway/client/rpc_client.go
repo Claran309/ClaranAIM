@@ -8,6 +8,7 @@ package client
 import (
 	"ClaranAIM/kitex_gen/bot"
 	"ClaranAIM/kitex_gen/bot/botservice"
+	"ClaranAIM/kitex_gen/bot_runtime/botruntimeservice"
 	"ClaranAIM/kitex_gen/file"
 	"ClaranAIM/kitex_gen/file/fileservice"
 	"ClaranAIM/kitex_gen/group"
@@ -47,6 +48,9 @@ var (
 	// BotClient calls bot-manager-service for bot CRUD, bot chat, routing and
 	// billing records.
 	BotClient botservice.Client
+	// BotRuntimeClient calls bot-runtime-service for runtime-owned data that is
+	// not part of bot-manager-service's Thrift facade, such as session metadata.
+	BotRuntimeClient botruntimeservice.Client
 )
 
 // InitClients 初始化 api-gateway 到各内部 Kitex 服务的客户端。
@@ -109,6 +113,13 @@ func InitClients(etcdEndpoints []string, rpcCfg ...config.RPCGovernanceConfig) {
 			log.Fatal("创建bot-manager-service客户端失败:", err)
 		}
 
+		BotRuntimeClient, err = botruntimeservice.NewClient("bot-runtime-service",
+			baseOptions...,
+		)
+		if err != nil {
+			log.Fatal("创建bot-runtime-service客户端失败:", err)
+		}
+
 		log.Println("RPC客户端初始化成功")
 	})
 }
@@ -116,6 +127,12 @@ func InitClients(etcdEndpoints []string, rpcCfg ...config.RPCGovernanceConfig) {
 // NewRegisterReq builds a user-service register request from HTTP form fields.
 func NewRegisterReq(username, password, nickname string) *user.RegisterReq {
 	return &user.RegisterReq{Username: username, Password: password, Nickname: nickname}
+}
+
+// NewRegisterSystemUserReq creates a non-login account for internal actors such
+// as Agents. Normal browser registration must keep using NewRegisterReq.
+func NewRegisterSystemUserReq(username, password, nickname string) *user.RegisterReq {
+	return &user.RegisterReq{Username: username, Password: password, Nickname: nickname, IsSystem: true}
 }
 
 // NewLoginReq builds a user-service login request. Password verification stays
@@ -272,6 +289,13 @@ func NewSendMessageReq(conversationID, senderID int64, content, msgType string) 
 // NewSendMessageExtReq builds a message send request carrying reply and mention
 // metadata. It is used by normal text, media references and broadcast messages.
 func NewSendMessageExtReq(conversationID, senderID int64, content, msgType string, replyToID int64, mentionUserIDs []int64, mentionAll bool) *message.SendMessageReq {
+	return NewSendMessageExtReqWithClientID(conversationID, senderID, content, msgType, replyToID, mentionUserIDs, mentionAll, "")
+}
+
+// NewSendMessageExtReqWithClientID adds an optional idempotency key. Internal
+// producers such as Agent dispatchers should pass a stable key derived from the
+// source event so Kafka retries do not create duplicate replies.
+func NewSendMessageExtReqWithClientID(conversationID, senderID int64, content, msgType string, replyToID int64, mentionUserIDs []int64, mentionAll bool, clientMsgID string) *message.SendMessageReq {
 	return &message.SendMessageReq{
 		ConversationId: conversationID,
 		SenderId:       senderID,
@@ -280,6 +304,7 @@ func NewSendMessageExtReq(conversationID, senderID int64, content, msgType strin
 		ReplyToId:      replyToID,
 		MentionUserIds: mentionUserIDs,
 		MentionAll:     mentionAll,
+		ClientMsgId:    clientMsgID,
 	}
 }
 
@@ -331,14 +356,14 @@ func NewListFilesReq(uploaderID int64, fileType string, limit, offset int64) *fi
 }
 
 // NewCreateBotReq builds a bot creation request with owner and model settings.
-func NewCreateBotReq(name, botType, description, modelName, apiKey, baseURL, systemPrompt, skillsDir, agentRoot string, ownerID int64) *bot.CreateBotReq {
-	return &bot.CreateBotReq{Name: name, Type: botType, Description: description, ModelName: modelName, ApiKey: apiKey, BaseUrl: baseURL, SystemPrompt: systemPrompt, SkillsDir: skillsDir, AgentRoot: agentRoot, OwnerId: ownerID}
+func NewCreateBotReq(name, botType, description, modelName, apiKey, baseURL, systemPrompt, skillsDir, agentRoot, avatar, signature, workspaceRoot, toolPolicy string, ownerID int64) *bot.CreateBotReq {
+	return &bot.CreateBotReq{Name: name, Type: botType, Description: description, ModelName: modelName, ApiKey: apiKey, BaseUrl: baseURL, SystemPrompt: systemPrompt, SkillsDir: skillsDir, AgentRoot: agentRoot, Avatar: avatar, Signature: signature, WorkspaceRoot: workspaceRoot, ToolPolicy: toolPolicy, OwnerId: ownerID}
 }
 
 // NewUpdateBotReq builds a bot update request. Empty secrets are interpreted by
 // bot-manager-service, not by the gateway.
-func NewUpdateBotReq(botID, operatorID int64, name, description, modelName, apiKey, baseURL, systemPrompt, skillsDir, agentRoot string, isActive bool) *bot.UpdateBotReq {
-	return &bot.UpdateBotReq{BotId: botID, OperatorId: operatorID, Name: name, Description: description, ModelName: modelName, ApiKey: apiKey, BaseUrl: baseURL, SystemPrompt: systemPrompt, SkillsDir: skillsDir, AgentRoot: agentRoot, IsActive: isActive}
+func NewUpdateBotReq(botID, operatorID int64, name, description, modelName, apiKey, baseURL, systemPrompt, skillsDir, agentRoot, avatar, signature, workspaceRoot, toolPolicy string, isActive bool, isActiveSet bool) *bot.UpdateBotReq {
+	return &bot.UpdateBotReq{BotId: botID, OperatorId: operatorID, Name: name, Description: description, ModelName: modelName, ApiKey: apiKey, BaseUrl: baseURL, SystemPrompt: systemPrompt, SkillsDir: skillsDir, AgentRoot: agentRoot, Avatar: avatar, Signature: signature, WorkspaceRoot: workspaceRoot, ToolPolicy: toolPolicy, IsActive: isActive, IsActiveSet: isActiveSet}
 }
 
 // NewGetBotReq builds a bot metadata lookup request.
@@ -380,4 +405,24 @@ func NewGetBillingReq(botID, userID, limit, offset int64) *bot.GetBillingReq {
 // memory key so the same bot can keep separate context per conversation.
 func NewChatWithBotReq(botID, userID, conversationID int64, message string) *bot.ChatWithBotReq {
 	return &bot.ChatWithBotReq{BotId: botID, UserId: userID, ConversationId: conversationID, Message: message}
+}
+
+// NewAgentTaskReq builds one context-aware Agent task request.
+func NewAgentTaskReq(botID, userID, conversationID int64, question string) *bot.AgentTaskReq {
+	return &bot.AgentTaskReq{BotId: botID, UserId: userID, ConversationId: conversationID, Question: question}
+}
+
+// NewGrantPermissionReq builds an Agent permission grant request.
+func NewGrantPermissionReq(botID, operatorID, userID int64, role string) *bot.GrantPermissionReq {
+	return &bot.GrantPermissionReq{BotId: botID, OperatorId: operatorID, UserId: userID, Role: role}
+}
+
+// NewRevokePermissionReq builds an Agent permission revoke request.
+func NewRevokePermissionReq(botID, operatorID, userID int64) *bot.RevokePermissionReq {
+	return &bot.RevokePermissionReq{BotId: botID, OperatorId: operatorID, UserId: userID}
+}
+
+// NewListPermissionsReq builds an Agent permission list request.
+func NewListPermissionsReq(botID, operatorID int64) *bot.ListPermissionsReq {
+	return &bot.ListPermissionsReq{BotId: botID, OperatorId: operatorID}
 }

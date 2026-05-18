@@ -30,7 +30,7 @@ func TestLoggerWritesInfoAndErrorFiles(t *testing.T) {
 		t.Fatalf("INFO.log missing expected content: %s", infoText)
 	}
 
-	errBytes, err := os.ReadFile(filepath.Join(dateDir, "ERR.log"))
+	errBytes, err := os.ReadFile(filepath.Join(logDir, "ERR", time.Now().Format("2006-01-02"), "ERR.log"))
 	if err != nil {
 		t.Fatalf("read ERR.log: %v", err)
 	}

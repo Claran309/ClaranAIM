@@ -2,6 +2,7 @@
 package handler
 
 import (
+	"ClaranAIM/internal/bot-manager-service/model"
 	"ClaranAIM/internal/bot-manager-service/service"
 	"ClaranAIM/kitex_gen/bot"
 	"ClaranAIM/pkg/config"
@@ -26,7 +27,7 @@ func (h *BotServiceImpl) defaultLLM() (apiKey, baseURL, model string) {
 // CreateBot handles RPC bot creation with default LLM config fallback.
 func (h *BotServiceImpl) CreateBot(ctx context.Context, req *bot.CreateBotReq) (resp *bot.CreateBotResp, err error) {
 	apiKey, baseURL, model := h.defaultLLM()
-	b, err := h.svc.CreateBot(ctx, req.Name, req.Type, req.Description, req.ModelName, req.ApiKey, req.BaseUrl, req.SystemPrompt, req.SkillsDir, req.AgentRoot, req.OwnerId, apiKey, baseURL, model)
+	b, err := h.svc.CreateBot(ctx, req.Name, req.Type, req.Description, req.ModelName, req.ApiKey, req.BaseUrl, req.SystemPrompt, req.SkillsDir, req.AgentRoot, req.Avatar, req.Signature, req.WorkspaceRoot, req.ToolPolicy, req.OwnerId, apiKey, baseURL, model)
 	if err != nil {
 		return &bot.CreateBotResp{Success: false, Msg: err.Error()}, nil
 	}
@@ -36,7 +37,7 @@ func (h *BotServiceImpl) CreateBot(ctx context.Context, req *bot.CreateBotReq) (
 // UpdateBot handles RPC bot updates and service-level ownership checks.
 func (h *BotServiceImpl) UpdateBot(ctx context.Context, req *bot.UpdateBotReq) (resp *bot.UpdateBotResp, err error) {
 	apiKey, baseURL, model := h.defaultLLM()
-	err = h.svc.UpdateBot(ctx, req.BotId, req.OperatorId, req.Name, req.Description, req.ModelName, req.ApiKey, req.BaseUrl, req.SystemPrompt, req.SkillsDir, req.AgentRoot, req.IsActive, apiKey, baseURL, model)
+	err = h.svc.UpdateBot(ctx, req.BotId, req.OperatorId, req.Name, req.Description, req.ModelName, req.ApiKey, req.BaseUrl, req.SystemPrompt, req.SkillsDir, req.AgentRoot, req.Avatar, req.Signature, req.WorkspaceRoot, req.ToolPolicy, req.IsActive, req.IsActiveSet, apiKey, baseURL, model)
 	if err != nil {
 		return &bot.UpdateBotResp{Success: false, Msg: err.Error()}, nil
 	}
@@ -58,23 +59,31 @@ func (h *BotServiceImpl) GetBot(ctx context.Context, req *bot.GetBotReq) (resp *
 	}
 	return &bot.GetBotResp{
 		Success: true,
-		Bot: &bot.BotConfig{
-			Id:           b.ID,
-			Name:         b.Name,
-			Type:         b.Type,
-			Description:  b.Description,
-			ModelName:    b.ModelName,
-			ApiKey:       apiKey,
-			BaseUrl:      b.BaseURL,
-			SystemPrompt: b.SystemPrompt,
-			SkillsDir:    b.SkillsDir,
-			AgentRoot:    b.AgentRoot,
-			IsActive:     b.IsActive,
-			OwnerId:      b.OwnerID,
-			CreatedAt:    b.CreatedAt.Format("2006-01-02 15:04:05"),
-			UpdatedAt:    b.UpdatedAt.Format("2006-01-02 15:04:05"),
-		},
+		Bot:     botConfigFromModel(b, apiKey),
 	}, nil
+}
+
+func botConfigFromModel(b *model.Bot, apiKey string) *bot.BotInfo {
+	return &bot.BotInfo{
+		Id:            b.ID,
+		Name:          b.Name,
+		Type:          b.Type,
+		Description:   b.Description,
+		ModelName:     b.ModelName,
+		BaseUrl:       b.BaseURL,
+		SystemPrompt:  b.SystemPrompt,
+		SkillsDir:     b.SkillsDir,
+		AgentRoot:     b.AgentRoot,
+		IsActive:      b.IsActive,
+		OwnerId:       b.OwnerID,
+		CreatedAt:     b.CreatedAt.Format("2006-01-02 15:04:05"),
+		UpdatedAt:     b.UpdatedAt.Format("2006-01-02 15:04:05"),
+		AgentUserId:   b.AgentUserID,
+		Avatar:        b.Avatar,
+		Signature:     b.Signature,
+		WorkspaceRoot: b.WorkspaceRoot,
+		ToolPolicy:    b.ToolPolicy,
+	}
 }
 
 // ListBots returns bot configs and masks internal bot API keys.
@@ -83,28 +92,13 @@ func (h *BotServiceImpl) ListBots(ctx context.Context, req *bot.ListBotsReq) (re
 	if err != nil {
 		return &bot.ListBotsResp{Success: false, Msg: err.Error()}, nil
 	}
-	var botList []*bot.BotConfig
+	var botList []*bot.BotInfo
 	for _, b := range bots {
 		apiKey := b.APIKey
 		if b.Type == "internal" {
 			apiKey = "***"
 		}
-		botList = append(botList, &bot.BotConfig{
-			Id:           b.ID,
-			Name:         b.Name,
-			Type:         b.Type,
-			Description:  b.Description,
-			ModelName:    b.ModelName,
-			ApiKey:       apiKey,
-			BaseUrl:      b.BaseURL,
-			SystemPrompt: b.SystemPrompt,
-			SkillsDir:    b.SkillsDir,
-			AgentRoot:    b.AgentRoot,
-			IsActive:     b.IsActive,
-			OwnerId:      b.OwnerID,
-			CreatedAt:    b.CreatedAt.Format("2006-01-02 15:04:05"),
-			UpdatedAt:    b.UpdatedAt.Format("2006-01-02 15:04:05"),
-		})
+		botList = append(botList, botConfigFromModel(&b, apiKey))
 	}
 	return &bot.ListBotsResp{Success: true, Bots: botList}, nil
 }
@@ -125,6 +119,63 @@ func (h *BotServiceImpl) ChatWithBot(ctx context.Context, req *bot.ChatWithBotRe
 		return &bot.ChatWithBotResp{Success: false, Msg: err.Error()}, nil
 	}
 	return &bot.ChatWithBotResp{Success: true, Reply: reply}, nil
+}
+
+func (h *BotServiceImpl) SummarizeConversation(ctx context.Context, req *bot.AgentTaskReq) (*bot.AgentTaskResp, error) {
+	return h.runTask(ctx, req, "summary")
+}
+
+func (h *BotServiceImpl) AskConversation(ctx context.Context, req *bot.AgentTaskReq) (*bot.AgentTaskResp, error) {
+	return h.runTask(ctx, req, "ask")
+}
+
+func (h *BotServiceImpl) ExtractInsights(ctx context.Context, req *bot.AgentTaskReq) (*bot.AgentTaskResp, error) {
+	return h.runTask(ctx, req, "insights")
+}
+
+func (h *BotServiceImpl) GenerateReplyCandidates(ctx context.Context, req *bot.AgentTaskReq) (*bot.AgentTaskResp, error) {
+	return h.runTask(ctx, req, "reply_candidates")
+}
+
+func (h *BotServiceImpl) runTask(ctx context.Context, req *bot.AgentTaskReq, taskType string) (*bot.AgentTaskResp, error) {
+	result, err := h.svc.RunAgentTask(ctx, req.BotId, req.UserId, req.ConversationId, taskType, req.Question)
+	if err != nil {
+		return &bot.AgentTaskResp{Success: false, Msg: err.Error()}, nil
+	}
+	return &bot.AgentTaskResp{Success: true, Result_: result, Msg: "ok"}, nil
+}
+
+func (h *BotServiceImpl) GrantPermission(ctx context.Context, req *bot.GrantPermissionReq) (*bot.GrantPermissionResp, error) {
+	if err := h.svc.GrantPermission(ctx, req.BotId, req.OperatorId, req.UserId, req.Role); err != nil {
+		return &bot.GrantPermissionResp{Success: false, Msg: err.Error()}, nil
+	}
+	return &bot.GrantPermissionResp{Success: true, Msg: "授权成功"}, nil
+}
+
+func (h *BotServiceImpl) RevokePermission(ctx context.Context, req *bot.RevokePermissionReq) (*bot.RevokePermissionResp, error) {
+	if err := h.svc.RevokePermission(ctx, req.BotId, req.OperatorId, req.UserId); err != nil {
+		return &bot.RevokePermissionResp{Success: false, Msg: err.Error()}, nil
+	}
+	return &bot.RevokePermissionResp{Success: true, Msg: "撤销成功"}, nil
+}
+
+func (h *BotServiceImpl) ListPermissions(ctx context.Context, req *bot.ListPermissionsReq) (*bot.ListPermissionsResp, error) {
+	permissions, err := h.svc.ListPermissions(ctx, req.BotId, req.OperatorId)
+	if err != nil {
+		return &bot.ListPermissionsResp{Success: false, Msg: err.Error()}, nil
+	}
+	list := make([]*bot.BotPermission, 0, len(permissions))
+	for _, p := range permissions {
+		list = append(list, &bot.BotPermission{
+			Id:        p.ID,
+			BotId:     p.BotID,
+			UserId:    p.UserID,
+			Role:      p.Role,
+			CreatedAt: p.CreatedAt.Format("2006-01-02 15:04:05"),
+			UpdatedAt: p.UpdatedAt.Format("2006-01-02 15:04:05"),
+		})
+	}
+	return &bot.ListPermissionsResp{Success: true, Permissions: list}, nil
 }
 
 // CreateRoute creates a bot routing rule.

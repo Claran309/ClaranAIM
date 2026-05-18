@@ -3,9 +3,11 @@
 
 # Local Go/build artifacts
 .gocache/
+.gotelemetry/
 tmp/
 *.tmp
 tmp.go
+.logs/
 
 # Local runtime data
 SessionStore/*
