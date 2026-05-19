@@ -3,6 +3,8 @@ package service
 import (
 	"ClaranAIM/kitex_gen/bot_runtime"
 	"context"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/cloudwego/eino/adk"
@@ -18,6 +20,37 @@ func TestGetAgentSessionsNilRequestDoesNotPanic(t *testing.T) {
 	}
 	if resp == nil || !resp.Success {
 		t.Fatalf("GetAgentSessions response = %#v, want success", resp)
+	}
+}
+
+func TestResolveWorkspaceRootKeepsRelativePathUnderBase(t *testing.T) {
+	base := t.TempDir()
+	svc := NewBotRuntimeService(RuntimeConfig{DefaultWorkspaceDir: base}).(*runtimeServiceImpl)
+
+	got, err := svc.resolveWorkspaceRoot(&bot_runtime.RuntimeBotConfig{
+		BotId:         49895688258818048,
+		WorkspaceRoot: "49895688258818048",
+	})
+	if err != nil {
+		t.Fatalf("resolveWorkspaceRoot returned error: %v", err)
+	}
+	want := filepath.Join(base, "49895688258818048")
+	if got != want {
+		t.Fatalf("workspace = %q, want %q", got, want)
+	}
+}
+
+func TestResolveWorkspaceRootRejectsPathOutsideBase(t *testing.T) {
+	base := t.TempDir()
+	outside := filepath.Dir(base)
+	svc := NewBotRuntimeService(RuntimeConfig{DefaultWorkspaceDir: base}).(*runtimeServiceImpl)
+
+	_, err := svc.resolveWorkspaceRoot(&bot_runtime.RuntimeBotConfig{
+		BotId:         1,
+		WorkspaceRoot: outside,
+	})
+	if err == nil || !strings.Contains(err.Error(), "允许根目录") {
+		t.Fatalf("resolveWorkspaceRoot error = %v, want outside-base rejection", err)
 	}
 }
 

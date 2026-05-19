@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -213,9 +214,9 @@ func (s *runtimeServiceImpl) getOrCreateAgent(ctx context.Context, bot *bot_runt
 	if err != nil {
 		return nil, err
 	}
-	workspace := bot.WorkspaceRoot
-	if workspace == "" {
-		workspace = filepath.Join(s.cfg.DefaultWorkspaceDir, fmt.Sprintf("%d", bot.BotId))
+	workspace, err := s.resolveWorkspaceRoot(bot)
+	if err != nil {
+		return nil, err
 	}
 	ag, err := agent.NewDeepAgent(ctx, chatModel, workspace, s.cfg.CozeloopToken, s.cfg.CozeloopWorkspaceID, bot.SkillsDir, bot.Name, bot.Description, bot.SystemPrompt, bot.IncludeDomainTools)
 	if err != nil {
@@ -223,6 +224,42 @@ func (s *runtimeServiceImpl) getOrCreateAgent(ctx context.Context, bot *bot_runt
 	}
 	s.agentCache[cacheKey] = ag
 	return ag, nil
+}
+
+func (s *runtimeServiceImpl) resolveWorkspaceRoot(bot *bot_runtime.RuntimeBotConfig) (string, error) {
+	base := strings.TrimSpace(s.cfg.DefaultWorkspaceDir)
+	if base == "" {
+		base = "storage/agent/workspaces"
+	}
+	baseAbs, err := filepath.Abs(base)
+	if err != nil {
+		return "", fmt.Errorf("解析Agent工作目录根失败: %w", err)
+	}
+
+	workspace := strings.TrimSpace(bot.WorkspaceRoot)
+	if workspace == "" {
+		workspace = filepath.Join(baseAbs, fmt.Sprintf("%d", bot.BotId))
+	} else if filepath.IsAbs(workspace) {
+		workspace = filepath.Clean(workspace)
+	} else {
+		workspace = filepath.Join(baseAbs, workspace)
+	}
+
+	workspaceAbs, err := filepath.Abs(workspace)
+	if err != nil {
+		return "", fmt.Errorf("解析Agent工作目录失败: %w", err)
+	}
+	rel, err := filepath.Rel(baseAbs, workspaceAbs)
+	if err != nil {
+		return "", fmt.Errorf("校验Agent工作目录失败: %w", err)
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) || filepath.IsAbs(rel) {
+		return "", fmt.Errorf("Agent工作目录必须位于允许根目录内: %s", baseAbs)
+	}
+	if err := os.MkdirAll(workspaceAbs, 0o755); err != nil {
+		return "", fmt.Errorf("创建Agent工作目录失败: %w", err)
+	}
+	return workspaceAbs, nil
 }
 
 func runtimeAgentCacheKey(bot *bot_runtime.RuntimeBotConfig) string {

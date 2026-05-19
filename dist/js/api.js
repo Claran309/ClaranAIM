@@ -445,13 +445,18 @@ function getUserAvatarChar(userID) {
     return name.charAt(0).toUpperCase();
 }
 
+function safeImageHTML(src, className = 'avatar-img') {
+    const url = escapeHTML(src || '');
+    return url ? `<img src="${url}" class="${escapeHTML(className)}" alt="">` : '';
+}
+
 function getUserAvatarHTML(userID, extraClass) {
     const avatarURL = userAvatarCache[userID];
     if (userID === currentUser.id && currentUser.avatar) {
-        return `<img src="${currentUser.avatar}" class="avatar-img ${extraClass || ''}">`;
+        return safeImageHTML(currentUser.avatar, `avatar-img ${extraClass || ''}`);
     }
     if (avatarURL) {
-        return `<img src="${avatarURL}" class="avatar-img ${extraClass || ''}">`;
+        return safeImageHTML(avatarURL, `avatar-img ${extraClass || ''}`);
     }
     const char = getUserAvatarChar(userID);
     return char;
@@ -459,9 +464,9 @@ function getUserAvatarHTML(userID, extraClass) {
 
 function renderAvatarHTML(avatarURL, fallbackChar, extraClass) {
     if (avatarURL) {
-        return `<div class="avatar ${extraClass || ''}"><img src="${avatarURL}" style="width:100%;height:100%;border-radius:50%;object-fit:cover;"></div>`;
+        return `<div class="avatar ${escapeHTML(extraClass || '')}">${safeImageHTML(avatarURL)}</div>`;
     }
-    return `<div class="avatar ${extraClass || ''}">${fallbackChar}</div>`;
+    return `<div class="avatar ${escapeHTML(extraClass || '')}">${escapeHTML(fallbackChar || '')}</div>`;
 }
 
 function isAgentUser(userID) {

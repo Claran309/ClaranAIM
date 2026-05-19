@@ -20,6 +20,7 @@ let groupMembersCache = {};
 let avatarLongPressTimer = null;
 let pendingMentionTargets = {};
 let botCreateSubmitting = false;
+let conversationGroupCollapsed = JSON.parse(localStorage.getItem('claran_conversation_group_collapsed') || '{}');
 const LOCAL_LOG_KEY = 'claran_frontend_logs';
 const LOCAL_LOG_LIMIT = 500;
 
@@ -158,6 +159,101 @@ function routeTypeLabel(type) {
     return labels[type] || type || '未知规则';
 }
 
+function saveConversationGroupState() {
+    localStorage.setItem('claran_conversation_group_collapsed', JSON.stringify(conversationGroupCollapsed));
+}
+
+function toggleConversationGroup(groupKey) {
+    conversationGroupCollapsed[groupKey] = !conversationGroupCollapsed[groupKey];
+    saveConversationGroupState();
+    loadConversations();
+}
+
+function conversationGroupLabel(groupKey) {
+    const labels = {
+        pinned: '置顶会话',
+        agent: '智能助手',
+        group: '群聊',
+        private: '私聊',
+        other: '其他会话',
+    };
+    return labels[groupKey] || '其他会话';
+}
+
+function conversationGroupIcon(groupKey) {
+    const icons = {
+        pinned: 'PIN',
+        agent: 'AI',
+        group: 'G',
+        private: 'P',
+        other: 'O',
+    };
+    return icons[groupKey] || 'O';
+}
+
+function classifyConversation(c) {
+    if (c._is_pinned) return 'pinned';
+    if (c.type === 'private' && c.participant_ids) {
+        const otherID = c.participant_ids.find(id => !sameID(id, currentUser.id));
+        if (otherID && isAgentUser(otherID)) return 'agent';
+    }
+    if (c.type === 'group') return 'group';
+    if (c.type === 'private') return 'private';
+    return 'other';
+}
+
+function renderConversationItem(c) {
+    const unread = unreadMap[c.conversation_id] || 0;
+    const isActive = sameID(currentConversationID, c.conversation_id);
+    const typeLabel = c.is_deleted_group ? '已解散' : (c.type === 'private' ? '私聊' : '群聊');
+    const pinnedPrefix = c._is_pinned ? '置顶 · ' : '';
+    let displayName = conversationNameCache[c.conversation_id] || c.target_name;
+    let otherID = '';
+    if (!displayName || displayName.startsWith('用户') || displayName.startsWith('群聊#')) {
+        if (c.type === 'private' && c.participant_ids) {
+            otherID = c.participant_ids.find(id => !sameID(id, currentUser.id));
+            if (otherID) displayName = getUserName(otherID);
+        }
+    } else if (c.type === 'private' && c.participant_ids) {
+        otherID = c.participant_ids.find(id => !sameID(id, currentUser.id));
+    }
+    if (!displayName) displayName = '会话 #' + c.conversation_id;
+    conversationNameCache[c.conversation_id] = displayName;
+
+    let avatarHTML;
+    let avatarClass = 'conv-avatar';
+    if (c.type === 'private' && c.participant_ids) {
+        if (!otherID) otherID = c.participant_ids.find(id => !sameID(id, currentUser.id));
+        const agent = getAgentBotByUserID(otherID);
+        if (agent) {
+            avatarClass += ' agent-avatar';
+            avatarHTML = agent.avatar ? safeImageHTML(agent.avatar) : 'A';
+        } else if (otherID) {
+            avatarHTML = getUserAvatarHTML(otherID, 'conv-avatar');
+        } else {
+            avatarHTML = 'P';
+        }
+    } else {
+        avatarClass += ' group-avatar';
+        avatarHTML = 'G';
+    }
+
+    return `
+        <div class="list-item conversation-item ${isActive ? 'active' : ''} ${c._is_pinned ? 'pinned' : ''} ${c.is_deleted_group ? 'deleted-group' : ''}" data-conversation-id="${escapeHTML(String(c.conversation_id))}" onclick="openConversation(${jsArg(c.conversation_id)}, ${jsStringArg(c.type)}, ${c.is_deleted_group ? 'true' : 'false'})">
+            <div class="avatar ${avatarClass}">${avatarHTML}</div>
+            <div class="list-item-info">
+                <div class="list-item-top">
+                    <span class="list-item-name">${escapeHTML(displayName)}</span>
+                    <span class="list-item-type">${pinnedPrefix}${typeLabel}</span>
+                </div>
+                <div class="list-item-msg">${escapeHTML(c.last_message || '暂无消息')}</div>
+            </div>
+            <button class="btn-icon-sm danger-soft" onclick="event.stopPropagation(); hideConversation(${jsArg(c.conversation_id)})" title="从列表移除">×</button>
+            ${unread > 0 ? `<span class="item-unread">${unread > 99 ? '99+' : unread}</span>` : ''}
+        </div>
+    `;
+}
+
 function jsArg(value) {
     return JSON.stringify(String(value ?? '')).replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
@@ -234,6 +330,7 @@ function resolveMediaURL(media) {
     if (media.url) return media.url;
     return media.url || '';
 }
+
 
 function resolveDownloadURL(media) {
     if (!media) return '';
@@ -719,7 +816,7 @@ async function enterMainPage() {
         document.getElementById('user-name').textContent = currentUser.nickname || currentUser.username;
         const avatarEl = document.getElementById('user-avatar');
         if (currentUser.avatar) {
-            avatarEl.innerHTML = `<img src="${currentUser.avatar}" style="width:100%;height:100%;border-radius:50%;object-fit:cover;">`;
+            avatarEl.innerHTML = safeImageHTML(currentUser.avatar);
         } else {
             avatarEl.textContent = (currentUser.nickname || currentUser.username).charAt(0).toUpperCase();
         }
@@ -807,54 +904,29 @@ async function loadConversations() {
             }
         });
 
-        convs.sort((a, b) => {
-            if (a._is_pinned && !b._is_pinned) return -1;
-            if (!a._is_pinned && b._is_pinned) return 1;
-            return 0;
-        });
-
-        list.innerHTML = convs.map(c => {
-            const unread = unreadMap[c.conversation_id] || 0;
-            const isActive = sameID(currentConversationID, c.conversation_id);
-            const typeLabel = c.is_deleted_group ? '已解散' : (c.type === 'private' ? '私聊' : '群聊');
-            const pinnedPrefix = c._is_pinned ? '📌 ' : '';
-            let displayName = conversationNameCache[c.conversation_id] || c.target_name;
-            if (!displayName || displayName.startsWith('用户') || displayName.startsWith('群聊#')) {
-                if (c.type === 'private' && c.participant_ids) {
-                    const otherID = c.participant_ids.find(id => !sameID(id, currentUser.id));
-                    if (otherID) displayName = getUserName(otherID);
-                }
-            }
-            if (!displayName) displayName = '会话 #' + c.conversation_id;
-            conversationNameCache[c.conversation_id] = displayName;
-
-            let avatarHTML;
-            if (c.type === 'private' && c.participant_ids) {
-                const otherID = c.participant_ids.find(id => !sameID(id, currentUser.id));
-                if (otherID) {
-                    avatarHTML = getUserAvatarHTML(otherID, 'conv-avatar');
-                } else {
-                    avatarHTML = '👤';
-                }
-            } else {
-                avatarHTML = '👥';
-            }
-
-            return `
-                <div class="list-item ${isActive ? 'active' : ''} ${c._is_pinned ? 'pinned' : ''} ${c.is_deleted_group ? 'deleted-group' : ''}" data-conversation-id="${escapeHTML(String(c.conversation_id))}" onclick="openConversation(${jsArg(c.conversation_id)}, ${jsStringArg(c.type)}, ${c.is_deleted_group ? 'true' : 'false'})">
-                    <div class="avatar conv-avatar">${avatarHTML}</div>
-                    <div class="list-item-info">
-                        <div class="list-item-top">
-                            <span class="list-item-name">${pinnedPrefix}${escapeHTML(displayName)}</span>
-                            <span class="list-item-type">${typeLabel}</span>
+        const groups = { pinned: [], agent: [], private: [], group: [], other: [] };
+        convs.forEach(c => groups[classifyConversation(c)].push(c));
+        const order = ['pinned', 'agent', 'private', 'group', 'other'];
+        list.innerHTML = order
+            .filter(key => groups[key].length > 0)
+            .map(key => {
+                const collapsed = !!conversationGroupCollapsed[key];
+                const unreadTotal = groups[key].reduce((sum, item) => sum + Number(unreadMap[item.conversation_id] || 0), 0);
+                return `
+                    <section class="conversation-section ${collapsed ? 'collapsed' : ''}">
+                        <button class="conversation-section-header" onclick="toggleConversationGroup(${jsStringArg(key)})">
+                            <span class="conversation-section-icon">${conversationGroupIcon(key)}</span>
+                            <span>${conversationGroupLabel(key)}</span>
+                            <span class="conversation-section-count">${groups[key].length}</span>
+                            ${unreadTotal > 0 ? `<span class="conversation-section-unread">${unreadTotal > 99 ? '99+' : unreadTotal}</span>` : ''}
+                            <span class="conversation-section-caret">${collapsed ? '+' : '-'}</span>
+                        </button>
+                        <div class="conversation-section-body">
+                            ${collapsed ? '' : groups[key].map(renderConversationItem).join('')}
                         </div>
-                        <div class="list-item-msg">${escapeHTML(c.last_message || '暂无消息')}</div>
-                    </div>
-                    <button class="btn-icon-sm" onclick="event.stopPropagation(); hideConversation(${jsArg(c.conversation_id)})" title="删除会话">删除</button>
-                    ${unread > 0 ? `<span class="item-unread">${unread > 99 ? '99+' : unread}</span>` : ''}
-                </div>
-            `;
-        }).join('');
+                    </section>
+                `;
+            }).join('');
     } else {
         list.innerHTML = '<div class="empty-tip">暂无会话</div>';
     }
@@ -967,14 +1039,14 @@ async function loadGroups() {
         }
 
         list.innerHTML = groups.map(g => {
-            const avatarHTML = renderAvatarHTML(g.avatar, '👥', 'group-avatar');
+            const avatarHTML = renderAvatarHTML(g.avatar, 'G', 'group-avatar');
             const ownerName = getUserName(g.owner_id);
             const isPinned = g.is_pinned;
             return `
                 <div class="list-item group-item ${isPinned ? 'pinned' : ''}">
                     ${avatarHTML}
                     <div class="list-item-info">
-                        <div class="list-item-name">${isPinned ? '📌 ' : ''}${escapeHTML(g.name)}</div>
+                        <div class="list-item-name">${isPinned ? '置顶 · ' : ''}${escapeHTML(g.name)}</div>
                         <div class="list-item-msg">群主: ${escapeHTML(ownerName)}</div>
                     </div>
                     <div class="group-actions">
@@ -1090,7 +1162,7 @@ async function openConversation(conversationID, type, isDeletedGroup = false) {
     const convName = await resolveConversationName(conversationID, type);
     if (openSeq !== conversationOpenSeq || !sameID(currentConversationID, targetConversationID) || currentBotID !== null) return;
     document.getElementById('chat-title').textContent = convName;
-    const typeLabel = isDeletedGroup ? '群聊已解散' : (type === 'private' ? '👤 私聊' : '👥 群聊');
+    const typeLabel = isDeletedGroup ? '群聊已解散' : (type === 'private' ? '私聊' : '群聊');
     document.getElementById('chat-type-badge').textContent = typeLabel;
     document.getElementById('chat-type-badge').className = `chat-type-badge ${type}`;
     document.getElementById('msg-input').disabled = !!isDeletedGroup;
@@ -1181,7 +1253,7 @@ function createMessageHTML(m) {
         const thinkingIDAttr = m._thinkingID ? ` data-thinking-id="${m._thinkingID}"` : '';
         return `
             <div class="message-item received bot-msg msg-thinking"${thinkingIDAttr}>
-                <div class="msg-avatar received">🤖</div>
+                <div class="msg-avatar received agent-avatar">A</div>
                 <div class="msg-body">
                     <div class="msg-meta">
                         <span class="message-sender">智能助手</span>
@@ -1196,8 +1268,8 @@ function createMessageHTML(m) {
     const isBot = sameID(m.sender_id, 0) || m.is_bot || !!agentBot;
     const senderName = agentBot ? getBotDisplayName(agentBot) : (isBot ? '智能助手' : (isSent ? '我' : getUserName(m.sender_id)));
     const time = m.created_at || '';
-    const avatarContent = agentBot && agentBot.avatar ? `<img src="${escapeHTML(agentBot.avatar)}" class="avatar-img">` : (isBot ? 'A' : (isSent
-        ? (currentUser.avatar ? `<img src="${currentUser.avatar}" class="avatar-img">` : (currentUser.nickname || currentUser.username).charAt(0).toUpperCase())
+    const avatarContent = agentBot && agentBot.avatar ? safeImageHTML(agentBot.avatar) : (isBot ? 'A' : (isSent
+        ? (currentUser.avatar ? safeImageHTML(currentUser.avatar) : (currentUser.nickname || currentUser.username).charAt(0).toUpperCase())
         : getUserAvatarHTML(m.sender_id)));
     const avatarBg = isSent ? '' : 'received';
     const mentionableAvatar = !isSent && currentConversationType === 'group' && m.sender_id && !sameID(m.sender_id, 0);
@@ -1715,7 +1787,7 @@ async function showGroupMembers(groupID) {
                         const canMute = canManage && !sameID(currentUser.id, m.user_id) && m.role !== 'owner';
                         const canSetRole = isOwner && m.role !== 'owner';
                         const memberName = agent ? getBotDisplayName(agent) : getUserName(m.user_id);
-                        const avatarHTML = agent && agent.avatar ? `<img src="${escapeHTML(agent.avatar)}" class="avatar-img small">` : getUserAvatarHTML(m.user_id, 'small');
+                        const avatarHTML = agent && agent.avatar ? safeImageHTML(agent.avatar, 'avatar-img small') : getUserAvatarHTML(m.user_id, 'small');
                         const isMuted = m.muted_until && m.muted_until !== '';
                         return `
                             <div class="member-item ${isMuted ? 'muted' : ''}">
@@ -1724,7 +1796,7 @@ async function showGroupMembers(groupID) {
                                     <span class="member-name">${escapeHTML(memberName)}</span>
                                     <span class="member-tag ${roleClass}">${roleLabel}</span>
                                     ${agent ? '<span class="member-tag agent-tag">智能助手</span>' : ''}
-                                    ${isMuted ? '<span class="member-tag muted-tag">🔇 禁言中</span>' : ''}
+                                    ${isMuted ? '<span class="member-tag muted-tag">禁言中</span>' : ''}
                                 </div>
                                 <div class="member-actions">
                                     <button class="btn-kick" onclick="insertMention(${jsArg(m.user_id)}, ${jsStringArg(memberName)})">@</button>
@@ -1960,7 +2032,7 @@ function showUserProfile() {
     if (!currentUser) return;
     const displayName = currentUser.nickname || currentUser.username || '';
     const avatarHTML = currentUser.avatar
-        ? `<img src="${escapeHTML(currentUser.avatar)}" class="avatar-img">`
+        ? safeImageHTML(currentUser.avatar)
         : escapeHTML(displayName.charAt(0).toUpperCase() || '?');
     const coverStyle = currentUser.cover
         ? ` style="background-image:url(&quot;${escapeHTML(currentUser.cover)}&quot;)"`
@@ -2128,7 +2200,7 @@ async function saveProfile() {
     document.getElementById('user-name').textContent = currentUser.nickname || currentUser.username;
     const avatarEl = document.getElementById('user-avatar');
     if (currentUser.avatar) {
-        avatarEl.innerHTML = `<img src="${currentUser.avatar}" style="width:100%;height:100%;border-radius:50%;object-fit:cover;">`;
+        avatarEl.innerHTML = safeImageHTML(currentUser.avatar);
     } else {
         avatarEl.textContent = (currentUser.nickname || currentUser.username).charAt(0).toUpperCase();
     }
@@ -2630,12 +2702,12 @@ async function loadBotSidebar() {
                 </div>
                 <div class="bot-item-actions" onclick="event.stopPropagation()">
                     <button class="btn-icon-sm" onclick="showEditAgentForm(${jsArg(b.id)})" title="编辑助手">✎</button>
-                    <button class="btn-icon-sm" onclick="showAgentPermissions(${jsArg(b.id)}, ${jsStringArg(getBotDisplayName(b))})" title="权限管理">♟</button>
+                    <button class="btn-icon-sm" onclick="showAgentPermissions(${jsArg(b.id)}, ${jsStringArg(getBotDisplayName(b))})" title="权限管理">权</button>
                     <button class="btn-icon-sm" onclick="showAgentRunModal(${jsArg(b.id)}, ${jsStringArg(getBotDisplayName(b))})" title="运行助手">▶</button>
-                    <button class="btn-icon-sm" onclick="showBotRoutes(${jsArg(b.id)}, ${jsStringArg(b.name)})" title="路由管理">🔗</button>
-                    <button class="btn-icon-sm" onclick="showBotBilling(${jsArg(b.id)}, ${jsStringArg(b.name)})" title="计费记录">💰</button>
+                    <button class="btn-icon-sm" onclick="showBotRoutes(${jsArg(b.id)}, ${jsStringArg(b.name)})" title="路由管理">路</button>
+                    <button class="btn-icon-sm" onclick="showBotBilling(${jsArg(b.id)}, ${jsStringArg(b.name)})" title="计费记录">费</button>
                     <button class="btn-icon-sm" onclick="toggleBot(${jsArg(b.id)}, ${!b.is_active})" title="${b.is_active ? '停用' : '启用'}">${b.is_active ? '⏸' : '▶'}</button>
-                    <button class="btn-icon-sm" onclick="deleteBot(${jsArg(b.id)})" title="删除">🗑</button>
+                    <button class="btn-icon-sm danger-soft" onclick="deleteBot(${jsArg(b.id)})" title="删除">×</button>
                 </div>
             </div>
         `).join('');
@@ -3091,7 +3163,7 @@ function chatWithBot(botID) {
 
     document.getElementById('welcome-area').style.display = 'none';
     document.getElementById('chat-area').style.display = 'flex';
-    document.getElementById('chat-title').textContent = `🤖 ${botName}`;
+    document.getElementById('chat-title').textContent = botName;
     document.getElementById('chat-type-badge').textContent = '智能助手';
     document.getElementById('chat-type-badge').className = 'chat-type-badge group';
     document.getElementById('group-announcement-bar').style.display = 'none';
@@ -3211,7 +3283,7 @@ async function loadBotRoutes(botID) {
         area.innerHTML = routes.map(r => `
             <div class="bot-item">
                 <div class="bot-info">
-                    <span class="bot-name">🔗 ${escapeHTML(r.route_pattern)}</span>
+                    <span class="bot-name">路由 ${escapeHTML(r.route_pattern)}</span>
                     <span class="bot-type ${r.route_type}">${escapeHTML(routeTypeLabel(r.route_type))}</span>
                     <span class="bot-status active">优先级: ${r.priority || 0}</span>
                 </div>
