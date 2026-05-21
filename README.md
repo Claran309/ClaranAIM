@@ -130,12 +130,8 @@ scripts\start.bat
 
 ## to fix list
 
-- 我想要的agent效果应该更直观一点，有详细信息按钮，未点击详细信息时应该只看得到agent的输出内容，点击详细信息才能看到json，在我让agent总结内容时，agent会给我一堆json，这很不合理
-- agent查看会话记录界面很乱
-- 新增agent思考时间功能，实时输出，就像常规的agent工具那样
-- agent能力不够直观，请优化用户端的操作模式
-- 已读不应该用红色，可以用蓝色
 - 继续扫描其他 Agent 边界：运行中断、工具审批、长任务排队、调用失败后的用户可见状态。
+- Agent 真正流式输出需要 runtime/API 网关增加 streaming/SSE/WebSocket 事件通道。目前前端已补“真实思考耗时 + 执行中状态”，但不是 token 级流式输出。
 
 
 ## future to fix

@@ -1007,16 +1007,16 @@ body {
 }
 
 .message-read-state {
-    color: var(--text-muted);
+    color: #64748b;
     font-size: 12px;
 }
 
 .message-read-state.read {
-    color: var(--accent);
+    color: #2563eb;
 }
 
 .message-read-state.unread {
-    color: var(--warning);
+    color: #64748b;
 }
 
 .broadcast-msg {
@@ -1317,6 +1317,15 @@ body {
 
     .profile-summary {
         align-items: flex-start;
+    }
+
+    .agent-action-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .agent-session-main {
+        flex-direction: column;
+        gap: 4px;
     }
 }
 
@@ -1961,16 +1970,106 @@ body {
     margin-top: 14px;
     border: 1px solid var(--border);
     border-radius: 8px;
-    background: white;
+    background: #fbfcfa;
     min-height: 96px;
     max-height: 360px;
     overflow: auto;
 }
 
+.agent-action-grid {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 8px;
+    margin: 0 0 10px;
+}
+
+.agent-action-card {
+    border: 1px solid var(--border);
+    background: white;
+    border-radius: 8px;
+    padding: 10px 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    cursor: pointer;
+    color: var(--text-secondary);
+    text-align: left;
+}
+
+.agent-action-card:hover,
+.agent-action-card.active {
+    border-color: rgba(15,118,110,0.45);
+    background: rgba(15,118,110,0.08);
+    color: var(--primary-dark);
+}
+
+.agent-action-card span {
+    font-size: 13px;
+    font-weight: 800;
+}
+
+.agent-action-card small {
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+.agent-action-hint {
+    margin: -2px 0 12px;
+    color: var(--text-muted);
+    font-size: 12px;
+}
+
+.agent-running {
+    min-height: 96px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    color: var(--text-secondary);
+}
+
+.agent-running div:last-child {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.agent-running strong {
+    color: var(--text);
+    font-size: 14px;
+}
+
+.agent-running span {
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+.agent-result-card {
+    padding: 14px;
+}
+
+.agent-result-meta {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 10px;
+}
+
+.agent-result-meta span {
+    display: inline-flex;
+    align-items: center;
+    height: 22px;
+    border-radius: 11px;
+    padding: 0 9px;
+    background: rgba(15,118,110,0.10);
+    color: var(--primary-dark);
+    font-size: 12px;
+    font-weight: 700;
+}
+
 .agent-result-json,
 .agent-result-text {
     margin: 0;
-    padding: 12px;
     white-space: pre-wrap;
     word-break: break-word;
     font-size: 13px;
@@ -1978,8 +2077,90 @@ body {
 }
 
 .agent-result-json {
+    margin-top: 10px;
+    padding: 12px;
+    border-radius: 8px;
+    background: #0f172a;
     font-family: ui-monospace, SFMono-Regular, Consolas, 'Liberation Mono', monospace;
-    color: #0f172a;
+    color: #dbeafe;
+    overflow: auto;
+}
+
+.agent-detail-toggle {
+    margin-top: 12px;
+    border: 1px solid var(--border);
+    background: white;
+    color: var(--text-secondary);
+    border-radius: 8px;
+    padding: 6px 10px;
+    cursor: pointer;
+    font-size: 12px;
+}
+
+.agent-detail-toggle:hover {
+    border-color: var(--primary);
+    color: var(--primary);
+}
+
+.agent-error-card {
+    margin: 14px;
+    padding: 12px;
+    border: 1px solid #fecaca;
+    border-radius: 8px;
+    background: #fff7f7;
+    color: #991b1b;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.agent-error-card small {
+    color: #b91c1c;
+}
+
+.agent-session-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px;
+}
+
+.agent-session-card {
+    border: 1px solid var(--border);
+    background: white;
+    border-radius: 8px;
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.agent-session-main {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    align-items: flex-start;
+}
+
+.agent-session-main strong {
+    color: var(--text);
+    font-size: 13px;
+    line-height: 1.4;
+}
+
+.agent-session-main span {
+    color: var(--text-muted);
+    font-size: 12px;
+    white-space: nowrap;
+}
+
+.agent-session-card code {
+    color: var(--text-muted);
+    background: var(--bg);
+    border-radius: 6px;
+    padding: 6px 8px;
+    font-size: 11px;
+    word-break: break-all;
 }
 
 .agent-help-box {

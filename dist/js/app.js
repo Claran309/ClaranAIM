@@ -159,6 +159,61 @@ function routeTypeLabel(type) {
     return labels[type] || type || '未知规则';
 }
 
+function agentActionLabel(action) {
+    const labels = {
+        run: '执行任务',
+        summarize: '会话总结',
+        ask: '上下文问答',
+        insights: '提取结论',
+        replyCandidates: '生成回复',
+    };
+    return labels[action] || action || '执行任务';
+}
+
+function agentActionHint(action) {
+    const hints = {
+        run: '让智能助手按你的指令完成一项具体工作。',
+        summarize: '把当前会话整理成可阅读的摘要、结论和待办。',
+        ask: '围绕当前会话内容提问，适合追问背景和细节。',
+        insights: '提取结论、分歧、风险、待办和负责人。',
+        replyCandidates: '根据上下文生成几条可直接发送的回复。',
+    };
+    return hints[action] || '选择一种智能助手能力后执行。';
+}
+
+function selectAgentAction(selectID, action, hintID = '') {
+    const select = document.getElementById(selectID);
+    if (select) select.value = action;
+    document.querySelectorAll(`[data-agent-action-for="${selectID}"]`).forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.agentAction === action);
+    });
+    if (hintID) {
+        const hint = document.getElementById(hintID);
+        if (hint) hint.textContent = agentActionHint(action);
+    }
+}
+
+function renderAgentActionGrid(selectID, hintID, selected = 'summarize') {
+    const actions = [
+        ['summarize', '总结', '整理上下文'],
+        ['ask', '问答', '追问细节'],
+        ['insights', '洞察', '结论风险'],
+        ['replyCandidates', '回复', '候选话术'],
+        ['run', '执行', '具体任务'],
+    ];
+    return `
+        <div class="agent-action-grid">
+            ${actions.map(([action, title, desc]) => `
+                <button type="button" class="agent-action-card ${action === selected ? 'active' : ''}" data-agent-action-for="${selectID}" data-agent-action="${action}" onclick="selectAgentAction(${jsStringArg(selectID)}, ${jsStringArg(action)}, ${jsStringArg(hintID)})">
+                    <span>${title}</span>
+                    <small>${desc}</small>
+                </button>
+            `).join('')}
+        </div>
+        <div id="${escapeHTML(hintID)}" class="agent-action-hint">${escapeHTML(agentActionHint(selected))}</div>
+    `;
+}
+
 function saveConversationGroupState() {
     localStorage.setItem('claran_conversation_group_collapsed', JSON.stringify(conversationGroupCollapsed));
 }
@@ -2116,6 +2171,10 @@ async function showAgentConversationTools() {
     }
     const convName = conversationNameCache[currentConversationID] || '当前会话';
     showModal(`智能助手 - ${escapeHTML(convName)}`, `
+        <div class="agent-help-box">
+            <strong>选择一个动作</strong>
+            <div>先选能力，再填写问题。结果会优先展示可读正文，详细 JSON 可按需展开。</div>
+        </div>
         <div class="profile-form-grid">
             <div class="form-group">
                 <label>选择助手</label>
@@ -2125,32 +2184,33 @@ async function showAgentConversationTools() {
             </div>
             <div class="form-group">
                 <label>能力</label>
-                <select id="conv-agent-action" class="form-select">
+                <select id="conv-agent-action" class="form-select" onchange="selectAgentAction('conv-agent-action', this.value, 'conv-agent-action-hint')">
                     <option value="summarize">会话总结</option>
                     <option value="ask">上下文问答</option>
-                    <option value="insights">结论/分歧/风险/待办</option>
-                    <option value="replyCandidates">回复候选</option>
-                    <option value="run">直接运行</option>
+                    <option value="insights">提取结论</option>
+                    <option value="replyCandidates">生成回复</option>
+                    <option value="run">执行任务</option>
                 </select>
             </div>
         </div>
+        ${renderAgentActionGrid('conv-agent-action', 'conv-agent-action-hint', 'summarize')}
         <div class="form-group">
             <label>问题 / 指令</label>
             <textarea id="conv-agent-question" rows="3" placeholder="例如：我错过了什么？有哪些风险和待办？"></textarea>
         </div>
         <div class="btn-row">
-            <button class="btn-inline btn-primary" onclick="submitConversationAgentTask()">执行</button>
+            <button class="btn-inline btn-primary" onclick="submitConversationAgentTask(this)">执行</button>
             <button class="btn-inline" onclick="showMentionPicker()">在输入框 @ 成员/助手</button>
         </div>
         <div id="conv-agent-result" class="agent-result-area"></div>
     `);
 }
 
-function submitConversationAgentTask() {
+function submitConversationAgentTask(buttonEl = null) {
     const botID = document.getElementById('conv-agent-id').value;
     const action = document.getElementById('conv-agent-action').value;
     const question = document.getElementById('conv-agent-question').value.trim();
-    runAgentTask(action, botID, currentConversationID, question, 'conv-agent-result');
+    runAgentTask(action, botID, currentConversationID, question, 'conv-agent-result', buttonEl);
 }
 
 async function getGroupMembersCached(groupID, force = false) {
@@ -2963,23 +3023,121 @@ function normalizeAgentPayload(resp) {
     return resp.data.result || resp.data.result_ || resp.data.reply || resp.data.summary || resp.data.insights || resp.data.candidates || resp.data;
 }
 
-function renderAgentResult(value) {
-    if (value === null || value === undefined || value === '') return '<div class="empty-tip">暂无返回内容</div>';
+function normalizeAgentResultForView(value) {
+    if (value === null || value === undefined || value === '') {
+        return { text: '', detail: null };
+    }
     if (typeof value === 'object') {
-        return `<pre class="agent-result-json">${escapeHTML(JSON.stringify(value, null, 2))}</pre>`;
+        const textFields = ['answer', 'summary', 'content', 'reply', 'result', 'message', 'text'];
+        const text = textFields.map(k => value[k]).find(v => typeof v === 'string' && v.trim()) || agentObjectToReadableText(value);
+        return { text, detail: value };
     }
     const text = String(value);
     try {
         const parsed = JSON.parse(text);
-        return `<pre class="agent-result-json">${escapeHTML(JSON.stringify(parsed, null, 2))}</pre>`;
+        return normalizeAgentResultForView(parsed);
     } catch (e) {
-        return `<div class="agent-result-text">${escapeHTML(text)}</div>`;
+        return { text, detail: null };
     }
 }
 
-async function runAgentTask(action, botID, conversationID, question, resultElID) {
+function agentObjectToReadableText(value) {
+    if (!value || typeof value !== 'object') return '';
+    if (Array.isArray(value)) {
+        return value.map((item, idx) => {
+            if (typeof item === 'string') return `${idx + 1}. ${item}`;
+            return `${idx + 1}. ${agentObjectToReadableText(item) || JSON.stringify(item)}`;
+        }).join('\n');
+    }
+    const labels = {
+        key_information: '关键信息',
+        conclusions: '结论',
+        todos: '待办',
+        risks: '风险',
+        reply_candidates: '回复候选',
+        candidates: '候选回复',
+        summary: '摘要',
+        answer: '回答',
+        content: '内容',
+    };
+    const sections = [];
+    Object.entries(value).forEach(([key, val]) => {
+        if (val === null || val === undefined || val === '' || key === 'metadata') return;
+        const title = labels[key] || key;
+        if (Array.isArray(val)) {
+            if (val.length === 0) return;
+            sections.push(`${title}:\n${val.map((item, idx) => {
+                if (typeof item === 'string') return `${idx + 1}. ${item}`;
+                if (item && typeof item === 'object') {
+                    const content = item.content || item.description || item.title || item.text || item.name || JSON.stringify(item);
+                    const status = item.status ? ` [${item.status}]` : '';
+                    return `${idx + 1}. ${content}${status}`;
+                }
+                return `${idx + 1}. ${String(item)}`;
+            }).join('\n')}`);
+        } else if (typeof val === 'object') {
+            const nested = agentObjectToReadableText(val);
+            if (nested) sections.push(`${title}:\n${nested}`);
+        } else {
+            sections.push(`${title}: ${String(val)}`);
+        }
+    });
+    return sections.join('\n\n');
+}
+
+function renderAgentResult(value, meta = {}) {
+    const normalized = normalizeAgentResultForView(value);
+    if (!normalized.text && !normalized.detail) return '<div class="empty-tip">暂无返回内容</div>';
+    const detailID = `agent-detail-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const elapsed = meta.elapsedMs !== undefined ? `<span>耗时 ${(meta.elapsedMs / 1000).toFixed(1)} 秒</span>` : '';
+    const action = meta.action ? `<span>${escapeHTML(agentActionLabel(meta.action))}</span>` : '';
+    const detailHTML = normalized.detail
+        ? `
+            <button type="button" class="agent-detail-toggle" onclick="toggleAgentDetail(${jsStringArg(detailID)}, this)">查看详细 JSON</button>
+            <pre id="${detailID}" class="agent-result-json" style="display:none;">${escapeHTML(JSON.stringify(normalized.detail, null, 2))}</pre>
+        `
+        : '';
+    return `
+        <div class="agent-result-card">
+            <div class="agent-result-meta">${action}${elapsed}</div>
+            <div class="agent-result-text">${escapeHTML(normalized.text || JSON.stringify(normalized.detail, null, 2))}</div>
+            ${detailHTML}
+        </div>
+    `;
+}
+
+function toggleAgentDetail(detailID, btn) {
+    const el = document.getElementById(detailID);
+    if (!el) return;
+    const showing = el.style.display !== 'none';
+    el.style.display = showing ? 'none' : 'block';
+    if (btn) btn.textContent = showing ? '查看详细 JSON' : '收起详细 JSON';
+}
+
+async function runAgentTask(action, botID, conversationID, question, resultElID, buttonEl = null) {
     const area = document.getElementById(resultElID);
-    if (area) area.innerHTML = '<div class="search-loading"><div class="spinner"></div>智能助手处理中...</div>';
+    const startedAt = Date.now();
+    let timer = null;
+    if (buttonEl) {
+        buttonEl.disabled = true;
+        buttonEl.dataset.originalText = buttonEl.textContent;
+        buttonEl.textContent = '执行中...';
+    }
+    if (area) {
+        area.innerHTML = `
+            <div class="agent-running">
+                <div class="spinner"></div>
+                <div>
+                    <strong>${escapeHTML(agentActionLabel(action))}中</strong>
+                    <span id="${resultElID}-timer">已思考 0.0 秒</span>
+                </div>
+            </div>
+        `;
+        timer = setInterval(() => {
+            const timerEl = document.getElementById(`${resultElID}-timer`);
+            if (timerEl) timerEl.textContent = `已思考 ${((Date.now() - startedAt) / 1000).toFixed(1)} 秒`;
+        }, 100);
+    }
     const apiMap = {
         run: agentAPI.run,
         summarize: agentAPI.summarize,
@@ -2987,12 +3145,21 @@ async function runAgentTask(action, botID, conversationID, question, resultElID)
         insights: agentAPI.insights,
         replyCandidates: agentAPI.replyCandidates,
     };
-    const resp = await apiMap[action](botID, conversationID, question || '');
-    const result = normalizeAgentPayload(resp);
-    if (resp && resp.code === 0 && resp.data && resp.data.success !== false) {
-        if (area) area.innerHTML = renderAgentResult(result);
-    } else if (area) {
-        area.innerHTML = `<div class="bot-reply error">${escapeHTML(resp?.data?.msg || resp?.message || '智能助手执行失败')}</div>`;
+    try {
+        const resp = await apiMap[action](botID, conversationID, question || '');
+        const result = normalizeAgentPayload(resp);
+        const elapsedMs = Date.now() - startedAt;
+        if (resp && resp.code === 0 && resp.data && resp.data.success !== false) {
+            if (area) area.innerHTML = renderAgentResult(result, { action, elapsedMs });
+        } else if (area) {
+            area.innerHTML = `<div class="agent-error-card"><strong>执行失败</strong><span>${escapeHTML(resp?.data?.msg || resp?.message || '智能助手执行失败')}</span><small>请检查助手权限、模型配置、工具策略或后端运行日志。</small></div>`;
+        }
+    } finally {
+        if (timer) clearInterval(timer);
+        if (buttonEl) {
+            buttonEl.disabled = false;
+            buttonEl.textContent = buttonEl.dataset.originalText || '执行';
+        }
     }
 }
 
@@ -3015,32 +3182,33 @@ function showAgentRunModal(botID, botName) {
             </div>
             <div class="form-group">
                 <label>任务类型</label>
-                <select id="agent-run-action" class="form-select">
-                    <option value="run">运行</option>
-                    <option value="summarize">总结</option>
+                <select id="agent-run-action" class="form-select" onchange="selectAgentAction('agent-run-action', this.value, 'agent-run-action-hint')">
+                    <option value="summarize">会话总结</option>
                     <option value="ask">上下文问答</option>
-                    <option value="insights">洞察提取</option>
-                    <option value="replyCandidates">回复候选</option>
+                    <option value="insights">提取结论</option>
+                    <option value="replyCandidates">生成回复</option>
+                    <option value="run">执行任务</option>
                 </select>
             </div>
         </div>
+        ${renderAgentActionGrid('agent-run-action', 'agent-run-action-hint', 'summarize')}
         <div class="form-group">
             <label>指令 / 问题</label>
             <textarea id="agent-run-question" rows="3" placeholder="例如：总结这段会话的结论、风险和待办"></textarea>
         </div>
         <div class="btn-row">
-            <button class="btn-inline btn-primary" onclick="submitAgentRun(${jsArg(botID)})">执行</button>
+            <button id="agent-run-submit" class="btn-inline btn-primary" onclick="submitAgentRun(${jsArg(botID)}, this)">执行</button>
             <button class="btn-inline" onclick="loadAgentSessions(${jsArg(botID)}, ${jsArg(defaultConversationID)}, 'agent-run-result')">查看会话记录</button>
         </div>
         <div id="agent-run-result" class="agent-result-area"></div>
     `);
 }
 
-function submitAgentRun(botID) {
+function submitAgentRun(botID, buttonEl = null) {
     const conversationID = document.getElementById('agent-run-conversation').value || 0;
     const question = document.getElementById('agent-run-question').value.trim();
     const action = document.getElementById('agent-run-action').value;
-    runAgentTask(action, botID, conversationID, question, 'agent-run-result');
+    runAgentTask(action, botID, conversationID, question, 'agent-run-result', buttonEl);
 }
 
 async function loadAgentSessions(botID, conversationID, resultElID) {
@@ -3056,15 +3224,23 @@ async function loadAgentSessions(botID, conversationID, resultElID) {
         if (area) area.innerHTML = '<div class="empty-tip">暂无会话记录</div>';
         return;
     }
-    if (area) area.innerHTML = sessions.map(s => `
-        <div class="bot-item">
-            <div class="bot-info">
-                <span class="bot-name">${escapeHTML(s.title || '未命名会话')}</span>
-                <span class="bot-status active">${escapeHTML(s.created_at || '')}</span>
-                <div class="bot-desc">${escapeHTML(s.session_id || '')}</div>
-            </div>
+    if (area) area.innerHTML = `
+        <div class="agent-session-list">
+            ${sessions.map(s => {
+                const title = s.title || '未命名会话';
+                const shortID = String(s.session_id || '').replace(/^agent_/, '');
+                return `
+                    <div class="agent-session-card">
+                        <div class="agent-session-main">
+                            <strong>${escapeHTML(title)}</strong>
+                            <span>${escapeHTML(s.created_at || '未知时间')}</span>
+                        </div>
+                        <code>${escapeHTML(shortID)}</code>
+                    </div>
+                `;
+            }).join('')}
         </div>
-    `).join('');
+    `;
 }
 
 async function showAgentPermissions(botID, botName) {
