@@ -27,7 +27,7 @@ type BotService interface {
 	GetBot(ctx context.Context, botID int64) (*model.Bot, error)
 	ListBots(ctx context.Context, ownerID int64, botType string) ([]model.Bot, error)
 	DeleteBot(ctx context.Context, botID, operatorID int64) error
-	ChatWithBot(ctx context.Context, botID, userID, conversationID int64, message string) (string, int64, error)
+	ChatWithBot(ctx context.Context, botID, userID, conversationID int64, message string) (*ChatResult, error)
 	CreateRoute(ctx context.Context, botID int64, routePattern, routeType string, priority int64) (*model.BotRoute, error)
 	ListRoutes(ctx context.Context, botID int64) ([]model.BotRoute, error)
 	DeleteRoute(ctx context.Context, routeID, operatorID int64) error
@@ -37,6 +37,18 @@ type BotService interface {
 	ListPermissions(ctx context.Context, botID, operatorID int64) ([]model.BotPermission, error)
 	RunAgentTask(ctx context.Context, botID, userID, conversationID int64, taskType, question string) (string, error)
 	GetBotByAgentUserID(ctx context.Context, agentUserID int64) (*model.Bot, error)
+}
+
+// ChatResult keeps runtime metadata that the HTTP gateway and asynchronous
+// dispatcher need to distinguish a normal reply from a pending user approval.
+type ChatResult struct {
+	Reply          string
+	ConversationID int64
+	Status         string
+	SessionID      string
+	InputTokens    int64
+	OutputTokens   int64
+	Cost           float64
 }
 
 type botServiceImpl struct {
@@ -257,29 +269,29 @@ func (s *botServiceImpl) DeleteBot(ctx context.Context, botID, operatorID int64)
 // independent context in different IM conversations. Token billing uses the
 // usage metadata returned by Eino messages; when usage is absent, the billing
 // record is marked as usage-missing with zero tokens.
-func (s *botServiceImpl) ChatWithBot(ctx context.Context, botID, userID, conversationID int64, message string) (string, int64, error) {
+func (s *botServiceImpl) ChatWithBot(ctx context.Context, botID, userID, conversationID int64, message string) (*ChatResult, error) {
 	botInfo, err := s.botRepo.GetBotByID(ctx, botID)
 	if err != nil {
-		return "", conversationID, err
+		return nil, err
 	}
 	if botInfo == nil {
-		return "", conversationID, errors.New("bot不存在")
+		return nil, errors.New("bot不存在")
 	}
 	if !botInfo.IsActive {
-		return "", conversationID, errors.New("bot已停用")
+		return nil, errors.New("bot已停用")
 	}
 	if botInfo.APIKey == "" {
-		return "", conversationID, errors.New("bot未配置API Key，请联系管理员或配置自部署Bot的API Key")
+		return nil, errors.New("bot未配置API Key，请联系管理员或配置自部署Bot的API Key")
 	}
 	if botInfo.BaseURL == "" {
-		return "", conversationID, errors.New("bot未配置Base URL，请联系管理员或配置自部署Bot的Base URL")
+		return nil, errors.New("bot未配置Base URL，请联系管理员或配置自部署Bot的Base URL")
 	}
 
 	if err := s.requireRole(ctx, botInfo, userID, "operator"); err != nil {
-		return "", conversationID, err
+		return nil, err
 	}
 	if s.runtimeClient == nil {
-		return "", conversationID, errors.New("bot-runtime-service未配置")
+		return nil, errors.New("bot-runtime-service未配置")
 	}
 	resp, err := s.runtimeClient.RunAgent(ctx, &bot_runtime.RunAgentReq{
 		Bot:            s.runtimeConfig(botInfo),
@@ -289,14 +301,14 @@ func (s *botServiceImpl) ChatWithBot(ctx context.Context, botID, userID, convers
 	})
 	if err != nil {
 		s.recordBilling(ctx, botID, userID, conversationID, "chat_error", 0, 0, 0, botInfo.ModelName)
-		return "", conversationID, err
+		return nil, err
 	}
 	if resp == nil || !resp.Success {
 		s.recordBilling(ctx, botID, userID, conversationID, "chat_error", 0, 0, 0, botInfo.ModelName)
 		if resp != nil && resp.Msg != "" {
-			return "", conversationID, errors.New(resp.Msg)
+			return nil, errors.New(resp.Msg)
 		}
-		return "", conversationID, errors.New("Agent执行失败")
+		return nil, errors.New("Agent执行失败")
 	}
 	inputTokens := int64(0)
 	outputTokens := int64(0)
@@ -316,7 +328,15 @@ func (s *botServiceImpl) ChatWithBot(ctx context.Context, botID, userID, convers
 	log.Printf("Bot对话完成: bot_id=%d, user_id=%d, input_tokens=%d, output_tokens=%d, cost=%.6f, usage_seen=%v",
 		botID, userID, inputTokens, outputTokens, actualCost, usageSeen)
 
-	return resp.Reply, conversationID, nil
+	return &ChatResult{
+		Reply:          resp.Reply,
+		ConversationID: conversationID,
+		Status:         resp.Msg,
+		SessionID:      resp.SessionId,
+		InputTokens:    inputTokens,
+		OutputTokens:   outputTokens,
+		Cost:           actualCost,
+	}, nil
 }
 
 func (s *botServiceImpl) recordBilling(ctx context.Context, botID, userID, conversationID int64, action string, inputTokens, outputTokens int64, cost float64, modelName string) {

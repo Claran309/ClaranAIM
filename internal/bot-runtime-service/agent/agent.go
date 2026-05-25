@@ -26,7 +26,7 @@ import (
 // It wires local tool execution, optional CozeLoop tracing, skill middleware and
 // the project's domain tools into a single agent instance. bot-manager-service
 // caches the returned agent per bot configuration.
-func NewDeepAgent(ctx context.Context, model *openai.ChatModel, agentRoot string, cozeloopApiToken string, cozeloopWorkspaceID string, skillDir string, agentName string, agentDescription string, systemPrompt string, includeDomainTools bool) (adk.Agent, error) {
+func NewDeepAgent(ctx context.Context, model *openai.ChatModel, agentRoot string, cozeloopApiToken string, cozeloopWorkspaceID string, skillDir string, agentName string, agentDescription string, systemPrompt string, toolPolicy string, includeDomainTools bool) (adk.Agent, error) {
 	// 创建LocalBackend Tools 后端工具实例
 	backend, err := local.NewBackend(ctx, &local.Config{})
 	if err != nil {
@@ -148,7 +148,7 @@ func NewDeepAgent(ctx context.Context, model *openai.ChatModel, agentRoot string
 	if instruction == "" {
 		instruction = AmiyaInstruction
 	}
-	instruction = instruction + "\n\n" + extInstruction
+	instruction = instruction + "\n\n" + ToolPolicyInstruction(toolPolicy) + "\n\n" + extInstruction
 
 	agentConfig := &deep.Config{
 		Name:           effectiveName,
@@ -177,6 +177,28 @@ func NewDeepAgent(ctx context.Context, model *openai.ChatModel, agentRoot string
 	}
 
 	return agent, nil
+}
+
+func ToolPolicyInstruction(toolPolicy string) string {
+	switch strings.ToLower(strings.TrimSpace(toolPolicy)) {
+	case "approval_required", "approval", "confirm":
+		return `## 工具审批策略
+- 你可以读取、分析和列出工作目录内的文件。
+- 在执行写文件、删除文件、覆盖文件、运行命令、安装依赖、修改配置等可能改变环境的动作前，必须先向用户说明你准备做什么、影响哪些路径、为什么需要这样做，并等待用户明确同意。
+- 用户明确表示“确认”“可以”“继续”“同意”后，你可以在下一轮对话中继续执行刚才说明过的动作。`
+	case "readonly", "read_only":
+		return `## 工具审批策略
+- 当前 Agent 只能读取和分析信息，不应执行写文件、删除文件、覆盖文件、运行命令、安装依赖或修改配置等会改变环境的动作。
+- 如果用户要求修改环境，请先说明当前工具策略不允许直接执行，并给出可读的建议方案。`
+	case "disabled":
+		return `## 工具审批策略
+- 当前 Agent 不应主动调用任何外部工具。
+- 请仅基于已经提供的上下文回答；如果缺少信息，说明缺口并询问用户补充。`
+	default:
+		return `## 工具审批策略
+- 你可以使用安全的读取、检索和分析工具完成任务。
+- 对写文件、删除文件、覆盖文件、运行命令、安装依赖、修改配置等高风险动作，先向用户说明计划并等待确认；用户确认后再执行。`
+	}
 }
 
 func resolveSkillsDir(skillsDir string) (string, bool) {

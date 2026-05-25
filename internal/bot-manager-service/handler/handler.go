@@ -114,11 +114,18 @@ func (h *BotServiceImpl) DeleteBot(ctx context.Context, req *bot.DeleteBotReq) (
 
 // ChatWithBot runs one bot chat turn and returns the assistant reply.
 func (h *BotServiceImpl) ChatWithBot(ctx context.Context, req *bot.ChatWithBotReq) (resp *bot.ChatWithBotResp, err error) {
-	reply, _, err := h.svc.ChatWithBot(ctx, req.BotId, req.UserId, req.ConversationId, req.Message)
+	result, err := h.svc.ChatWithBot(ctx, req.BotId, req.UserId, req.ConversationId, req.Message)
 	if err != nil {
 		return &bot.ChatWithBotResp{Success: false, Msg: err.Error()}, nil
 	}
-	return &bot.ChatWithBotResp{Success: true, Reply: reply}, nil
+	return &bot.ChatWithBotResp{
+		Success:      true,
+		Reply:        result.Reply,
+		InputTokens:  result.InputTokens,
+		OutputTokens: result.OutputTokens,
+		Cost:         result.Cost,
+		Msg:          result.Status,
+	}, nil
 }
 
 func (h *BotServiceImpl) SummarizeConversation(ctx context.Context, req *bot.AgentTaskReq) (*bot.AgentTaskResp, error) {

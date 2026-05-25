@@ -96,12 +96,16 @@ AIM 的长期目标不是“在聊天里加一个 AI 按钮”，而是让 Agent
 - [x] 根据上下文生成回复候选，用户可一键选用。
 - [x] 接入 msg-core-service 基础上下文读取和 bot-manager 权限校验。
 - [x] 输出结构化 Agent 理解结果，供前端展示；RAG 入库和用户画像仍为后续阶段。
+- [x] 实现 Agent 工具确认 MVP：高风险操作返回待确认状态，前端展示允许/拒绝卡片，允许后继续同一长会话执行。
+- [x] Agent 作为真实用户暴露 UID，创建者可将 Agent 加为好友并发起私聊。
 
-说明：Phase 2 已完成基础后端闭环：Agent 真实系统用户身份、bot-runtime-service、bot-manager 权限表、HTTP `/agent/*` 接口和 Kafka `message.created` @Agent 触发已接入；Agent @ 分发使用 `agent_dispatch_records` 和 msg-core-service `client_msg_id` 避免 Kafka 重投造成重复回复。深度时间窗口检索、主题聚合、未读专用摘要、向量化记忆和多 Agent 协作继续放在后续阶段增强。
+说明：Phase 2 已完成基础后端闭环：Agent 真实系统用户身份、bot-runtime-service、bot-manager 权限表、HTTP `/agent/*` 接口和 Kafka `message.created` @Agent 触发已接入；Agent @ 分发使用 `agent_dispatch_records` 和 msg-core-service `client_msg_id` 避免 Kafka 重投造成重复回复。工具确认当前是进程内 MVP，能跑通交互链路，但生产化需要持久化审批、checkpoint/resume 和超时清理。深度时间窗口检索、主题聚合、未读专用摘要、向量化记忆和多 Agent 协作继续放在后续阶段增强。
 
 ### Phase 3：Agent 记忆与用户/群画像
 
+- [x] 实现基础长会话记忆：runtime 使用 session key 与 JSONL 持久化，支持跨重启恢复基本上下文。
 - [ ] 实现 memory-service。
+- [ ] 在不引入向量库的前提下先实现基础事实记忆表：用户偏好、群背景、项目状态、Agent 运行摘要。
 - [ ] 建立用户记忆：偏好、常用表达、长期目标、历史交互模式。
 - [ ] 建立群记忆：群背景、项目状态、关键成员角色、长期讨论主题。
 - [ ] 实现聊天记忆，覆盖私聊和群聊。
@@ -111,6 +115,8 @@ AIM 的长期目标不是“在聊天里加一个 AI 按钮”，而是让 Agent
 - [ ] 支持用户查看、编辑、删除和关闭自己的记忆。
 - [ ] 支持向量化记忆，为跨会话召回和个性化 Agent 提供基础。
 - [ ] 保证不同 Bot、不同 Session 的记忆隔离，避免记忆串线。
+
+Phase 3 MVP 原则：先跑通“会话摘要 -> 人工确认 -> 基础记忆记录 -> 下一次上下文注入”的闭环，不急着上完整向量库。这样可以先验证记忆边界、权限和用户体验，避免过早把脏数据沉淀进长期记忆。
 
 ### Phase 4：聊天知识沉淀与 RAG
 
@@ -124,6 +130,18 @@ AIM 的长期目标不是“在聊天里加一个 AI 按钮”，而是让 Agent
 - [ ] 增加人工审核队列，支持群主、管理员或知识负责人确认入库。
 - [ ] 支持知识过期提醒、冲突检测和相似知识合并。
 - [ ] 支持 RAG 回流会话，在相关讨论中主动引用已有知识。
+
+### Phase 4.5：Agent + 知识图谱
+
+- [ ] 先用 MySQL 实现轻量知识图谱事实表和边表，验证产品链路。
+- [ ] 抽取实体：用户、群、Agent、文件、话题、任务、决策、风险、知识卡片。
+- [ ] 抽取关系：提及、讨论、负责、依赖、确认、反对、来源于、属于群、由 Agent 生成。
+- [ ] 将 Agent 总结、insights、RAG 知识卡片转成可审核的图谱候选。
+- [ ] 为每条图谱事实保留来源消息、创建者、可信度、可见范围和更新时间。
+- [ ] 前端提供“关系视图”基础展示：某个话题相关人员、结论、文件、任务和风险。
+- [ ] 后续按规模评估 Neo4j、NebulaGraph 或 TuGraph；在关系复杂度没有压垮 MySQL 前不强行引入图数据库。
+
+合理性评估：知识图谱很适合 AIM，因为 IM 天然产生人、群、消息、文件、任务、结论之间的关系。它不应该替代 RAG，而是补足“谁和谁、什么依赖什么、结论从哪里来”的结构化关系。影响模块主要包括 bot-runtime-service 的结构化抽取、rag/memory 服务的数据沉淀、msg-core-service 的消息来源引用、api-gateway 的查询接口和前端的关系展示。建议先做轻量 MySQL MVP，再根据查询复杂度迁移专用图数据库。
 
 ### Phase 5：Tool / Skill / MCP 工作流
 

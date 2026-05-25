@@ -89,6 +89,8 @@ ClaranAIM/
 │   ├── file-service.yaml
 │   ├── bot-manager-service.yaml
 │   └── bot-runtime-service.yaml
+
+】
 ├── dist/                                  # 前端静态页面
 │   ├── index.html
 │   ├── css/
@@ -133,8 +135,12 @@ scripts\start.bat
 - 继续扫描其他 Agent 边界：运行中断、工具审批、长任务排队、调用失败后的用户可见状态。
 - Agent 真正流式输出需要 runtime/API 网关增加 streaming/SSE/WebSocket 事件通道。目前前端已补“真实思考耗时 + 执行中状态”，但不是 token 级流式输出。
 
+- 前端agent侧边栏包不住agent功能按钮了，需要改正，建议把这些功能按钮全都整合到二级菜单中，统合为“管理”“运行”等按钮
+- agent上下文会话列表感知不全面，只能感知最近打开或者缓存过的的会话列表
 
 ## future to fix
+
+- agent总结：目前仅读取当前用户可见的最近 80 条消息，应该80+且是服务器数据
 
 - 管理层
 - 文本翻译功能：需要查询相应api或用llm

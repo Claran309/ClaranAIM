@@ -2,6 +2,7 @@ package eventconsumer
 
 import (
 	"ClaranAIM/internal/bot-manager-service/model"
+	"ClaranAIM/internal/bot-manager-service/service"
 	"ClaranAIM/kitex_gen/message"
 	"ClaranAIM/pkg/events"
 	"context"
@@ -96,11 +97,11 @@ func (s *fakeBotService) ListBots(context.Context, int64, string) ([]model.Bot, 
 	return nil, nil
 }
 func (s *fakeBotService) DeleteBot(context.Context, int64, int64) error { return nil }
-func (s *fakeBotService) ChatWithBot(context.Context, int64, int64, int64, string) (string, int64, error) {
+func (s *fakeBotService) ChatWithBot(context.Context, int64, int64, int64, string) (*service.ChatResult, error) {
 	if s.chatErr != nil {
-		return "", 10, s.chatErr
+		return nil, s.chatErr
 	}
-	return s.reply, 10, nil
+	return &service.ChatResult{Reply: s.reply, ConversationID: 10}, nil
 }
 func (s *fakeBotService) CreateRoute(context.Context, int64, string, string, int64) (*model.BotRoute, error) {
 	return nil, nil

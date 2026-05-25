@@ -62,6 +62,10 @@ func NewBotRuntimeService(cfg RuntimeConfig) BotRuntimeService {
 
 // RunAgent executes one user instruction with long-session context.
 func (s *runtimeServiceImpl) RunAgent(ctx context.Context, req *bot_runtime.RunAgentReq) (*bot_runtime.RunAgentResp, error) {
+	return s.runAgent(ctx, req, true)
+}
+
+func (s *runtimeServiceImpl) runAgent(ctx context.Context, req *bot_runtime.RunAgentReq, persistSession bool) (*bot_runtime.RunAgentResp, error) {
 	if req == nil || req.Bot == nil {
 		return failRun("Agent配置不能为空"), nil
 	}
@@ -83,7 +87,7 @@ func (s *runtimeServiceImpl) RunAgent(ctx context.Context, req *bot_runtime.RunA
 	}
 
 	var historyMsgs []*schema.Message
-	if s.sessionStore != nil {
+	if persistSession && s.sessionStore != nil {
 		session, sessErr := s.sessionStore.GetSession(sessionID)
 		if sessErr == nil {
 			historyMsgs = session.GetMessages()
@@ -110,6 +114,9 @@ func (s *runtimeServiceImpl) RunAgent(ctx context.Context, req *bot_runtime.RunA
 		if event.Err != nil {
 			return failRun(fmt.Sprintf("Agent执行失败: %v", event.Err)), nil
 		}
+		if event.Action != nil && event.Action.Interrupted != nil {
+			return pendingApprovalRun(sessionID, event.Action.Interrupted), nil
+		}
 		if event.Output != nil && event.Output.MessageOutput != nil {
 			msg, err := event.Output.MessageOutput.GetMessage()
 			if err == nil && msg != nil {
@@ -123,7 +130,7 @@ func (s *runtimeServiceImpl) RunAgent(ctx context.Context, req *bot_runtime.RunA
 	if reply == "" {
 		return failRun("Agent返回为空"), nil
 	}
-	if s.sessionStore != nil {
+	if persistSession && s.sessionStore != nil {
 		if session, sessErr := s.sessionStore.GetSession(sessionID); sessErr == nil {
 			_ = session.Append(userMsg)
 			_ = session.Append(schema.AssistantMessage(reply, nil))
@@ -145,13 +152,13 @@ func (s *runtimeServiceImpl) RunTask(ctx context.Context, req *bot_runtime.Agent
 		return failTask("Agent配置不能为空"), nil
 	}
 	taskPrompt := buildTaskPrompt(req.TaskType, req.Question)
-	runResp, _ := s.RunAgent(ctx, &bot_runtime.RunAgentReq{
+	runResp, _ := s.runAgent(ctx, &bot_runtime.RunAgentReq{
 		Bot:            req.Bot,
 		UserId:         req.UserId,
 		ConversationId: req.ConversationId,
 		Input:          taskPrompt,
 		Context:        req.Context,
-	})
+	}, false)
 	if runResp == nil || !runResp.Success {
 		msg := "Agent任务执行失败"
 		if runResp != nil && runResp.Msg != "" {
@@ -218,7 +225,7 @@ func (s *runtimeServiceImpl) getOrCreateAgent(ctx context.Context, bot *bot_runt
 	if err != nil {
 		return nil, err
 	}
-	ag, err := agent.NewDeepAgent(ctx, chatModel, workspace, s.cfg.CozeloopToken, s.cfg.CozeloopWorkspaceID, bot.SkillsDir, bot.Name, bot.Description, bot.SystemPrompt, bot.IncludeDomainTools)
+	ag, err := agent.NewDeepAgent(ctx, chatModel, workspace, s.cfg.CozeloopToken, s.cfg.CozeloopWorkspaceID, bot.SkillsDir, bot.Name, bot.Description, bot.SystemPrompt, bot.ToolPolicy, bot.IncludeDomainTools)
 	if err != nil {
 		return nil, err
 	}
@@ -240,6 +247,8 @@ func (s *runtimeServiceImpl) resolveWorkspaceRoot(bot *bot_runtime.RuntimeBotCon
 	if workspace == "" {
 		workspace = filepath.Join(baseAbs, fmt.Sprintf("%d", bot.BotId))
 	} else if filepath.IsAbs(workspace) {
+		workspace = normalizeAbsoluteWorkspace(baseAbs, workspace, bot.BotId)
+	} else if isPathUnderBase(baseAbs, workspace) {
 		workspace = filepath.Clean(workspace)
 	} else {
 		workspace = filepath.Join(baseAbs, workspace)
@@ -260,6 +269,29 @@ func (s *runtimeServiceImpl) resolveWorkspaceRoot(bot *bot_runtime.RuntimeBotCon
 		return "", fmt.Errorf("创建Agent工作目录失败: %w", err)
 	}
 	return workspaceAbs, nil
+}
+
+func normalizeAbsoluteWorkspace(baseAbs, workspace string, botID int64) string {
+	cleaned := filepath.Clean(workspace)
+	if isPathUnderBase(baseAbs, cleaned) {
+		return cleaned
+	}
+	if botID > 0 && filepath.Base(cleaned) == fmt.Sprintf("%d", botID) {
+		return filepath.Join(baseAbs, fmt.Sprintf("%d", botID))
+	}
+	return cleaned
+}
+
+func isPathUnderBase(baseAbs, path string) bool {
+	pathAbs, err := filepath.Abs(path)
+	if err != nil {
+		return false
+	}
+	rel, err := filepath.Rel(baseAbs, pathAbs)
+	if err != nil {
+		return false
+	}
+	return rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator)) && !filepath.IsAbs(rel)
 }
 
 func runtimeAgentCacheKey(bot *bot_runtime.RuntimeBotConfig) string {
@@ -297,17 +329,18 @@ func validateRuntimeBot(bot *bot_runtime.RuntimeBotConfig) error {
 }
 
 func buildTaskPrompt(taskType, question string) string {
+	base := "你正在帮助用户理解 IM 会话。请只基于用户提供的“会话材料”回答，不要假装看到了未提供的内容。材料很少时也要分析它的性质：如果只是闲聊、灌水、无实质信息、重复寒暄或情绪碎片，就明确告诉用户“这段会话基本是废话/没有形成有效信息”，并简短说明依据。只有完全没有会话材料时，才说明没有可分析的内容。请用自然、清晰的中文回复用户，面向真人阅读，不要输出机器处理格式或代码块。\n\n"
 	switch taskType {
 	case "summary":
-		return "请总结当前会话上下文，区分关键信息、结论、待办、风险，并输出结构化 JSON。\n" + question
+		return base + "任务：总结会话。请覆盖：1）大家主要聊了什么；2）已经形成的结论；3）待办事项和负责人（如果能看出）；4）风险、分歧或悬而未决的问题。没有的信息不要编造。\n\n" + question
 	case "ask":
-		return "请只基于当前会话上下文回答问题；如果上下文不足，请明确说明缺口。\n问题：" + question
+		return base + "任务：回答用户关于会话的问题。请引用会话材料中的事实进行回答；如果材料不足，请说明缺少哪些信息。\n\n" + question
 	case "insights":
-		return "请从当前会话上下文中提取 conclusions、disagreements、risks、todos、owners，输出 JSON。\n" + question
+		return base + "任务：提取会话洞察。请用面向人的小标题整理：结论、分歧、风险、待办、可能的负责人。没有的信息写“未体现”。\n\n" + question
 	case "reply_candidates":
-		return "请基于当前会话上下文生成 3 条可直接发送的回复候选，输出 JSON 数组。\n" + question
+		return base + "任务：生成 3 条可直接发送的回复候选。每条回复都要贴合会话材料，语气自然。\n\n" + question
 	default:
-		return question
+		return base + question
 	}
 }
 
@@ -317,6 +350,22 @@ func defaultSessionID(botID, userID, conversationID int64) string {
 
 func failRun(msg string) *bot_runtime.RunAgentResp {
 	return &bot_runtime.RunAgentResp{Success: false, Msg: msg}
+}
+
+func pendingApprovalRun(sessionID string, info *adk.InterruptInfo) *bot_runtime.RunAgentResp {
+	return &bot_runtime.RunAgentResp{
+		Success:   true,
+		Reply:     formatInterruptPrompt(info),
+		SessionId: sessionID,
+		Msg:       "pending_user_approval",
+	}
+}
+
+func formatInterruptPrompt(info *adk.InterruptInfo) string {
+	if info == nil || len(info.InterruptContexts) == 0 {
+		return "这个操作需要你确认。确认后我会继续执行。"
+	}
+	return fmt.Sprintf("这个操作需要你确认。待确认步骤数：%d。确认后我会继续执行。", len(info.InterruptContexts))
 }
 
 func failTask(msg string) *bot_runtime.AgentTaskResp {

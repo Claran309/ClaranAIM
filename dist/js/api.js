@@ -329,6 +329,13 @@ const agentAPI = {
     listPermissions: (botID) => request('GET', `/agent/${botID}/permissions`),
     listSessions: (botID, conversationID = 0) =>
         request('GET', `/agent/${botID}/sessions?conversation_id=${apiID(conversationID)}`),
+    listApprovals: () => request('GET', '/agent/approvals'),
+    confirmApproval: (approvalID, message = '') =>
+        request('POST', '/agent/approval/confirm', { approval_id: approvalID, message }),
+    rejectApproval: (approvalID) =>
+        request('POST', '/agent/approval/reject', { approval_id: approvalID }),
+    addFriend: (botID, groupID = 0, remark = '') =>
+        request('POST', '/agent/add-friend', { bot_id: apiID(botID), group_id: apiID(groupID || 0), remark }),
 };
 
 async function connectWS() {

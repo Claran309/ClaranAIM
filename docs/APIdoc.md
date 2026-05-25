@@ -1578,6 +1578,10 @@ curl -X POST http://localhost:8080/api/v1/file/upload \
 | `/agent/ask` | POST | 基于会话上下文问答 |
 | `/agent/insights` | POST | 提取结论、分歧、风险、待办和负责人 |
 | `/agent/reply-candidates` | POST | 生成可选回复候选 |
+| `/agent/approvals` | GET | 查看当前用户的 Agent 工具确认记录 |
+| `/agent/approval/confirm` | POST | 允许某次待确认操作继续执行 |
+| `/agent/approval/reject` | POST | 拒绝某次待确认操作 |
+| `/agent/add-friend` | POST | 创建者将 Agent 系统用户加为好友 |
 
 任务接口请求参数：
 
@@ -1586,6 +1590,45 @@ curl -X POST http://localhost:8080/api/v1/file/upload \
 | bot_id | int64 | 是 | Agent/Bot ID |
 | conversation_id | int64 | 否 | 会话 ID |
 | question | string | 否 | 问题或附加指令 |
+
+当 `/agent/run` 或 `/bot/chat` 触发高风险工具策略时，网关会返回待确认状态：
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "success": true,
+    "status": "pending_approval",
+    "msg": "pending_user_approval",
+    "approval_id": "appr_1001_1_...",
+    "reply": "这个操作需要你确认后才能继续..."
+  }
+}
+```
+
+确认请求：
+
+```json
+{
+  "approval_id": "appr_1001_1_...",
+  "message": "允许执行，但不要删除文件"
+}
+```
+
+说明：当前确认流是轻量 MVP，审批状态保存在 api-gateway 进程内。它已经能跑通 `agent-ask -> user-approve -> agent-act` 基础链路；生产级别应将审批记录、checkpoint/resume 状态和超时清理移动到 bot-runtime-service 或专用任务表中。
+
+将 Agent 加为好友请求：
+
+```json
+{
+  "bot_id": 1,
+  "group_id": 0,
+  "remark": "项目助手"
+}
+```
+
+只有 Agent 创建者可以使用该便捷接口。它实际调用 user-service 添加 `agent_user_id` 为好友，因此 Agent 会像普通用户一样出现在好友列表并可被私聊。
 
 ***
 

@@ -1318,6 +1318,22 @@ function createMessageHTML(m) {
             </div>
         `;
     }
+    if (m.is_approval && m.approval) {
+        const senderName = '智能助手';
+        const time = m.created_at || '';
+        return `
+            <div class="message-item received bot-msg">
+                <div class="msg-avatar received agent-avatar">A</div>
+                <div class="msg-body">
+                    <div class="msg-meta">
+                        <span class="message-sender">${senderName}</span>
+                        <span class="message-time">${time}</span>
+                    </div>
+                    ${renderAgentApprovalCard(m.approval, { action: 'run' })}
+                </div>
+            </div>
+        `;
+    }
     const isSent = sameID(m.sender_id, currentUser.id);
     const agentBot = getAgentBotByUserID(m.sender_id);
     const isBot = sameID(m.sender_id, 0) || m.is_bot || !!agentBot;
@@ -2764,6 +2780,9 @@ async function loadBotSidebar() {
                     <button class="btn-icon-sm" onclick="showEditAgentForm(${jsArg(b.id)})" title="编辑助手">✎</button>
                     <button class="btn-icon-sm" onclick="showAgentPermissions(${jsArg(b.id)}, ${jsStringArg(getBotDisplayName(b))})" title="权限管理">权</button>
                     <button class="btn-icon-sm" onclick="showAgentRunModal(${jsArg(b.id)}, ${jsStringArg(getBotDisplayName(b))})" title="运行助手">▶</button>
+                    <button class="btn-icon-sm" onclick="addAgentFriend(${jsArg(b.id)}, ${jsStringArg(getBotDisplayName(b))})" title="加为好友">友</button>
+                    <button class="btn-icon-sm" onclick="startAgentPrivateChat(${jsArg(b.agent_user_id)})" title="私聊">聊</button>
+                    <button class="btn-icon-sm" onclick="copyAgentUID(${jsArg(b.agent_user_id)})" title="复制UID">ID</button>
                     <button class="btn-icon-sm" onclick="showBotRoutes(${jsArg(b.id)}, ${jsStringArg(b.name)})" title="路由管理">路</button>
                     <button class="btn-icon-sm" onclick="showBotBilling(${jsArg(b.id)}, ${jsStringArg(b.name)})" title="计费记录">费</button>
                     <button class="btn-icon-sm" onclick="toggleBot(${jsArg(b.id)}, ${!b.is_active})" title="${b.is_active ? '停用' : '启用'}">${b.is_active ? '⏸' : '▶'}</button>
@@ -2840,6 +2859,37 @@ function onBotTypeChange() {
     const type = document.getElementById('bot-type').value;
     const customFields = document.getElementById('custom-bot-fields');
     customFields.style.display = type === 'custom' ? 'block' : 'none';
+}
+
+async function addAgentFriend(botID, botName) {
+    const resp = await agentAPI.addFriend(botID, 0, botName || '');
+    if (resp && resp.code === 0 && resp.data && resp.data.success) {
+        showToast('已添加到好友列表', 'success');
+        loadFriends();
+    } else {
+        showToast(resp?.data?.msg || resp?.message || '添加好友失败', 'error');
+    }
+}
+
+function startAgentPrivateChat(agentUserID) {
+    if (!agentUserID) {
+        showToast('这个智能助手还没有绑定 UID', 'warning');
+        return;
+    }
+    startPrivateChat(agentUserID);
+}
+
+async function copyAgentUID(agentUserID) {
+    if (!agentUserID) {
+        showToast('这个智能助手还没有绑定 UID', 'warning');
+        return;
+    }
+    try {
+        await navigator.clipboard.writeText(String(agentUserID));
+        showToast('已复制 UID', 'success');
+    } catch (e) {
+        showToast(String(agentUserID), 'info');
+    }
 }
 
 function showBotRoutes(botID, botName) {
@@ -3114,6 +3164,67 @@ function toggleAgentDetail(detailID, btn) {
     if (btn) btn.textContent = showing ? '查看详细 JSON' : '收起详细 JSON';
 }
 
+function extractAgentApproval(resp) {
+    if (!(resp && resp.code === 0 && resp.data)) return null;
+    const data = resp.data;
+    if (data.status !== 'pending_approval' && data.msg !== 'pending_user_approval') return null;
+    return {
+        id: data.approval_id || data.approval?.approval_id || data.approval?.ID || '',
+        botID: data.bot_id || data.approval?.bot_id || 0,
+        conversationID: data.conversation_id || data.approval?.conversation_id || 0,
+        description: data.reply || data.approval?.description || '这个操作需要你确认后才会继续。',
+    };
+}
+
+function renderAgentApprovalCard(approval, meta = {}) {
+    const detailID = `approval-note-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const resultID = `approval-result-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const elapsed = meta.elapsedMs !== undefined ? `<span>耗时 ${(meta.elapsedMs / 1000).toFixed(1)} 秒</span>` : '';
+    return `
+        <div class="agent-result-card agent-approval-card">
+            <div class="agent-result-meta">
+                <span>等待你确认</span>
+                ${meta.action ? `<span>${escapeHTML(agentActionLabel(meta.action))}</span>` : ''}
+                ${elapsed}
+            </div>
+            <div class="agent-result-text">${escapeHTML(approval.description || 'Agent 请求继续执行一个需要确认的操作。')}</div>
+            <textarea id="${detailID}" class="approval-note-input" rows="2" placeholder="可选：补充限制或说明，例如只读检查、不要修改文件"></textarea>
+            <div class="btn-row">
+                <button class="btn-inline btn-primary" onclick="confirmAgentApproval(${jsStringArg(approval.id)}, ${jsStringArg(resultID)}, ${jsStringArg(detailID)})">允许执行</button>
+                <button class="btn-inline" onclick="rejectAgentApproval(${jsStringArg(approval.id)}, ${jsStringArg(resultID)})">拒绝</button>
+            </div>
+            <div id="${resultID}" class="agent-approval-followup"></div>
+        </div>
+    `;
+}
+
+async function confirmAgentApproval(approvalID, resultElID, noteElID) {
+    const area = document.getElementById(resultElID);
+    const message = document.getElementById(noteElID)?.value.trim() || '';
+    if (area) area.innerHTML = '<div class="search-loading"><div class="spinner"></div>已允许，Agent 正在继续执行...</div>';
+    const resp = await agentAPI.confirmApproval(approvalID, message);
+    const pending = extractAgentApproval(resp);
+    if (pending) {
+        if (area) area.innerHTML = renderAgentApprovalCard(pending, { action: 'run' });
+        return;
+    }
+    if (resp && resp.code === 0 && resp.data && resp.data.success !== false) {
+        if (area) area.innerHTML = renderAgentResult(normalizeAgentPayload(resp), { action: 'run' });
+    } else if (area) {
+        area.innerHTML = `<div class="agent-error-card"><strong>继续执行失败</strong><span>${escapeHTML(resp?.data?.msg || resp?.message || 'Agent 执行失败')}</span></div>`;
+    }
+}
+
+async function rejectAgentApproval(approvalID, resultElID) {
+    const area = document.getElementById(resultElID);
+    const resp = await agentAPI.rejectApproval(approvalID);
+    if (resp && resp.code === 0 && resp.data && resp.data.success) {
+        if (area) area.innerHTML = '<div class="empty-tip">已拒绝，本次操作不会执行。</div>';
+    } else if (area) {
+        area.innerHTML = `<div class="agent-error-card"><strong>拒绝失败</strong><span>${escapeHTML(resp?.data?.msg || resp?.message || '审批记录处理失败')}</span></div>`;
+    }
+}
+
 async function runAgentTask(action, botID, conversationID, question, resultElID, buttonEl = null) {
     const area = document.getElementById(resultElID);
     const startedAt = Date.now();
@@ -3149,7 +3260,10 @@ async function runAgentTask(action, botID, conversationID, question, resultElID,
         const resp = await apiMap[action](botID, conversationID, question || '');
         const result = normalizeAgentPayload(resp);
         const elapsedMs = Date.now() - startedAt;
-        if (resp && resp.code === 0 && resp.data && resp.data.success !== false) {
+        const approval = extractAgentApproval(resp);
+        if (approval) {
+            if (area) area.innerHTML = renderAgentApprovalCard(approval, { action, elapsedMs });
+        } else if (resp && resp.code === 0 && resp.data && resp.data.success !== false) {
             if (area) area.innerHTML = renderAgentResult(result, { action, elapsedMs });
         } else if (area) {
             area.innerHTML = `<div class="agent-error-card"><strong>执行失败</strong><span>${escapeHTML(resp?.data?.msg || resp?.message || '智能助手执行失败')}</span><small>请检查助手权限、模型配置、工具策略或后端运行日志。</small></div>`;
@@ -3406,7 +3520,14 @@ async function sendBotChatMsg() {
         if (thinkingEl) thinkingEl.remove();
     }
 
-    if (resp && resp.code === 0 && resp.data && resp.data.success) {
+    const approval = extractAgentApproval(resp);
+    if (approval) {
+        const approvalMsg = { sender_id: 0, content: approval.description, created_at: timeStr, is_bot: true, is_approval: true, approval };
+        botChatHistory[activeBotID].push(approvalMsg);
+        if (isStillActive) {
+            appendMessage(approvalMsg);
+        }
+    } else if (resp && resp.code === 0 && resp.data && resp.data.success) {
         const replyTime = new Date();
         const replyTimeStr = replyTime.getFullYear() + '-' +
             String(replyTime.getMonth() + 1).padStart(2, '0') + '-' +

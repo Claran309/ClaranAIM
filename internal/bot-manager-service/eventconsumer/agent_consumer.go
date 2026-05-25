@@ -59,7 +59,7 @@ func handleAgentMentionEvent(ctx context.Context, envelope events.Envelope, botS
 		if !shouldRun {
 			continue
 		}
-		reply, _, err := botService.ChatWithBot(ctx, bot.ID, payload.SenderID, payload.ConversationID, payload.Content)
+		result, err := botService.ChatWithBot(ctx, bot.ID, payload.SenderID, payload.ConversationID, payload.Content)
 		if err != nil {
 			_ = dispatchRepo.MarkFailed(ctx, envelope.EventID, bot.AgentUserID, err.Error())
 			log.Printf("Agent @响应失败 bot_id=%d msg_id=%d err=%v", bot.ID, payload.MsgID, err)
@@ -67,6 +67,10 @@ func handleAgentMentionEvent(ctx context.Context, envelope events.Envelope, botS
 				continue
 			}
 			return err
+		}
+		reply := ""
+		if result != nil {
+			reply = result.Reply
 		}
 		clientMsgID := fmt.Sprintf("agent:%s:%d", envelope.EventID, bot.AgentUserID)
 		resp, err := messageClient.SendMessage(ctx, &message.SendMessageReq{
