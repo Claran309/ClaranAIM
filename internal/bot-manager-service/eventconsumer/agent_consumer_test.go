@@ -63,6 +63,79 @@ func TestHandleAgentMentionEventSkipsPermanentPermissionError(t *testing.T) {
 	}
 }
 
+func TestHandleAgentMentionEventTriggersPrivateAgentConversation(t *testing.T) {
+	envelope, err := events.NewEnvelope(events.EventTypeMessageCreated, "10", events.MessagePayload{
+		ConversationID:   10,
+		ConversationType: "private",
+		SenderID:         1001,
+		Content:          "帮我总结一下刚才的话",
+		MsgID:            99,
+		ParticipantIDs:   []int64{1001, 2001},
+	})
+	if err != nil {
+		t.Fatalf("NewEnvelope returned error: %v", err)
+	}
+	botSvc := &fakeBotService{
+		bot:   &model.Bot{ID: 1, AgentUserID: 2001, IsActive: true},
+		reply: "reply",
+	}
+	msgClient := &fakeMessageClient{
+		sendResp: &message.SendMessageResp{Success: true, MsgId: 101},
+		historyResp: &message.GetHistoryResp{Success: true, Messages: []*message.Message{
+			{SenderId: 1001, Content: "第一句背景", CreatedAt: "2026-05-27 10:00:00"},
+			{SenderId: 2001, Content: "上一轮回复", CreatedAt: "2026-05-27 10:00:10"},
+		}},
+	}
+
+	err = handleAgentMentionEvent(context.Background(), envelope, botSvc, &fakeDispatchRepo{}, msgClient)
+	if err != nil {
+		t.Fatalf("handleAgentMentionEvent returned error: %v", err)
+	}
+	if botSvc.chatCalls != 1 {
+		t.Fatalf("chat calls = %d, want 1", botSvc.chatCalls)
+	}
+	if !strings.Contains(botSvc.lastMessage, "会话材料") || !strings.Contains(botSvc.lastMessage, "第一句背景") {
+		t.Fatalf("agent input did not include conversation context: %q", botSvc.lastMessage)
+	}
+	if msgClient.lastSend == nil || msgClient.lastSend.SenderId != 2001 {
+		t.Fatalf("agent reply send request = %#v, want sender 2001", msgClient.lastSend)
+	}
+}
+
+func TestHandleAgentMentionEventInjectsGroupContext(t *testing.T) {
+	envelope, err := events.NewEnvelope(events.EventTypeMessageCreated, "10", events.MessagePayload{
+		ConversationID:   10,
+		ConversationType: "group",
+		SenderID:         1001,
+		Content:          "@agent 你怎么看？",
+		MsgID:            99,
+		MentionUserIDs:   []int64{2001},
+		ParticipantIDs:   []int64{1001, 1002, 2001},
+	})
+	if err != nil {
+		t.Fatalf("NewEnvelope returned error: %v", err)
+	}
+	botSvc := &fakeBotService{
+		bot:   &model.Bot{ID: 1, AgentUserID: 2001, IsActive: true},
+		reply: "reply",
+	}
+	msgClient := &fakeMessageClient{
+		sendResp: &message.SendMessageResp{Success: true, MsgId: 101},
+		historyResp: &message.GetHistoryResp{Success: true, Messages: []*message.Message{
+			{SenderId: 1002, Content: "群聊里的关键背景", CreatedAt: "2026-05-27 10:00:00"},
+			{SenderId: 1001, Content: "@agent 你怎么看？", CreatedAt: "2026-05-27 10:00:10"},
+		}},
+	}
+
+	err = handleAgentMentionEvent(context.Background(), envelope, botSvc, &fakeDispatchRepo{}, msgClient)
+	if err != nil {
+		t.Fatalf("handleAgentMentionEvent returned error: %v", err)
+	}
+	if !strings.Contains(botSvc.lastMessage, "群聊里的关键背景") {
+		t.Fatalf("agent input did not include group context: %q", botSvc.lastMessage)
+	}
+}
+
 type fakeDispatchRepo struct {
 	failed string
 }
@@ -81,9 +154,11 @@ func (r *fakeDispatchRepo) MarkFailed(ctx context.Context, eventID string, agent
 }
 
 type fakeBotService struct {
-	bot     *model.Bot
-	reply   string
-	chatErr error
+	bot         *model.Bot
+	reply       string
+	chatErr     error
+	chatCalls   int
+	lastMessage string
 }
 
 func (s *fakeBotService) CreateBot(context.Context, string, string, string, string, string, string, string, string, string, string, string, string, string, int64, string, string, string) (*model.Bot, error) {
@@ -97,7 +172,9 @@ func (s *fakeBotService) ListBots(context.Context, int64, string) ([]model.Bot, 
 	return nil, nil
 }
 func (s *fakeBotService) DeleteBot(context.Context, int64, int64) error { return nil }
-func (s *fakeBotService) ChatWithBot(context.Context, int64, int64, int64, string) (*service.ChatResult, error) {
+func (s *fakeBotService) ChatWithBot(_ context.Context, _ int64, _ int64, _ int64, message string) (*service.ChatResult, error) {
+	s.chatCalls++
+	s.lastMessage = message
 	if s.chatErr != nil {
 		return nil, s.chatErr
 	}
@@ -133,7 +210,9 @@ func (s *fakeBotService) GetBotByAgentUserID(ctx context.Context, agentUserID in
 }
 
 type fakeMessageClient struct {
-	sendResp *message.SendMessageResp
+	sendResp    *message.SendMessageResp
+	historyResp *message.GetHistoryResp
+	lastSend    *message.SendMessageReq
 }
 
 func (c *fakeMessageClient) CreateConversation(ctx context.Context, req *message.CreateConversationReq, callOptions ...callopt.Option) (*message.CreateConversationResp, error) {
@@ -146,6 +225,7 @@ func (c *fakeMessageClient) GetUserConversations(ctx context.Context, req *messa
 	return nil, nil
 }
 func (c *fakeMessageClient) SendMessage(ctx context.Context, req *message.SendMessageReq, callOptions ...callopt.Option) (*message.SendMessageResp, error) {
+	c.lastSend = req
 	return c.sendResp, nil
 }
 func (c *fakeMessageClient) MarkConversationRead(ctx context.Context, req *message.MarkConversationReadReq, callOptions ...callopt.Option) (*message.MarkConversationReadResp, error) {
@@ -161,7 +241,7 @@ func (c *fakeMessageClient) RecallMessage(ctx context.Context, req *message.Reca
 	return nil, nil
 }
 func (c *fakeMessageClient) GetHistory(ctx context.Context, req *message.GetHistoryReq, callOptions ...callopt.Option) (*message.GetHistoryResp, error) {
-	return nil, nil
+	return c.historyResp, nil
 }
 func (c *fakeMessageClient) SearchMessages(ctx context.Context, req *message.SearchMessagesReq, callOptions ...callopt.Option) (*message.SearchMessagesResp, error) {
 	return nil, nil

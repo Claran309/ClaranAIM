@@ -307,7 +307,7 @@ func (h *BotHandler) ChatWithBot(ctx context.Context, c *app.RequestContext) {
 	if !ok {
 		return
 	}
-	resp, err := client.BotClient.ChatWithBot(ctx, client.NewChatWithBotReq(botID, id, conversationID, req.Message))
+	resp, err := client.AgentBotClient.ChatWithBot(ctx, client.NewChatWithBotReq(botID, id, conversationID, req.Message))
 	if err != nil {
 		response.Error(c, err.Error())
 		return
@@ -377,7 +377,7 @@ func (h *BotHandler) ConfirmAgentApproval(ctx context.Context, c *app.RequestCon
 		return
 	}
 	updateAgentApprovalStatus(approval.ID, agentApprovalStatusConfirmed)
-	resp, err := client.BotClient.ChatWithBot(ctx, client.NewChatWithBotReq(approval.BotID, userID, approval.ConversationID, buildApprovalConfirmationMessage(approval, req.Message)))
+	resp, err := client.AgentBotClient.ChatWithBot(ctx, client.NewChatWithBotReq(approval.BotID, userID, approval.ConversationID, buildApprovalConfirmationMessage(approval, req.Message)))
 	if err != nil {
 		response.Error(c, err.Error())
 		return
@@ -535,13 +535,13 @@ func (h *BotHandler) agentTask(ctx context.Context, c *app.RequestContext, taskT
 	var resp interface{}
 	switch taskType {
 	case "summary":
-		resp, err = client.BotClient.SummarizeConversation(ctx, rpcReq)
+		resp, err = client.AgentBotClient.SummarizeConversation(ctx, rpcReq)
 	case "ask":
-		resp, err = client.BotClient.AskConversation(ctx, rpcReq)
+		resp, err = client.AgentBotClient.AskConversation(ctx, rpcReq)
 	case "insights":
-		resp, err = client.BotClient.ExtractInsights(ctx, rpcReq)
+		resp, err = client.AgentBotClient.ExtractInsights(ctx, rpcReq)
 	case "reply_candidates":
-		resp, err = client.BotClient.GenerateReplyCandidates(ctx, rpcReq)
+		resp, err = client.AgentBotClient.GenerateReplyCandidates(ctx, rpcReq)
 	}
 	if err != nil {
 		response.Error(c, err.Error())

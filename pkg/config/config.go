@@ -119,6 +119,7 @@ type DTMConfig struct {
 type GovernanceConfig struct {
 	RateLimit RateLimitConfig     `yaml:"rate_limit"`
 	RPC       RPCGovernanceConfig `yaml:"rpc"`
+	AgentRPC  RPCGovernanceConfig `yaml:"agent_rpc"`
 }
 
 // RateLimitConfig configures the api-gateway token-bucket limiter.
@@ -161,6 +162,10 @@ func Load(configPath string) (*Config, error) {
 	v.SetDefault("governance.rpc.circuit_breaker", true)
 	v.SetDefault("governance.rpc.max_connections", 1000)
 	v.SetDefault("governance.rpc.max_qps", 1000)
+	v.SetDefault("governance.agent_rpc.timeout_ms", 0)
+	v.SetDefault("governance.agent_rpc.circuit_breaker", true)
+	v.SetDefault("governance.agent_rpc.max_connections", 1000)
+	v.SetDefault("governance.agent_rpc.max_qps", 500)
 
 	// 读取 YAML 配置文件
 	v.SetConfigFile(configPath)
@@ -385,6 +390,26 @@ func applyEnvOverrides(cfg *Config) {
 	if maxQPS := os.Getenv("RPC_MAX_QPS"); maxQPS != "" {
 		if v, err := strconv.Atoi(maxQPS); err == nil {
 			cfg.Governance.RPC.MaxQPS = v
+		}
+	}
+	if timeout := os.Getenv("AGENT_RPC_TIMEOUT_MS"); timeout != "" {
+		if v, err := strconv.Atoi(timeout); err == nil {
+			cfg.Governance.AgentRPC.TimeoutMS = v
+		}
+	}
+	if enabled := os.Getenv("AGENT_RPC_CIRCUIT_BREAKER"); enabled != "" {
+		if v, err := strconv.ParseBool(enabled); err == nil {
+			cfg.Governance.AgentRPC.CircuitBreaker = v
+		}
+	}
+	if maxConnections := os.Getenv("AGENT_RPC_MAX_CONNECTIONS"); maxConnections != "" {
+		if v, err := strconv.Atoi(maxConnections); err == nil {
+			cfg.Governance.AgentRPC.MaxConnections = v
+		}
+	}
+	if maxQPS := os.Getenv("AGENT_RPC_MAX_QPS"); maxQPS != "" {
+		if v, err := strconv.Atoi(maxQPS); err == nil {
+			cfg.Governance.AgentRPC.MaxQPS = v
 		}
 	}
 }

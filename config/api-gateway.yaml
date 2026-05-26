@@ -47,3 +47,8 @@ governance:
     circuit_breaker: true
     max_connections: 1000
     max_qps: 1000
+  agent_rpc:
+    timeout_ms: 0
+    circuit_breaker: true
+    max_connections: 1000
+    max_qps: 500

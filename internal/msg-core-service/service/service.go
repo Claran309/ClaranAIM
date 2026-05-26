@@ -113,20 +113,21 @@ type messageEvent struct {
 }
 
 type messageEventData struct {
-	Type           string
-	ConversationID int64
-	SenderID       int64
-	Content        string
-	MsgType        string
-	MsgID          int64
-	CreatedAt      string
-	ReplyToID      int64
-	Status         string
-	IsEdited       bool
-	EditedAt       string
-	MentionUserIDs []int64
-	MentionAll     bool
-	UserID         int64
+	Type             string
+	ConversationID   int64
+	ConversationType string
+	SenderID         int64
+	Content          string
+	MsgType          string
+	MsgID            int64
+	CreatedAt        string
+	ReplyToID        int64
+	Status           string
+	IsEdited         bool
+	EditedAt         string
+	MentionUserIDs   []int64
+	MentionAll       bool
+	UserID           int64
 }
 
 var errConversationAccessDenied = errors.New("无权访问该会话")
@@ -510,17 +511,18 @@ func (s *messageServiceImpl) SendMessageExt(ctx context.Context, opts SendMessag
 		msgEvent = messageEvent{
 			eventType: events.EventTypeMessageCreated,
 			data: messageEventData{
-				Type:           "new_message",
-				ConversationID: opts.ConversationID,
-				SenderID:       opts.SenderID,
-				Content:        content,
-				MsgType:        msgType,
-				MsgID:          msg.ID,
-				CreatedAt:      msg.CreatedAt.Format("2006-01-02 15:04:05"),
-				ReplyToID:      msg.ReplyToID,
-				Status:         msg.Status,
-				MentionUserIDs: msg.MentionUserIDs,
-				MentionAll:     msg.MentionAll,
+				Type:             "new_message",
+				ConversationID:   opts.ConversationID,
+				ConversationType: conv.Type,
+				SenderID:         opts.SenderID,
+				Content:          content,
+				MsgType:          msgType,
+				MsgID:            msg.ID,
+				CreatedAt:        msg.CreatedAt.Format("2006-01-02 15:04:05"),
+				ReplyToID:        msg.ReplyToID,
+				Status:           msg.Status,
+				MentionUserIDs:   msg.MentionUserIDs,
+				MentionAll:       msg.MentionAll,
 			},
 			targetUserIDs: targetUserIDs,
 		}
@@ -961,20 +963,29 @@ func (s *messageServiceImpl) saveMessageState(ctx context.Context, repo dao.Mess
 	if err != nil {
 		return err
 	}
+	conv, err := repo.GetConversationByID(ctx, msg.ConversationID)
+	if err != nil {
+		return err
+	}
+	conversationType := ""
+	if conv != nil {
+		conversationType = conv.Type
+	}
 	return s.saveMessageEvent(ctx, repo, eventType, messageEventData{
-		Type:           pushType,
-		ConversationID: msg.ConversationID,
-		SenderID:       msg.SenderID,
-		Content:        msg.Content,
-		MsgType:        msg.MsgType,
-		MsgID:          msg.ID,
-		CreatedAt:      msg.CreatedAt.Format("2006-01-02 15:04:05"),
-		ReplyToID:      msg.ReplyToID,
-		Status:         msg.Status,
-		IsEdited:       msg.IsEdited,
-		EditedAt:       formatOptionalTime(msg.EditedAt),
-		MentionUserIDs: msg.MentionUserIDs,
-		MentionAll:     msg.MentionAll,
+		Type:             pushType,
+		ConversationID:   msg.ConversationID,
+		ConversationType: conversationType,
+		SenderID:         msg.SenderID,
+		Content:          msg.Content,
+		MsgType:          msg.MsgType,
+		MsgID:            msg.ID,
+		CreatedAt:        msg.CreatedAt.Format("2006-01-02 15:04:05"),
+		ReplyToID:        msg.ReplyToID,
+		Status:           msg.Status,
+		IsEdited:         msg.IsEdited,
+		EditedAt:         formatOptionalTime(msg.EditedAt),
+		MentionUserIDs:   msg.MentionUserIDs,
+		MentionAll:       msg.MentionAll,
 	}, userIDsFromParticipants(participants))
 }
 
@@ -1220,21 +1231,23 @@ func (s *messageServiceImpl) ApplyGroupEvent(ctx context.Context, envelope event
 
 func (s *messageServiceImpl) saveMessageEvent(ctx context.Context, repo dao.MessageRepository, eventType string, data messageEventData, targetUserIDs []int64) error {
 	payload := events.MessagePayload{
-		Type:           data.Type,
-		ConversationID: data.ConversationID,
-		SenderID:       data.SenderID,
-		Content:        data.Content,
-		MsgType:        data.MsgType,
-		MsgID:          data.MsgID,
-		CreatedAt:      data.CreatedAt,
-		ReplyToID:      data.ReplyToID,
-		Status:         data.Status,
-		IsEdited:       data.IsEdited,
-		EditedAt:       data.EditedAt,
-		MentionUserIDs: data.MentionUserIDs,
-		MentionAll:     data.MentionAll,
-		UserID:         data.UserID,
-		TargetUserIDs:  dedupeUserIDs(targetUserIDs),
+		Type:             data.Type,
+		ConversationID:   data.ConversationID,
+		ConversationType: data.ConversationType,
+		SenderID:         data.SenderID,
+		Content:          data.Content,
+		MsgType:          data.MsgType,
+		MsgID:            data.MsgID,
+		CreatedAt:        data.CreatedAt,
+		ReplyToID:        data.ReplyToID,
+		Status:           data.Status,
+		IsEdited:         data.IsEdited,
+		EditedAt:         data.EditedAt,
+		MentionUserIDs:   data.MentionUserIDs,
+		MentionAll:       data.MentionAll,
+		UserID:           data.UserID,
+		TargetUserIDs:    dedupeUserIDs(targetUserIDs),
+		ParticipantIDs:   dedupeUserIDs(targetUserIDs),
 	}
 	envelope, err := events.NewEnvelope(eventType, strconv.FormatInt(data.ConversationID, 10), payload)
 	if err != nil {

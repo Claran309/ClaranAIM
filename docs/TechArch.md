@@ -660,6 +660,8 @@ UserClient, _ = userservice.NewClient("user-service",
 )
 ```
 
+普通 IM RPC 使用 `governance.rpc.timeout_ms`，避免登录、会话、消息、文件等短请求无限挂起。Agent 执行、总结、问答、候选回复和审批继续执行属于长运行任务，api-gateway 到 bot-manager-service、bot-manager-service 到 bot-runtime-service 单独使用 `governance.agent_rpc`；当 `agent_rpc.timeout_ms: 0` 时不设置固定 Kitex 客户端 deadline。Agent 是否死亡不应该靠 60 秒同步请求判断，后续应由异步任务、心跳、取消接口和运行审计判断。
+
 **RPC 服务端配置**（各服务 main.go 中）：
 ```go
 svr := userservice.NewServer(handler,
@@ -1233,7 +1235,7 @@ bot-manager-service: ChatWithBot()
   │  agent.NewAgent(ctx, chatModel, tools, ...)
   │     │  注册工具（graphTool/rag/websearch）
   │     │  配置系统 Prompt
-  │     │  配置对话记忆（sessionStore）
+  │     │  配置对话记忆（storage/agent/runtimeFile）
   │
   │  ── 第3步：执行对话 ──
   │  4. ag.Run(ctx, &AgentInput{Messages: [UserMessage]})

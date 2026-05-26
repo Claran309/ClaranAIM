@@ -17,24 +17,44 @@ import (
 
 const defaultRPCTimeoutMS = 5000
 
-// ClientOptions 返回 API 网关调用内部 Kitex 服务时使用的治理选项。
-// 熔断 key 使用 Kitex 的 RPCInfo 派生函数，按下游服务/方法维度隔离故障；
-// 加权轮询负载均衡为后续多实例注册到 Etcd 后的流量分摊做准备。
-func ClientOptions(cfg config.RPCGovernanceConfig) []client.Option {
+func clientTimeout(cfg config.RPCGovernanceConfig, allowDisable bool) (time.Duration, bool) {
 	timeoutMS := cfg.TimeoutMS
 	if timeoutMS <= 0 {
+		if allowDisable {
+			return 0, false
+		}
 		timeoutMS = defaultRPCTimeoutMS
 	}
+	return time.Duration(timeoutMS) * time.Millisecond, true
+}
 
+func clientOptions(cfg config.RPCGovernanceConfig, allowDisableTimeout bool) []client.Option {
 	opts := []client.Option{
 		client.WithTransportProtocol(transport.TTHeader),
-		client.WithRPCTimeout(time.Duration(timeoutMS) * time.Millisecond),
 		client.WithLoadBalancer(loadbalance.NewWeightedRoundRobinBalancer()),
+	}
+	if timeout, enabled := clientTimeout(cfg, allowDisableTimeout); enabled {
+		opts = append(opts, client.WithRPCTimeout(timeout))
 	}
 	if cfg.CircuitBreaker {
 		opts = append(opts, client.WithCircuitBreaker(circuitbreak.NewCBSuite(circuitbreak.RPCInfo2Key)))
 	}
 	return opts
+}
+
+// ClientOptions 返回普通内部 Kitex RPC 客户端治理选项。
+// timeout_ms<=0 时使用 5 秒兜底值，避免用户、群聊、消息等短请求无限挂起。
+// 熔断 key 使用 Kitex 的 RPCInfo 派生函数，按下游服务/方法维度隔离故障；
+// 加权轮询负载均衡为后续多实例注册到 Etcd 后的流量分摊做准备。
+func ClientOptions(cfg config.RPCGovernanceConfig) []client.Option {
+	return clientOptions(cfg, false)
+}
+
+// LongRunningClientOptions 返回 Agent 执行这类长任务 RPC 的客户端治理选项。
+// timeout_ms<=0 表示不设置固定 Kitex deadline，由上层异步任务、心跳或人工取消
+// 判断任务是否死亡；普通 RPC 不应使用这个选项。
+func LongRunningClientOptions(cfg config.RPCGovernanceConfig) []client.Option {
+	return clientOptions(cfg, true)
 }
 
 // ServerOptions 返回 Kitex 服务端统一治理选项。

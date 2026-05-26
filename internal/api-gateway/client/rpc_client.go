@@ -48,6 +48,10 @@ var (
 	// BotClient calls bot-manager-service for bot CRUD, bot chat, routing and
 	// billing records.
 	BotClient botservice.Client
+	// AgentBotClient calls bot-manager-service methods that may block on long
+	// Agent thinking or tool execution. It intentionally uses agent_rpc timeout
+	// policy so ordinary IM RPC deadlines do not kill long-running Agent work.
+	AgentBotClient botservice.Client
 	// BotRuntimeClient calls bot-runtime-service for runtime-owned data that is
 	// not part of bot-manager-service's Thrift facade, such as session metadata.
 	BotRuntimeClient botruntimeservice.Client
@@ -69,7 +73,12 @@ func InitClients(etcdEndpoints []string, rpcCfg ...config.RPCGovernanceConfig) {
 		if len(rpcCfg) > 0 {
 			cfg = rpcCfg[0]
 		}
+		agentCfg := config.RPCGovernanceConfig{}
+		if len(rpcCfg) > 1 {
+			agentCfg = rpcCfg[1]
+		}
 		baseOptions := append([]client.Option{client.WithResolver(r)}, governance.ClientOptions(cfg)...)
+		agentOptions := append([]client.Option{client.WithResolver(r)}, governance.LongRunningClientOptions(agentCfg)...)
 
 		UserClient, err = userservice.NewClient("user-service",
 			baseOptions...,
@@ -111,6 +120,13 @@ func InitClients(etcdEndpoints []string, rpcCfg ...config.RPCGovernanceConfig) {
 		)
 		if err != nil {
 			log.Fatal("创建bot-manager-service客户端失败:", err)
+		}
+
+		AgentBotClient, err = botservice.NewClient("bot-manager-service",
+			agentOptions...,
+		)
+		if err != nil {
+			log.Fatal("创建bot-manager-service长任务客户端失败:", err)
 		}
 
 		BotRuntimeClient, err = botruntimeservice.NewClient("bot-runtime-service",

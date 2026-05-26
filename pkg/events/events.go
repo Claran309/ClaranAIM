@@ -149,21 +149,23 @@ type GroupDeletedPayload struct {
 // MessagePayload 兼容 websocket-gateway 当前推送协议，同时补充 TargetUserIDs
 // 让网关无需查询消息服务即可按具体用户连接广播。
 type MessagePayload struct {
-	Type           string  `json:"type"`
-	ConversationID int64   `json:"conversation_id"`
-	SenderID       int64   `json:"sender_id"`
-	Content        string  `json:"content"`
-	MsgType        string  `json:"msg_type"`
-	MsgID          int64   `json:"msg_id"`
-	CreatedAt      string  `json:"created_at"`
-	ReplyToID      int64   `json:"reply_to_id"`
-	Status         string  `json:"status"`
-	IsEdited       bool    `json:"is_edited"`
-	EditedAt       string  `json:"edited_at"`
-	MentionUserIDs []int64 `json:"mention_user_ids"`
-	MentionAll     bool    `json:"mention_all"`
-	UserID         int64   `json:"user_id"`
-	TargetUserIDs  []int64 `json:"target_user_ids"`
+	Type             string  `json:"type"`
+	ConversationID   int64   `json:"conversation_id"`
+	ConversationType string  `json:"conversation_type"`
+	SenderID         int64   `json:"sender_id"`
+	Content          string  `json:"content"`
+	MsgType          string  `json:"msg_type"`
+	MsgID            int64   `json:"msg_id"`
+	CreatedAt        string  `json:"created_at"`
+	ReplyToID        int64   `json:"reply_to_id"`
+	Status           string  `json:"status"`
+	IsEdited         bool    `json:"is_edited"`
+	EditedAt         string  `json:"edited_at"`
+	MentionUserIDs   []int64 `json:"mention_user_ids"`
+	MentionAll       bool    `json:"mention_all"`
+	UserID           int64   `json:"user_id"`
+	TargetUserIDs    []int64 `json:"target_user_ids"`
+	ParticipantIDs   []int64 `json:"participant_ids"`
 }
 
 // AgentPayload describes runtime events for audit and async subscribers.

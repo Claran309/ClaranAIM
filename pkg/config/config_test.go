@@ -53,6 +53,15 @@ service:
 	if secondCfg.Governance.RPC.TimeoutMS != 60000 {
 		t.Fatalf("second RPC timeout = %d, want default 60000", secondCfg.Governance.RPC.TimeoutMS)
 	}
+	if secondCfg.Governance.AgentRPC.TimeoutMS != 0 {
+		t.Fatalf("second Agent RPC timeout = %d, want disabled timeout 0", secondCfg.Governance.AgentRPC.TimeoutMS)
+	}
+	if !secondCfg.Governance.AgentRPC.CircuitBreaker {
+		t.Fatal("second Agent RPC circuit breaker = false, want default true")
+	}
+	if secondCfg.Governance.AgentRPC.MaxQPS != 500 {
+		t.Fatalf("second Agent RPC max qps = %d, want 500", secondCfg.Governance.AgentRPC.MaxQPS)
+	}
 	if !secondCfg.DTM.Enabled {
 		t.Fatal("second DTM enabled = false, want default true")
 	}

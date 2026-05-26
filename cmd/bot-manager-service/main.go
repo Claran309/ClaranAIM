@@ -51,7 +51,8 @@ func main() {
 		logger.Fatal("创建etcd resolver失败", "error", err)
 	}
 	clientOptions := append([]client.Option{client.WithResolver(resolver)}, governance.ClientOptions(cfg.Governance.RPC)...)
-	runtimeClient, err := botruntimeservice.NewClient("bot-runtime-service", clientOptions...)
+	agentClientOptions := append([]client.Option{client.WithResolver(resolver)}, governance.LongRunningClientOptions(cfg.Governance.AgentRPC)...)
+	runtimeClient, err := botruntimeservice.NewClient("bot-runtime-service", agentClientOptions...)
 	if err != nil {
 		logger.Fatal("创建bot-runtime-service客户端失败", "error", err)
 	}

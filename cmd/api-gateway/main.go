@@ -23,7 +23,7 @@ func main() {
 	jwt.SetSecretKey(cfg.JWT.SecretKey)
 	jwt.SetTokenExpirations(cfg.JWT.AccessExpiration, cfg.JWT.RefreshExpiration)
 
-	client.InitClients(cfg.Etcd.Endpoints, cfg.Governance.RPC)
+	client.InitClients(cfg.Etcd.Endpoints, cfg.Governance.RPC, cfg.Governance.AgentRPC)
 	health.CheckEtcd(cfg.Etcd.Endpoints, "api-gateway")
 
 	handler.InitFileStorage(cfg)

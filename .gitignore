@@ -13,11 +13,19 @@ logs/
 # Local runtime data
 SessionStore/*
 !SessionStore/*.example
-storage/bot/sessionStore/*
-!storage/bot/sessionStore/*.example
+storage/agent/runtimeFile/*
+!storage/agent/runtimeFile/.example
+storage/agent/managerRuntimeFile/*
+!storage/agent/managerRuntimeFile/.example
+storage/agent/sessionStore/*
+storage/agent/workspaces/*
+!storage/agent/workspaces/.gitkeep
+storage/agent/skills/*
+!storage/agent/skills/.gitkeep
 storage/source/*
 !storage/source/.gitkeep
 
 # Local notes/history
 ChatHistoryWithAI.md
 docs/ChatHistoryWithAI.md
+learn/

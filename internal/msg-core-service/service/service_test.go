@@ -682,6 +682,12 @@ func TestSendMessagePublishesMessageCreatedEvent(t *testing.T) {
 	if payload.MsgID != msg.ID || payload.ConversationID != conv.ID || len(payload.TargetUserIDs) != 2 {
 		t.Fatalf("payload = %#v, want msg/conversation targets", payload)
 	}
+	if payload.ConversationType != "private" {
+		t.Fatalf("payload conversation type = %q, want private", payload.ConversationType)
+	}
+	if len(payload.ParticipantIDs) != 2 {
+		t.Fatalf("payload participant ids = %#v, want two participants", payload.ParticipantIDs)
+	}
 }
 
 func TestSendMessageExtReusesMessageForSameClientMsgID(t *testing.T) {

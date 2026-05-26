@@ -385,6 +385,13 @@ function handleWSMessage(msg) {
         if (data.sender_id === currentUser.id) {
             return;
         }
+        const isAgentSender = typeof isAgentUser === 'function' && isAgentUser(data.sender_id);
+        if (isAgentSender && typeof finishPendingAgentThinking === 'function') {
+            const durationMs = finishPendingAgentThinking(data.conversation_id, data.sender_id);
+            if (durationMs > 0) {
+                data.agent_thinking_duration_ms = durationMs;
+            }
+        }
 
         if (String(data.conversation_id) === String(currentConversationID)) {
             appendMessage(data);

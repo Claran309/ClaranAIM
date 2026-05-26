@@ -23,7 +23,7 @@ llm:
   default_model: ""
 
 agent:
-  session_dir: "storage/agent/sessionStore"
+  session_dir: "storage/agent/runtimeFile"
   agent_root: "storage/agent/workspaces"
   cozeloop_api_token: ""
   cozeloop_workspace_id: ""
@@ -32,6 +32,11 @@ agent:
 governance:
   rpc:
     timeout_ms: 120000
+    circuit_breaker: true
+    max_connections: 1000
+    max_qps: 500
+  agent_rpc:
+    timeout_ms: 0
     circuit_breaker: true
     max_connections: 1000
     max_qps: 500

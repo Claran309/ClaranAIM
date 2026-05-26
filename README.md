@@ -8,6 +8,7 @@ ClaranAIM 的 A 不应该只被理解为 AI ChatBot，而应该进一步被定�
 
 传统 AI 聊天通常发生在孤立对话框里，用户需要手动复制上下文、描述背景、整理材料，再把结果搬回实际工作流。AIM 的方向相反：让 Agent 原生存在于会话、群聊、文件、语音、任务和知识库之间。Agent 不只是回答问题，而是在 IM 中观察、理解、总结、提醒、协作、执行。
 
+
 ## 项目结构
 
 ```text
@@ -76,7 +77,7 @@ ClaranAIM/
 │   ├── group/
 │   ├── message/
 │   ├── file/
-│   ├── bot/
+│   ├── agent/
 │   └── bot_runtime/
 ├── config/                                # 各服务 YAML 配置
 │   ├── config.yaml                        # 默认/示例公共配置
@@ -89,8 +90,6 @@ ClaranAIM/
 │   ├── file-service.yaml
 │   ├── bot-manager-service.yaml
 │   └── bot-runtime-service.yaml
-
-】
 ├── dist/                                  # 前端静态页面
 │   ├── index.html
 │   ├── css/
@@ -98,13 +97,14 @@ ClaranAIM/
 ├── docs/                                  # 项目文档
 │   ├── APIdoc.md                          # HTTP/RPC/API 文档
 │   ├── TechArch.md                        # 技术架构说明
+│   ├── consideration.md                    # Agent-Native IM 与知识系统复盘
 │   ├── ReliabilityAndEventConsistency.md  # Kafka/Outbox/DTM 一致性说明
 │   ├── ChatHistoryWithAI.md               # AI 会话历史设计记录
 │   └── plan.md                            # 阶段计划
 ├── scripts/                               # 本地启动脚本
 │   └── start.bat
 ├── storage/                               # 本地运行时数据，不应提交业务内容
-│   ├── bot/                               # Agent 相关本地数据
+│   ├── agent/                             # Agent 运行时文件、长会话和工作目录
 │   └── source/                            # 本地文件存储目录
 ├── logs/                                  # 本地日志目录，ERR 按日期集中归档
 ├── docker-compose.yaml                    # MySQL、Redis、Etcd、MinIO、Kafka、DTM
@@ -131,26 +131,3 @@ scripts\start.bat
 ```
 
 ## to fix list
-
-- 继续扫描其他 Agent 边界：运行中断、工具审批、长任务排队、调用失败后的用户可见状态。
-- Agent 真正流式输出需要 runtime/API 网关增加 streaming/SSE/WebSocket 事件通道。目前前端已补“真实思考耗时 + 执行中状态”，但不是 token 级流式输出。
-
-- 前端agent侧边栏包不住agent功能按钮了，需要改正，建议把这些功能按钮全都整合到二级菜单中，统合为“管理”“运行”等按钮
-- agent上下文会话列表感知不全面，只能感知最近打开或者缓存过的的会话列表
-
-## future to fix
-
-- agent总结：目前仅读取当前用户可见的最近 80 条消息，应该80+且是服务器数据
-
-- 管理层
-- 文本翻译功能：需要查询相应api或用llm
-- 多端消息同步怎么实现？
-- 离线推送与上线同步怎么实现？
-- 消息本地存储与云端漫游是否实现？怎么实现？
-- 审核机制：针对图片视频等媒体，将这些文件放入管理层的特定页面，由管理人员负责统一验收等
-
-- 把bot更改作为用户实例，创建后可以正常加好友（有特殊id）和邀请群聊。可以在私聊/群聊里对话，记忆机制等就像现在这样就行，也就是说不同机器人的记忆独立，对不同用户的记忆独立，但是同一机器人在不同会话中对同一用户的记忆保持
-- 添加表情包功能，可以把图片快速保存为表情包并快速发送
-- 搜索历史消息支持按时间搜索
-
-- 汪神的知识图谱

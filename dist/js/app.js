@@ -20,6 +20,10 @@ let groupMembersCache = {};
 let avatarLongPressTimer = null;
 let pendingMentionTargets = {};
 let botCreateSubmitting = false;
+let agentRunHistories = {};
+let agentMenuCloseTimer = null;
+let pendingAgentThinkingByConversation = {};
+let conversationParticipantCache = {};
 let conversationGroupCollapsed = JSON.parse(localStorage.getItem('claran_conversation_group_collapsed') || '{}');
 const LOCAL_LOG_KEY = 'claran_frontend_logs';
 const LOCAL_LOG_LIMIT = 500;
@@ -94,6 +98,9 @@ window.addEventListener('unhandledrejection', event => {
 });
 
 document.addEventListener('click', event => {
+    if (!event.target.closest('.agent-menu-wrapper')) {
+        closeAgentItemMenus();
+    }
     const target = event.target.closest('button,[onclick],a');
     if (!target) return;
     writeLocalLog('info', '点击元素', {
@@ -307,6 +314,66 @@ function renderConversationItem(c) {
             ${unread > 0 ? `<span class="item-unread">${unread > 99 ? '99+' : unread}</span>` : ''}
         </div>
     `;
+}
+
+function conversationOptionLabel(c) {
+    if (!c) return '未知会话';
+    const name = conversationNameCache[c.conversation_id] || c.target_name || `会话 #${c.conversation_id}`;
+    const type = c.type === 'group' ? '群聊' : '私聊';
+    return `${name} · ${type}`;
+}
+
+async function fetchAgentContextConversations(selectedID = 0) {
+    const options = [{ id: '0', label: '不使用会话上下文' }];
+    const resp = await messageAPI.getConversations();
+    if (!(resp && resp.code === 0 && resp.data && resp.data.conversations)) {
+        if (selectedID) {
+            options.push({
+                id: String(selectedID),
+                label: conversationNameCache[selectedID] || `当前会话 #${selectedID}`,
+            });
+        }
+        return options;
+    }
+    const convs = resp.data.conversations.filter(c =>
+        c && c.conversation_id &&
+        !isConversationHidden(c.conversation_id) &&
+        (c.type !== 'group' || (c.group_id && String(c.group_id) !== '0'))
+    );
+    const ids = [];
+    convs.forEach(c => {
+        if (c.last_sender_id) ids.push(c.last_sender_id);
+        if (c.participant_ids) {
+            conversationParticipantCache[String(c.conversation_id)] = c.participant_ids;
+            c.participant_ids.forEach(pid => ids.push(pid));
+        }
+    });
+    if (ids.length > 0) await resolveUserNames([...new Set(ids)]);
+    convs.forEach(c => {
+        if (c.type === 'private' && c.participant_ids) {
+            const otherID = c.participant_ids.find(id => !sameID(id, currentUser.id));
+            if (otherID && !conversationNameCache[c.conversation_id]) {
+                conversationNameCache[c.conversation_id] = getUserName(otherID);
+            }
+        }
+        if (c.target_name && !conversationNameCache[c.conversation_id]) {
+            conversationNameCache[c.conversation_id] = c.target_name;
+        }
+        if (c.group_id && c.group_id > 0) {
+            groupConversationMap[c.group_id] = c.conversation_id;
+            conversationGroupMap[c.conversation_id] = c.group_id;
+            const group = groupsCache.find(g => sameID(g.id, c.group_id));
+            if (group && group.name) conversationNameCache[c.conversation_id] = group.name;
+        }
+        options.push({ id: String(c.conversation_id), label: conversationOptionLabel(c) });
+    });
+    if (selectedID && !options.some(o => sameID(o.id, selectedID))) {
+        options.push({
+            id: String(selectedID),
+            label: conversationNameCache[selectedID] || `当前会话 #${selectedID}`,
+        });
+    }
+    return options;
 }
 
 function jsArg(value) {
@@ -689,6 +756,7 @@ async function updateCurrentRecipientCount(conversationID) {
     if (!resp || resp.code !== 0 || !resp.data || !resp.data.conversations) return;
     const conv = resp.data.conversations.find(c => sameID(c.conversation_id, conversationID));
     if (conv && conv.participant_ids) {
+        conversationParticipantCache[String(conversationID)] = conv.participant_ids;
         currentConversationRecipientCount = Math.max(0, conv.participant_ids.filter(id => !sameID(id, currentUser.id)).length);
     }
 }
@@ -921,6 +989,7 @@ async function loadConversations() {
                 senderIDs.push(c.last_sender_id);
             }
             if (c.participant_ids) {
+                conversationParticipantCache[String(c.conversation_id)] = c.participant_ids;
                 c.participant_ids.forEach(pid => {
                     senderIDs.push(pid);
                 });
@@ -1233,6 +1302,9 @@ async function openConversation(conversationID, type, isDeletedGroup = false) {
 
     await updateCurrentRecipientCount(conversationID);
     if (openSeq !== conversationOpenSeq || !sameID(currentConversationID, targetConversationID) || currentBotID !== null) return;
+    if (type === 'private' && conversationHasAgentTarget(conversationID)) {
+        document.getElementById('msg-input').placeholder = '向智能助手发送消息...';
+    }
 
     const announcementBar = document.getElementById('group-announcement-bar');
     if (type === 'group') {
@@ -1306,14 +1378,16 @@ async function openConversation(conversationID, type, isDeletedGroup = false) {
 function createMessageHTML(m) {
     if (m.is_thinking) {
         const thinkingIDAttr = m._thinkingID ? ` data-thinking-id="${m._thinkingID}"` : '';
+        const elapsedHTML = m.started_at ? `<span class="agent-thinking-inline" data-started-at="${escapeHTML(String(m.started_at))}">已思考 0.0 秒</span>` : '';
         return `
             <div class="message-item received bot-msg msg-thinking"${thinkingIDAttr}>
                 <div class="msg-avatar received agent-avatar">A</div>
                 <div class="msg-body">
                     <div class="msg-meta">
                         <span class="message-sender">智能助手</span>
+                        ${elapsedHTML}
                     </div>
-                    <div class="message-bubble thinking"><div class="spinner"></div> 智能助手处理中...</div>
+                    <div class="message-bubble thinking"><div class="spinner"></div> ${escapeHTML(m.content || '智能助手处理中...')}</div>
                 </div>
             </div>
         `;
@@ -1358,6 +1432,7 @@ function createMessageHTML(m) {
         </div>
     ` : '';
     const editedHTML = m.is_edited ? '<span class="message-edited">已编辑</span>' : '';
+    const agentDurationHTML = m.agent_thinking_duration_ms ? `<span class="agent-thinking-duration">思考 ${(Number(m.agent_thinking_duration_ms) / 1000).toFixed(1)} 秒</span>` : '';
     const actionsHTML = (!isBot && status !== 'recalled' && messageID) ? `
         <div class="message-actions">
             <button type="button" onclick="setPendingReply(${jsArg(messageID)})">回复</button>
@@ -1365,7 +1440,7 @@ function createMessageHTML(m) {
             ${isSent ? `<button type="button" onclick="editMessage(${jsArg(messageID)})">编辑</button><button type="button" onclick="recallMessage(${jsArg(messageID)})">撤回</button>` : ''}
         </div>
     ` : '';
-    const bubbleContent = status === 'recalled' ? escapeHTML(originalContent) : renderMessageContent(originalContent, m.msg_type);
+    const bubbleContent = status === 'recalled' ? escapeHTML(originalContent) : renderMessageContent(originalContent, m.msg_type, { markdown: isBot });
     const errorClass = m.is_error ? 'error-bubble' : '';
     return `
         <div class="message-item ${isSent ? 'sent' : 'received'} ${isBot ? 'bot-msg' : ''}" data-message-id="${messageID}">
@@ -1375,6 +1450,7 @@ function createMessageHTML(m) {
                     <span class="message-sender">${escapeHTML(senderName)}</span>
                     <span class="message-time">${time}</span>
                     ${editedHTML}
+                    ${agentDurationHTML}
                     ${readReceiptHTML(m)}
                 </div>
                 <div class="message-bubble ${errorClass} ${status === 'recalled' ? 'recalled-bubble' : ''}">${replyHTML}${bubbleContent}</div>
@@ -1408,6 +1484,61 @@ function appendMessage(m) {
         hydrateMedia(msgList);
         msgList.scrollTop = msgList.scrollHeight;
     }
+}
+
+function updateAgentThinkingTimers() {
+    const now = Date.now();
+    document.querySelectorAll('.agent-thinking-inline[data-started-at]').forEach(el => {
+        const startedAt = Number(el.dataset.startedAt || 0);
+        if (!startedAt) return;
+        el.textContent = `已思考 ${((now - startedAt) / 1000).toFixed(1)} 秒`;
+    });
+}
+
+setInterval(updateAgentThinkingTimers, 250);
+
+function conversationHasAgentTarget(conversationID) {
+    if (!conversationID) return false;
+    const participants = conversationParticipantCache[String(conversationID)] || [];
+    return participants.some(id => !sameID(id, currentUser.id) && isAgentUser(id));
+}
+
+function shouldExpectAgentReply(conversationID, content, mentionUserIDs = []) {
+    if (!conversationID) return false;
+    if (currentConversationType === 'private' && conversationHasAgentTarget(conversationID)) {
+        return true;
+    }
+    return (mentionUserIDs || []).some(id => isAgentUser(id));
+}
+
+function addPendingAgentThinking(conversationID, label = '智能助手正在结合会话上下文思考...') {
+    const key = String(conversationID || '');
+    if (!key || pendingAgentThinkingByConversation[key]) return;
+    const startedAt = Date.now();
+    const thinkingID = `agent-thinking-${key}-${startedAt}`;
+    pendingAgentThinkingByConversation[key] = { thinkingID, startedAt };
+    if (sameID(currentConversationID, conversationID) && currentBotID === null) {
+        appendMessage({
+            sender_id: 0,
+            conversation_id: conversationID,
+            content: label,
+            is_thinking: true,
+            _thinkingID: thinkingID,
+            started_at: startedAt,
+        });
+    }
+}
+
+function finishPendingAgentThinking(conversationID, agentUserID) {
+    const key = String(conversationID || '');
+    const pending = pendingAgentThinkingByConversation[key];
+    if (!pending) return 0;
+    const durationMs = Date.now() - pending.startedAt;
+    delete pendingAgentThinkingByConversation[key];
+    const container = document.getElementById('message-list');
+    const thinkingEl = container ? container.querySelector(`[data-thinking-id="${pending.thinkingID}"]`) : null;
+    if (thinkingEl) thinkingEl.remove();
+    return durationMs;
 }
 
 async function sendMessage() {
@@ -1452,6 +1583,9 @@ async function sendMessage() {
         optimisticMsg.id = resp.data.msg_id;
         clearPendingReply();
         appendMessage(optimisticMsg);
+        if (shouldExpectAgentReply(sendConversationID, content, mentionUserIDs)) {
+            addPendingAgentThinking(sendConversationID);
+        }
         setConversationHidden(sendConversationID, false);
         loadConversations();
     } else {
@@ -2307,6 +2441,84 @@ function escapeHTML(str) {
     return div.innerHTML;
 }
 
+function escapeHTMLKeepText(str) {
+    const div = document.createElement('div');
+    div.textContent = String(str ?? '');
+    return div.innerHTML;
+}
+
+function renderInlineMarkdown(text) {
+    let html = escapeHTMLKeepText(text);
+    html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+    html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+    html = html.replace(/__([^_]+)__/g, '<strong>$1</strong>');
+    html = html.replace(/\*([^*\n]+)\*/g, '<em>$1</em>');
+    html = html.replace(/_([^_\n]+)_/g, '<em>$1</em>');
+    html = html.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+    return html;
+}
+
+function renderMarkdownText(content) {
+    const raw = String(content || '').replace(/\r\n/g, '\n');
+    if (!raw.trim()) return '';
+    const codeBlocks = [];
+    let text = raw.replace(/```([a-zA-Z0-9_-]*)\n?([\s\S]*?)```/g, (_, lang, code) => {
+        const key = `__CODE_BLOCK_${codeBlocks.length}__`;
+        codeBlocks.push(`<pre class="md-code-block"><code>${escapeHTMLKeepText(code.replace(/\n$/, ''))}</code></pre>`);
+        return `\n${key}\n`;
+    });
+    const lines = text.split('\n');
+    const blocks = [];
+    let paragraph = [];
+    let list = [];
+    const flushParagraph = () => {
+        if (paragraph.length) {
+            blocks.push(`<p>${renderInlineMarkdown(paragraph.join(' '))}</p>`);
+            paragraph = [];
+        }
+    };
+    const flushList = () => {
+        if (list.length) {
+            blocks.push(`<ul>${list.map(item => `<li>${renderInlineMarkdown(item)}</li>`).join('')}</ul>`);
+            list = [];
+        }
+    };
+    for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) {
+            flushParagraph();
+            flushList();
+            continue;
+        }
+        if (/^__CODE_BLOCK_\d+__$/.test(trimmed)) {
+            flushParagraph();
+            flushList();
+            const idx = Number(trimmed.match(/\d+/)[0]);
+            blocks.push(codeBlocks[idx] || '');
+            continue;
+        }
+        const heading = trimmed.match(/^(#{1,3})\s+(.+)$/);
+        if (heading) {
+            flushParagraph();
+            flushList();
+            const level = heading[1].length + 3;
+            blocks.push(`<h${level}>${renderInlineMarkdown(heading[2])}</h${level}>`);
+            continue;
+        }
+        const bullet = trimmed.match(/^[-*]\s+(.+)$/);
+        if (bullet) {
+            flushParagraph();
+            list.push(bullet[1]);
+            continue;
+        }
+        flushList();
+        paragraph.push(trimmed);
+    }
+    flushParagraph();
+    flushList();
+    return `<div class="markdown-message">${blocks.join('')}</div>`;
+}
+
 async function showGroupManage(groupID, openedFromMenu = false) {
     let group = groupsCache.find(g => sameID(g.id, groupID));
     if (!group) {
@@ -2705,9 +2917,9 @@ function bindVoiceRecorder() {
     window.addEventListener('touchcancel', stopVoiceRecording, { passive: false });
 }
 
-function renderMessageContent(content, msgType) {
+function renderMessageContent(content, msgType, options = {}) {
     if (msgType === 'broadcast') {
-        return `<div class="broadcast-msg"><span class="broadcast-badge">广播</span><span>${escapeHTML(content)}</span></div>`;
+        return `<div class="broadcast-msg"><span class="broadcast-badge">广播</span><span>${options.markdown ? renderMarkdownText(content) : escapeHTML(content)}</span></div>`;
     }
     if (msgType === 'image' || (content && content.startsWith('[img]'))) {
         const media = parseMediaPayload(content, 'img');
@@ -2731,6 +2943,9 @@ function renderMessageContent(content, msgType) {
             return `<button type="button" class="media-msg file-msg file-download-btn" onclick="downloadMedia(${jsStringArg(media.id)}, ${jsStringArg(media.name || 'download')}, ${jsStringArg(key)})">文件 ${escapeHTML(media.name || '未命名文件')}</button>`;
         }
         return `<a class="media-msg file-msg" href="${escapeHTML(url)}" target="_blank" rel="noopener" download="${escapeHTML(media.name || '')}">文件 ${escapeHTML(media.name || '未命名文件')}</a>`;
+    }
+    if (options.markdown) {
+        return renderMarkdownText(content);
     }
     return renderTextMessage(content);
 }
@@ -2777,16 +2992,21 @@ async function loadBotSidebar() {
                     <div class="list-item-msg">${escapeHTML(agentSourceLabel(b.type))} · UID: ${escapeHTML(String(b.agent_user_id || '未绑定'))}</div>
                 </div>
                 <div class="bot-item-actions" onclick="event.stopPropagation()">
-                    <button class="btn-icon-sm" onclick="showEditAgentForm(${jsArg(b.id)})" title="编辑助手">✎</button>
-                    <button class="btn-icon-sm" onclick="showAgentPermissions(${jsArg(b.id)}, ${jsStringArg(getBotDisplayName(b))})" title="权限管理">权</button>
-                    <button class="btn-icon-sm" onclick="showAgentRunModal(${jsArg(b.id)}, ${jsStringArg(getBotDisplayName(b))})" title="运行助手">▶</button>
-                    <button class="btn-icon-sm" onclick="addAgentFriend(${jsArg(b.id)}, ${jsStringArg(getBotDisplayName(b))})" title="加为好友">友</button>
-                    <button class="btn-icon-sm" onclick="startAgentPrivateChat(${jsArg(b.agent_user_id)})" title="私聊">聊</button>
-                    <button class="btn-icon-sm" onclick="copyAgentUID(${jsArg(b.agent_user_id)})" title="复制UID">ID</button>
-                    <button class="btn-icon-sm" onclick="showBotRoutes(${jsArg(b.id)}, ${jsStringArg(b.name)})" title="路由管理">路</button>
-                    <button class="btn-icon-sm" onclick="showBotBilling(${jsArg(b.id)}, ${jsStringArg(b.name)})" title="计费记录">费</button>
-                    <button class="btn-icon-sm" onclick="toggleBot(${jsArg(b.id)}, ${!b.is_active})" title="${b.is_active ? '停用' : '启用'}">${b.is_active ? '⏸' : '▶'}</button>
-                    <button class="btn-icon-sm danger-soft" onclick="deleteBot(${jsArg(b.id)})" title="删除">×</button>
+                    <button class="btn-agent-pill primary" onclick="showAgentRunModal(${jsArg(b.id)}, ${jsStringArg(getBotDisplayName(b))})">运行</button>
+                    <div class="agent-menu-wrapper">
+                        <button class="btn-agent-pill" onclick="toggleAgentItemMenu(${jsStringArg('agent-menu-' + b.id)}, this)">管理</button>
+                        <div id="agent-menu-${escapeHTML(String(b.id))}" class="agent-item-menu">
+                            <button onclick="showEditAgentForm(${jsArg(b.id)})">编辑配置</button>
+                            <button onclick="showAgentPermissions(${jsArg(b.id)}, ${jsStringArg(getBotDisplayName(b))})">协作权限</button>
+                            <button onclick="addAgentFriend(${jsArg(b.id)}, ${jsStringArg(getBotDisplayName(b))})">加为好友</button>
+                            <button onclick="startAgentPrivateChat(${jsArg(b.agent_user_id)})">私聊</button>
+                            <button onclick="copyAgentUID(${jsArg(b.agent_user_id)})">复制 UID</button>
+                            <button onclick="showBotRoutes(${jsArg(b.id)}, ${jsStringArg(b.name)})">路由规则</button>
+                            <button onclick="showBotBilling(${jsArg(b.id)}, ${jsStringArg(b.name)})">计费记录</button>
+                            <button onclick="toggleBot(${jsArg(b.id)}, ${!b.is_active})">${b.is_active ? '停用助手' : '启用助手'}</button>
+                            <button class="danger" onclick="deleteBot(${jsArg(b.id)})">删除助手</button>
+                        </div>
+                    </div>
                 </div>
             </div>
         `).join('');
@@ -2859,6 +3079,39 @@ function onBotTypeChange() {
     const type = document.getElementById('bot-type').value;
     const customFields = document.getElementById('custom-bot-fields');
     customFields.style.display = type === 'custom' ? 'block' : 'none';
+}
+
+function closeAgentItemMenus(exceptID = '') {
+    document.querySelectorAll('.agent-item-menu.open').forEach(menu => {
+        if (!exceptID || menu.id !== exceptID) {
+            menu.classList.remove('open');
+            menu.style.left = '';
+            menu.style.top = '';
+        }
+    });
+}
+
+function toggleAgentItemMenu(menuID, triggerEl = null) {
+    const menu = document.getElementById(menuID);
+    if (!menu) return;
+    const shouldOpen = !menu.classList.contains('open');
+    closeAgentItemMenus(menuID);
+    if (!shouldOpen) {
+        menu.classList.remove('open');
+        return;
+    }
+    const rect = triggerEl ? triggerEl.getBoundingClientRect() : { right: window.innerWidth - 12, bottom: 0 };
+    if (menu.parentElement !== document.body) {
+        document.body.appendChild(menu);
+    }
+    menu.classList.add('open');
+    const menuWidth = menu.offsetWidth || 150;
+    const menuHeight = menu.offsetHeight || 260;
+    const left = Math.max(8, Math.min(window.innerWidth - menuWidth - 8, rect.right - menuWidth));
+    const preferredTop = rect.bottom + 6;
+    const fallbackTop = rect.top - menuHeight - 6;
+    menu.style.left = `${left}px`;
+    menu.style.top = `${preferredTop + menuHeight > window.innerHeight - 8 ? Math.max(8, fallbackTop) : preferredTop}px`;
 }
 
 async function addAgentFriend(botID, botName) {
@@ -3150,7 +3403,7 @@ function renderAgentResult(value, meta = {}) {
     return `
         <div class="agent-result-card">
             <div class="agent-result-meta">${action}${elapsed}</div>
-            <div class="agent-result-text">${escapeHTML(normalized.text || JSON.stringify(normalized.detail, null, 2))}</div>
+            <div class="agent-result-text">${renderMarkdownText(normalized.text || JSON.stringify(normalized.detail, null, 2))}</div>
             ${detailHTML}
         </div>
     `;
@@ -3187,7 +3440,7 @@ function renderAgentApprovalCard(approval, meta = {}) {
                 ${meta.action ? `<span>${escapeHTML(agentActionLabel(meta.action))}</span>` : ''}
                 ${elapsed}
             </div>
-            <div class="agent-result-text">${escapeHTML(approval.description || 'Agent 请求继续执行一个需要确认的操作。')}</div>
+            <div class="agent-result-text">${renderMarkdownText(approval.description || 'Agent 请求继续执行一个需要确认的操作。')}</div>
             <textarea id="${detailID}" class="approval-note-input" rows="2" placeholder="可选：补充限制或说明，例如只读检查、不要修改文件"></textarea>
             <div class="btn-row">
                 <button class="btn-inline btn-primary" onclick="confirmAgentApproval(${jsStringArg(approval.id)}, ${jsStringArg(resultID)}, ${jsStringArg(detailID)})">允许执行</button>
@@ -3277,52 +3530,150 @@ async function runAgentTask(action, botID, conversationID, question, resultElID,
     }
 }
 
-function showAgentRunModal(botID, botName) {
+async function showAgentRunModal(botID, botName) {
     const defaultConversationID = currentConversationID || 0;
+    const historyKey = String(botID);
+    if (!agentRunHistories[historyKey]) {
+        agentRunHistories[historyKey] = [{
+            role: 'agent',
+            content: '可以连续和我对话，也可以选择一个会话作为上下文来源。需要总结、问答、提取结论或执行任务时，直接写在下面。',
+            time: new Date().toLocaleTimeString(),
+        }];
+    }
     showModal(`运行智能助手 - ${escapeHTML(botName)}`, `
-        <div class="agent-help-box">
-            <strong>智能助手说明</strong>
-            <div>这里的智能助手是一个真实系统用户，可以被邀请入群、被 @、以自己的身份发消息，并保留长会话上下文。</div>
-            <div><b>协作权限</b>控制谁能管理或使用它：创建者和协管员可以改配置与授权，使用者可以运行，查看者只能查看。</div>
-            <div><b>工具策略</b>控制它能否使用文件、代码、搜索等工具；高风险工具可以设置为操作前确认或只读模式。</div>
-        </div>
-        <div class="profile-form-grid">
-            <div class="form-group">
-                <label>上下文会话</label>
-                <select id="agent-run-conversation" class="form-select">
-                    <option value="0">不使用当前会话</option>
-                    ${defaultConversationID ? `<option value="${escapeHTML(String(defaultConversationID))}" selected>${escapeHTML(conversationNameCache[defaultConversationID] || '当前打开的会话')}</option>` : ''}
-                </select>
+        <div class="agent-run-shell">
+            <div class="agent-run-toolbar">
+                <div class="agent-run-field">
+                    <label>上下文会话</label>
+                    <select id="agent-run-conversation" class="form-select">
+                        <option value="${escapeHTML(String(defaultConversationID || 0))}">正在加载会话...</option>
+                    </select>
+                </div>
+                <div class="agent-run-field">
+                    <label>任务类型</label>
+                    <select id="agent-run-action" class="form-select" onchange="selectAgentAction('agent-run-action', this.value, 'agent-run-action-hint')">
+                        <option value="ask">连续对话</option>
+                        <option value="summarize">会话总结</option>
+                        <option value="insights">提取结论</option>
+                        <option value="replyCandidates">生成回复</option>
+                        <option value="run">执行任务</option>
+                    </select>
+                </div>
             </div>
-            <div class="form-group">
-                <label>任务类型</label>
-                <select id="agent-run-action" class="form-select" onchange="selectAgentAction('agent-run-action', this.value, 'agent-run-action-hint')">
-                    <option value="summarize">会话总结</option>
-                    <option value="ask">上下文问答</option>
-                    <option value="insights">提取结论</option>
-                    <option value="replyCandidates">生成回复</option>
-                    <option value="run">执行任务</option>
-                </select>
+            ${renderAgentActionGrid('agent-run-action', 'agent-run-action-hint', 'ask')}
+            <div id="agent-run-history" class="agent-chat-history"></div>
+            <div class="agent-chat-composer">
+                <textarea id="agent-run-question" rows="2" placeholder="输入给 Agent 的指令，Enter 发送，Shift+Enter 换行" onkeydown="handleAgentComposerKeydown(event, ${jsArg(botID)})"></textarea>
+                <button id="agent-run-submit" class="btn-send" onclick="submitAgentRun(${jsArg(botID)}, this)">发送</button>
+            </div>
+            <div class="agent-run-footer">
+                <button class="btn-inline" onclick="loadAgentSessions(${jsArg(botID)}, document.getElementById('agent-run-conversation')?.value || 0, 'agent-run-history')">查看会话记录</button>
             </div>
         </div>
-        ${renderAgentActionGrid('agent-run-action', 'agent-run-action-hint', 'summarize')}
-        <div class="form-group">
-            <label>指令 / 问题</label>
-            <textarea id="agent-run-question" rows="3" placeholder="例如：总结这段会话的结论、风险和待办"></textarea>
-        </div>
-        <div class="btn-row">
-            <button id="agent-run-submit" class="btn-inline btn-primary" onclick="submitAgentRun(${jsArg(botID)}, this)">执行</button>
-            <button class="btn-inline" onclick="loadAgentSessions(${jsArg(botID)}, ${jsArg(defaultConversationID)}, 'agent-run-result')">查看会话记录</button>
-        </div>
-        <div id="agent-run-result" class="agent-result-area"></div>
     `);
+    renderAgentRunHistory(botID);
+    const options = await fetchAgentContextConversations(defaultConversationID);
+    const select = document.getElementById('agent-run-conversation');
+    if (select) {
+        select.innerHTML = options.map(o => `<option value="${escapeHTML(String(o.id))}" ${sameID(o.id, defaultConversationID) ? 'selected' : ''}>${escapeHTML(o.label)}</option>`).join('');
+    }
 }
 
-function submitAgentRun(botID, buttonEl = null) {
+function renderAgentRunHistory(botID) {
+    const area = document.getElementById('agent-run-history');
+    if (!area) return;
+    const shouldStickToBottom = area.scrollHeight - area.scrollTop - area.clientHeight < 48;
+    const history = agentRunHistories[String(botID)] || [];
+    area.innerHTML = history.map(item => {
+        if (item.kind === 'approval' && item.approval) {
+            return `<div class="agent-chat-turn agent">${renderAgentApprovalCard(item.approval, { action: item.action || 'run' })}</div>`;
+        }
+        if (item.kind === 'sessions') {
+            return `<div class="agent-chat-turn agent"><div class="agent-session-list">${item.html}</div></div>`;
+        }
+        const thinkingHTML = item.kind === 'thinking'
+            ? `<span class="agent-thinking-timer">已思考 ${(((Date.now() - (item.startedAt || Date.now())) / 1000)).toFixed(1)} 秒</span>`
+            : '';
+        const durationHTML = item.durationMs
+            ? `<span class="agent-thinking-duration">思考 ${(item.durationMs / 1000).toFixed(1)} 秒</span>`
+            : '';
+        return `
+            <div class="agent-chat-turn ${item.role === 'user' ? 'user' : 'agent'}">
+                <div class="agent-chat-avatar">${item.role === 'user' ? '我' : 'A'}</div>
+                <div class="agent-chat-bubble">
+                    <div class="agent-chat-meta">${item.role === 'user' ? '你' : '智能助手'} · ${escapeHTML(item.time || '')}${thinkingHTML}${durationHTML}</div>
+                    <div class="agent-chat-text">${item.role === 'agent' ? renderMarkdownText(item.content || '') : escapeHTML(item.content || '')}</div>
+                </div>
+            </div>
+        `;
+    }).join('');
+    if (shouldStickToBottom) {
+        area.scrollTop = area.scrollHeight;
+    }
+}
+
+function pushAgentRunHistory(botID, item) {
+    const key = String(botID);
+    if (!agentRunHistories[key]) agentRunHistories[key] = [];
+    agentRunHistories[key].push({ time: new Date().toLocaleTimeString(), ...item });
+    renderAgentRunHistory(botID);
+}
+
+function handleAgentComposerKeydown(event, botID) {
+    if (event.key === 'Enter' && !event.shiftKey) {
+        event.preventDefault();
+        submitAgentRun(botID, document.getElementById('agent-run-submit'));
+    }
+}
+
+async function submitAgentRun(botID, buttonEl = null) {
     const conversationID = document.getElementById('agent-run-conversation').value || 0;
-    const question = document.getElementById('agent-run-question').value.trim();
+    const questionEl = document.getElementById('agent-run-question');
+    const question = questionEl.value.trim();
     const action = document.getElementById('agent-run-action').value;
-    runAgentTask(action, botID, conversationID, question, 'agent-run-result', buttonEl);
+    if (!question) {
+        showToast('请输入要交给 Agent 的内容', 'warning');
+        return;
+    }
+    pushAgentRunHistory(botID, { role: 'user', content: question });
+    questionEl.value = '';
+    if (buttonEl) {
+        buttonEl.disabled = true;
+        buttonEl.dataset.originalText = buttonEl.textContent;
+        buttonEl.textContent = '发送中';
+    }
+    const startedAt = Date.now();
+    pushAgentRunHistory(botID, { role: 'agent', kind: 'thinking', content: `${agentActionLabel(action)}中...`, startedAt });
+    const key = String(botID);
+    const thinkingIndex = agentRunHistories[key].length - 1;
+    const timer = setInterval(() => renderAgentRunHistory(botID), 100);
+    const apiMap = {
+        run: agentAPI.run,
+        summarize: agentAPI.summarize,
+        ask: agentAPI.ask,
+        insights: agentAPI.insights,
+        replyCandidates: agentAPI.replyCandidates,
+    };
+    try {
+        const resp = await apiMap[action](botID, conversationID, question);
+        const approval = extractAgentApproval(resp);
+        const durationMs = Date.now() - startedAt;
+        if (approval) {
+            agentRunHistories[key][thinkingIndex] = { role: 'agent', kind: 'approval', approval, action, durationMs, time: new Date().toLocaleTimeString() };
+        } else if (resp && resp.code === 0 && resp.data && resp.data.success !== false) {
+            const normalized = normalizeAgentResultForView(normalizeAgentPayload(resp));
+            agentRunHistories[key][thinkingIndex] = { role: 'agent', content: normalized.text || '执行完成，但没有返回文本。', durationMs, time: new Date().toLocaleTimeString() };
+        } else {
+            agentRunHistories[key][thinkingIndex] = { role: 'agent', content: resp?.data?.msg || resp?.message || '智能助手执行失败', durationMs, time: new Date().toLocaleTimeString() };
+        }
+        renderAgentRunHistory(botID);
+    } finally {
+        clearInterval(timer);
+        if (buttonEl) {
+            buttonEl.disabled = false;
+            buttonEl.textContent = buttonEl.dataset.originalText || '发送';
+        }
+    }
 }
 
 async function loadAgentSessions(botID, conversationID, resultElID) {
@@ -3330,31 +3681,37 @@ async function loadAgentSessions(botID, conversationID, resultElID) {
     if (area) area.innerHTML = '<div class="search-loading"><div class="spinner"></div>正在加载会话记录...</div>';
     const resp = await agentAPI.listSessions(botID, conversationID || 0);
     if (!(resp && resp.code === 0 && resp.data && resp.data.success)) {
-        if (area) area.innerHTML = `<div class="empty-tip">${escapeHTML(resp?.data?.msg || '会话记录加载失败')}</div>`;
+        const msg = resp?.data?.msg || '会话记录加载失败';
+        if (resultElID === 'agent-run-history') {
+            pushAgentRunHistory(botID, { role: 'agent', content: msg });
+        } else if (area) area.innerHTML = `<div class="empty-tip">${escapeHTML(msg)}</div>`;
         return;
     }
     const sessions = resp.data.sessions || [];
     if (sessions.length === 0) {
-        if (area) area.innerHTML = '<div class="empty-tip">暂无会话记录</div>';
+        if (resultElID === 'agent-run-history') {
+            pushAgentRunHistory(botID, { role: 'agent', content: '暂无会话记录。' });
+        } else if (area) area.innerHTML = '<div class="empty-tip">暂无会话记录</div>';
         return;
     }
-    if (area) area.innerHTML = `
-        <div class="agent-session-list">
-            ${sessions.map(s => {
-                const title = s.title || '未命名会话';
-                const shortID = String(s.session_id || '').replace(/^agent_/, '');
-                return `
-                    <div class="agent-session-card">
-                        <div class="agent-session-main">
-                            <strong>${escapeHTML(title)}</strong>
-                            <span>${escapeHTML(s.created_at || '未知时间')}</span>
-                        </div>
-                        <code>${escapeHTML(shortID)}</code>
-                    </div>
-                `;
-            }).join('')}
-        </div>
-    `;
+    const sessionHTML = sessions.map(s => {
+        const title = s.title || '未命名会话';
+        const shortID = String(s.session_id || '').replace(/^agent_/, '');
+        return `
+            <div class="agent-session-card">
+                <div class="agent-session-main">
+                    <strong>${escapeHTML(title)}</strong>
+                    <span>${escapeHTML(s.created_at || '未知时间')}</span>
+                </div>
+                <code>${escapeHTML(shortID)}</code>
+            </div>
+        `;
+    }).join('');
+    if (resultElID === 'agent-run-history') {
+        pushAgentRunHistory(botID, { role: 'agent', kind: 'sessions', html: sessionHTML });
+    } else if (area) {
+        area.innerHTML = `<div class="agent-session-list">${sessionHTML}</div>`;
+    }
 }
 
 async function showAgentPermissions(botID, botName) {
@@ -3506,7 +3863,8 @@ async function sendBotChatMsg() {
 
     const thinkingID = 'thinking-' + Date.now();
     botThinkingID = thinkingID;
-    const thinkingMsg = { sender_id: 0, content: '智能助手处理中...', created_at: timeStr, is_thinking: true, _thinkingID: thinkingID };
+    const startedAt = Date.now();
+    const thinkingMsg = { sender_id: 0, content: '智能助手处理中...', created_at: timeStr, is_thinking: true, _thinkingID: thinkingID, started_at: startedAt };
     appendMessage(thinkingMsg);
     botPendingReplies[activeBotID] = thinkingMsg;
 
@@ -3522,7 +3880,8 @@ async function sendBotChatMsg() {
 
     const approval = extractAgentApproval(resp);
     if (approval) {
-        const approvalMsg = { sender_id: 0, content: approval.description, created_at: timeStr, is_bot: true, is_approval: true, approval };
+        const durationMs = Date.now() - startedAt;
+        const approvalMsg = { sender_id: 0, content: approval.description, created_at: timeStr, is_bot: true, is_approval: true, approval, agent_thinking_duration_ms: durationMs };
         botChatHistory[activeBotID].push(approvalMsg);
         if (isStillActive) {
             appendMessage(approvalMsg);
@@ -3536,7 +3895,8 @@ async function sendBotChatMsg() {
             String(replyTime.getMinutes()).padStart(2, '0') + ':' +
             String(replyTime.getSeconds()).padStart(2, '0');
 
-        const botMsg = { sender_id: 0, content: resp.data.reply, created_at: replyTimeStr, is_bot: true };
+        const durationMs = Date.now() - startedAt;
+        const botMsg = { sender_id: 0, content: resp.data.reply, created_at: replyTimeStr, is_bot: true, agent_thinking_duration_ms: durationMs };
         botChatHistory[activeBotID].push(botMsg);
         if (isStillActive) {
             appendMessage(botMsg);
