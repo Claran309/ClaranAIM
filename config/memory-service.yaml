@@ -1,0 +1,13 @@
+service:
+  name: "memory-service"
+  address: "127.0.0.1:9008"
+
+mysql:
+  dsn: ""
+
+governance:
+  rpc:
+    timeout_ms: 5000
+    circuit_breaker: true
+    max_connections: 1000
+    max_qps: 1000

@@ -19,44 +19,122 @@ const agentDispatchHistoryLimit int64 = 80
 
 // StartAgentMentionConsumer starts the @Agent dispatcher over message.created events.
 func StartAgentMentionConsumer(ctx context.Context, consumer *eventbus.KafkaConsumer, botService service.BotService, dispatchRepo dao.AgentDispatchRepository, messageClient messageservice.Client) {
+	StartAgentEventDispatcherConsumer(ctx, consumer, botService, dispatchRepo, nil, nil, messageClient)
+}
+
+// StartAgentEventDispatcherConsumer starts an Agent-native event dispatcher over
+// one Kafka topic. Call it for both legacy message events and unified IM events
+// while services are migrating their outbox payloads.
+func StartAgentEventDispatcherConsumer(ctx context.Context, consumer *eventbus.KafkaConsumer, botService service.BotService, dispatchRepo dao.AgentDispatchRepository, subscriptionRepo dao.AgentSubscriptionRepository, auditRepo dao.AgentAuditRepository, messageClient messageservice.Client) {
 	if consumer == nil || botService == nil || dispatchRepo == nil || messageClient == nil {
 		return
 	}
+	dispatcher := NewAgentEventDispatcher(botService, dispatchRepo, subscriptionRepo, auditRepo, messageClient)
 	go consumer.Run(ctx, func(ctx context.Context, envelope events.Envelope) error {
-		return handleAgentMentionEvent(ctx, envelope, botService, dispatchRepo, messageClient)
+		return dispatcher.Handle(ctx, envelope)
 	})
 }
 
 func handleAgentMentionEvent(ctx context.Context, envelope events.Envelope, botService service.BotService, dispatchRepo dao.AgentDispatchRepository, messageClient messageservice.Client) error {
-	if envelope.Type != events.EventTypeMessageCreated {
+	return NewAgentEventDispatcher(botService, dispatchRepo, nil, nil, messageClient).Handle(ctx, envelope)
+}
+
+// AgentEventDispatcher is the Agent-native IM event router. It consumes unified
+// IM events, applies subscription rules, records decisions and only invokes an
+// Agent when the event is allowed to become work.
+type AgentEventDispatcher struct {
+	botService       service.BotService
+	dispatchRepo     dao.AgentDispatchRepository
+	subscriptionRepo dao.AgentSubscriptionRepository
+	auditRepo        dao.AgentAuditRepository
+	messageClient    messageservice.Client
+}
+
+// NewAgentEventDispatcher wires the Agent-native dispatcher. The subscription
+// and audit repositories are optional so the legacy @Agent consumer can keep
+// running during migration.
+func NewAgentEventDispatcher(botService service.BotService, dispatchRepo dao.AgentDispatchRepository, subscriptionRepo dao.AgentSubscriptionRepository, auditRepo dao.AgentAuditRepository, messageClient messageservice.Client) *AgentEventDispatcher {
+	return &AgentEventDispatcher{
+		botService:       botService,
+		dispatchRepo:     dispatchRepo,
+		subscriptionRepo: subscriptionRepo,
+		auditRepo:        auditRepo,
+		messageClient:    messageClient,
+	}
+}
+
+type agentEvent struct {
+	EventType        string
+	ConversationID   int64
+	ConversationType string
+	SenderID         int64
+	Content          string
+	MsgType          string
+	MsgID            int64
+	ReplyToID        int64
+	ParticipantIDs   []int64
+	MentionUserIDs   []int64
+	MentionAll       bool
+	AttachmentRefs   []events.AttachmentRef
+	IdempotencyKey   string
+}
+
+type agentDispatchDecision struct {
+	BotID       int64
+	AgentUserID int64
+	Decision    string
+	Reason      string
+}
+
+// Handle evaluates one Kafka/Outbox envelope against Agent-native rules.
+func (d *AgentEventDispatcher) Handle(ctx context.Context, envelope events.Envelope) error {
+	if d == nil || d.botService == nil || d.dispatchRepo == nil || d.messageClient == nil {
 		return nil
 	}
-	payload, err := events.DecodePayload[events.MessagePayload](envelope)
+	event, err := decodeAgentEvent(envelope)
 	if err != nil {
 		return err
 	}
-	if strings.TrimSpace(payload.Content) == "" {
+	if event == nil {
 		return nil
 	}
-	agentUserIDs := agentTargetsFromMessage(payload)
-	if len(agentUserIDs) == 0 {
+	decisions, err := d.decide(ctx, *event)
+	if err != nil {
+		return err
+	}
+	if len(decisions) == 0 {
 		return nil
 	}
-	for _, agentUserID := range agentUserIDs {
-		bot, err := botService.GetBotByAgentUserID(ctx, agentUserID)
+	for _, decision := range decisions {
+		bot, err := d.resolveBot(ctx, decision)
 		if err != nil {
 			return err
 		}
-		if bot == nil || !bot.IsActive || bot.AgentUserID == payload.SenderID {
+		if bot == nil || !bot.IsActive || bot.AgentUserID == event.SenderID {
 			continue
 		}
-		shouldRun, err := dispatchRepo.Start(ctx, &model.AgentDispatchRecord{
-			EventID:        envelope.EventID,
+		sourceEventID := event.dispatchEventID(envelope.EventID)
+		traceID := fmt.Sprintf("agent:%s:%d", sourceEventID, bot.AgentUserID)
+		if decision.Decision == "record" {
+			_ = d.audit(ctx, envelope, *event, bot, "record", decision.Reason, traceID)
+			continue
+		}
+		if decision.Decision != "trigger" {
+			_ = d.audit(ctx, envelope, *event, bot, decision.Decision, decision.Reason, traceID)
+			continue
+		}
+		_ = d.audit(ctx, envelope, *event, bot, "trigger", decision.Reason, traceID)
+		shouldRun, err := d.dispatchRepo.Start(ctx, &model.AgentDispatchRecord{
+			EventID:        sourceEventID,
 			AgentUserID:    bot.AgentUserID,
 			BotID:          bot.ID,
-			SourceMsgID:    payload.MsgID,
-			ConversationID: payload.ConversationID,
-			SenderID:       payload.SenderID,
+			EventType:      event.EventType,
+			Decision:       "trigger",
+			SourceEventID:  sourceEventID,
+			AgentTraceID:   traceID,
+			SourceMsgID:    event.MsgID,
+			ConversationID: event.ConversationID,
+			SenderID:       event.SenderID,
 			Status:         "started",
 		})
 		if err != nil {
@@ -65,15 +143,16 @@ func handleAgentMentionEvent(ctx context.Context, envelope events.Envelope, botS
 		if !shouldRun {
 			continue
 		}
-		agentInput, err := buildAgentDispatchInput(ctx, messageClient, payload, bot.AgentUserID)
+		agentInput, err := buildAgentDispatchInput(ctx, d.messageClient, event.toMessagePayload(), bot.AgentUserID)
 		if err != nil {
-			_ = dispatchRepo.MarkFailed(ctx, envelope.EventID, bot.AgentUserID, err.Error())
+			_ = d.dispatchRepo.MarkFailed(ctx, sourceEventID, bot.AgentUserID, err.Error())
 			return err
 		}
-		result, err := botService.ChatWithBot(ctx, bot.ID, payload.SenderID, payload.ConversationID, agentInput)
+		result, err := d.botService.ChatWithBot(ctx, bot.ID, event.SenderID, event.ConversationID, agentInput)
 		if err != nil {
-			_ = dispatchRepo.MarkFailed(ctx, envelope.EventID, bot.AgentUserID, err.Error())
-			log.Printf("Agent @响应失败 bot_id=%d msg_id=%d err=%v", bot.ID, payload.MsgID, err)
+			_ = d.dispatchRepo.MarkFailed(ctx, sourceEventID, bot.AgentUserID, err.Error())
+			_ = d.audit(ctx, envelope, *event, bot, "failed", err.Error(), traceID)
+			log.Printf("Agent事件响应失败 bot_id=%d msg_id=%d err=%v", bot.ID, event.MsgID, err)
 			if isPermanentAgentDispatchError(err) {
 				continue
 			}
@@ -83,17 +162,18 @@ func handleAgentMentionEvent(ctx context.Context, envelope events.Envelope, botS
 		if result != nil {
 			reply = result.Reply
 		}
-		clientMsgID := fmt.Sprintf("agent:%s:%d", envelope.EventID, bot.AgentUserID)
-		resp, err := messageClient.SendMessage(ctx, &message.SendMessageReq{
-			ConversationId: payload.ConversationID,
+		clientMsgID := fmt.Sprintf("agent:%s:%d", sourceEventID, bot.AgentUserID)
+		resp, err := d.messageClient.SendMessage(ctx, &message.SendMessageReq{
+			ConversationId: event.ConversationID,
 			SenderId:       bot.AgentUserID,
 			Content:        reply,
 			MsgType:        "text",
-			ReplyToId:      payload.MsgID,
+			ReplyToId:      event.MsgID,
 			ClientMsgId:    clientMsgID,
 		})
 		if err != nil {
-			_ = dispatchRepo.MarkFailed(ctx, envelope.EventID, bot.AgentUserID, err.Error())
+			_ = d.dispatchRepo.MarkFailed(ctx, sourceEventID, bot.AgentUserID, err.Error())
+			_ = d.audit(ctx, envelope, *event, bot, "failed", err.Error(), traceID)
 			return err
 		}
 		if resp == nil || !resp.Success {
@@ -102,14 +182,256 @@ func handleAgentMentionEvent(ctx context.Context, envelope events.Envelope, botS
 				msg = resp.GetMsg()
 			}
 			err := fmt.Errorf("Agent回复写入失败: %s", msg)
-			_ = dispatchRepo.MarkFailed(ctx, envelope.EventID, bot.AgentUserID, err.Error())
+			_ = d.dispatchRepo.MarkFailed(ctx, sourceEventID, bot.AgentUserID, err.Error())
+			_ = d.audit(ctx, envelope, *event, bot, "failed", err.Error(), traceID)
 			return err
 		}
-		if err := dispatchRepo.MarkCompleted(ctx, envelope.EventID, bot.AgentUserID, resp.MsgId); err != nil {
+		if err := d.dispatchRepo.MarkCompleted(ctx, sourceEventID, bot.AgentUserID, resp.MsgId); err != nil {
 			return err
 		}
+		_ = d.audit(ctx, envelope, *event, bot, "completed", "Agent回复已写入消息事实表", traceID)
 	}
 	return nil
+}
+
+func (e agentEvent) dispatchEventID(fallback string) string {
+	if strings.TrimSpace(e.IdempotencyKey) != "" {
+		return e.IdempotencyKey
+	}
+	return fallback
+}
+
+func decodeAgentEvent(envelope events.Envelope) (*agentEvent, error) {
+	switch envelope.Type {
+	case events.EventTypeMessageCreated, events.EventTypeMessageEdited, events.EventTypeMessageRecalled:
+		payload, err := events.DecodePayload[events.MessagePayload](envelope)
+		if err != nil {
+			return nil, err
+		}
+		if strings.TrimSpace(payload.Content) == "" && len(payload.MentionUserIDs) == 0 {
+			return nil, nil
+		}
+		return &agentEvent{
+			EventType:        envelope.Type,
+			ConversationID:   payload.ConversationID,
+			ConversationType: payload.ConversationType,
+			SenderID:         payload.SenderID,
+			Content:          payload.Content,
+			MsgType:          payload.MsgType,
+			MsgID:            payload.MsgID,
+			ReplyToID:        payload.ReplyToID,
+			ParticipantIDs:   payload.ParticipantIDs,
+			MentionUserIDs:   payload.MentionUserIDs,
+			MentionAll:       payload.MentionAll,
+			IdempotencyKey:   envelope.EventID,
+		}, nil
+	case events.EventTypeIMMessageEdited, events.EventTypeIMMessageRecalled, events.EventTypeIMMessageRead, events.EventTypeReactionAdded, events.EventTypeFileUploaded, events.EventTypeVoiceTranscribed, events.EventTypeGroupMemberJoined, events.EventTypeGroupMemberLeft, events.EventTypeSystemNotice, events.EventTypeTaskChanged:
+		payload, err := events.DecodePayload[events.IMEventPayload](envelope)
+		if err != nil {
+			return nil, err
+		}
+		if payload.EventType == "" {
+			payload.EventType = envelope.Type
+		}
+		return &agentEvent{
+			EventType:        payload.EventType,
+			ConversationID:   payload.ConversationID,
+			ConversationType: payload.ConversationType,
+			SenderID:         payload.SenderID,
+			Content:          payload.Content,
+			MsgType:          payload.MsgType,
+			MsgID:            payload.MsgID,
+			ReplyToID:        payload.ReplyToID,
+			ParticipantIDs:   payload.ParticipantIDs,
+			MentionUserIDs:   payload.MentionUserIDs,
+			MentionAll:       payload.MentionAll,
+			AttachmentRefs:   payload.AttachmentRefs,
+			IdempotencyKey:   payload.IdempotencyKey,
+		}, nil
+	default:
+		return nil, nil
+	}
+}
+
+func (e agentEvent) toMessagePayload() events.MessagePayload {
+	content := e.Content
+	if strings.TrimSpace(content) == "" && len(e.AttachmentRefs) > 0 {
+		parts := make([]string, 0, len(e.AttachmentRefs))
+		for _, ref := range e.AttachmentRefs {
+			name := strings.TrimSpace(ref.Name)
+			if name == "" {
+				name = fmt.Sprintf("file:%d", ref.FileID)
+			}
+			parts = append(parts, fmt.Sprintf("[附件 file_id=%d name=%s content_type=%s url=%s size=%d]", ref.FileID, name, ref.ContentType, ref.URL, ref.Size))
+		}
+		content = strings.Join(parts, " ")
+	}
+	return events.MessagePayload{
+		Type:             e.EventType,
+		ConversationID:   e.ConversationID,
+		ConversationType: e.ConversationType,
+		SenderID:         e.SenderID,
+		Content:          content,
+		MsgType:          e.MsgType,
+		MsgID:            e.MsgID,
+		ReplyToID:        e.ReplyToID,
+		MentionUserIDs:   e.MentionUserIDs,
+		MentionAll:       e.MentionAll,
+		ParticipantIDs:   e.ParticipantIDs,
+	}
+}
+
+func (d *AgentEventDispatcher) decide(ctx context.Context, event agentEvent) ([]agentDispatchDecision, error) {
+	decisions := make([]agentDispatchDecision, 0)
+	defaultTargets := agentTargetsFromMessage(event.toMessagePayload())
+	for _, agentUserID := range defaultTargets {
+		decisions = append(decisions, agentDispatchDecision{AgentUserID: agentUserID, Decision: "trigger", Reason: defaultTriggerReason(event)})
+	}
+	if d.subscriptionRepo != nil {
+		rules, err := d.subscriptionRepo.ListActiveRules(ctx, event.ConversationID, event.EventType)
+		if err != nil {
+			return nil, err
+		}
+		for _, rule := range rules {
+			if !ruleMatchesEvent(rule, event) {
+				continue
+			}
+			action := strings.TrimSpace(rule.Action)
+			if action == "" {
+				action = "trigger"
+			}
+			if rule.Silent {
+				action = "record"
+			}
+			decisions = append(decisions, agentDispatchDecision{
+				BotID:       rule.BotID,
+				AgentUserID: rule.AgentUserID,
+				Decision:    action,
+				Reason:      fmt.Sprintf("subscription:%s", strings.TrimSpace(rule.TriggerMode)),
+			})
+		}
+	}
+	return mergeAgentDecisions(decisions), nil
+}
+
+func (d *AgentEventDispatcher) resolveBot(ctx context.Context, decision agentDispatchDecision) (*model.Bot, error) {
+	if decision.BotID > 0 {
+		bot, err := d.botService.GetBot(ctx, decision.BotID)
+		if err != nil || bot != nil {
+			return bot, err
+		}
+	}
+	if decision.AgentUserID > 0 {
+		return d.botService.GetBotByAgentUserID(ctx, decision.AgentUserID)
+	}
+	return nil, nil
+}
+
+func (d *AgentEventDispatcher) audit(ctx context.Context, envelope events.Envelope, event agentEvent, bot *model.Bot, decision, reason, traceID string) error {
+	if d.auditRepo == nil || bot == nil {
+		return nil
+	}
+	return d.auditRepo.Create(ctx, &model.AgentAuditRecord{
+		EventID:        envelope.EventID,
+		EventType:      event.EventType,
+		BotID:          bot.ID,
+		AgentUserID:    bot.AgentUserID,
+		ConversationID: event.ConversationID,
+		SenderID:       event.SenderID,
+		Decision:       decision,
+		Reason:         reason,
+		TraceID:        traceID,
+		SourceMsgID:    event.MsgID,
+	})
+}
+
+func defaultTriggerReason(event agentEvent) string {
+	if event.ConversationType == "private" {
+		return "private_default"
+	}
+	return "mention"
+}
+
+func ruleMatchesEvent(rule model.AgentSubscriptionRule, event agentEvent) bool {
+	if rule.ConversationType != "" && rule.ConversationType != event.ConversationType {
+		return false
+	}
+	mode := strings.TrimSpace(rule.TriggerMode)
+	if mode == "" {
+		mode = "mention"
+	}
+	switch mode {
+	case "all":
+		return true
+	case "keyword":
+		return containsAnyCSVToken(event.Content, rule.Keywords)
+	case "command":
+		prefix := strings.TrimSpace(rule.CommandPrefix)
+		return prefix != "" && strings.HasPrefix(strings.TrimSpace(event.Content), prefix)
+	case "mention":
+		return containsInt64(event.MentionUserIDs, rule.AgentUserID)
+	default:
+		return containsAnyCSVToken(event.Content, rule.Keywords)
+	}
+}
+
+func mergeAgentDecisions(decisions []agentDispatchDecision) []agentDispatchDecision {
+	merged := make(map[int64]agentDispatchDecision)
+	order := make([]int64, 0, len(decisions))
+	for _, decision := range decisions {
+		key := decision.AgentUserID
+		if key == 0 {
+			key = -decision.BotID
+		}
+		if key == 0 {
+			continue
+		}
+		existing, ok := merged[key]
+		if !ok {
+			merged[key] = decision
+			order = append(order, key)
+			continue
+		}
+		if decisionRank(decision.Decision) > decisionRank(existing.Decision) {
+			merged[key] = decision
+		}
+	}
+	result := make([]agentDispatchDecision, 0, len(order))
+	for _, key := range order {
+		result = append(result, merged[key])
+	}
+	return result
+}
+
+func decisionRank(decision string) int {
+	switch decision {
+	case "trigger":
+		return 3
+	case "record":
+		return 2
+	default:
+		return 1
+	}
+}
+
+func containsAnyCSVToken(text, csv string) bool {
+	text = strings.ToLower(text)
+	for _, part := range strings.Split(csv, ",") {
+		token := strings.ToLower(strings.TrimSpace(part))
+		if token != "" && strings.Contains(text, token) {
+			return true
+		}
+	}
+	return false
+}
+
+func containsInt64(values []int64, target int64) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
 }
 
 func agentTargetsFromMessage(payload events.MessagePayload) []int64 {
@@ -145,7 +467,7 @@ func buildAgentDispatchInput(ctx context.Context, messageClient messageservice.C
 	if contextText == "" {
 		contextText = "（当前没有读取到历史消息。请基于用户这条消息本身回答，并说明上下文很少。）"
 	}
-	return fmt.Sprintf("用户在 IM 会话中触发了你，请基于真实会话材料回复，而不是只依赖你自己的长期记忆。\n\n当前用户消息：\n%s\n\n会话材料说明：下面是 msg-core-service 从当前会话读取到的、Agent 用户有权看到的历史消息，按时间从旧到新排列；它们是本轮回答的主要事实来源。\n\n会话材料：\n%s", strings.TrimSpace(payload.Content), contextText), nil
+	return fmt.Sprintf("你是 ClaranAIM 中的原生 Agent 成员，本轮输入来自 IM 事件流，而不是孤立聊天按钮。\n\n处理原则：\n1. 先阅读会话材料，再判断用户真正要你做什么。\n2. 如果材料很少或内容没有价值，也要直接说明这些消息基本没有有效信息，而不是拒绝总结。\n3. 群聊场景必须结合群聊上下文、引用关系和当前触发消息回答；不要只使用你和触发用户的长期记忆。\n4. 只使用你作为 Agent 用户有权看到的内容；不要猜测不可见消息、文件或知识库。\n5. 输出优先面向当前 IM 会话，可用 Markdown，但不要把 JSON 当作直接回复，除非用户明确要求机器可读 JSON。\n\n事件信息：\n- event_type: %s\n- conversation_id: %d\n- conversation_type: %s\n- sender_id: %d\n- reply_to_id: %d\n\n当前触发内容：\n%s\n\n会话材料说明：下面是 msg-core-service 从当前会话读取到的、Agent 用户有权看到的历史消息，按时间从旧到新排列；它们是本轮回答的主要事实来源。\n\n会话材料：\n%s", payload.Type, payload.ConversationID, payload.ConversationType, payload.SenderID, payload.ReplyToID, strings.TrimSpace(payload.Content), contextText), nil
 }
 
 func formatMessagesForAgentContext(messages []*message.Message) string {

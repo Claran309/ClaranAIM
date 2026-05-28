@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -128,6 +129,16 @@ type messageEventData struct {
 	MentionUserIDs   []int64
 	MentionAll       bool
 	UserID           int64
+}
+
+type mediaMessagePayload struct {
+	ID          string `json:"id"`
+	FileID      int64  `json:"file_id"`
+	Name        string `json:"name"`
+	URL         string `json:"url"`
+	ContentType string `json:"content_type"`
+	Size        int64  `json:"size"`
+	SHA256      string `json:"sha256"`
 }
 
 var errConversationAccessDenied = errors.New("无权访问该会话")
@@ -526,7 +537,10 @@ func (s *messageServiceImpl) SendMessageExt(ctx context.Context, opts SendMessag
 			},
 			targetUserIDs: targetUserIDs,
 		}
-		return s.saveMessageEvent(ctx, tx, msgEvent.eventType, msgEvent.data, msgEvent.targetUserIDs)
+		if err := s.saveMessageEvent(ctx, tx, msgEvent.eventType, msgEvent.data, msgEvent.targetUserIDs); err != nil {
+			return err
+		}
+		return s.saveAgentNativeIMEvent(ctx, tx, conv, msg, targetUserIDs)
 	}); err != nil {
 		return nil, err
 	}
@@ -593,7 +607,10 @@ func (s *messageServiceImpl) MarkConversationRead(ctx context.Context, conversat
 		if err := tx.MarkMessagesReadThrough(ctx, conversationID, userID, messageID, readAt); err != nil {
 			return err
 		}
-		return s.saveReadReceipt(ctx, tx, conversationID, userID, messageID)
+		if err := s.saveReadReceipt(ctx, tx, conversationID, userID, messageID); err != nil {
+			return err
+		}
+		return s.saveAgentNativeReadEvent(ctx, tx, conv, userID, messageID, readAt)
 	}); err != nil {
 		return err
 	}
@@ -687,7 +704,10 @@ func (s *messageServiceImpl) EditMessage(ctx context.Context, messageID, editorI
 		}); err != nil {
 			return err
 		}
-		return s.saveMessageState(ctx, tx, msg, events.EventTypeMessageEdited, "message_edited")
+		if err := s.saveMessageState(ctx, tx, msg, events.EventTypeMessageEdited, "message_edited"); err != nil {
+			return err
+		}
+		return s.saveAgentNativeMessageStateEvent(ctx, tx, conv, msg, events.EventTypeMessageEdited, editorID)
 	}); err != nil {
 		return nil, err
 	}
@@ -733,7 +753,10 @@ func (s *messageServiceImpl) RecallMessage(ctx context.Context, messageID, opera
 		if err := tx.UpdateMessage(ctx, msg); err != nil {
 			return err
 		}
-		return s.saveMessageState(ctx, tx, msg, events.EventTypeMessageRecalled, "message_recalled")
+		if err := s.saveMessageState(ctx, tx, msg, events.EventTypeMessageRecalled, "message_recalled"); err != nil {
+			return err
+		}
+		return s.saveAgentNativeMessageStateEvent(ctx, tx, conv, msg, events.EventTypeMessageRecalled, operatorID)
 	}); err != nil {
 		return err
 	}
@@ -1137,6 +1160,17 @@ func dedupeUserIDs(userIDs []int64) []int64 {
 	return result
 }
 
+func joinInt64(ids []int64) string {
+	if len(ids) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(ids))
+	for _, id := range ids {
+		parts = append(parts, strconv.FormatInt(id, 10))
+	}
+	return strings.Join(parts, ",")
+}
+
 func marshalMentionUserIDs(userIDs []int64) (string, error) {
 	if len(userIDs) == 0 {
 		return "", nil
@@ -1199,8 +1233,11 @@ func (s *messageServiceImpl) ApplyGroupEvent(ctx context.Context, envelope event
 		if err != nil {
 			return err
 		}
-		_, err = s.CreateConversation(ctx, "group", payload.MemberIDs, payload.GroupID)
-		return err
+		conv, err := s.CreateConversation(ctx, "group", payload.MemberIDs, payload.GroupID)
+		if err != nil {
+			return err
+		}
+		return s.saveAgentNativeGroupMemberEvent(ctx, conv, payload.OperatorID, events.EventTypeGroupMemberJoined, payload.UserIDs, payload.MemberIDs)
 	case events.EventTypeGroupMemberKicked:
 		payload, err := events.DecodePayload[events.GroupMemberKickedPayload](envelope)
 		if err != nil {
@@ -1211,6 +1248,9 @@ func (s *messageServiceImpl) ApplyGroupEvent(ctx context.Context, envelope event
 			return err
 		}
 		if err := s.repo.RemoveParticipant(ctx, conv.ID, payload.UserID); err != nil {
+			return err
+		}
+		if err := s.saveAgentNativeGroupMemberEvent(ctx, conv, payload.OperatorID, events.EventTypeGroupMemberLeft, []int64{payload.UserID}, payload.MemberIDs); err != nil {
 			return err
 		}
 		s.invalidateConversationCache(ctx, payload.UserID)
@@ -1258,6 +1298,235 @@ func (s *messageServiceImpl) saveMessageEvent(ctx context.Context, repo dao.Mess
 		return err
 	}
 	return repo.SaveOutboxEvent(ctx, record)
+}
+
+func (s *messageServiceImpl) saveAgentNativeGroupMemberEvent(ctx context.Context, conv *model.Conversation, operatorID int64, eventType string, userIDs []int64, participantIDs []int64) error {
+	if conv == nil || conv.ID <= 0 || len(userIDs) == 0 {
+		return nil
+	}
+	userIDs = dedupeUserIDs(userIDs)
+	participantIDs = dedupeUserIDs(participantIDs)
+	payload := events.IMEventPayload{
+		EventType:        eventType,
+		ConversationID:   conv.ID,
+		ConversationType: conv.Type,
+		SenderID:         operatorID,
+		ParticipantIDs:   participantIDs,
+		Permission: events.PermissionContext{
+			Scope:          conv.Type,
+			VisibleUserIDs: participantIDs,
+			GroupRole:      "admin",
+			CanReadFiles:   true,
+			CanWrite:       true,
+		},
+		OccurredAt:     time.Now().Format(time.RFC3339Nano),
+		IdempotencyKey: fmt.Sprintf("%s:%d:%s", eventType, conv.ID, joinInt64(userIDs)),
+		Metadata: map[string]string{
+			"group_id":    strconv.FormatInt(conv.GroupID, 10),
+			"operator_id": strconv.FormatInt(operatorID, 10),
+			"user_id":     strconv.FormatInt(userIDs[0], 10),
+			"user_ids":    joinInt64(userIDs),
+		},
+	}
+	envelope, err := events.NewEnvelope(eventType, strconv.FormatInt(conv.ID, 10), payload)
+	if err != nil {
+		return err
+	}
+	record, err := outbox.NewEvent("im", conv.ID, envelope)
+	if err != nil {
+		return err
+	}
+	return s.repo.SaveOutboxEvent(ctx, record)
+}
+
+func (s *messageServiceImpl) saveAgentNativeIMEvent(ctx context.Context, repo dao.MessageRepository, conv *model.Conversation, msg *model.Message, participantIDs []int64) error {
+	if conv == nil || msg == nil {
+		return nil
+	}
+	eventType, attachment, ok := agentNativeEventFromMessage(msg)
+	if !ok {
+		return nil
+	}
+	participantIDs = dedupeUserIDs(participantIDs)
+	payload := events.IMEventPayload{
+		EventType:        eventType,
+		ConversationID:   msg.ConversationID,
+		ConversationType: conv.Type,
+		SenderID:         msg.SenderID,
+		Content:          msg.Content,
+		MsgType:          msg.MsgType,
+		MsgID:            msg.ID,
+		ReplyToID:        msg.ReplyToID,
+		ParticipantIDs:   participantIDs,
+		MentionUserIDs:   msg.MentionUserIDs,
+		MentionAll:       msg.MentionAll,
+		AttachmentRefs:   []events.AttachmentRef{attachment},
+		Permission: events.PermissionContext{
+			Scope:          conv.Type,
+			VisibleUserIDs: participantIDs,
+			CanReadFiles:   true,
+			CanWrite:       true,
+		},
+		OccurredAt:     msg.CreatedAt.Format(time.RFC3339Nano),
+		IdempotencyKey: fmt.Sprintf("%s:%d", eventType, msg.ID),
+	}
+	envelope, err := events.NewEnvelope(eventType, strconv.FormatInt(msg.ConversationID, 10), payload)
+	if err != nil {
+		return err
+	}
+	record, err := outbox.NewEvent("im", msg.ID, envelope)
+	if err != nil {
+		return err
+	}
+	return repo.SaveOutboxEvent(ctx, record)
+}
+
+func (s *messageServiceImpl) saveAgentNativeMessageStateEvent(ctx context.Context, repo dao.MessageRepository, conv *model.Conversation, msg *model.Message, businessEventType string, actorID int64) error {
+	if conv == nil || msg == nil {
+		return nil
+	}
+	participants, err := repo.GetParticipants(ctx, msg.ConversationID)
+	if err != nil {
+		return err
+	}
+	participantIDs := userIDsFromParticipants(participants)
+	envelopeType := imEnvelopeTypeForMessageEvent(businessEventType)
+	if envelopeType == "" {
+		return nil
+	}
+	payload := events.IMEventPayload{
+		EventType:        businessEventType,
+		ConversationID:   msg.ConversationID,
+		ConversationType: conv.Type,
+		SenderID:         actorID,
+		Content:          msg.Content,
+		MsgType:          msg.MsgType,
+		MsgID:            msg.ID,
+		ReplyToID:        msg.ReplyToID,
+		ParticipantIDs:   participantIDs,
+		MentionUserIDs:   msg.MentionUserIDs,
+		MentionAll:       msg.MentionAll,
+		Permission: events.PermissionContext{
+			Scope:          conv.Type,
+			VisibleUserIDs: participantIDs,
+			CanReadFiles:   true,
+			CanWrite:       true,
+		},
+		OccurredAt:     time.Now().Format(time.RFC3339Nano),
+		IdempotencyKey: fmt.Sprintf("%s:%d", businessEventType, msg.ID),
+		Metadata: map[string]string{
+			"message_status": msg.Status,
+		},
+	}
+	envelope, err := events.NewEnvelope(envelopeType, strconv.FormatInt(msg.ConversationID, 10), payload)
+	if err != nil {
+		return err
+	}
+	record, err := outbox.NewEvent("im", msg.ID, envelope)
+	if err != nil {
+		return err
+	}
+	return repo.SaveOutboxEvent(ctx, record)
+}
+
+func (s *messageServiceImpl) saveAgentNativeReadEvent(ctx context.Context, repo dao.MessageRepository, conv *model.Conversation, readerID, messageID int64, readAt time.Time) error {
+	if conv == nil {
+		return nil
+	}
+	participants, err := repo.GetParticipants(ctx, conv.ID)
+	if err != nil {
+		return err
+	}
+	participantIDs := userIDsFromParticipants(participants)
+	payload := events.IMEventPayload{
+		EventType:        events.EventTypeMessageRead,
+		ConversationID:   conv.ID,
+		ConversationType: conv.Type,
+		SenderID:         readerID,
+		MsgID:            messageID,
+		ParticipantIDs:   participantIDs,
+		Permission: events.PermissionContext{
+			Scope:          conv.Type,
+			VisibleUserIDs: participantIDs,
+			CanReadFiles:   true,
+			CanWrite:       true,
+		},
+		OccurredAt:     readAt.Format(time.RFC3339Nano),
+		IdempotencyKey: fmt.Sprintf("%s:%d:%d", events.EventTypeMessageRead, readerID, messageID),
+	}
+	envelope, err := events.NewEnvelope(events.EventTypeIMMessageRead, strconv.FormatInt(conv.ID, 10), payload)
+	if err != nil {
+		return err
+	}
+	record, err := outbox.NewEvent("im", messageID, envelope)
+	if err != nil {
+		return err
+	}
+	return repo.SaveOutboxEvent(ctx, record)
+}
+
+func imEnvelopeTypeForMessageEvent(eventType string) string {
+	switch eventType {
+	case events.EventTypeMessageEdited:
+		return events.EventTypeIMMessageEdited
+	case events.EventTypeMessageRecalled:
+		return events.EventTypeIMMessageRecalled
+	case events.EventTypeMessageRead:
+		return events.EventTypeIMMessageRead
+	default:
+		return ""
+	}
+}
+
+func agentNativeEventFromMessage(msg *model.Message) (string, events.AttachmentRef, bool) {
+	if msg == nil {
+		return "", events.AttachmentRef{}, false
+	}
+	switch msg.MsgType {
+	case "file", "image":
+		attachment := attachmentRefFromMessageContent(msg.Content)
+		return events.EventTypeFileUploaded, attachment, true
+	case "voice":
+		attachment := attachmentRefFromMessageContent(msg.Content)
+		return events.EventTypeVoiceTranscribed, attachment, true
+	default:
+		return "", events.AttachmentRef{}, false
+	}
+}
+
+func attachmentRefFromMessageContent(content string) events.AttachmentRef {
+	trimmed := strings.TrimSpace(content)
+	for _, prefix := range []string{"[file]", "[img]", "[voice]"} {
+		if strings.HasPrefix(trimmed, prefix) {
+			trimmed = strings.TrimSpace(strings.TrimPrefix(trimmed, prefix))
+			break
+		}
+	}
+	var media mediaMessagePayload
+	if strings.HasPrefix(trimmed, "{") {
+		_ = json.Unmarshal([]byte(trimmed), &media)
+	}
+	fileID := media.FileID
+	if fileID == 0 && media.ID != "" {
+		if parsed, err := strconv.ParseInt(media.ID, 10, 64); err == nil {
+			fileID = parsed
+		}
+	}
+	name := media.Name
+	if name == "" && media.URL != "" {
+		name = filepath.Base(media.URL)
+	}
+	if name == "." || name == "/" || name == "\\" {
+		name = ""
+	}
+	return events.AttachmentRef{
+		FileID:      fileID,
+		Name:        name,
+		ContentType: media.ContentType,
+		URL:         media.URL,
+		Size:        media.Size,
+		SHA256:      media.SHA256,
+	}
 }
 
 func userIDsFromParticipants(participants []model.ConversationParticipant) []int64 {

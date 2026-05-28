@@ -4,6 +4,7 @@ package dao
 import (
 	"ClaranAIM/internal/bot-manager-service/model"
 	"context"
+	"strings"
 
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
@@ -20,6 +21,8 @@ func InitDB(dsn string) (*gorm.DB, error) {
 		&model.Bot{},
 		&model.BotPermission{},
 		&model.AgentDispatchRecord{},
+		&model.AgentSubscriptionRule{},
+		&model.AgentAuditRecord{},
 		&model.BotRoute{},
 		&model.BillingRecord{},
 	}
@@ -63,6 +66,10 @@ func (r *agentDispatchRepositoryImpl) Start(ctx context.Context, record *model.A
 		return true, r.db.WithContext(ctx).Model(&existing).Updates(map[string]interface{}{
 			"status":          "started",
 			"bot_id":          record.BotID,
+			"event_type":      record.EventType,
+			"decision":        record.Decision,
+			"source_event_id": record.SourceEventID,
+			"agent_trace_id":  record.AgentTraceID,
 			"source_msg_id":   record.SourceMsgID,
 			"conversation_id": record.ConversationID,
 			"sender_id":       record.SenderID,
@@ -93,6 +100,89 @@ func (r *agentDispatchRepositoryImpl) MarkFailed(ctx context.Context, eventID st
 			"status":        "failed",
 			"error_message": message,
 		}).Error
+}
+
+// AgentSubscriptionRepository stores Agent-native event subscription rules.
+type AgentSubscriptionRepository interface {
+	ListActiveRules(ctx context.Context, conversationID int64, eventType string) ([]model.AgentSubscriptionRule, error)
+	UpsertRouteMirror(ctx context.Context, rule *model.AgentSubscriptionRule) error
+	DeleteRouteMirror(ctx context.Context, botID int64, routeID int64) error
+}
+
+type agentSubscriptionRepositoryImpl struct {
+	db *gorm.DB
+}
+
+// NewAgentSubscriptionRepo creates a GORM-backed subscription repository.
+func NewAgentSubscriptionRepo(db *gorm.DB) AgentSubscriptionRepository {
+	return &agentSubscriptionRepositoryImpl{db: db}
+}
+
+// ListActiveRules returns rules that can observe the current conversation and event.
+func (r *agentSubscriptionRepositoryImpl) ListActiveRules(ctx context.Context, conversationID int64, eventType string) ([]model.AgentSubscriptionRule, error) {
+	var rules []model.AgentSubscriptionRule
+	query := r.db.WithContext(ctx).Where("is_active = ?", true)
+	if conversationID > 0 {
+		query = query.Where("conversation_id = 0 OR conversation_id = ?", conversationID)
+	}
+	if err := query.Find(&rules).Error; err != nil {
+		return nil, err
+	}
+	filtered := make([]model.AgentSubscriptionRule, 0, len(rules))
+	for _, rule := range rules {
+		if eventType == "" || containsCSVToken(rule.EventTypes, eventType) || rule.EventTypes == "" {
+			filtered = append(filtered, rule)
+		}
+	}
+	return filtered, nil
+}
+
+// UpsertRouteMirror keeps legacy bot route rules usable by Agent-native dispatch.
+func (r *agentSubscriptionRepositoryImpl) UpsertRouteMirror(ctx context.Context, rule *model.AgentSubscriptionRule) error {
+	if rule == nil {
+		return nil
+	}
+	return r.db.WithContext(ctx).
+		Where("source_route_id = ? AND bot_id = ?", rule.SourceRouteID, rule.BotID).
+		Assign(map[string]interface{}{
+			"agent_user_id":     rule.AgentUserID,
+			"conversation_id":   rule.ConversationID,
+			"conversation_type": rule.ConversationType,
+			"event_types":       rule.EventTypes,
+			"keywords":          rule.Keywords,
+			"command_prefix":    rule.CommandPrefix,
+			"trigger_mode":      rule.TriggerMode,
+			"action":            rule.Action,
+			"silent":            rule.Silent,
+			"is_active":         rule.IsActive,
+		}).
+		FirstOrCreate(rule).Error
+}
+
+// DeleteRouteMirror removes the subscription generated from a bot route.
+func (r *agentSubscriptionRepositoryImpl) DeleteRouteMirror(ctx context.Context, botID int64, routeID int64) error {
+	return r.db.WithContext(ctx).
+		Where("bot_id = ? AND source_route_id = ?", botID, routeID).
+		Delete(&model.AgentSubscriptionRule{}).Error
+}
+
+// AgentAuditRepository stores Agent-native routing and action decisions.
+type AgentAuditRepository interface {
+	Create(ctx context.Context, record *model.AgentAuditRecord) error
+}
+
+type agentAuditRepositoryImpl struct {
+	db *gorm.DB
+}
+
+// NewAgentAuditRepo creates a GORM-backed audit repository.
+func NewAgentAuditRepo(db *gorm.DB) AgentAuditRepository {
+	return &agentAuditRepositoryImpl{db: db}
+}
+
+// Create inserts one audit record.
+func (r *agentAuditRepositoryImpl) Create(ctx context.Context, record *model.AgentAuditRecord) error {
+	return r.db.WithContext(ctx).Create(record).Error
 }
 
 // BotRepository stores bot configurations.
@@ -223,6 +313,7 @@ func (r *permissionRepositoryImpl) ListPermissions(ctx context.Context, botID in
 // RouteRepository stores bot routing rules.
 type RouteRepository interface {
 	CreateRoute(ctx context.Context, route *model.BotRoute) error
+	GetRouteByID(ctx context.Context, id int64) (*model.BotRoute, error)
 	ListRoutes(ctx context.Context, botID int64) ([]model.BotRoute, error)
 	DeleteRoute(ctx context.Context, id int64) error
 }
@@ -239,6 +330,18 @@ func NewRouteRepo(db *gorm.DB) RouteRepository {
 // CreateRoute inserts a route rule.
 func (r *routeRepositoryImpl) CreateRoute(ctx context.Context, route *model.BotRoute) error {
 	return r.db.WithContext(ctx).Create(route).Error
+}
+
+// GetRouteByID returns one route or nil.
+func (r *routeRepositoryImpl) GetRouteByID(ctx context.Context, id int64) (*model.BotRoute, error) {
+	var route model.BotRoute
+	if err := r.db.WithContext(ctx).Where("id = ?", id).First(&route).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &route, nil
 }
 
 // ListRoutes returns routes ordered by priority for one bot.
@@ -293,4 +396,13 @@ func (r *billingRepositoryImpl) ListRecords(ctx context.Context, botID, userID i
 		return nil, 0, err
 	}
 	return records, total, nil
+}
+
+func containsCSVToken(csv string, token string) bool {
+	for _, part := range strings.Split(csv, ",") {
+		if strings.TrimSpace(part) == token {
+			return true
+		}
+	}
+	return false
 }

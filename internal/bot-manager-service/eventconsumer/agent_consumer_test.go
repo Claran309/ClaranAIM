@@ -136,11 +136,222 @@ func TestHandleAgentMentionEventInjectsGroupContext(t *testing.T) {
 	}
 }
 
+func TestAgentEventDispatcherIgnoresUnmatchedGroupMessage(t *testing.T) {
+	envelope, err := events.NewEnvelope(events.EventTypeMessageCreated, "10", events.MessagePayload{
+		ConversationID:   10,
+		ConversationType: "group",
+		SenderID:         1001,
+		Content:          "普通群聊消息，不应该刷屏触发 Agent",
+		MsgID:            99,
+		ParticipantIDs:   []int64{1001, 1002, 2001},
+	})
+	if err != nil {
+		t.Fatalf("NewEnvelope returned error: %v", err)
+	}
+	botSvc := &fakeBotService{bot: &model.Bot{ID: 1, AgentUserID: 2001, IsActive: true}}
+	auditRepo := &fakeAuditRepo{}
+	dispatcher := NewAgentEventDispatcher(botSvc, &fakeDispatchRepo{}, &fakeSubscriptionRepo{}, auditRepo, &fakeMessageClient{})
+
+	if err := dispatcher.Handle(context.Background(), envelope); err != nil {
+		t.Fatalf("dispatcher.Handle returned error: %v", err)
+	}
+	if botSvc.chatCalls != 0 {
+		t.Fatalf("chat calls = %d, want 0", botSvc.chatCalls)
+	}
+	if len(auditRepo.records) != 0 {
+		t.Fatalf("audit records = %d, want no audit for ignored unmatched group message", len(auditRepo.records))
+	}
+}
+
+func TestAgentEventDispatcherTriggersConfiguredKeywordRule(t *testing.T) {
+	envelope, err := events.NewEnvelope(events.EventTypeMessageCreated, "10", events.MessagePayload{
+		ConversationID:   10,
+		ConversationType: "group",
+		SenderID:         1001,
+		Content:          "线上报错，请分析一下",
+		MsgID:            99,
+		ParticipantIDs:   []int64{1001, 1002, 2001},
+	})
+	if err != nil {
+		t.Fatalf("NewEnvelope returned error: %v", err)
+	}
+	botSvc := &fakeBotService{
+		bot:   &model.Bot{ID: 1, AgentUserID: 2001, IsActive: true},
+		reply: "分析结果",
+	}
+	msgClient := &fakeMessageClient{
+		sendResp: &message.SendMessageResp{Success: true, MsgId: 101},
+		historyResp: &message.GetHistoryResp{Success: true, Messages: []*message.Message{
+			{SenderId: 1002, Content: "前面提到过 Error 1292", CreatedAt: "2026-05-27 10:00:00"},
+		}},
+	}
+	auditRepo := &fakeAuditRepo{}
+	dispatcher := NewAgentEventDispatcher(botSvc, &fakeDispatchRepo{}, &fakeSubscriptionRepo{rules: []model.AgentSubscriptionRule{
+		{BotID: 1, AgentUserID: 2001, ConversationID: 10, EventTypes: "message.created", Keywords: "报错", TriggerMode: "keyword", Action: "trigger", IsActive: true},
+	}}, auditRepo, msgClient)
+
+	if err := dispatcher.Handle(context.Background(), envelope); err != nil {
+		t.Fatalf("dispatcher.Handle returned error: %v", err)
+	}
+	if botSvc.chatCalls != 1 {
+		t.Fatalf("chat calls = %d, want 1", botSvc.chatCalls)
+	}
+	if !strings.Contains(botSvc.lastMessage, "前面提到过 Error 1292") {
+		t.Fatalf("agent input did not include conversation context: %q", botSvc.lastMessage)
+	}
+	if msgClient.lastSend == nil || msgClient.lastSend.ClientMsgId == "" {
+		t.Fatalf("send request = %#v, want idempotent client msg id", msgClient.lastSend)
+	}
+	if !auditRepo.hasDecision("trigger") {
+		t.Fatalf("audit records = %#v, want trigger audit", auditRepo.records)
+	}
+}
+
+func TestAgentEventDispatcherRecordsSilentRuleWithoutRunningAgent(t *testing.T) {
+	envelope, err := events.NewEnvelope(events.EventTypeFileUploaded, "10", events.IMEventPayload{
+		EventType:        events.EventTypeFileUploaded,
+		ConversationID:   10,
+		ConversationType: "group",
+		SenderID:         1001,
+		ParticipantIDs:   []int64{1001, 2001},
+		AttachmentRefs:   []events.AttachmentRef{{FileID: 77, Name: "bug.png", ContentType: "image/png"}},
+		IdempotencyKey:   "file.uploaded:77",
+	})
+	if err != nil {
+		t.Fatalf("NewEnvelope returned error: %v", err)
+	}
+	botSvc := &fakeBotService{bot: &model.Bot{ID: 1, AgentUserID: 2001, IsActive: true}}
+	auditRepo := &fakeAuditRepo{}
+	dispatcher := NewAgentEventDispatcher(botSvc, &fakeDispatchRepo{}, &fakeSubscriptionRepo{rules: []model.AgentSubscriptionRule{
+		{BotID: 1, AgentUserID: 2001, ConversationID: 10, EventTypes: events.EventTypeFileUploaded, TriggerMode: "all", Action: "record", IsActive: true},
+	}}, auditRepo, &fakeMessageClient{})
+
+	if err := dispatcher.Handle(context.Background(), envelope); err != nil {
+		t.Fatalf("dispatcher.Handle returned error: %v", err)
+	}
+	if botSvc.chatCalls != 0 {
+		t.Fatalf("chat calls = %d, want 0 for silent record", botSvc.chatCalls)
+	}
+	if len(auditRepo.records) != 1 || auditRepo.records[0].Decision != "record" {
+		t.Fatalf("audit records = %#v, want one record decision", auditRepo.records)
+	}
+}
+
+func TestAgentEventDispatcherInjectsAttachmentContextForFileEvent(t *testing.T) {
+	envelope, err := events.NewEnvelope(events.EventTypeFileUploaded, "10", events.IMEventPayload{
+		EventType:        events.EventTypeFileUploaded,
+		ConversationID:   10,
+		ConversationType: "group",
+		SenderID:         1001,
+		ParticipantIDs:   []int64{1001, 2001},
+		AttachmentRefs: []events.AttachmentRef{{
+			FileID:      77,
+			Name:        "error.png",
+			ContentType: "image/png",
+			URL:         "/files/77",
+		}},
+		IdempotencyKey: "file.uploaded:77",
+	})
+	if err != nil {
+		t.Fatalf("NewEnvelope returned error: %v", err)
+	}
+	botSvc := &fakeBotService{
+		bot:   &model.Bot{ID: 1, AgentUserID: 2001, IsActive: true},
+		reply: "收到文件",
+	}
+	dispatcher := NewAgentEventDispatcher(botSvc, &fakeDispatchRepo{}, &fakeSubscriptionRepo{rules: []model.AgentSubscriptionRule{
+		{BotID: 1, AgentUserID: 2001, ConversationID: 10, EventTypes: events.EventTypeFileUploaded, TriggerMode: "all", Action: "trigger", IsActive: true},
+	}}, &fakeAuditRepo{}, &fakeMessageClient{sendResp: &message.SendMessageResp{Success: true, MsgId: 101}})
+
+	if err := dispatcher.Handle(context.Background(), envelope); err != nil {
+		t.Fatalf("dispatcher.Handle returned error: %v", err)
+	}
+	if !strings.Contains(botSvc.lastMessage, "error.png") || !strings.Contains(botSvc.lastMessage, "/files/77") {
+		t.Fatalf("agent input did not include attachment context: %q", botSvc.lastMessage)
+	}
+}
+
+func TestAgentEventDispatcherHandlesUnifiedMessageReadEvent(t *testing.T) {
+	envelope, err := events.NewEnvelope(events.EventTypeIMMessageRead, "10", events.IMEventPayload{
+		EventType:        events.EventTypeMessageRead,
+		ConversationID:   10,
+		ConversationType: "group",
+		SenderID:         1001,
+		MsgID:            99,
+		ParticipantIDs:   []int64{1001, 2001},
+		IdempotencyKey:   "message.read:1001:99",
+	})
+	if err != nil {
+		t.Fatalf("NewEnvelope returned error: %v", err)
+	}
+	botSvc := &fakeBotService{bot: &model.Bot{ID: 1, AgentUserID: 2001, IsActive: true}}
+	auditRepo := &fakeAuditRepo{}
+	dispatcher := NewAgentEventDispatcher(botSvc, &fakeDispatchRepo{}, &fakeSubscriptionRepo{rules: []model.AgentSubscriptionRule{
+		{BotID: 1, AgentUserID: 2001, ConversationID: 10, EventTypes: events.EventTypeMessageRead, TriggerMode: "all", Action: "record", IsActive: true},
+	}}, auditRepo, &fakeMessageClient{})
+
+	if err := dispatcher.Handle(context.Background(), envelope); err != nil {
+		t.Fatalf("dispatcher.Handle returned error: %v", err)
+	}
+	if botSvc.chatCalls != 0 {
+		t.Fatalf("chat calls = %d, want silent record only", botSvc.chatCalls)
+	}
+	if len(auditRepo.records) != 1 || auditRepo.records[0].EventType != events.EventTypeMessageRead {
+		t.Fatalf("audit records = %#v, want message.read record", auditRepo.records)
+	}
+}
+
+func TestAgentEventDispatcherUsesPayloadIdempotencyKeyForIMEvents(t *testing.T) {
+	payload := events.IMEventPayload{
+		EventType:        events.EventTypeFileUploaded,
+		ConversationID:   10,
+		ConversationType: "group",
+		SenderID:         1001,
+		ParticipantIDs:   []int64{1001, 2001},
+		IdempotencyKey:   "file.uploaded:10:77",
+		AttachmentRefs:   []events.AttachmentRef{{FileID: 77, Name: "error.png"}},
+	}
+	first, err := events.NewEnvelope(events.EventTypeFileUploaded, "10", payload)
+	if err != nil {
+		t.Fatalf("NewEnvelope first returned error: %v", err)
+	}
+	second, err := events.NewEnvelope(events.EventTypeFileUploaded, "10", payload)
+	if err != nil {
+		t.Fatalf("NewEnvelope second returned error: %v", err)
+	}
+	botSvc := &fakeBotService{
+		bot:   &model.Bot{ID: 1, AgentUserID: 2001, IsActive: true},
+		reply: "收到文件",
+	}
+	dispatchRepo := &fakeDispatchRepo{seen: map[string]struct{}{}}
+	dispatcher := NewAgentEventDispatcher(botSvc, dispatchRepo, &fakeSubscriptionRepo{rules: []model.AgentSubscriptionRule{
+		{BotID: 1, AgentUserID: 2001, ConversationID: 10, EventTypes: events.EventTypeFileUploaded, TriggerMode: "all", Action: "trigger", IsActive: true},
+	}}, &fakeAuditRepo{}, &fakeMessageClient{sendResp: &message.SendMessageResp{Success: true, MsgId: 101}})
+
+	if err := dispatcher.Handle(context.Background(), first); err != nil {
+		t.Fatalf("first Handle returned error: %v", err)
+	}
+	if err := dispatcher.Handle(context.Background(), second); err != nil {
+		t.Fatalf("second Handle returned error: %v", err)
+	}
+	if botSvc.chatCalls != 1 {
+		t.Fatalf("chat calls = %d, want one run for duplicate payload idempotency key", botSvc.chatCalls)
+	}
+}
+
 type fakeDispatchRepo struct {
 	failed string
+	seen   map[string]struct{}
 }
 
 func (r *fakeDispatchRepo) Start(ctx context.Context, record *model.AgentDispatchRecord) (bool, error) {
+	if r.seen != nil {
+		key := record.EventID
+		if _, ok := r.seen[key]; ok {
+			return false, nil
+		}
+		r.seen[key] = struct{}{}
+	}
 	return true, nil
 }
 
@@ -151,6 +362,55 @@ func (r *fakeDispatchRepo) MarkCompleted(ctx context.Context, eventID string, ag
 func (r *fakeDispatchRepo) MarkFailed(ctx context.Context, eventID string, agentUserID int64, message string) error {
 	r.failed = message
 	return nil
+}
+
+type fakeSubscriptionRepo struct {
+	rules []model.AgentSubscriptionRule
+}
+
+func (r *fakeSubscriptionRepo) ListActiveRules(ctx context.Context, conversationID int64, eventType string) ([]model.AgentSubscriptionRule, error) {
+	var rules []model.AgentSubscriptionRule
+	for _, rule := range r.rules {
+		if rule.ConversationID != 0 && rule.ConversationID != conversationID {
+			continue
+		}
+		if rule.EventTypes != "" && !strings.Contains(rule.EventTypes, eventType) {
+			continue
+		}
+		if !rule.IsActive {
+			continue
+		}
+		rules = append(rules, rule)
+	}
+	return rules, nil
+}
+
+func (r *fakeSubscriptionRepo) UpsertRouteMirror(ctx context.Context, rule *model.AgentSubscriptionRule) error {
+	return nil
+}
+
+func (r *fakeSubscriptionRepo) DeleteRouteMirror(ctx context.Context, botID int64, routeID int64) error {
+	return nil
+}
+
+type fakeAuditRepo struct {
+	records []model.AgentAuditRecord
+}
+
+func (r *fakeAuditRepo) Create(ctx context.Context, record *model.AgentAuditRecord) error {
+	if record != nil {
+		r.records = append(r.records, *record)
+	}
+	return nil
+}
+
+func (r *fakeAuditRepo) hasDecision(decision string) bool {
+	for _, record := range r.records {
+		if record.Decision == decision {
+			return true
+		}
+	}
+	return false
 }
 
 type fakeBotService struct {

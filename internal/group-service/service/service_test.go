@@ -6,6 +6,7 @@ import (
 	"ClaranAIM/pkg/events"
 	"ClaranAIM/pkg/outbox"
 	"context"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -208,8 +209,44 @@ func TestCreateGroupPublishesGroupCreatedEvent(t *testing.T) {
 	if envelope.Type != events.EventTypeGroupCreated {
 		t.Fatalf("event type = %q, want %q", envelope.Type, events.EventTypeGroupCreated)
 	}
-	if envelope.Key != "1" || group.ID != 1 {
-		t.Fatalf("event key/group id = %q/%d, want 1/1", envelope.Key, group.ID)
+	if group.ID < 1000000000 || group.ID > 9999999999 {
+		t.Fatalf("group id = %d, want 10-digit public group id", group.ID)
+	}
+	if envelope.Key != strconv.FormatInt(group.ID, 10) {
+		t.Fatalf("event key = %q, want group id %d", envelope.Key, group.ID)
+	}
+}
+
+func TestJoinGroupByIDAllowsSelfJoinWithoutAdminRole(t *testing.T) {
+	repo := newFakeGroupRepo()
+	repo.groups[1000000001] = &model.Group{ID: 1000000001, Name: "public team", OwnerID: 1}
+	repo.members[1000000001] = map[int64]*model.GroupMember{
+		1: {GroupID: 1000000001, UserID: 1, Role: "owner"},
+	}
+	svc := NewGroupService(repo, nil)
+
+	if err := svc.InviteMember(context.Background(), 1000000001, 2, []int64{2}); err != nil {
+		t.Fatalf("self join by group id returned error: %v", err)
+	}
+	if repo.members[1000000001][2] == nil {
+		t.Fatal("expected current user to be added as a group member")
+	}
+	if len(repo.outbox) != 1 {
+		t.Fatalf("outbox len = %d, want one member invited event", len(repo.outbox))
+	}
+}
+
+func TestInviteMemberStillRequiresAdminWhenInvitingOthers(t *testing.T) {
+	repo := newFakeGroupRepo()
+	repo.groups[1000000001] = &model.Group{ID: 1000000001, Name: "public team", OwnerID: 1}
+	repo.members[1000000001] = map[int64]*model.GroupMember{
+		1: {GroupID: 1000000001, UserID: 1, Role: "owner"},
+		2: {GroupID: 1000000001, UserID: 2, Role: "member"},
+	}
+	svc := NewGroupService(repo, nil)
+
+	if err := svc.InviteMember(context.Background(), 1000000001, 2, []int64{3}); err == nil {
+		t.Fatal("expected non-admin invitation of another user to be denied")
 	}
 }
 

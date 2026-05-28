@@ -4,6 +4,8 @@ import (
 	"ClaranAIM/internal/api-gateway/client"
 	"ClaranAIM/internal/api-gateway/handler"
 	"ClaranAIM/internal/api-gateway/router"
+	memorydao "ClaranAIM/internal/memory-service/dao"
+	memorysvc "ClaranAIM/internal/memory-service/service"
 	"ClaranAIM/pkg/config"
 	"ClaranAIM/pkg/health"
 	"ClaranAIM/pkg/jwt"
@@ -28,6 +30,11 @@ func main() {
 
 	handler.InitFileStorage(cfg)
 	handler.InitDTMConfig(cfg.DTM)
+	memoryDB, err := memorydao.InitDB(cfg.MySQL.DSN)
+	if err != nil {
+		logger.Fatal("初始化memory-service数据库失败", "error", err)
+	}
+	handler.InitMemoryService(memorysvc.NewMemoryService(memorydao.NewMemoryRepo(memoryDB)))
 	if cfg.DTM.Enabled {
 		logger.Info("DTM分布式事务配置已启用", "server", cfg.DTM.Server)
 	} else {

@@ -17,6 +17,10 @@ const (
 	TopicMessageEvents = "claran.message.events"
 	// TopicAgentEvents carries Agent execution, tool and audit events.
 	TopicAgentEvents = "claran.agent.events"
+	// TopicIMEvents carries Agent-native IM events beyond the legacy message
+	// and group topics. Existing consumers can keep using their historical
+	// topics while Agent-native dispatchers subscribe to this unified contract.
+	TopicIMEvents = "claran.im.events"
 
 	// EventTypeGroupCreated is emitted after a group and initial members commit.
 	EventTypeGroupCreated = "group.created"
@@ -35,6 +39,26 @@ const (
 	EventTypeMessageRecalled = "message.recalled"
 	// EventTypeMessageRead is emitted after a user's read cursor advances.
 	EventTypeMessageRead = "message.read"
+	// EventTypeIMMessageEdited carries message edit facts on the unified IM topic.
+	EventTypeIMMessageEdited = "im.message.edited"
+	// EventTypeIMMessageRecalled carries message recall facts on the unified IM topic.
+	EventTypeIMMessageRecalled = "im.message.recalled"
+	// EventTypeIMMessageRead carries read-receipt facts on the unified IM topic.
+	EventTypeIMMessageRead = "im.message.read"
+	// EventTypeReactionAdded is emitted after a user reacts to a message.
+	EventTypeReactionAdded = "reaction.added"
+	// EventTypeFileUploaded is emitted after a file becomes visible in a conversation.
+	EventTypeFileUploaded = "file.uploaded"
+	// EventTypeVoiceTranscribed is emitted after a voice message receives text.
+	EventTypeVoiceTranscribed = "voice.transcribed"
+	// EventTypeGroupMemberJoined is the Agent-native group join event name.
+	EventTypeGroupMemberJoined = "group.member_joined"
+	// EventTypeGroupMemberLeft is the Agent-native group leave event name.
+	EventTypeGroupMemberLeft = "group.member_left"
+	// EventTypeSystemNotice is emitted for auditable system notices.
+	EventTypeSystemNotice = "system.notice"
+	// EventTypeTaskChanged is emitted when an external or internal task changes.
+	EventTypeTaskChanged = "task.changed"
 
 	// EventTypeAgentInvoked is emitted when an Agent starts handling a request.
 	EventTypeAgentInvoked = "agent.invoked"
@@ -105,6 +129,8 @@ func (e Envelope) Topic() string {
 		return TopicMessageEvents
 	case EventTypeAgentInvoked, EventTypeAgentCompleted, EventTypeAgentFailed, EventTypeAgentToolCalled, EventTypeAgentAuditRecorded:
 		return TopicAgentEvents
+	case EventTypeIMMessageEdited, EventTypeIMMessageRecalled, EventTypeIMMessageRead, EventTypeReactionAdded, EventTypeFileUploaded, EventTypeVoiceTranscribed, EventTypeGroupMemberJoined, EventTypeGroupMemberLeft, EventTypeSystemNotice, EventTypeTaskChanged:
+		return TopicIMEvents
 	default:
 		return ""
 	}
@@ -166,6 +192,53 @@ type MessagePayload struct {
 	UserID           int64   `json:"user_id"`
 	TargetUserIDs    []int64 `json:"target_user_ids"`
 	ParticipantIDs   []int64 `json:"participant_ids"`
+}
+
+// IMEventPayload is the Agent-native event contract used by the dispatcher.
+//
+// It intentionally carries conversation routing, participant visibility,
+// mentions, reply references, attachment references and idempotency metadata in
+// one place so Agent consumers do not need to reverse-engineer context from
+// several service-specific payloads.
+type IMEventPayload struct {
+	EventType        string            `json:"event_type"`
+	ConversationID   int64             `json:"conversation_id"`
+	ConversationType string            `json:"conversation_type"`
+	SenderID         int64             `json:"sender_id"`
+	Content          string            `json:"content"`
+	MsgType          string            `json:"msg_type"`
+	MsgID            int64             `json:"msg_id"`
+	ReplyToID        int64             `json:"reply_to_id"`
+	ParticipantIDs   []int64           `json:"participant_ids"`
+	MentionUserIDs   []int64           `json:"mention_user_ids"`
+	MentionAll       bool              `json:"mention_all"`
+	AttachmentRefs   []AttachmentRef   `json:"attachment_refs"`
+	Permission       PermissionContext `json:"permission_context"`
+	OccurredAt       string            `json:"occurred_at"`
+	IdempotencyKey   string            `json:"idempotency_key"`
+	Metadata         map[string]string `json:"metadata"`
+}
+
+// AttachmentRef gives Agent consumers enough information to decide whether a
+// file-like event should be parsed, summarized, stored silently or ignored.
+type AttachmentRef struct {
+	FileID      int64  `json:"file_id"`
+	Name        string `json:"name"`
+	ContentType string `json:"content_type"`
+	URL         string `json:"url"`
+	Size        int64  `json:"size"`
+	SHA256      string `json:"sha256"`
+}
+
+// PermissionContext describes the visibility boundary attached to an IM event.
+// Downstream Agent code must still re-check permissions before loading full
+// message/file bodies; this object is the fast routing hint and audit snapshot.
+type PermissionContext struct {
+	Scope          string  `json:"scope"`
+	VisibleUserIDs []int64 `json:"visible_user_ids"`
+	GroupRole      string  `json:"group_role"`
+	CanReadFiles   bool    `json:"can_read_files"`
+	CanWrite       bool    `json:"can_write"`
 }
 
 // AgentPayload describes runtime events for audit and async subscribers.

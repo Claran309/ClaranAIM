@@ -184,6 +184,8 @@ const groupAPI = {
         request('POST', '/group/create', { name, member_ids: apiIDs(memberIDs) }),
     get: (id) => request('GET', `/group/${id}`),
     list: () => request('GET', '/group/list'),
+    join: (groupID) =>
+        request('POST', '/group/join', { group_id: apiID(groupID) }),
     invite: (groupID, userIDs) =>
         request('POST', '/group/invite', { group_id: apiID(groupID), user_ids: apiIDs(userIDs) }),
     kick: (groupID, userID) =>
@@ -336,6 +338,22 @@ const agentAPI = {
         request('POST', '/agent/approval/reject', { approval_id: approvalID }),
     addFriend: (botID, groupID = 0, remark = '') =>
         request('POST', '/agent/add-friend', { bot_id: apiID(botID), group_id: apiID(groupID || 0), remark }),
+};
+
+const memoryAPI = {
+    list: (params = {}) => {
+        const query = new URLSearchParams();
+        Object.entries(params || {}).forEach(([key, value]) => {
+            if (value !== undefined && value !== null && value !== '') {
+                query.set(key, String(value));
+            }
+        });
+        const suffix = query.toString() ? `?${query.toString()}` : '';
+        return request('GET', `/memory/list${suffix}`);
+    },
+    create: (data) => request('POST', '/memory/create', data),
+    update: (id, data) => request('PUT', `/memory/${apiID(id)}`, data),
+    delete: (id) => request('DELETE', `/memory/${apiID(id)}`),
 };
 
 async function connectWS() {

@@ -3,6 +3,8 @@ package service
 import (
 	"ClaranAIM/internal/bot-manager-service/dao"
 	"ClaranAIM/internal/bot-manager-service/model"
+	memorymodel "ClaranAIM/internal/memory-service/model"
+	memorysvc "ClaranAIM/internal/memory-service/service"
 	"ClaranAIM/kitex_gen/bot_runtime"
 	"ClaranAIM/kitex_gen/bot_runtime/botruntimeservice"
 	"ClaranAIM/kitex_gen/user"
@@ -52,13 +54,21 @@ type ChatResult struct {
 }
 
 type botServiceImpl struct {
-	botRepo        dao.BotRepository
-	permissionRepo dao.PermissionRepository
-	routeRepo      dao.RouteRepository
-	billingRepo    dao.BillingRepository
-	runtimeClient  botruntimeservice.Client
-	userClient     userservice.Client
-	workspaceBase  string
+	botRepo          dao.BotRepository
+	permissionRepo   dao.PermissionRepository
+	routeRepo        dao.RouteRepository
+	billingRepo      dao.BillingRepository
+	subscriptionRepo dao.AgentSubscriptionRepository
+	runtimeClient    botruntimeservice.Client
+	userClient       userservice.Client
+	workspaceBase    string
+	memoryService    AgentMemoryService
+}
+
+// AgentMemoryService is the narrow memory-service contract needed by bot-manager.
+type AgentMemoryService interface {
+	Recall(ctx context.Context, input memorysvc.RecallInput) (memorysvc.RecallResult, error)
+	CreateMemory(ctx context.Context, input memorysvc.CreateMemoryInput) (*memorymodel.MemoryFact, error)
 }
 
 // NewBotService keeps Bot metadata in MySQL and conversational memory on disk.
@@ -74,6 +84,20 @@ func NewBotService(botRepo dao.BotRepository, permissionRepo dao.PermissionRepos
 		userClient:     userClient,
 		workspaceBase:  workspaceBase,
 	}
+}
+
+// SetAgentSubscriptionRepository lets the process wire the optional Phase3
+// Agent-native subscription repository without changing the public Kitex-facing
+// BotService interface.
+func (s *botServiceImpl) SetAgentSubscriptionRepository(repo dao.AgentSubscriptionRepository) {
+	s.subscriptionRepo = repo
+}
+
+// SetMemoryService injects Phase4 long-term memory without changing the Kitex
+// BotService interface. The standalone memory RPC can later implement the same
+// narrow contract.
+func (s *botServiceImpl) SetMemoryService(memory AgentMemoryService) {
+	s.memoryService = memory
 }
 
 // CreateBot creates a bot configuration owned by one user.
@@ -293,11 +317,14 @@ func (s *botServiceImpl) ChatWithBot(ctx context.Context, botID, userID, convers
 	if s.runtimeClient == nil {
 		return nil, errors.New("bot-runtime-service未配置")
 	}
+	sessionID := defaultAgentSessionID(botID, userID, conversationID)
+	runtimeInput := s.buildInputWithMemory(ctx, botID, userID, conversationID, sessionID, message)
 	resp, err := s.runtimeClient.RunAgent(ctx, &bot_runtime.RunAgentReq{
 		Bot:            s.runtimeConfig(botInfo),
 		UserId:         userID,
 		ConversationId: conversationID,
-		Input:          message,
+		SessionId:      sessionID,
+		Input:          runtimeInput,
 	})
 	if err != nil {
 		s.recordBilling(ctx, botID, userID, conversationID, "chat_error", 0, 0, 0, botInfo.ModelName)
@@ -324,6 +351,11 @@ func (s *botServiceImpl) ChatWithBot(ctx context.Context, botID, userID, convers
 		action = "chat_usage_missing"
 	}
 	s.recordBilling(ctx, botID, userID, conversationID, action, inputTokens, outputTokens, actualCost, botInfo.ModelName)
+	resultSessionID := resp.SessionId
+	if resultSessionID == "" {
+		resultSessionID = sessionID
+	}
+	s.recordAgentRunMemory(ctx, botID, userID, conversationID, resultSessionID, message, resp.Reply)
 
 	log.Printf("Bot对话完成: bot_id=%d, user_id=%d, input_tokens=%d, output_tokens=%d, cost=%.6f, usage_seen=%v",
 		botID, userID, inputTokens, outputTokens, actualCost, usageSeen)
@@ -332,11 +364,89 @@ func (s *botServiceImpl) ChatWithBot(ctx context.Context, botID, userID, convers
 		Reply:          resp.Reply,
 		ConversationID: conversationID,
 		Status:         resp.Msg,
-		SessionID:      resp.SessionId,
+		SessionID:      resultSessionID,
 		InputTokens:    inputTokens,
 		OutputTokens:   outputTokens,
 		Cost:           actualCost,
 	}, nil
+}
+
+func defaultAgentSessionID(botID, userID, conversationID int64) string {
+	return fmt.Sprintf("agent_%d_user_%d_conv_%d", botID, userID, conversationID)
+}
+
+func (s *botServiceImpl) buildInputWithMemory(ctx context.Context, botID, userID, conversationID int64, sessionID, message string) string {
+	if s.memoryService == nil {
+		return message
+	}
+	result, err := s.memoryService.Recall(ctx, memorysvc.RecallInput{
+		BotID:          botID,
+		UserID:         userID,
+		ConversationID: conversationID,
+		SessionID:      sessionID,
+		Limit:          12,
+	})
+	if err != nil || strings.TrimSpace(result.ContextText) == "" {
+		if err != nil {
+			log.Printf("召回Agent长期记忆失败: bot_id=%d user_id=%d err=%v", botID, userID, err)
+		}
+		return message
+	}
+	return fmt.Sprintf("%s\n\n请只把上面的长期记忆作为辅助背景，不要泄露记忆系统内部字段；如果用户纠正了记忆，以用户当前说法为准。\n\n用户本次输入：\n%s", result.ContextText, message)
+}
+
+func (s *botServiceImpl) recordAgentRunMemory(ctx context.Context, botID, userID, conversationID int64, sessionID, userMessage, reply string) {
+	if s.memoryService == nil {
+		return
+	}
+	content := summarizeAgentRunMemory(userMessage, reply)
+	if content == "" {
+		return
+	}
+	_, err := s.memoryService.CreateMemory(ctx, memorysvc.CreateMemoryInput{
+		BotID:          botID,
+		UserID:         userID,
+		OwnerUserID:    userID,
+		ConversationID: conversationID,
+		SessionID:      sessionID,
+		Scope:          memorymodel.ScopeConversation,
+		Type:           memorymodel.TypeAgentRun,
+		Content:        content,
+		Source:         "agent_run",
+		Visibility:     memorymodel.VisibilityPrivate,
+		VectorStatus:   memorymodel.VectorPending,
+		Confidence:     0.5,
+	})
+	if err != nil {
+		log.Printf("写入Agent运行摘要记忆失败: bot_id=%d user_id=%d err=%v", botID, userID, err)
+	}
+}
+
+func summarizeAgentRunMemory(userMessage, reply string) string {
+	userMessage = truncateRunMemoryText(userMessage, 240)
+	reply = truncateRunMemoryText(reply, 360)
+	if userMessage == "" && reply == "" {
+		return ""
+	}
+	if reply == "" {
+		return "用户请求：" + userMessage
+	}
+	if userMessage == "" {
+		return "Agent回复：" + reply
+	}
+	return fmt.Sprintf("用户请求：%s\nAgent回复：%s", userMessage, reply)
+}
+
+func truncateRunMemoryText(text string, limit int) string {
+	text = strings.TrimSpace(strings.ReplaceAll(text, "\r\n", "\n"))
+	if text == "" {
+		return ""
+	}
+	runes := []rune(text)
+	if len(runes) <= limit {
+		return text
+	}
+	return string(runes[:limit]) + "..."
 }
 
 func (s *botServiceImpl) recordBilling(ctx context.Context, botID, userID, conversationID int64, action string, inputTokens, outputTokens int64, cost float64, modelName string) {
@@ -500,9 +610,54 @@ func (s *botServiceImpl) CreateRoute(ctx context.Context, botID int64, routePatt
 	if err := s.routeRepo.CreateRoute(ctx, route); err != nil {
 		return nil, err
 	}
+	if err := s.mirrorRouteToAgentSubscription(ctx, bot, route); err != nil {
+		return nil, err
+	}
 
 	log.Printf("路由创建成功: bot_id=%d, pattern=%s", botID, routePattern)
 	return route, nil
+}
+
+func (s *botServiceImpl) mirrorRouteToAgentSubscription(ctx context.Context, bot *model.Bot, route *model.BotRoute) error {
+	if s.subscriptionRepo == nil || bot == nil || route == nil || bot.AgentUserID <= 0 {
+		return nil
+	}
+	rule, ok := subscriptionRuleFromRoute(bot, route)
+	if !ok {
+		return nil
+	}
+	return s.subscriptionRepo.UpsertRouteMirror(ctx, rule)
+}
+
+func subscriptionRuleFromRoute(bot *model.Bot, route *model.BotRoute) (*model.AgentSubscriptionRule, bool) {
+	ruleType := strings.ToLower(strings.TrimSpace(route.RouteType))
+	rule := &model.AgentSubscriptionRule{
+		BotID:         bot.ID,
+		AgentUserID:   bot.AgentUserID,
+		SourceRouteID: route.ID,
+		EventTypes:    "message.created",
+		Action:        "trigger",
+		IsActive:      true,
+	}
+	switch ruleType {
+	case "agent_keyword", "keyword":
+		rule.TriggerMode = "keyword"
+		rule.Keywords = strings.TrimSpace(route.RoutePattern)
+	case "agent_command", "command":
+		rule.TriggerMode = "command"
+		rule.CommandPrefix = strings.TrimSpace(route.RoutePattern)
+	case "agent_record", "record", "silent":
+		rule.EventTypes = strings.TrimSpace(route.RoutePattern)
+		if rule.EventTypes == "" {
+			rule.EventTypes = "message.created"
+		}
+		rule.TriggerMode = "all"
+		rule.Action = "record"
+		rule.Silent = true
+	default:
+		return nil, false
+	}
+	return rule, true
 }
 
 // ListRoutes returns all routing rules for one bot.
@@ -513,6 +668,15 @@ func (s *botServiceImpl) ListRoutes(ctx context.Context, botID int64) ([]model.B
 // DeleteRoute removes one routing rule. operatorID is kept for future ownership
 // checks when route records carry owner metadata.
 func (s *botServiceImpl) DeleteRoute(ctx context.Context, routeID, operatorID int64) error {
+	if s.subscriptionRepo != nil && s.routeRepo != nil {
+		route, err := s.routeRepo.GetRouteByID(ctx, routeID)
+		if err != nil {
+			return err
+		}
+		if route != nil {
+			_ = s.subscriptionRepo.DeleteRouteMirror(ctx, route.BotID, routeID)
+		}
+	}
 	return s.routeRepo.DeleteRoute(ctx, routeID)
 }
 

@@ -5,6 +5,8 @@ import (
 	"ClaranAIM/internal/bot-manager-service/eventconsumer"
 	"ClaranAIM/internal/bot-manager-service/handler"
 	"ClaranAIM/internal/bot-manager-service/service"
+	memorydao "ClaranAIM/internal/memory-service/dao"
+	memorysvc "ClaranAIM/internal/memory-service/service"
 	"ClaranAIM/kitex_gen/bot/botservice"
 	"ClaranAIM/kitex_gen/bot_runtime/botruntimeservice"
 	"ClaranAIM/kitex_gen/message/messageservice"
@@ -45,6 +47,8 @@ func main() {
 	routeRepo := dao.NewRouteRepo(db)
 	billingRepo := dao.NewBillingRepo(db)
 	dispatchRepo := dao.NewAgentDispatchRepo(db)
+	subscriptionRepo := dao.NewAgentSubscriptionRepo(db)
+	auditRepo := dao.NewAgentAuditRepo(db)
 
 	resolver, err := etcd.NewEtcdResolver(cfg.Etcd.Endpoints)
 	if err != nil {
@@ -66,13 +70,26 @@ func main() {
 	}
 
 	botService := service.NewBotService(botRepo, permissionRepo, routeRepo, billingRepo, runtimeClient, userClient, cfg.Agent.AgentRoot)
+	if impl, ok := botService.(interface {
+		SetAgentSubscriptionRepository(dao.AgentSubscriptionRepository)
+	}); ok {
+		impl.SetAgentSubscriptionRepository(subscriptionRepo)
+	}
+	if impl, ok := botService.(interface {
+		SetMemoryService(service.AgentMemoryService)
+	}); ok {
+		impl.SetMemoryService(memorysvc.NewMemoryService(memorydao.NewMemoryRepo(db)))
+	}
 	botHandler := handler.NewBotServiceImpl(botService, cfg)
 
 	if cfg.Kafka.Enabled && len(cfg.Kafka.Brokers) > 0 {
-		consumer := eventbus.NewKafkaConsumer(cfg.Kafka.Brokers, events.TopicMessageEvents, "bot-manager-agent-dispatcher")
-		defer consumer.Close()
-		eventconsumer.StartAgentMentionConsumer(context.Background(), consumer, botService, dispatchRepo, messageClient)
-		logger.Info("Agent @消息事件消费已启用", "topic", events.TopicMessageEvents)
+		messageConsumer := eventbus.NewKafkaConsumer(cfg.Kafka.Brokers, events.TopicMessageEvents, "bot-manager-agent-dispatcher")
+		defer messageConsumer.Close()
+		eventconsumer.StartAgentEventDispatcherConsumer(context.Background(), messageConsumer, botService, dispatchRepo, subscriptionRepo, auditRepo, messageClient)
+		imConsumer := eventbus.NewKafkaConsumer(cfg.Kafka.Brokers, events.TopicIMEvents, "bot-manager-agent-im-dispatcher")
+		defer imConsumer.Close()
+		eventconsumer.StartAgentEventDispatcherConsumer(context.Background(), imConsumer, botService, dispatchRepo, subscriptionRepo, auditRepo, messageClient)
+		logger.Info("Agent原生事件消费已启用", "message_topic", events.TopicMessageEvents, "im_topic", events.TopicIMEvents)
 	}
 
 	r, err := etcd.NewEtcdRegistry(cfg.Etcd.Endpoints)

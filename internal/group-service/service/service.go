@@ -7,6 +7,7 @@ import (
 	"ClaranAIM/internal/group-service/model"
 	"ClaranAIM/pkg/cache/redis"
 	"ClaranAIM/pkg/events"
+	"ClaranAIM/pkg/idgen"
 	"ClaranAIM/pkg/outbox"
 	"context"
 	"errors"
@@ -68,6 +69,13 @@ func (s *groupServiceImpl) CreateGroupWithID(ctx context.Context, groupID int64,
 func (s *groupServiceImpl) createGroup(ctx context.Context, groupID int64, name string, ownerID int64, memberIDs []int64) (*model.Group, error) {
 	if name == "" {
 		return nil, errors.New("群名不能为空")
+	}
+	if groupID == 0 {
+		var err error
+		groupID, err = s.newUniqueGroupID(ctx)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	validMembers := make([]int64, 0)
@@ -282,11 +290,23 @@ func (s *groupServiceImpl) GetUserGroups(ctx context.Context, userID int64) ([]m
 // 权限：群主和管理员可以邀请
 // 已在群中的用户不重复添加
 func (s *groupServiceImpl) InviteMember(ctx context.Context, groupID, operatorID int64, userIDs []int64) error {
+	group, err := s.repo.GetGroupByID(ctx, groupID)
+	if err != nil {
+		return err
+	}
+	if group == nil {
+		return errors.New("群组不存在")
+	}
+	userIDs = dedupeInt64(userIDs)
+	if len(userIDs) == 0 {
+		return errors.New("被邀请用户不能为空")
+	}
+	selfJoin := len(userIDs) == 1 && userIDs[0] == operatorID
 	member, err := s.repo.GetMember(ctx, groupID, operatorID)
 	if err != nil {
 		return err
 	}
-	if member == nil || (member.Role != "owner" && member.Role != "admin") {
+	if !selfJoin && (member == nil || (member.Role != "owner" && member.Role != "admin")) {
 		return errors.New("权限不足")
 	}
 
@@ -317,7 +337,7 @@ func (s *groupServiceImpl) InviteMember(ctx context.Context, groupID, operatorID
 		return s.saveGroupEvent(ctx, tx, events.EventTypeGroupMemberInvited, groupID, events.GroupMemberInvitedPayload{
 			GroupID:    groupID,
 			OperatorID: operatorID,
-			UserIDs:    dedupeInt64(userIDs),
+			UserIDs:    userIDs,
 			MemberIDs:  memberIDsFromMembers(members),
 		})
 	}); err != nil {
@@ -605,6 +625,23 @@ func (s *groupServiceImpl) saveGroupEvent(ctx context.Context, repo dao.GroupRep
 		return err
 	}
 	return repo.SaveOutboxEvent(ctx, record)
+}
+
+func (s *groupServiceImpl) newUniqueGroupID(ctx context.Context) (int64, error) {
+	for i := 0; i < 5; i++ {
+		id, err := idgen.NewUID10()
+		if err != nil {
+			return 0, err
+		}
+		existing, err := s.repo.GetGroupByID(ctx, id)
+		if err != nil {
+			return 0, err
+		}
+		if existing == nil {
+			return id, nil
+		}
+	}
+	return 0, errors.New("生成群号失败，请重试")
 }
 
 func memberIDsFromMembers(members []model.GroupMember) []int64 {

@@ -690,6 +690,148 @@ func TestSendMessagePublishesMessageCreatedEvent(t *testing.T) {
 	}
 }
 
+func TestSendMediaMessagePublishesAgentNativeIMEvent(t *testing.T) {
+	repo := newFakeMessageRepo()
+	svc := &messageServiceImpl{repo: repo}
+	conv, err := svc.CreateConversation(context.Background(), "group", []int64{1, 2, 2001}, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	msg, err := svc.SendMessage(context.Background(), conv.ID, 1, `[file]{"id":"3001","name":"error.png","url":"/files/3001","content_type":"image/png","size":12345}`, "file")
+	if err != nil {
+		t.Fatalf("SendMessage returned error: %v", err)
+	}
+
+	if len(repo.outbox) != 2 {
+		t.Fatalf("outbox len = %d, want message.created + file.uploaded", len(repo.outbox))
+	}
+	envelope, err := repo.outbox[1].Envelope()
+	if err != nil {
+		t.Fatalf("outbox envelope decode failed: %v", err)
+	}
+	if envelope.Type != events.EventTypeFileUploaded {
+		t.Fatalf("event type = %q, want %q", envelope.Type, events.EventTypeFileUploaded)
+	}
+	payload, err := events.DecodePayload[events.IMEventPayload](envelope)
+	if err != nil {
+		t.Fatalf("decode payload: %v", err)
+	}
+	if payload.MsgID != msg.ID || payload.ConversationID != conv.ID || payload.ConversationType != "group" {
+		t.Fatalf("payload routing fields = %#v, want media message context", payload)
+	}
+	if payload.IdempotencyKey == "" {
+		t.Fatal("expected idempotency key")
+	}
+	if len(payload.AttachmentRefs) != 1 || payload.AttachmentRefs[0].FileID != 3001 || payload.AttachmentRefs[0].Name != "error.png" {
+		t.Fatalf("attachment refs = %#v, want uploaded file ref", payload.AttachmentRefs)
+	}
+	if len(payload.ParticipantIDs) != 3 || len(payload.Permission.VisibleUserIDs) != 3 {
+		t.Fatalf("permission context missing participants: %#v", payload)
+	}
+}
+
+func TestSendVoiceMessagePublishesVoiceTranscribedEventEnvelope(t *testing.T) {
+	repo := newFakeMessageRepo()
+	svc := &messageServiceImpl{repo: repo}
+	conv, err := svc.CreateConversation(context.Background(), "private", []int64{1, 2}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = svc.SendMessage(context.Background(), conv.ID, 1, `[voice]{"id":"88","name":"voice.webm","url":"/files/88","content_type":"audio/webm"}`, "voice")
+	if err != nil {
+		t.Fatalf("SendMessage returned error: %v", err)
+	}
+	if len(repo.outbox) != 2 {
+		t.Fatalf("outbox len = %d, want message.created + voice.transcribed", len(repo.outbox))
+	}
+	envelope, err := repo.outbox[1].Envelope()
+	if err != nil {
+		t.Fatalf("outbox envelope decode failed: %v", err)
+	}
+	if envelope.Type != events.EventTypeVoiceTranscribed {
+		t.Fatalf("event type = %q, want %q", envelope.Type, events.EventTypeVoiceTranscribed)
+	}
+}
+
+func TestApplyGroupEventPublishesAgentNativeMemberEvents(t *testing.T) {
+	repo := newFakeMessageRepo()
+	svc := &messageServiceImpl{repo: repo}
+	conv, err := svc.CreateConversation(context.Background(), "group", []int64{1, 2}, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo.outbox = nil
+
+	inviteEnvelope, err := events.NewEnvelope(events.EventTypeGroupMemberInvited, "10", events.GroupMemberInvitedPayload{
+		GroupID:    10,
+		OperatorID: 1,
+		UserIDs:    []int64{3},
+		MemberIDs:  []int64{1, 2, 3},
+	})
+	if err != nil {
+		t.Fatalf("NewEnvelope invite returned error: %v", err)
+	}
+	if err := svc.ApplyGroupEvent(context.Background(), inviteEnvelope); err != nil {
+		t.Fatalf("ApplyGroupEvent invite returned error: %v", err)
+	}
+	if len(repo.outbox) != 1 {
+		t.Fatalf("outbox len after invite = %d, want IM joined", len(repo.outbox))
+	}
+	joinEnvelope, err := repo.outbox[0].Envelope()
+	if err != nil {
+		t.Fatalf("decode join envelope: %v", err)
+	}
+	if joinEnvelope.Type != events.EventTypeGroupMemberJoined {
+		t.Fatalf("join type = %q, want %q", joinEnvelope.Type, events.EventTypeGroupMemberJoined)
+	}
+	joinPayload, err := events.DecodePayload[events.IMEventPayload](joinEnvelope)
+	if err != nil {
+		t.Fatalf("decode join payload: %v", err)
+	}
+	if joinPayload.ConversationID != conv.ID || joinPayload.EventType != events.EventTypeGroupMemberJoined || joinPayload.Metadata["user_ids"] != "3" {
+		t.Fatalf("join payload = %#v, want conversation-aware member join event", joinPayload)
+	}
+	if len(joinPayload.ParticipantIDs) != 3 {
+		t.Fatalf("join participants = %#v, want full member snapshot", joinPayload.ParticipantIDs)
+	}
+
+	repo.outbox = nil
+	kickEnvelope, err := events.NewEnvelope(events.EventTypeGroupMemberKicked, "10", events.GroupMemberKickedPayload{
+		GroupID:    10,
+		OperatorID: 1,
+		UserID:     3,
+		MemberIDs:  []int64{1, 2},
+	})
+	if err != nil {
+		t.Fatalf("NewEnvelope kick returned error: %v", err)
+	}
+	if err := svc.ApplyGroupEvent(context.Background(), kickEnvelope); err != nil {
+		t.Fatalf("ApplyGroupEvent kick returned error: %v", err)
+	}
+	if len(repo.outbox) != 1 {
+		t.Fatalf("outbox len after kick = %d, want IM left", len(repo.outbox))
+	}
+	leftEnvelope, err := repo.outbox[0].Envelope()
+	if err != nil {
+		t.Fatalf("decode left envelope: %v", err)
+	}
+	if leftEnvelope.Type != events.EventTypeGroupMemberLeft {
+		t.Fatalf("left type = %q, want %q", leftEnvelope.Type, events.EventTypeGroupMemberLeft)
+	}
+	leftPayload, err := events.DecodePayload[events.IMEventPayload](leftEnvelope)
+	if err != nil {
+		t.Fatalf("decode left payload: %v", err)
+	}
+	if leftPayload.ConversationID != conv.ID || leftPayload.EventType != events.EventTypeGroupMemberLeft || leftPayload.Metadata["user_id"] != "3" {
+		t.Fatalf("left payload = %#v, want conversation-aware member left event", leftPayload)
+	}
+	if len(leftPayload.ParticipantIDs) != 2 {
+		t.Fatalf("left participants = %#v, want remaining members", leftPayload.ParticipantIDs)
+	}
+}
+
 func TestSendMessageExtReusesMessageForSameClientMsgID(t *testing.T) {
 	repo := newFakeMessageRepo()
 	svc := NewMessageServiceWithPublisher(repo, nil, nil)
@@ -776,8 +918,8 @@ func TestMarkReadPublishesReadEventToOtherParticipants(t *testing.T) {
 		t.Fatalf("MarkConversationRead returned error: %v", err)
 	}
 
-	if len(repo.outbox) != 1 {
-		t.Fatalf("outbox len = %d, want 1", len(repo.outbox))
+	if len(repo.outbox) != 2 {
+		t.Fatalf("outbox len = %d, want legacy read + IM read", len(repo.outbox))
 	}
 	envelope, err := repo.outbox[0].Envelope()
 	if err != nil {
@@ -792,6 +934,45 @@ func TestMarkReadPublishesReadEventToOtherParticipants(t *testing.T) {
 	}
 	if len(payload.TargetUserIDs) != 1 || payload.TargetUserIDs[0] != 1 {
 		t.Fatalf("target users = %#v, want [1]", payload.TargetUserIDs)
+	}
+}
+
+func TestMarkReadPublishesAgentNativeIMReadEvent(t *testing.T) {
+	repo := newFakeMessageRepo()
+	svc := &messageServiceImpl{repo: repo}
+	conv, err := svc.CreateConversation(context.Background(), "private", []int64{1, 2}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	msg, err := svc.SendMessage(context.Background(), conv.ID, 1, "read me", "text")
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo.outbox = nil
+
+	if err := svc.MarkConversationRead(context.Background(), conv.ID, 2, msg.ID); err != nil {
+		t.Fatalf("MarkConversationRead returned error: %v", err)
+	}
+
+	if len(repo.outbox) != 2 {
+		t.Fatalf("outbox len = %d, want legacy read + IM read", len(repo.outbox))
+	}
+	envelope, err := repo.outbox[1].Envelope()
+	if err != nil {
+		t.Fatalf("outbox envelope decode failed: %v", err)
+	}
+	if envelope.Type != events.EventTypeIMMessageRead {
+		t.Fatalf("event type = %q, want %q", envelope.Type, events.EventTypeIMMessageRead)
+	}
+	payload, err := events.DecodePayload[events.IMEventPayload](envelope)
+	if err != nil {
+		t.Fatalf("decode payload: %v", err)
+	}
+	if payload.EventType != events.EventTypeMessageRead || payload.SenderID != 2 || payload.MsgID != msg.ID {
+		t.Fatalf("payload = %#v, want reader and message context", payload)
+	}
+	if len(payload.ParticipantIDs) != 2 || payload.Permission.Scope != "private" {
+		t.Fatalf("payload visibility = %#v, want private participant context", payload)
 	}
 }
 
@@ -992,6 +1173,60 @@ func TestEditAndRecallMessageRespectSenderAndTimeLimit(t *testing.T) {
 	}
 	if recalled.Status != MessageStatusRecalled || recalled.Content != "" {
 		t.Fatalf("expected recalled empty message, got %#v", recalled)
+	}
+}
+
+func TestEditAndRecallMessagePublishAgentNativeIMEvents(t *testing.T) {
+	repo := newFakeMessageRepo()
+	svc := &messageServiceImpl{repo: repo, recallWindow: time.Hour}
+	conv, err := svc.CreateConversation(context.Background(), "group", []int64{1, 2, 3}, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	msg, err := svc.SendMessage(context.Background(), conv.ID, 1, "before", "text")
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo.outbox = nil
+
+	if _, err := svc.EditMessage(context.Background(), msg.ID, 1, "after"); err != nil {
+		t.Fatalf("EditMessage returned error: %v", err)
+	}
+	if err := svc.RecallMessage(context.Background(), msg.ID, 1); err != nil {
+		t.Fatalf("RecallMessage returned error: %v", err)
+	}
+
+	if len(repo.outbox) != 4 {
+		t.Fatalf("outbox len = %d, want legacy edit/recalled plus IM edit/recalled", len(repo.outbox))
+	}
+	editEnvelope, err := repo.outbox[1].Envelope()
+	if err != nil {
+		t.Fatalf("decode edit IM envelope: %v", err)
+	}
+	if editEnvelope.Type != events.EventTypeIMMessageEdited {
+		t.Fatalf("edit IM event type = %q, want %q", editEnvelope.Type, events.EventTypeIMMessageEdited)
+	}
+	editPayload, err := events.DecodePayload[events.IMEventPayload](editEnvelope)
+	if err != nil {
+		t.Fatalf("decode edit IM payload: %v", err)
+	}
+	if editPayload.EventType != events.EventTypeMessageEdited || editPayload.Content != "after" || len(editPayload.ParticipantIDs) != 3 {
+		t.Fatalf("edit IM payload = %#v, want edited message context", editPayload)
+	}
+
+	recallEnvelope, err := repo.outbox[3].Envelope()
+	if err != nil {
+		t.Fatalf("decode recall IM envelope: %v", err)
+	}
+	if recallEnvelope.Type != events.EventTypeIMMessageRecalled {
+		t.Fatalf("recall IM event type = %q, want %q", recallEnvelope.Type, events.EventTypeIMMessageRecalled)
+	}
+	recallPayload, err := events.DecodePayload[events.IMEventPayload](recallEnvelope)
+	if err != nil {
+		t.Fatalf("decode recall IM payload: %v", err)
+	}
+	if recallPayload.EventType != events.EventTypeMessageRecalled || recallPayload.MsgID != msg.ID || recallPayload.Content != "" {
+		t.Fatalf("recall IM payload = %#v, want recalled message context", recallPayload)
 	}
 }
 

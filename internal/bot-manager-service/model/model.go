@@ -63,6 +63,10 @@ type AgentDispatchRecord struct {
 	EventID        string    `json:"event_id" gorm:"size:64;uniqueIndex:uk_agent_dispatch_event_agent;not null"`
 	AgentUserID    int64     `json:"agent_user_id" gorm:"uniqueIndex:uk_agent_dispatch_event_agent;index;not null"`
 	BotID          int64     `json:"bot_id" gorm:"index;not null"`
+	EventType      string    `json:"event_type" gorm:"size:50;index"`
+	Decision       string    `json:"decision" gorm:"size:20;default:trigger"`
+	SourceEventID  string    `json:"source_event_id" gorm:"size:80;index"`
+	AgentTraceID   string    `json:"agent_trace_id" gorm:"size:80;index"`
 	SourceMsgID    int64     `json:"source_msg_id" gorm:"index;not null"`
 	ReplyMsgID     int64     `json:"reply_msg_id" gorm:"default:0"`
 	ConversationID int64     `json:"conversation_id" gorm:"index;not null"`
@@ -81,6 +85,66 @@ func (r *AgentDispatchRecord) BeforeCreate(tx *gorm.DB) error {
 // TableName keeps the dispatch table name explicit.
 func (AgentDispatchRecord) TableName() string {
 	return "agent_dispatch_records"
+}
+
+// AgentSubscriptionRule controls when an Agent observes, records or responds to
+// IM-native events. Group chats default to low-noise behavior, while explicit
+// rules can opt an Agent into keyword, command, file or silent ingest flows.
+type AgentSubscriptionRule struct {
+	ID               int64     `json:"id" gorm:"primaryKey;autoIncrement:false"`
+	BotID            int64     `json:"bot_id" gorm:"index;not null"`
+	AgentUserID      int64     `json:"agent_user_id" gorm:"index;not null"`
+	SourceRouteID    int64     `json:"source_route_id" gorm:"uniqueIndex:uk_agent_subscription_route;default:0"`
+	ConversationID   int64     `json:"conversation_id" gorm:"index;default:0"`
+	ConversationType string    `json:"conversation_type" gorm:"size:20"`
+	EventTypes       string    `json:"event_types" gorm:"size:255"`
+	Keywords         string    `json:"keywords" gorm:"size:255"`
+	CommandPrefix    string    `json:"command_prefix" gorm:"size:50"`
+	TriggerMode      string    `json:"trigger_mode" gorm:"size:30;default:mention"`
+	Action           string    `json:"action" gorm:"size:20;default:trigger"`
+	Silent           bool      `json:"silent" gorm:"default:false"`
+	IsActive         bool      `json:"is_active" gorm:"default:true"`
+	CreatedAt        time.Time `json:"created_at" gorm:"autoCreateTime"`
+	UpdatedAt        time.Time `json:"updated_at" gorm:"autoUpdateTime"`
+}
+
+// BeforeCreate assigns a snowflake ID before inserting a subscription rule.
+func (r *AgentSubscriptionRule) BeforeCreate(tx *gorm.DB) error {
+	return fillSnowflakeID(&r.ID)
+}
+
+// TableName keeps the subscription table name explicit.
+func (AgentSubscriptionRule) TableName() string {
+	return "agent_subscription_rules"
+}
+
+// AgentAuditRecord is the durable trace of Agent-native decisions. It records
+// ignored, silent and triggered events so production behavior can be explained
+// without replaying Kafka payloads.
+type AgentAuditRecord struct {
+	ID             int64     `json:"id" gorm:"primaryKey;autoIncrement:false"`
+	EventID        string    `json:"event_id" gorm:"size:80;index;not null"`
+	EventType      string    `json:"event_type" gorm:"size:50;index"`
+	BotID          int64     `json:"bot_id" gorm:"index;default:0"`
+	AgentUserID    int64     `json:"agent_user_id" gorm:"index;default:0"`
+	ConversationID int64     `json:"conversation_id" gorm:"index;default:0"`
+	SenderID       int64     `json:"sender_id" gorm:"index;default:0"`
+	Decision       string    `json:"decision" gorm:"size:20;index;not null"`
+	Reason         string    `json:"reason" gorm:"size:255"`
+	TraceID        string    `json:"trace_id" gorm:"size:80;index"`
+	SourceMsgID    int64     `json:"source_msg_id" gorm:"index;default:0"`
+	Metadata       string    `json:"metadata" gorm:"type:text"`
+	CreatedAt      time.Time `json:"created_at" gorm:"autoCreateTime"`
+}
+
+// BeforeCreate assigns a snowflake ID before inserting an audit record.
+func (r *AgentAuditRecord) BeforeCreate(tx *gorm.DB) error {
+	return fillSnowflakeID(&r.ID)
+}
+
+// TableName keeps the audit table name explicit.
+func (AgentAuditRecord) TableName() string {
+	return "agent_audit_records"
 }
 
 // BeforeCreate assigns a snowflake ID before inserting a permission.

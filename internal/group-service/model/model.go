@@ -21,9 +21,20 @@ type Group struct {
 	UpdatedAt    time.Time `json:"updated_at" gorm:"autoUpdateTime"`         // 更新时间
 }
 
-// BeforeCreate 在群组写入前补充分布式雪花 ID。
+// BeforeCreate 在群组写入前补充 10 位公开群号。
+//
+// 群号和用户 UID 一样面向用户复制、搜索和加入群聊，因此不用普通雪花 ID。
+// 调用方仍需依靠 groups.id 唯一索引兜底极低概率的随机碰撞。
 func (g *Group) BeforeCreate(tx *gorm.DB) error {
-	return fillSnowflakeID(&g.ID)
+	if g.ID != 0 {
+		return nil
+	}
+	id, err := idgen.NewUID10()
+	if err != nil {
+		return err
+	}
+	g.ID = id
+	return nil
 }
 
 // TableName 指定表名为 "groups"

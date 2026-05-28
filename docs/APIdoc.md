@@ -485,7 +485,7 @@
   "message": "success",
   "data": {
     "success": true,
-    "group_id": 1,
+    "group_id": 1000000001,
     "msg": "创建成功"
   }
 }
@@ -495,6 +495,7 @@
 
 - 创建者自动成为群主（role=owner）
 - 其他成员角色为 member
+- 群组 ID 是 10 位数字群号，范围 `1000000000` 到 `9999999999`，可复制给其他用户通过群号加入
 - 群主不重复添加
 - 清除群组相关 Redis 缓存
 
@@ -519,7 +520,7 @@
   "data": {
     "success": true,
     "group": {
-      "id": 1,
+      "id": 1000000001,
       "name": "项目讨论组",
       "avatar": "",
       "owner_id": 1,
@@ -550,7 +551,49 @@
 
 ***
 
-### 2.4 邀请成员
+### 2.4 通过群号加入群聊
+
+**POST** `/group/join`
+
+需要认证。
+
+| 参数       | 类型    | 必填 | 说明        |
+| -------- | ----- | -- | --------- |
+| group_id | int64 | 是  | 10 位数字群号 |
+
+请求示例：
+
+```json
+{
+  "group_id": 1000000001
+}
+```
+
+响应示例：
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "success": true,
+    "group_id": 1000000001,
+    "group_name": "项目讨论组",
+    "joined": true,
+    "msg": "加入群聊成功"
+  }
+}
+```
+
+核心逻辑：
+
+- 当前用户只能把自己加入群聊，不能借该接口邀请其他用户。
+- 如果已经在群中，返回 success=true 且 joined=false。
+- 成员变化仍通过 group-service outbox 事件同步到 msg-core-service 的群聊会话参与者。
+
+***
+
+### 2.5 邀请成员
 
 **POST** `/group/invite`
 
@@ -570,7 +613,7 @@
 
 ***
 
-### 2.5 踢出成员
+### 2.6 踢出成员
 
 **POST** `/group/kick`
 
@@ -1632,6 +1675,76 @@ curl -X POST http://localhost:8080/api/v1/file/upload \
 
 ***
 
+### 5.6.1.1 Agent 记忆接口
+
+以下接口均需要认证，路径前缀为 `/api/v1`。记忆默认只允许当前用户查看和管理自己的记录，用户画像和发言习惯默认 `visibility=private`。
+
+| 接口 | 方法 | 说明 |
+| --- | --- | --- |
+| `/memory/list` | GET | 查看当前用户拥有的记忆 |
+| `/memory/create` | POST | 手动创建一条记忆 |
+| `/memory/:id` | PUT | 修改、启用或关闭一条记忆 |
+| `/memory/:id` | DELETE | 删除一条记忆 |
+
+查询参数：
+
+| 参数 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| bot_id | int64 | 否 | 按 Agent/Bot 过滤 |
+| user_id | int64 | 否 | 按用户过滤；默认当前用户 |
+| group_id | int64 | 否 | 按群过滤 |
+| conversation_id | int64 | 否 | 按会话过滤 |
+| session_id | string | 否 | 按 Agent 长会话过滤 |
+| scope | string | 否 | `user/group/conversation/session`，支持逗号分隔 |
+| type | string | 否 | `preference/speaking_style/long_term_goal/group_profile/project_state/chat_summary/agent_run_summary` |
+| include_disabled | bool | 否 | 是否包含已关闭记忆 |
+
+创建/修改请求示例：
+
+```json
+{
+  "bot_id": 1,
+  "scope": "user",
+  "type": "preference",
+  "title": "回答偏好",
+  "content": "用户喜欢中文、简短、直接的回答。",
+  "visibility": "private",
+  "enabled": true
+}
+```
+
+响应示例：
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "success": true,
+    "memory": {
+      "id": 49895688258818048,
+      "bot_id": 1,
+      "user_id": 1000000001,
+      "scope": "user",
+      "type": "preference",
+      "content": "用户喜欢中文、简短、直接的回答。",
+      "visibility": "private",
+      "enabled": true,
+      "vector_status": "pending"
+    }
+  }
+}
+```
+
+说明：
+
+- `memory_facts` 是 Phase4 的基础事实记忆表，先不依赖向量库。
+- Agent 调用 runtime 前会按 `bot_id + user_id + conversation_id + session_id` 召回可用记忆并注入上下文。
+- Agent 成功回复后会写入一条 `scope=conversation,type=agent_run_summary` 的私有运行摘要。
+- `vector_status/embedding_ref` 是向量化预留字段，当前不会真正写入向量数据库。
+
+***
+
 ### 5.6.2 Agent 权限接口
 
 | 接口 | 方法 | 说明 |
@@ -1648,6 +1761,118 @@ curl -X POST http://localhost:8080/api/v1/file/upload \
 | admin | 可修改配置、授权、运行 Agent |
 | operator | 可运行 Agent、查看运行结果 |
 | viewer | 只读基础信息和权限列表 |
+
+***
+
+### 5.6.3 Agent-Native IM 事件与订阅
+
+Agent 原生入口优先走 Kafka/Outbox，而不是前端 HTTP 按钮。bot-manager-service 当前同时消费：
+
+| Topic | 说明 |
+| --- | --- |
+| `claran.message.events` | 兼容现有 `message.created/edited/recalled/read` 消息事件 |
+| `claran.im.events` | 新增统一 IM 事件，承载文件、语音、表情、系统通知、任务变化等 Agent 原生事件 |
+
+统一 IM 事件 payload：
+
+```json
+{
+  "event_type": "file.uploaded",
+  "conversation_id": 10,
+  "conversation_type": "group",
+  "sender_id": 1001,
+  "content": "",
+  "msg_type": "file",
+  "msg_id": 99,
+  "reply_to_id": 0,
+  "participant_ids": [1001, 1002, 2001],
+  "mention_user_ids": [2001],
+  "mention_all": false,
+  "attachment_refs": [
+    {
+      "file_id": 3001,
+      "name": "error.png",
+      "content_type": "image/png",
+      "url": "/files/3001",
+      "size": 12345,
+      "sha256": ""
+    }
+  ],
+  "permission_context": {
+    "scope": "group",
+    "visible_user_ids": [1001, 1002, 2001],
+    "group_role": "member",
+    "can_read_files": true,
+    "can_write": true
+  },
+  "occurred_at": "2026-05-27T10:00:00+08:00",
+  "idempotency_key": "file.uploaded:3001",
+  "metadata": {}
+}
+```
+
+事件分发规则由 `agent_subscription_rules` 保存。Dispatcher 支持三类决策：
+
+| 决策 | 行为 |
+| --- | --- |
+| `ignore` | 不运行 Agent，也不打扰会话 |
+| `record` | 只写审计/后续入库事实，不回复用户 |
+| `trigger` | 构建上下文，调用 runtime，并通过 msg-core-service 用 Agent 系统用户身份回写消息 |
+
+当前默认策略：
+
+- 私聊 Agent：普通消息默认触发。
+- 群聊 Agent：默认只响应 @Agent；也可通过订阅规则配置关键词、命令、全量监听或静默记录。
+- Agent 回复使用 `client_msg_id=agent:{event_id}:{agent_user_id}` 做消息幂等，dispatch 表记录 `source_event_id` 和 `agent_trace_id`。
+- 每次触发、静默记录、失败和完成都会写入 `agent_audit_records`，便于排查“为什么 Agent 没反应/为什么响应了”。
+
+消息事实源生产规则：
+
+- 普通文本消息仍写入 `claran.message.events` 的 `message.created`，用于兼容现有推送、未读和 Agent @ 触发。
+- 消息编辑、撤回、已读会继续写入 legacy `claran.message.events`，同时由 msg-core-service 额外写入 unified IM outbox；Kafka envelope 类型分别是 `im.message.edited`、`im.message.recalled`、`im.message.read`，payload 内 `event_type` 保持业务语义 `message.edited/message.recalled/message.read`，便于订阅规则匹配。
+- `file`、`image` 消息除 `message.created` 外，会在同一个数据库事务内额外写入 `claran.im.events` 的 `file.uploaded` outbox 事件。
+- `voice` 消息除 `message.created` 外，会额外写入 `claran.im.events` 的 `voice.transcribed` 事件信封；当前阶段先携带语音附件引用，真实 ASR 文本由后续文件/语音处理服务补齐。
+- 群成员邀请/移除仍先由 group-service 发布 `group.member_invited/group.member_kicked`，msg-core-service 消费后同步会话参与者，并在知道真实 `conversation_id` 后再写入 `group.member_joined/group.member_left` unified IM 事件。
+- Dispatcher 构建 Agent 上下文时，会把附件引用注入提示词，格式包含 `file_id/name/content_type/url/size`，保证 Agent 至少知道“有哪个文件进入了会话事件流”。
+- Dispatcher 幂等优先使用 payload 中的 `idempotency_key`，缺失时退回 Kafka envelope `event_id`；Agent 回复的 `client_msg_id` 同样使用这个 dispatch key，避免同一业务事件重复投递时重复生成 Agent 回复。
+
+兼容管理入口：
+
+当前未新增 BotService Thrift 方法，前端先复用 `/bot/route/*` 管理 Agent 订阅规则。bot-manager-service 会把以下 route 类型镜像到 `agent_subscription_rules`：
+
+| route_type | route_pattern 含义 | Dispatcher 行为 |
+| --- | --- | --- |
+| `agent_keyword` | 关键词，如 `报错` | 群聊消息包含关键词时触发 Agent 回复 |
+| `agent_command` | 命令前缀，如 `/amiya` | 消息以前缀开头时触发 Agent 回复 |
+| `agent_record` | 事件类型，如 `file.uploaded` | 静默记录，不主动回复 |
+
+删除对应 route 时，会同步删除由该 route 生成的订阅规则。
+
+最小 Action Card 协议：
+
+Agent 任务返回 JSON 时，前端会识别 `cards`、`action_cards` 或 `actions` 数组并渲染为结构化卡片：
+
+```json
+{
+  "summary": "已识别一个待办",
+  "cards": [
+    {
+      "version": "1.0",
+      "type": "task",
+      "title": "创建联调任务",
+      "summary": "周五前完成接口联调，负责人是用户1002。",
+      "source": "conversation:10/message:99",
+      "status": "pending",
+      "actions": [
+        {"type": "confirm", "label": "确认创建"},
+        {"type": "reject", "label": "忽略"}
+      ]
+    }
+  ]
+}
+```
+
+当前 Action Card 是前端展示 MVP，按钮先记录本地提示；持久化 `action_id`、审批状态、服务端回调和权限校验继续放到结构化卡片协议阶段。
 
 ***
 
@@ -1818,7 +2043,9 @@ Kafka 默认开启，默认 broker 为 `127.0.0.1:9092`。本地如暂时不启�
 | Topic | 生产者 | 消费者 | 说明 |
 | ----- | ------ | ------ | ---- |
 | `claran.group.events` | group-service Outbox worker | msg-core-service | 群创建、邀请、踢人、解散事件，用于同步群聊会话和参与者 |
-| `claran.message.events` | msg-core-service Outbox worker | websocket-gateway | 新消息、编辑、撤回、已读事件，用于在线 WebSocket 推送 |
+| `claran.message.events` | msg-core-service Outbox worker | websocket-gateway、bot-manager-service | 新消息、编辑、撤回、已读事件，用于在线 WebSocket 推送和兼容 Agent @ 分发 |
+| `claran.im.events` | 各 IM 事件生产者 | bot-manager-service | Agent-Native IM 统一事件，承载表情、文件、语音转写、群成员、系统通知、任务变化等事件 |
+| `claran.agent.events` | bot-manager-service / bot-runtime-service | 审计、成本监控、异步后处理消费者 | Agent 运行、完成、失败、工具调用和审计事件 |
 
 可靠性边界：
 
@@ -1923,7 +2150,7 @@ Kafka 默认开启，默认 broker 为 `127.0.0.1:9092`。本地如暂时不启�
 
 | 字段           | 类型           | 说明             |
 | ------------ | ------------ | -------------- |
-| id           | bigint PK    | 雪花ID            |
+| id           | bigint PK    | 10 位数字群号       |
 | name         | varchar(100) | 群组名称           |
 | avatar       | varchar(255) | 群头像            |
 | owner_id     | bigint       | 群主ID，索引        |

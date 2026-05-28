@@ -87,7 +87,12 @@ AIM 需要一个可配置的 Agent 能力层，而不是写死几个 Bot：
 - `bot-runtime-service` 独立暴露 Kitex RPC，负责 Eino DeepAgent、JSONL 长会话、web_search、answer_from_document/RAG、Skill 和本地工具后端。
 - Agent 在 IM 里不是虚拟 sender，而是 user-service 中的真实系统用户；群聊 @Agent 时，bot-manager 消费 `claran.message.events` 的 `message.created` 事件，识别 `mention_user_ids` 中的 Agent 用户，调用 runtime 后再通过 msg-core-service 以 Agent 用户身份写回消息。
 - user-service 会将 Agent 用户标记为 `is_system=true`，这类账号可作为群成员和消息发送者，但不能通过密码登录。
-- Agent @ 分发使用 `agent_dispatch_records(event_id, agent_user_id)` 记录执行状态，Agent 回复使用 msg-core-service 的 `client_msg_id=agent:{event_id}:{agent_user_id}` 做消息落库幂等，避免 Kafka 重投或 offset 提交前崩溃导致重复回复。
+- Phase 3 将原 @Agent consumer 升级为 Agent Event Dispatcher：同时消费 `claran.message.events` 和 `claran.im.events`，把消息、文件、语音、表情、系统通知、任务变化等统一为 `IMEventPayload` 后决策。
+- Agent 订阅规则保存在 `agent_subscription_rules`。私聊 Agent 默认触发；群聊默认低打扰，只响应 @、命令或关键词规则；文件/语音/任务等事件可配置为 `record` 静默记录或 `trigger` 执行。为了避免本阶段大量重生成 Kitex 代码，管理入口先复用 `/bot/route/*`：`agent_keyword`、`agent_command`、`agent_record` 会被 bot-manager-service 镜像成订阅规则。
+- msg-core-service 作为消息事实源，会在发送 `file/image/voice` 消息时同事务写入统一 IM 事件 outbox：`file/image` 对应 `file.uploaded`，`voice` 对应 `voice.transcribed` 事件信封。编辑、撤回、已读会额外产生 `im.message.edited/recalled/read` envelope；payload 内仍使用业务事件名 `message.edited/recalled/read`。group-service 的成员邀请/踢出事件由 msg-core-service 消费后转换成带 `conversation_id` 的 `group.member_joined/left` unified IM 事件。
+- Agent @/事件分发使用 `agent_dispatch_records(event_id, agent_user_id)` 记录执行状态和 `agent_trace_id`。对 unified IM 事件，`event_id` 优先取 payload `idempotency_key`，缺失时退回 Kafka envelope ID；Agent 回复使用 msg-core-service 的 `client_msg_id=agent:{dispatch_key}:{agent_user_id}` 做消息落库幂等，避免 Kafka 重投或上游重复生成同一业务事件导致重复回复。
+- Agent 行为审计保存在 `agent_audit_records`，记录 trigger、record、failed、completed 等决策，便于解释“为什么 Agent 没反应/为什么响应了”。
+- 前端支持最小 Action Card 协议，识别 Agent 返回 JSON 中的 `cards/action_cards/actions` 数组并渲染为审批、任务、知识引用、诊断等卡片；服务端持久化卡片操作和回调将在结构化卡片协议阶段补齐。
 - 高频聊天与 Agent 响应继续走 MySQL 消息事实表 + Transactional Outbox + Kafka；DTM 只适合后续低频强一致管理流程，例如创建系统用户和 Bot 记录的 Saga 补偿。
 
 ### 4. Agent 在 IM 中为什么重要
@@ -838,6 +843,7 @@ func InitDB(dsn string) (*gorm.DB, error) {
 项目不再依赖 MySQL 自增主键：
 
 - 用户 ID：`users.id` 使用 10 位数字 UID，范围为 `1000000000` 到 `9999999999`。注册时生成随机 UID 并查重，用户可复制 UID 用于添加好友。
+- 群组 ID：`groups.id` 同样使用 10 位数字群号，范围为 `1000000000` 到 `9999999999`。用户可复制群号，其他用户通过 `/group/join` 把自己加入该群聊；邀请他人仍需要群主/管理员权限。
 - 业务 ID：群、会话、消息、好友关系、Bot、计费记录、消息用户状态等使用 64 位雪花 ID。
 - 雪花 ID 布局：毫秒级时间戳 + workerID + 同毫秒序列号。当前 workerID 可由本机信息兜底，后续多实例部署时可扩展为 Redis/Etcd 分配。
 - 时钟回拨：小幅回拨短暂等待，超过阈值直接返回错误，避免生成重复 ID。
@@ -1485,6 +1491,7 @@ WebSocket 断开时:
 
 - bot-runtime-service：承载更复杂的 Agent 运行时，与 bot-manager-service 分离。
 - memory-service：沉淀用户偏好、群聊摘要、跨会话长期记忆。
+- Phase4 当前实现为 MySQL `memory_facts` MVP：api-gateway 提供 `/memory/*` 用户治理接口，bot-manager-service 在调用 runtime 前召回 `bot/user/conversation/session` 范围内的启用记忆并注入输入，调用成功后写入私有 Agent 运行摘要。向量化以 `vector_status/embedding_ref` 预留，真实向量库和自动抽取确认流放入后续 RAG/Memory 增强阶段。
 - rag-service：支持知识库、文档上传、向量检索、私有/公共知识范围。
 - MCP 工具集成：让 Agent 能调用外部工具、数据库、浏览器或业务系统。
 - 多 Agent 协作：不同角色 Agent 在同一群中协同处理问题。

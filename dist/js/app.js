@@ -25,6 +25,8 @@ let agentMenuCloseTimer = null;
 let pendingAgentThinkingByConversation = {};
 let conversationParticipantCache = {};
 let conversationGroupCollapsed = JSON.parse(localStorage.getItem('claran_conversation_group_collapsed') || '{}');
+let agentContextSidebarVisible = false;
+let agentNativeStateByConversation = {};
 const LOCAL_LOG_KEY = 'claran_frontend_logs';
 const LOCAL_LOG_LIMIT = 500;
 
@@ -162,6 +164,9 @@ function routeTypeLabel(type) {
         prefix: '前缀匹配',
         regex: '规则匹配',
         keyword: '关键词匹配',
+        agent_keyword: 'Agent 关键词触发',
+        agent_command: 'Agent 命令触发',
+        agent_record: 'Agent 静默记录',
     };
     return labels[type] || type || '未知规则';
 }
@@ -563,6 +568,118 @@ function renderCurrentMessages() {
     msgList.innerHTML = currentMessages.map(m => createMessageHTML(m)).join('');
     hydrateMedia(msgList);
     msgList.scrollTop = msgList.scrollHeight;
+    renderAgentNativeStatus();
+    renderAgentContextSidebar();
+}
+
+function setAgentNativeState(conversationID, status, detail = '') {
+    if (!conversationID) return;
+    agentNativeStateByConversation[String(conversationID)] = {
+        status,
+        detail,
+        updatedAt: Date.now(),
+    };
+    if (sameID(currentConversationID, conversationID)) {
+        renderAgentNativeStatus();
+        renderAgentContextSidebar();
+    }
+}
+
+function agentNativeStatusLabel(status) {
+    const labels = {
+        thinking: '思考中',
+        completed: '已完成',
+        waiting: '等待确认',
+        silent: '静默记录',
+        failed: '执行失败',
+        blocked: '策略拦截',
+        idle: '可用',
+    };
+    return labels[status] || '可用';
+}
+
+function renderAgentNativeStatus() {
+    const bar = document.getElementById('agent-native-status');
+    if (!bar) return;
+    const state = agentNativeStateByConversation[String(currentConversationID || '')];
+    const agents = getCurrentConversationAgents();
+    if (!state && agents.length === 0) {
+        bar.style.display = 'none';
+        bar.innerHTML = '';
+        return;
+    }
+    const status = state?.status || 'idle';
+    const agentNames = agents.length ? agents.map(getBotDisplayName).join('、') : 'Agent';
+    const detail = state?.detail || (agents.length ? '当前会话中有 Agent 成员，可私聊、@ 或通过规则触发。' : '当前会话可使用 Agent 上下文工具。');
+    bar.className = `agent-native-status ${status}`;
+    bar.style.display = 'flex';
+    bar.innerHTML = `
+        <span class="agent-native-dot"></span>
+        <strong>${escapeHTML(agentNativeStatusLabel(status))}</strong>
+        <span>${escapeHTML(agentNames)}</span>
+        <em>${escapeHTML(detail)}</em>
+        <button type="button" onclick="toggleAgentContextSidebar(true)">查看上下文</button>
+    `;
+}
+
+function getCurrentConversationAgents() {
+    const participants = conversationParticipantCache[String(currentConversationID || '')] || [];
+    return participants.map(id => getAgentBotByUserID(id)).filter(Boolean);
+}
+
+function toggleAgentContextSidebar(forceOpen = null) {
+    agentContextSidebarVisible = forceOpen === null ? !agentContextSidebarVisible : !!forceOpen;
+    renderAgentContextSidebar();
+}
+
+function summarizeVisibleMessagesForSidebar() {
+    const recent = currentMessages.slice(-8).filter(m => m && (m.content || m.msg_type));
+    if (!recent.length) return '<div class="agent-context-empty">暂无可分析消息</div>';
+    return recent.map(m => {
+        const name = getAgentBotByUserID(m.sender_id) ? getBotDisplayName(getAgentBotByUserID(m.sender_id)) : getUserName(m.sender_id);
+        const content = (m.content || `[${m.msg_type || '消息'}]`).replace(/\s+/g, ' ').slice(0, 90);
+        return `<li><strong>${escapeHTML(name)}</strong><span>${escapeHTML(content)}</span></li>`;
+    }).join('');
+}
+
+function renderAgentContextSidebar() {
+    const side = document.getElementById('agent-context-sidebar');
+    if (!side) return;
+    if (!agentContextSidebarVisible || !currentConversationID) {
+        side.style.display = 'none';
+        side.innerHTML = '';
+        return;
+    }
+    const agents = getCurrentConversationAgents();
+    const state = agentNativeStateByConversation[String(currentConversationID || '')] || { status: 'idle', detail: '等待事件触发或人工运行。' };
+    side.style.display = 'flex';
+    side.innerHTML = `
+        <div class="agent-context-head">
+            <strong>Agent 上下文</strong>
+            <button type="button" onclick="toggleAgentContextSidebar(false)">×</button>
+        </div>
+        <section>
+            <label>原生状态</label>
+            <p>${escapeHTML(agentNativeStatusLabel(state.status))} · ${escapeHTML(state.detail || '当前没有正在运行的 Agent 任务')}</p>
+        </section>
+        <section>
+            <label>会话 Agent</label>
+            <div class="agent-context-chips">
+                ${agents.length ? agents.map(b => `<span>${escapeHTML(getBotDisplayName(b))}</span>`).join('') : '<em>当前会话暂无 Agent 成员</em>'}
+            </div>
+        </section>
+        <section>
+            <label>最近上下文</label>
+            <ul class="agent-context-message-list">${summarizeVisibleMessagesForSidebar()}</ul>
+        </section>
+        <section>
+            <label>可执行动作</label>
+            <div class="agent-context-actions">
+                <button type="button" onclick="showAgentConversationTools()">总结/问答</button>
+                <button type="button" onclick="showMentionPicker()">@ Agent</button>
+            </div>
+        </section>
+    `;
 }
 
 function setActiveConversationHighlight(conversationID) {
@@ -1158,7 +1275,7 @@ async function loadGroups() {
         groupsCache = resp.data.groups;
         const groups = groupsCache;
         if (groups.length === 0) {
-            list.innerHTML = '<div class="empty-tip">暂无群组<br><small>点击右上角「+ 创建」创建群组</small></div>';
+            list.innerHTML = '<div class="empty-tip">暂无群组<br><small>点击右上角「加入」输入群号，或「+ 创建」创建群组</small></div>';
             return;
         }
 
@@ -1171,10 +1288,11 @@ async function loadGroups() {
                     ${avatarHTML}
                     <div class="list-item-info">
                         <div class="list-item-name">${isPinned ? '置顶 · ' : ''}${escapeHTML(g.name)}</div>
-                        <div class="list-item-msg">群主: ${escapeHTML(ownerName)}</div>
+                        <div class="list-item-msg">群号: ${escapeHTML(String(g.id))} · 群主: ${escapeHTML(ownerName)}</div>
                     </div>
                     <div class="group-actions">
                         <button class="btn-chat" onclick="openGroupConversation(${jsArg(g.id)})">进入</button>
+                        <button class="btn-small-outline" onclick="copyGroupID(${jsArg(g.id)})">复制群号</button>
                         <button class="btn-small-outline" onclick="showGroupMembers(${jsArg(g.id)})">成员</button>
                         <button class="btn-small-outline" onclick="showGroupManage(${jsArg(g.id)})">管理</button>
                     </div>
@@ -1305,6 +1423,8 @@ async function openConversation(conversationID, type, isDeletedGroup = false) {
     if (type === 'private' && conversationHasAgentTarget(conversationID)) {
         document.getElementById('msg-input').placeholder = '向智能助手发送消息...';
     }
+    renderAgentNativeStatus();
+    renderAgentContextSidebar();
 
     const announcementBar = document.getElementById('group-announcement-bar');
     if (type === 'group') {
@@ -1370,6 +1490,8 @@ async function openConversation(conversationID, type, isDeletedGroup = false) {
     } else {
         currentMessages = [];
         msgList.innerHTML = '<div class="empty-tip">暂无消息，发送第一条消息吧</div>';
+        renderAgentNativeStatus();
+        renderAgentContextSidebar();
     }
 
     loadConversations();
@@ -1486,6 +1608,15 @@ function appendMessage(m) {
     }
 }
 
+async function copyGroupID(groupID) {
+    try {
+        await navigator.clipboard.writeText(String(groupID));
+        showToast('群号已复制', 'success');
+    } catch (err) {
+        showToast('群号: ' + groupID, 'info');
+    }
+}
+
 function updateAgentThinkingTimers() {
     const now = Date.now();
     document.querySelectorAll('.agent-thinking-inline[data-started-at]').forEach(el => {
@@ -1538,6 +1669,7 @@ function finishPendingAgentThinking(conversationID, agentUserID) {
     const container = document.getElementById('message-list');
     const thinkingEl = container ? container.querySelector(`[data-thinking-id="${pending.thinkingID}"]`) : null;
     if (thinkingEl) thinkingEl.remove();
+    setAgentNativeState(conversationID, 'completed', `Agent 已完成本次处理，用时 ${(durationMs / 1000).toFixed(1)} 秒。`);
     return durationMs;
 }
 
@@ -1584,6 +1716,7 @@ async function sendMessage() {
         clearPendingReply();
         appendMessage(optimisticMsg);
         if (shouldExpectAgentReply(sendConversationID, content, mentionUserIDs)) {
+            setAgentNativeState(sendConversationID, 'thinking', '已收到 IM 事件，正在结合会话上下文处理。');
             addPendingAgentThinking(sendConversationID);
         }
         setConversationHidden(sendConversationID, false);
@@ -1921,6 +2054,34 @@ function showCreateGroup() {
         </div>
         <button class="btn-primary" onclick="createGroup()">创建</button>
     `);
+}
+
+function showJoinGroup() {
+    showModal('通过群号加入', `
+        <div class="form-group">
+            <label>群号</label>
+            <input type="text" id="join-group-id" inputmode="numeric" maxlength="10" placeholder="请输入10位群号">
+        </div>
+        <button class="btn-primary" onclick="joinGroupByID()">加入群聊</button>
+    `);
+}
+
+async function joinGroupByID() {
+    const input = document.getElementById('join-group-id');
+    const groupID = input ? input.value.trim() : '';
+    if (!/^\d{10}$/.test(groupID)) {
+        showToast('请输入10位群号', 'warning');
+        return;
+    }
+    const resp = await groupAPI.join(groupID);
+    if (resp && resp.code === 0 && resp.data && resp.data.success) {
+        closeModal();
+        await loadGroups();
+        showToast(resp.data.msg || '加入群聊成功', 'success');
+        openGroupConversation(groupID);
+    } else {
+        showToast(resp?.data?.msg || resp?.message || '加入群聊失败', 'error');
+    }
 }
 
 async function createGroup() {
@@ -2945,9 +3106,30 @@ function renderMessageContent(content, msgType, options = {}) {
         return `<a class="media-msg file-msg" href="${escapeHTML(url)}" target="_blank" rel="noopener" download="${escapeHTML(media.name || '')}">文件 ${escapeHTML(media.name || '未命名文件')}</a>`;
     }
     if (options.markdown) {
+        const parsedCardPayload = tryParseAgentCardPayload(content);
+        if (parsedCardPayload) {
+            return renderAgentResult(parsedCardPayload, { action: 'run' });
+        }
         return renderMarkdownText(content);
     }
     return renderTextMessage(content);
+}
+
+function tryParseAgentCardPayload(content) {
+    const raw = String(content || '').trim();
+    if (!raw.startsWith('{') && !raw.startsWith('```json')) return null;
+    let jsonText = raw;
+    const fenced = raw.match(/^```json\s*([\s\S]*?)\s*```$/i);
+    if (fenced) jsonText = fenced[1].trim();
+    try {
+        const parsed = JSON.parse(jsonText);
+        if (normalizeAgentActionCards(parsed).length > 0) {
+            return parsed;
+        }
+    } catch (err) {
+        return null;
+    }
+    return null;
 }
 
 function renderTextMessage(content) {
@@ -2998,6 +3180,7 @@ async function loadBotSidebar() {
                         <div id="agent-menu-${escapeHTML(String(b.id))}" class="agent-item-menu">
                             <button onclick="showEditAgentForm(${jsArg(b.id)})">编辑配置</button>
                             <button onclick="showAgentPermissions(${jsArg(b.id)}, ${jsStringArg(getBotDisplayName(b))})">协作权限</button>
+                            <button onclick="showMemoryManager()">记忆管理</button>
                             <button onclick="addAgentFriend(${jsArg(b.id)}, ${jsStringArg(getBotDisplayName(b))})">加为好友</button>
                             <button onclick="startAgentPrivateChat(${jsArg(b.agent_user_id)})">私聊</button>
                             <button onclick="copyAgentUID(${jsArg(b.agent_user_id)})">复制 UID</button>
@@ -3114,6 +3297,203 @@ function toggleAgentItemMenu(menuID, triggerEl = null) {
     menu.style.top = `${preferredTop + menuHeight > window.innerHeight - 8 ? Math.max(8, fallbackTop) : preferredTop}px`;
 }
 
+function memoryScopeLabel(scope) {
+    return {
+        user: '个人记忆',
+        group: '群画像',
+        conversation: '会话记忆',
+        session: '本次会话'
+    }[scope] || scope || '记忆';
+}
+
+function memoryTypeLabel(type) {
+    return {
+        preference: '偏好',
+        speaking_style: '表达习惯',
+        long_term_goal: '长期目标',
+        group_profile: '群背景',
+        project_state: '项目状态',
+        chat_summary: '聊天摘要',
+        agent_run_summary: '运行摘要'
+    }[type] || type || '事实';
+}
+
+async function showMemoryManager() {
+    showModal('记忆管理', `
+        <div class="agent-help-box">
+            <strong>个人可控记忆</strong>
+            <p>这里展示当前账号拥有的 Agent 记忆。表达习惯和用户画像默认只对本人可见，你可以随时修改、关闭或删除。</p>
+        </div>
+        <div class="memory-toolbar">
+            <select id="memory-bot-filter" class="form-select">
+                <option value="">全部助手</option>
+                ${botCache.map(b => `<option value="${escapeHTML(String(b.id))}">${escapeHTML(getBotDisplayName(b))}</option>`).join('')}
+            </select>
+            <select id="memory-scope-filter" class="form-select">
+                <option value="">全部范围</option>
+                <option value="user">个人记忆</option>
+                <option value="group">群画像</option>
+                <option value="conversation">会话记忆</option>
+                <option value="session">本次会话</option>
+            </select>
+            <button class="btn-small" onclick="loadMemoryList()">刷新</button>
+            <button class="btn-small" onclick="showCreateMemoryForm()">+ 新增</button>
+        </div>
+        <div id="memory-list" class="memory-list">加载中...</div>
+    `);
+    await loadMemoryList();
+}
+
+async function loadMemoryList() {
+    const list = document.getElementById('memory-list');
+    if (!list) return;
+    list.innerHTML = '<div class="empty-tip">加载中...</div>';
+    const botID = document.getElementById('memory-bot-filter')?.value || '';
+    const scope = document.getElementById('memory-scope-filter')?.value || '';
+    const resp = await memoryAPI.list({ bot_id: botID, scope, include_disabled: true, limit: 80 });
+    if (!resp || resp.code !== 0 || !resp.data?.success) {
+        list.innerHTML = `<div class="empty-tip">加载失败<br><small>${escapeHTML(resp?.message || resp?.data?.msg || '')}</small></div>`;
+        return;
+    }
+    const memories = resp.data.memories || [];
+    if (!memories.length) {
+        list.innerHTML = '<div class="empty-tip">暂无记忆<br><small>可以手动添加，也可以让 Agent 对话后自动沉淀运行摘要。</small></div>';
+        return;
+    }
+    list.innerHTML = memories.map(m => {
+        const bot = botCache.find(b => sameID(b.id, m.bot_id));
+        return `
+            <div class="memory-card ${m.enabled ? '' : 'disabled'}">
+                <div class="memory-card-head">
+                    <strong>${escapeHTML(m.title || memoryTypeLabel(m.type))}</strong>
+                    <span>${escapeHTML(memoryScopeLabel(m.scope))} · ${escapeHTML(memoryTypeLabel(m.type))}</span>
+                </div>
+                <div class="memory-card-content">${renderMarkdownText(m.content || '')}</div>
+                <div class="memory-card-meta">
+                    <span>${escapeHTML(bot ? getBotDisplayName(bot) : ('Agent ' + m.bot_id))}</span>
+                    <span>${m.visibility === 'shared' ? '共享' : '仅自己可见'}</span>
+                    <span>${m.enabled ? '已启用' : '已关闭'}</span>
+                    <span>向量: ${escapeHTML(m.vector_status || 'pending')}</span>
+                </div>
+                <div class="memory-card-actions">
+                    <button class="btn-small" onclick="showEditMemoryForm(${jsStringArg(JSON.stringify(m).replace(/</g, '\\u003c'))})">编辑</button>
+                    <button class="btn-small" onclick="toggleMemoryEnabled(${jsArg(m.id)}, ${!m.enabled})">${m.enabled ? '关闭' : '启用'}</button>
+                    <button class="btn-small danger-soft" onclick="deleteMemoryFact(${jsArg(m.id)})">删除</button>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+function showCreateMemoryForm() {
+    showMemoryEditorModal(null);
+}
+
+function showEditMemoryForm(memoryJSON) {
+    try {
+        showMemoryEditorModal(JSON.parse(memoryJSON));
+    } catch (err) {
+        showToast('记忆数据解析失败', 'error');
+    }
+}
+
+function showMemoryEditorModal(memory) {
+    const isEdit = !!memory;
+    showModal(isEdit ? '编辑记忆' : '新增记忆', `
+        <div class="profile-form-grid">
+            <div class="form-group">
+                <label>所属助手</label>
+                <select id="memory-edit-bot" class="form-select">
+                    ${botCache.map(b => `<option value="${escapeHTML(String(b.id))}" ${sameID(b.id, memory?.bot_id) ? 'selected' : ''}>${escapeHTML(getBotDisplayName(b))}</option>`).join('')}
+                </select>
+            </div>
+            <div class="form-group">
+                <label>范围</label>
+                <select id="memory-edit-scope" class="form-select">
+                    ${['user','group','conversation','session'].map(v => `<option value="${v}" ${memory?.scope === v ? 'selected' : ''}>${memoryScopeLabel(v)}</option>`).join('')}
+                </select>
+            </div>
+            <div class="form-group">
+                <label>类型</label>
+                <select id="memory-edit-type" class="form-select">
+                    ${['preference','speaking_style','long_term_goal','group_profile','project_state','chat_summary','agent_run_summary'].map(v => `<option value="${v}" ${memory?.type === v ? 'selected' : ''}>${memoryTypeLabel(v)}</option>`).join('')}
+                </select>
+            </div>
+            <div class="form-group">
+                <label>可见性</label>
+                <select id="memory-edit-visibility" class="form-select">
+                    <option value="private" ${memory?.visibility !== 'shared' ? 'selected' : ''}>仅自己可见</option>
+                    <option value="shared" ${memory?.visibility === 'shared' ? 'selected' : ''}>可共享给协作上下文</option>
+                </select>
+            </div>
+        </div>
+        <div class="form-group">
+            <label>标题</label>
+            <input id="memory-edit-title" type="text" value="${escapeHTML(memory?.title || '')}" placeholder="例如：回答偏好">
+        </div>
+        <div class="form-group">
+            <label>内容</label>
+            <textarea id="memory-edit-content" rows="6" placeholder="写入一条明确、可被 Agent 使用的事实">${escapeHTML(memory?.content || '')}</textarea>
+        </div>
+        <label class="checkbox-row">
+            <input id="memory-edit-enabled" type="checkbox" ${memory?.enabled === false ? '' : 'checked'}>
+            <span>启用这条记忆</span>
+        </label>
+        <div class="modal-actions">
+            <button class="btn-secondary" onclick="showMemoryManager()">返回</button>
+            <button class="btn-primary" onclick="saveMemoryFact(${isEdit ? jsArg(memory.id) : '0'})">${isEdit ? '保存' : '创建'}</button>
+        </div>
+    `);
+}
+
+async function saveMemoryFact(memoryID = 0) {
+    const data = {
+        bot_id: apiID(document.getElementById('memory-edit-bot').value),
+        scope: document.getElementById('memory-edit-scope').value,
+        type: document.getElementById('memory-edit-type').value,
+        visibility: document.getElementById('memory-edit-visibility').value,
+        title: document.getElementById('memory-edit-title').value.trim(),
+        content: document.getElementById('memory-edit-content').value.trim(),
+        enabled: document.getElementById('memory-edit-enabled').checked,
+    };
+    if (!data.bot_id || data.bot_id === '0') {
+        showToast('请选择所属助手', 'warning');
+        return;
+    }
+    if (!data.content) {
+        showToast('记忆内容不能为空', 'warning');
+        return;
+    }
+    const resp = memoryID ? await memoryAPI.update(memoryID, data) : await memoryAPI.create(data);
+    if (resp && resp.code === 0 && resp.data?.success) {
+        showToast(memoryID ? '记忆已更新' : '记忆已创建', 'success');
+        await showMemoryManager();
+    } else {
+        showToast(resp?.message || resp?.data?.msg || '保存记忆失败', 'error');
+    }
+}
+
+async function toggleMemoryEnabled(memoryID, enabled) {
+    const resp = await memoryAPI.update(memoryID, { enabled });
+    if (resp && resp.code === 0 && resp.data?.success) {
+        showToast(enabled ? '记忆已启用' : '记忆已关闭', 'success');
+        loadMemoryList();
+    } else {
+        showToast(resp?.message || resp?.data?.msg || '操作失败', 'error');
+    }
+}
+
+async function deleteMemoryFact(memoryID) {
+    if (!confirm('确定删除这条记忆？删除后 Agent 不会再召回它。')) return;
+    const resp = await memoryAPI.delete(memoryID);
+    if (resp && resp.code === 0 && resp.data?.success) {
+        showToast('记忆已删除', 'success');
+        loadMemoryList();
+    } else {
+        showToast(resp?.message || resp?.data?.msg || '删除失败', 'error');
+    }
+}
+
 async function addAgentFriend(botID, botName) {
     const resp = await agentAPI.addFriend(botID, 0, botName || '');
     if (resp && resp.code === 0 && resp.data && resp.data.success) {
@@ -3146,18 +3526,22 @@ async function copyAgentUID(agentUserID) {
 }
 
 function showBotRoutes(botID, botName) {
-    showModal(`路由管理 - ${botName}`, `
+    showModal(`Agent 触发规则 - ${botName}`, `
+        <div class="agent-help-box">
+            <strong>低打扰原则</strong>
+            <div>群聊默认只响应 @。这里可以增加关键词、命令或静默记录规则，让 Agent 像 IM 原生成员一样按事件工作。</div>
+        </div>
         <div class="form-group" style="display:flex;gap:8px;align-items:flex-end;">
             <div style="flex:2;">
-                <label>路由模式</label>
-                <input type="text" id="route-pattern" placeholder="例如: /chat/*">
+                <label>触发内容 / 事件类型</label>
+                <input type="text" id="route-pattern" placeholder="例如: 报错 / /amiya / file.uploaded">
             </div>
             <div style="flex:1;">
-                <label>类型</label>
+                <label>规则类型</label>
                 <select id="route-type" class="form-select">
-                    <option value="exact">精确匹配</option>
-                    <option value="prefix">前缀匹配</option>
-                    <option value="regex">正则匹配</option>
+                    <option value="agent_keyword">关键词触发并回复</option>
+                    <option value="agent_command">命令触发并回复</option>
+                    <option value="agent_record">静默记录不回复</option>
                 </select>
             </div>
             <button class="btn-primary" onclick="createBotRoute(${jsArg(botID)})">添加</button>
@@ -3388,12 +3772,62 @@ function agentObjectToReadableText(value) {
     return sections.join('\n\n');
 }
 
+function normalizeAgentActionCards(value) {
+    const source = value && value.data ? value.data : value;
+    if (!source || typeof source !== 'object') return [];
+    const direct = source.cards || source.action_cards || source.actions;
+    if (!Array.isArray(direct)) return [];
+    return direct.filter(card => card && typeof card === 'object').map((card, idx) => ({
+        version: card.version || '1.0',
+        type: card.type || card.card_type || 'info',
+        title: card.title || agentActionCardTitle(card.type || card.card_type || 'info'),
+        summary: card.summary || card.description || card.content || '',
+        source: card.source || card.source_ref || '',
+        status: card.status || 'pending',
+        actions: Array.isArray(card.actions) ? card.actions : [],
+        raw: card,
+        id: card.id || card.action_id || `card-${idx}`,
+    }));
+}
+
+function agentActionCardTitle(type) {
+    const titles = {
+        approval: '等待确认',
+        task: '任务候选',
+        knowledge: '知识引用',
+        diagnostic: '诊断结果',
+        file: '文件处理',
+        info: 'Agent 卡片',
+    };
+    return titles[type] || 'Agent 卡片';
+}
+
+function renderAgentActionCard(card) {
+    const actionButtons = (card.actions || []).map(action => {
+        const label = action.label || action.name || action.type || '操作';
+        return `<button type="button" onclick="showToast('卡片操作已记录，后续接入持久化审批流', 'info')">${escapeHTML(label)}</button>`;
+    }).join('');
+    return `
+        <div class="agent-action-decision-card ${escapeHTML(card.type)}">
+            <div class="agent-action-decision-head">
+                <strong>${escapeHTML(card.title)}</strong>
+                <span>${escapeHTML(card.status)}</span>
+            </div>
+            <div class="agent-action-decision-body">${renderMarkdownText(card.summary || 'Agent 返回了一个结构化动作。')}</div>
+            ${card.source ? `<div class="agent-action-decision-source">来源：${escapeHTML(card.source)}</div>` : ''}
+            ${actionButtons ? `<div class="agent-action-decision-actions">${actionButtons}</div>` : ''}
+        </div>
+    `;
+}
+
 function renderAgentResult(value, meta = {}) {
     const normalized = normalizeAgentResultForView(value);
     if (!normalized.text && !normalized.detail) return '<div class="empty-tip">暂无返回内容</div>';
     const detailID = `agent-detail-${Date.now()}-${Math.random().toString(16).slice(2)}`;
     const elapsed = meta.elapsedMs !== undefined ? `<span>耗时 ${(meta.elapsedMs / 1000).toFixed(1)} 秒</span>` : '';
     const action = meta.action ? `<span>${escapeHTML(agentActionLabel(meta.action))}</span>` : '';
+    const cards = normalizeAgentActionCards(value);
+    const cardsHTML = cards.length ? `<div class="agent-action-decision-list">${cards.map(renderAgentActionCard).join('')}</div>` : '';
     const detailHTML = normalized.detail
         ? `
             <button type="button" class="agent-detail-toggle" onclick="toggleAgentDetail(${jsStringArg(detailID)}, this)">查看详细 JSON</button>
@@ -3404,6 +3838,7 @@ function renderAgentResult(value, meta = {}) {
         <div class="agent-result-card">
             <div class="agent-result-meta">${action}${elapsed}</div>
             <div class="agent-result-text">${renderMarkdownText(normalized.text || JSON.stringify(normalized.detail, null, 2))}</div>
+            ${cardsHTML}
             ${detailHTML}
         </div>
     `;
@@ -3919,7 +4354,7 @@ async function createBotRoute(botID) {
     if (!pattern) { showToast('请填写路由模式', 'warning'); return; }
     const resp = await botAPI.createRoute(botID, pattern, routeType, 0);
     if (resp && resp.code === 0 && resp.data && resp.data.success) {
-        showToast('路由添加成功', 'success');
+        showToast('Agent 触发规则已添加', 'success');
         loadBotRoutes(botID);
     } else {
         showToast(resp?.data?.msg || '添加失败', 'error');
@@ -3934,13 +4369,13 @@ async function loadBotRoutes(botID) {
     if (resp && resp.code === 0 && resp.data && resp.data.routes) {
         const routes = resp.data.routes;
         if (routes.length === 0) {
-            area.innerHTML = '<div class="empty-tip">暂无路由</div>';
+            area.innerHTML = '<div class="empty-tip">暂无 Agent 触发规则</div>';
             return;
         }
         area.innerHTML = routes.map(r => `
             <div class="bot-item">
                 <div class="bot-info">
-                    <span class="bot-name">路由 ${escapeHTML(r.route_pattern)}</span>
+                    <span class="bot-name">${escapeHTML(r.route_pattern)}</span>
                     <span class="bot-type ${r.route_type}">${escapeHTML(routeTypeLabel(r.route_type))}</span>
                     <span class="bot-status active">优先级: ${r.priority || 0}</span>
                 </div>
@@ -3955,7 +4390,7 @@ async function loadBotRoutes(botID) {
 }
 
 async function deleteBotRoute(routeID, botID) {
-    if (!confirm('确定删除该路由？')) return;
+    if (!confirm('确定删除该 Agent 触发规则？')) return;
     const resp = await botAPI.deleteRoute(routeID);
     if (resp && resp.code === 0 && resp.data && resp.data.success) {
         showToast('已删除', 'success');

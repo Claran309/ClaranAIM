@@ -23,7 +23,7 @@ ClaranAIM/
 │   ├── file-service/                      # 文件元数据 RPC 服务
 │   ├── bot-manager-service/               # Agent 配置、权限、计费、调度管理服务
 │   ├── bot-runtime-service/               # Agent 运行时、长会话、工具调用服务
-│   ├── memory-service/                    # 记忆服务预留入口
+│   ├── memory-service/                    # 记忆服务启动入口，负责 memory_facts 迁移/健康检查
 │   ├── rag-service/                       # RAG 服务预留入口
 │   └── msg-filter-service/                # 消息审核/过滤服务预留入口
 ├── internal/                              # 各服务内部实现，外部包不应直接依赖
@@ -35,10 +35,10 @@ ClaranAIM/
 │   ├── msg-history-service/               # 历史消息与离线消息查询
 │   ├── file-service/                      # 文件元数据、MinIO/本地存储适配
 │   ├── bot-manager-service/               # Agent 配置、权限、Kafka 消费、计费、路由
-│   │   ├── dao/                           # Bot、权限、路由、计费、调度记录持久化
-│   │   ├── eventconsumer/                 # Kafka message.created 的 @Agent 分发消费
+│   │   ├── dao/                           # Bot、权限、路由、计费、订阅、审计、调度记录持久化
+│   │   ├── eventconsumer/                 # Agent Event Dispatcher，消费 message/im 事件并决策响应
 │   │   ├── handler/                       # Kitex RPC handler
-│   │   ├── model/                         # Bot、权限、路由、计费模型
+│   │   ├── model/                         # Bot、权限、订阅规则、审计、路由、计费模型
 │   │   └── service/                       # Agent 管理、权限校验、runtime 调用
 │   ├── bot-runtime-service/               # Agent 执行侧实现
 │   │   ├── agent/                         # Eino Agent、工具、安全策略
@@ -47,7 +47,7 @@ ClaranAIM/
 │   │   ├── handler/                       # bot-runtime Kitex RPC handler
 │   │   ├── logic/                         # 运行时辅助逻辑
 │   │   └── service/                       # RunAgent、总结、问答、insights、sessions
-│   ├── memory-service/                    # 记忆服务预留实现
+│   ├── memory-service/                    # Agent 记忆模型、DAO、召回隔离和用户治理逻辑
 │   ├── rag-service/                       # RAG 服务预留实现
 │   ├── msg-filter-service/                # 消息过滤/审核预留实现
 │   └── msg-service/                       # 消息服务旧/兼容目录
@@ -56,10 +56,10 @@ ClaranAIM/
 │   ├── config/                            # Viper 配置加载、环境变量覆盖
 │   ├── dtm/                               # DTM Saga/TCC 辅助封装
 │   ├── eventbus/                          # Kafka 生产/消费封装
-│   ├── events/                            # Kafka topic 与事件结构
+│   ├── events/                            # Kafka topic、统一 IM 事件、Agent 事件结构
 │   ├── governance/                        # Kitex 超时、熔断、限流配置
 │   ├── health/                            # 服务启动健康检查日志
-│   ├── idgen/                             # 雪花 ID 与 10 位用户 UID 生成
+│   ├── idgen/                             # 雪花 ID、10 位用户 UID 与 10 位群号生成
 │   ├── jwt/                               # access token / refresh token
 │   ├── logger/                            # Zap 日志，本地 INFO/ERR 文件输出
 │   ├── outbox/                            # 事务 Outbox 事实表与事件发布
@@ -82,6 +82,7 @@ ClaranAIM/
 ├── config/                                # 各服务 YAML 配置
 │   ├── config.yaml                        # 默认/示例公共配置
 │   ├── api-gateway.yaml
+│   ├── memory-service.yaml
 │   ├── websocket-gateway.yaml
 │   ├── user-service.yaml
 │   ├── group-service.yaml
@@ -113,6 +114,8 @@ ClaranAIM/
 └── README.md
 ```
 
+Agent 触发规则说明：前端“Agent 触发规则”暂复用 `/bot/route/*` 接口，`agent_keyword` 表示关键词触发回复，`agent_command` 表示命令前缀触发回复，`agent_record` 表示静默记录事件不回复。bot-manager-service 会把这些规则同步到 `agent_subscription_rules`，供 Agent Event Dispatcher 消费。
+
 ## 快速启动
 
 ```bash
@@ -131,3 +134,9 @@ scripts\start.bat
 ```
 
 ## to fix list
+- agent说话时会连续输出两次内容
+- agent聊天框无法渲染md的表格
+- 最小 Action Card 渲染协议疑似未能生效，我刚刚并没有看见
+- 现在agent为我生成的代码文件仍然在根目录，我需要在/agent/files中
+- 支持配置agent工作目录
+- 我希望好友界面的分组也能像会话界面一样有分类下拉列表

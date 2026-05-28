@@ -24,6 +24,7 @@ func RegisterRoutes(r *route.Engine, cfg ...*config.Config) {
 	messageHandler := handler.NewMessageHandler()
 	fileHandler := handler.NewFileHandler()
 	botHandler := handler.NewBotHandler()
+	memoryHandler := handler.NewMemoryHandler()
 
 	r.Use(middleware.CORSMiddleware())
 	if len(cfg) > 0 && cfg[0] != nil {
@@ -61,6 +62,7 @@ func RegisterRoutes(r *route.Engine, cfg ...*config.Config) {
 		auth.POST("/group/create", groupHandler.CreateGroup)
 		auth.GET("/group/:id", groupHandler.GetGroup)
 		auth.GET("/group/list", groupHandler.GetUserGroups)
+		auth.POST("/group/join", groupHandler.JoinGroupByID)
 		auth.POST("/group/invite", groupHandler.InviteMember)
 		auth.POST("/group/kick", groupHandler.KickMember)
 		auth.GET("/group/:id/members", groupHandler.GetGroupMembers)
@@ -113,6 +115,11 @@ func RegisterRoutes(r *route.Engine, cfg ...*config.Config) {
 		auth.POST("/agent/permission/revoke", botHandler.RevokePermission)
 		auth.GET("/agent/:id/permissions", botHandler.ListPermissions)
 		auth.GET("/agent/:id/sessions", botHandler.ListAgentSessions)
+
+		auth.GET("/memory/list", memoryHandler.ListMemories)
+		auth.POST("/memory/create", memoryHandler.CreateMemory)
+		auth.PUT("/memory/:id", memoryHandler.UpdateMemory)
+		auth.DELETE("/memory/:id", memoryHandler.DeleteMemory)
 	}
 
 	admin := r.Group("/api/v1/admin")

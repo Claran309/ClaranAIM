@@ -118,7 +118,7 @@ func (h *GroupHandler) CreateGroup(ctx context.Context, c *app.RequestContext) {
 }
 
 func (h *GroupHandler) createGroupWithDTM(ctx context.Context, c *app.RequestContext, name string, ownerID int64, memberIDs []int64) {
-	groupID, err := idgen.NextID()
+	groupID, err := idgen.NewUID10()
 	if err != nil {
 		response.Error(c, err.Error())
 		return
@@ -250,6 +250,73 @@ func (h *GroupHandler) InviteMember(ctx context.Context, c *app.RequestContext) 
 		return
 	}
 	response.Success(c, resp)
+}
+
+// JoinGroupByID lets the current user join a group by entering its public
+// 10-digit group number. It intentionally only submits the current user ID;
+// inviting other users still goes through /group/invite and group-service role
+// checks.
+func (h *GroupHandler) JoinGroupByID(ctx context.Context, c *app.RequestContext) {
+	type joinReq struct {
+		GroupID json.Number `json:"group_id"`
+	}
+	var req joinReq
+	if err := bindGroupJSONUseNumber(c, &req); err != nil {
+		response.BadRequest(c, "参数错误")
+		return
+	}
+	groupID, err := parseJSONNumber(req.GroupID, "群号")
+	if err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	if groupID < 1000000000 || groupID > 9999999999 {
+		response.BadRequest(c, "群号必须是10位数字")
+		return
+	}
+	id, ok := requireCurrentUserID(c)
+	if !ok {
+		return
+	}
+	groupResp, err := client.GroupClient.GetGroup(ctx, client.NewGetGroupReq(groupID))
+	if err != nil {
+		response.Error(c, err.Error())
+		return
+	}
+	if groupResp == nil || !groupResp.Success || groupResp.Group == nil {
+		response.BadRequest(c, "群聊不存在")
+		return
+	}
+	checkResp, err := client.GroupClient.CheckMember(ctx, client.NewCheckMemberReq(groupID, id))
+	if err != nil {
+		response.Error(c, err.Error())
+		return
+	}
+	if checkResp != nil && checkResp.Success && checkResp.IsMember {
+		response.Success(c, map[string]interface{}{
+			"success":  true,
+			"group_id": groupID,
+			"msg":      "你已在该群聊中",
+			"joined":   false,
+		})
+		return
+	}
+	resp, err := client.GroupClient.InviteMember(ctx, client.NewInviteMemberReq(groupID, id, []int64{id}))
+	if err != nil {
+		response.Error(c, err.Error())
+		return
+	}
+	if resp == nil || !resp.Success {
+		response.Success(c, resp)
+		return
+	}
+	response.Success(c, map[string]interface{}{
+		"success":    true,
+		"group_id":   groupID,
+		"group_name": groupResp.Group.Name,
+		"msg":        "加入群聊成功",
+		"joined":     true,
+	})
 }
 
 // KickMember removes one user from a group after group-service validates that
