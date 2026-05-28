@@ -24,8 +24,3 @@ storage/agent/skills/*
 !storage/agent/skills/.gitkeep
 storage/source/*
 !storage/source/.gitkeep
-
-# Local notes/history
-ChatHistoryWithAI.md
-docs/ChatHistoryWithAI.md
-learn/

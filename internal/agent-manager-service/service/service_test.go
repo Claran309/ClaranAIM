@@ -105,7 +105,7 @@ func TestCreateBotFailsWhenAgentSystemUserCreationFails(t *testing.T) {
 	botRepo := &fakeBotRepo{}
 	svc := NewAgentService(botRepo, &fakePermissionRepo{}, nil, &fakeBillingRepo{}, nil, &fakeUserClient{
 		registerResp: &user.RegisterResp{Success: false, Msg: "user-service unavailable"},
-	}, "storage/agent/workspaces")
+	}, "storage/agent/files")
 
 	created, err := svc.CreateBot(context.Background(), "Agent", "internal", "desc", "glm-4.7", "", "", "", "", "", "", "", "", "", 1001, "default-key", "https://llm.example/v1", "glm-4.7")
 	if err == nil {
@@ -127,7 +127,7 @@ func TestUpdateBotKeepsActiveStateWhenFieldNotSet(t *testing.T) {
 		OwnerID:   1001,
 		IsActive:  true,
 	}}
-	svc := NewAgentService(botRepo, &fakePermissionRepo{}, nil, &fakeBillingRepo{}, nil, nil, "storage/agent/workspaces")
+	svc := NewAgentService(botRepo, &fakePermissionRepo{}, nil, &fakeBillingRepo{}, nil, nil, "storage/agent/files")
 
 	err := svc.UpdateBot(context.Background(), 1, 1001, "New Agent", "", "", "", "", "", "", "", "", "", "", "", false, false, "default-key", "https://llm.example/v1", "glm-4.7")
 	if err != nil {
@@ -149,7 +149,7 @@ func TestUpdateBotAppliesActiveStateWhenFieldSet(t *testing.T) {
 		OwnerID:   1001,
 		IsActive:  true,
 	}}
-	svc := NewAgentService(botRepo, &fakePermissionRepo{}, nil, &fakeBillingRepo{}, nil, nil, "storage/agent/workspaces")
+	svc := NewAgentService(botRepo, &fakePermissionRepo{}, nil, &fakeBillingRepo{}, nil, nil, "storage/agent/files")
 
 	err := svc.UpdateBot(context.Background(), 1, 1001, "", "", "", "", "", "", "", "", "", "", "", "", false, true, "default-key", "https://llm.example/v1", "glm-4.7")
 	if err != nil {
@@ -170,7 +170,7 @@ func TestCreateRouteMirrorsAgentKeywordRule(t *testing.T) {
 	}}
 	routeRepo := &fakeRouteRepo{}
 	subRepo := &fakeSubscriptionRepo{}
-	svc := NewAgentService(botRepo, &fakePermissionRepo{}, routeRepo, &fakeBillingRepo{}, nil, nil, "storage/agent/workspaces")
+	svc := NewAgentService(botRepo, &fakePermissionRepo{}, routeRepo, &fakeBillingRepo{}, nil, nil, "storage/agent/files")
 	svcWithSubscription, ok := svc.(*agentServiceImpl)
 	if !ok {
 		t.Fatal("NewAgentService should return AgentServiceImpl")
@@ -195,7 +195,7 @@ func TestCreateRouteMirrorsAgentKeywordRule(t *testing.T) {
 func TestCreateRouteMirrorsAgentSilentRecordRule(t *testing.T) {
 	botRepo := &fakeBotRepo{byID: &model.Bot{ID: 1, AgentUserID: 2001, OwnerID: 1001, IsActive: true}}
 	subRepo := &fakeSubscriptionRepo{}
-	svc := NewAgentService(botRepo, &fakePermissionRepo{}, &fakeRouteRepo{}, &fakeBillingRepo{}, nil, nil, "storage/agent/workspaces")
+	svc := NewAgentService(botRepo, &fakePermissionRepo{}, &fakeRouteRepo{}, &fakeBillingRepo{}, nil, nil, "storage/agent/files")
 	svc.(*agentServiceImpl).subscriptionRepo = subRepo
 
 	_, err := svc.CreateRoute(context.Background(), 1, "file.uploaded", "agent_record", 1)
@@ -210,7 +210,7 @@ func TestCreateRouteMirrorsAgentSilentRecordRule(t *testing.T) {
 func TestDeleteRouteRemovesMirroredSubscriptionRule(t *testing.T) {
 	routeRepo := &fakeRouteRepo{created: &model.BotRoute{ID: 22, BotID: 1, RoutePattern: "报错", RouteType: "agent_keyword"}}
 	subRepo := &fakeSubscriptionRepo{}
-	svc := NewAgentService(&fakeBotRepo{}, &fakePermissionRepo{}, routeRepo, &fakeBillingRepo{}, nil, nil, "storage/agent/workspaces")
+	svc := NewAgentService(&fakeBotRepo{}, &fakePermissionRepo{}, routeRepo, &fakeBillingRepo{}, nil, nil, "storage/agent/files")
 	svc.(*agentServiceImpl).subscriptionRepo = subRepo
 
 	if err := svc.DeleteRoute(context.Background(), 22, 1001); err != nil {
@@ -247,7 +247,7 @@ func TestChatWithBotInjectsRecalledMemoryAndStoresRunSummary(t *testing.T) {
 		BaseURL:   "https://llm.example/v1",
 		OwnerID:   1001,
 		IsActive:  true,
-	}}, &fakePermissionRepo{}, nil, &fakeBillingRepo{}, runtime, nil, "storage/agent/workspaces")
+	}}, &fakePermissionRepo{}, nil, &fakeBillingRepo{}, runtime, nil, "storage/agent/files")
 	svc.(*agentServiceImpl).SetMemoryService(memory)
 
 	result, err := svc.ChatWithBot(context.Background(), 1, 1001, 33, "总结一下")

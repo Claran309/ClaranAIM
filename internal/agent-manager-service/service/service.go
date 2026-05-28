@@ -169,7 +169,9 @@ func (s *agentServiceImpl) CreateBot(ctx context.Context, name, botType, descrip
 	}
 	if bot.WorkspaceRoot == "" {
 		bot.WorkspaceRoot = defaultWorkspaceRoot(s.workspaceBase, bot.ID)
-		_ = s.botRepo.UpdateBot(ctx, bot)
+		if err := s.botRepo.UpdateBot(ctx, bot); err != nil {
+			return nil, fmt.Errorf("初始化Agent工作目录失败: %w", err)
+		}
 	}
 	_ = s.permissionRepo.UpsertPermission(ctx, &model.BotPermission{BotID: bot.ID, UserID: ownerID, Role: "owner"})
 
@@ -565,10 +567,10 @@ func (s *agentServiceImpl) runtimeConfig(bot *model.Bot) *bot_runtime.RuntimeBot
 	}
 }
 
-// defaultWorkspaceRoot 生成 Agent 默认工作目录，确保所有工作区落在受控 storage/agent/workspaces 下。
+// defaultWorkspaceRoot 生成 Agent 默认工作目录，确保所有工作文件落在受控 storage/agent/files 下。
 func defaultWorkspaceRoot(base string, botID int64) string {
 	if base == "" {
-		base = "storage/agent/workspaces"
+		base = "storage/agent/files"
 	}
 	if botID <= 0 {
 		return filepath.Join(base, "pending")

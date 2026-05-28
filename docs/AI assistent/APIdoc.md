@@ -1530,7 +1530,7 @@ curl -X POST http://localhost:8080/api/v1/file/upload \
       "agent_user_id": 1000000001,
       "avatar": "/files/agent.png",
       "signature": "项目协作 Agent",
-      "workspace_root": "storage/agent/workspaces/1",
+      "workspace_root": "storage/agent/files/1",
       "tool_policy": "safe",
       "owner_id": 1,
       "is_active": true,

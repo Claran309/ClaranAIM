@@ -24,7 +24,7 @@ llm:
 
 agent:
   session_dir: "storage/agent/managerRuntimeFile"
-  agent_root: "storage/agent/workspaces"
+  agent_root: "storage/agent/files"
   cozeloop_api_token: ""
   cozeloop_workspace_id: ""
   skills_dir: ""

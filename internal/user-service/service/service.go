@@ -195,7 +195,9 @@ func (s *userServiceImpl) Login(ctx context.Context, username, pwd, jwtSecret st
 	}
 
 	user.Status = "online"
-	_ = s.repo.UpdateUser(ctx, user)
+	if err := s.repo.UpdateUser(ctx, user); err != nil {
+		return TokenPair{}, nil, fmt.Errorf("更新用户在线状态失败: %w", err)
+	}
 
 	s.cacheUserInfo(ctx, user)
 	if s.redis != nil {
@@ -404,7 +406,13 @@ func (s *userServiceImpl) AddFriend(ctx context.Context, userID, friendID, group
 		FriendID: userID,
 		GroupID:  0,
 	}
-	_ = s.repo.AddFriend(ctx, reverseFriend)
+	if err := s.repo.AddFriend(ctx, reverseFriend); err != nil {
+		rollbackErr := s.repo.DeleteFriend(ctx, userID, friendID)
+		if rollbackErr != nil {
+			return fmt.Errorf("添加反向好友关系失败: %w；回滚正向关系也失败: %v", err, rollbackErr)
+		}
+		return fmt.Errorf("添加反向好友关系失败: %w", err)
+	}
 
 	s.invalidateFriendCache(ctx, userID)
 	s.invalidateFriendCache(ctx, friendID)
@@ -418,7 +426,9 @@ func (s *userServiceImpl) DeleteFriend(ctx context.Context, userID, friendID int
 	if err := s.repo.DeleteFriend(ctx, userID, friendID); err != nil {
 		return err
 	}
-	_ = s.repo.DeleteFriend(ctx, friendID, userID)
+	if err := s.repo.DeleteFriend(ctx, friendID, userID); err != nil {
+		return fmt.Errorf("删除反向好友关系失败: %w", err)
+	}
 
 	s.invalidateFriendCache(ctx, userID)
 	s.invalidateFriendCache(ctx, friendID)

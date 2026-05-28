@@ -13,7 +13,6 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"strconv"
 	"strings"
 
 	"github.com/cloudwego/hertz/pkg/app"
@@ -415,8 +414,14 @@ func (h *FileHandler) ListFiles(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 	fileType := c.DefaultQuery("file_type", "")
-	limit, _ := strconv.ParseInt(c.DefaultQuery("limit", "20"), 10, 64)
-	offset, _ := strconv.ParseInt(c.DefaultQuery("offset", "0"), 10, 64)
+	limit, ok := parsePositiveLimit(c, "limit", 20, 100)
+	if !ok {
+		return
+	}
+	offset, ok := parseNonNegativeQueryInt64(c, "offset", 0)
+	if !ok {
+		return
+	}
 	resp, err := client.FileClient.ListFiles(ctx, client.NewListFilesReq(id, fileType, limit, offset))
 	if err != nil {
 		response.Error(c, err.Error())

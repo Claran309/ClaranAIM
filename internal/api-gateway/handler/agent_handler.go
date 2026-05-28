@@ -756,7 +756,10 @@ func (h *AgentHandler) ListAgentSessions(ctx context.Context, c *app.RequestCont
 		response.Forbidden(c, msg)
 		return
 	}
-	conversationID, _ := strconv.ParseInt(c.DefaultQuery("conversation_id", "0"), 10, 64)
+	conversationID, ok := parseNonNegativeQueryInt64(c, "conversation_id", 0)
+	if !ok {
+		return
+	}
 	resp, err := client.AgentRuntimeClient.GetAgentSessions(ctx, &bot_runtime.GetAgentSessionReq{
 		BotId:          botID,
 		UserId:         userID,
@@ -852,8 +855,14 @@ func (h *AgentHandler) GetBilling(ctx context.Context, c *app.RequestContext) {
 	if !ok {
 		return
 	}
-	limit, _ := strconv.ParseInt(c.DefaultQuery("limit", "20"), 10, 64)
-	offset, _ := strconv.ParseInt(c.DefaultQuery("offset", "0"), 10, 64)
+	limit, ok := parsePositiveLimit(c, "limit", 20, 100)
+	if !ok {
+		return
+	}
+	offset, ok := parseNonNegativeQueryInt64(c, "offset", 0)
+	if !ok {
+		return
+	}
 	resp, err := client.AgentClient.GetBilling(ctx, client.NewGetBillingReq(botID, id, limit, offset))
 	if err != nil {
 		response.Error(c, err.Error())

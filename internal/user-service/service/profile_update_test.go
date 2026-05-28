@@ -5,12 +5,18 @@ import (
 	"ClaranAIM/pkg/jwt"
 	"ClaranAIM/pkg/password"
 	"context"
+	"errors"
 	"strings"
 	"testing"
 )
 
 type fakeUserRepo struct {
-	user *model.User
+	user            *model.User
+	users           map[int64]*model.User
+	addFriendErrAt  int
+	addFriendCalls  int
+	deleteFriendErr error
+	deletedPairs    [][2]int64
 }
 
 func (r *fakeUserRepo) CreateUser(ctx context.Context, user *model.User) error {
@@ -26,6 +32,9 @@ func (r *fakeUserRepo) GetUserByUsername(ctx context.Context, username string) (
 }
 
 func (r *fakeUserRepo) GetUserByID(ctx context.Context, id int64) (*model.User, error) {
+	if r.users != nil {
+		return r.users[id], nil
+	}
 	if r.user != nil && r.user.ID == id {
 		return r.user, nil
 	}
@@ -42,10 +51,18 @@ func (r *fakeUserRepo) BatchGetUsersByIDs(ctx context.Context, ids []int64) ([]m
 }
 
 func (r *fakeUserRepo) AddFriend(ctx context.Context, friend *model.Friend) error {
+	r.addFriendCalls++
+	if r.addFriendErrAt > 0 && r.addFriendCalls == r.addFriendErrAt {
+		return errors.New("add friend failed")
+	}
 	return nil
 }
 
 func (r *fakeUserRepo) DeleteFriend(ctx context.Context, userID, friendID int64) error {
+	r.deletedPairs = append(r.deletedPairs, [2]int64{userID, friendID})
+	if r.deleteFriendErr != nil {
+		return r.deleteFriendErr
+	}
 	return nil
 }
 
@@ -164,5 +181,34 @@ func TestSystemUserCannotPasswordLogin(t *testing.T) {
 	_, _, err = svc.Login(context.Background(), "agent_1000000001", "secret", "test-secret", 3600, 7200)
 	if err == nil || !strings.Contains(err.Error(), "系统用户") {
 		t.Fatalf("Login error = %v, want system user rejection", err)
+	}
+}
+
+func TestAddFriendReturnsErrorAndRollsBackWhenReverseRelationFails(t *testing.T) {
+	repo := &fakeUserRepo{
+		users: map[int64]*model.User{
+			1000000001: {ID: 1000000001, Username: "alice"},
+			1000000002: {ID: 1000000002, Username: "bob"},
+		},
+		addFriendErrAt: 2,
+	}
+	svc := NewUserService(repo, nil)
+
+	err := svc.AddFriend(context.Background(), 1000000001, 1000000002, 0, "")
+	if err == nil || !strings.Contains(err.Error(), "添加反向好友关系失败") {
+		t.Fatalf("AddFriend error = %v, want reverse relation failure", err)
+	}
+	if len(repo.deletedPairs) != 1 || repo.deletedPairs[0] != [2]int64{1000000001, 1000000002} {
+		t.Fatalf("rollback deleted pairs = %#v, want forward relation rollback", repo.deletedPairs)
+	}
+}
+
+func TestDeleteFriendReturnsErrorWhenReverseDeleteFails(t *testing.T) {
+	repo := &fakeUserRepo{deleteFriendErr: errors.New("delete failed")}
+	svc := NewUserService(repo, nil)
+
+	err := svc.DeleteFriend(context.Background(), 1000000001, 1000000002)
+	if err == nil || !strings.Contains(err.Error(), "delete failed") {
+		t.Fatalf("DeleteFriend error = %v, want delete failure", err)
 	}
 }

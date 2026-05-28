@@ -243,7 +243,7 @@ func (s *runtimeServiceImpl) getOrCreateAgent(ctx context.Context, bot *bot_runt
 func (s *runtimeServiceImpl) resolveWorkspaceRoot(bot *bot_runtime.RuntimeBotConfig) (string, error) {
 	base := strings.TrimSpace(s.cfg.DefaultWorkspaceDir)
 	if base == "" {
-		base = "storage/agent/workspaces"
+		base = "storage/agent/files"
 	}
 	baseAbs, err := filepath.Abs(base)
 	if err != nil {

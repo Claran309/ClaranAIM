@@ -1226,6 +1226,45 @@ body {
     color: inherit;
 }
 
+.markdown-message .md-table-wrap {
+    max-width: min(680px, 74vw);
+    overflow-x: auto;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: white;
+}
+
+.markdown-message .md-table {
+    width: 100%;
+    border-collapse: collapse;
+    min-width: 360px;
+    font-size: 13px;
+}
+
+.markdown-message .md-table th,
+.markdown-message .md-table td {
+    padding: 8px 10px;
+    border-bottom: 1px solid rgba(217,226,220,0.78);
+    border-right: 1px solid rgba(217,226,220,0.58);
+    text-align: left;
+    vertical-align: top;
+}
+
+.markdown-message .md-table th {
+    background: rgba(15,118,110,0.08);
+    color: var(--text);
+    font-weight: 800;
+}
+
+.markdown-message .md-table tr:last-child td {
+    border-bottom: 0;
+}
+
+.markdown-message .md-table th:last-child,
+.markdown-message .md-table td:last-child {
+    border-right: 0;
+}
+
 .markdown-message a {
     color: #0f766e;
     font-weight: 700;
@@ -2734,11 +2773,15 @@ body {
 }
 
 .agent-chat-text {
-    white-space: pre-wrap;
+    white-space: normal;
     word-break: break-word;
     color: var(--text);
     font-size: 13px;
     line-height: 1.55;
+}
+
+.agent-chat-cards {
+    margin-top: 10px;
 }
 
 .agent-chat-composer {

@@ -328,10 +328,14 @@ func (h *MessageHandler) GetHistory(ctx context.Context, c *app.RequestContext) 
 		return
 	}
 
-	limitStr := c.DefaultQuery("limit", "50") // 每页条数，默认50
-	limit, _ := strconv.ParseInt(limitStr, 10, 64)
-	beforeIDStr := c.DefaultQuery("before_id", "0") // 游标，0表示从头开始
-	beforeID, _ := strconv.ParseInt(beforeIDStr, 10, 64)
+	limit, ok := parsePositiveLimit(c, "limit", 50, 200)
+	if !ok {
+		return
+	}
+	beforeID, ok := parseNonNegativeQueryInt64(c, "before_id", 0)
+	if !ok {
+		return
+	}
 
 	id, ok := requireCurrentUserID(c)
 	if !ok {
@@ -356,16 +360,20 @@ func (h *MessageHandler) SearchMessages(ctx context.Context, c *app.RequestConte
 		return
 	}
 
-	limitStr := c.DefaultQuery("limit", "20")
-	limit, _ := strconv.ParseInt(limitStr, 10, 64)
+	limit, ok := parsePositiveLimit(c, "limit", 20, 100)
+	if !ok {
+		return
+	}
 
 	id, ok := requireCurrentUserID(c)
 	if !ok {
 		return
 	}
 
-	conversationIDStr := c.DefaultQuery("conversation_id", "0")
-	conversationID, _ := strconv.ParseInt(conversationIDStr, 10, 64)
+	conversationID, ok := parseNonNegativeQueryInt64(c, "conversation_id", 0)
+	if !ok {
+		return
+	}
 	startAt := c.Query("start_at")
 	endAt := c.Query("end_at")
 
@@ -438,4 +446,29 @@ func (h *MessageHandler) TranslateMessage(ctx context.Context, c *app.RequestCon
 		return
 	}
 	response.Success(c, map[string]interface{}{"success": true, "translation": result})
+}
+
+// parsePositiveLimit 解析分页 limit，并限制最大值，避免非法或过大的请求直接打到服务层。
+func parsePositiveLimit(c *app.RequestContext, key string, fallback, max int64) (int64, bool) {
+	value := c.DefaultQuery(key, strconv.FormatInt(fallback, 10))
+	parsed, err := strconv.ParseInt(value, 10, 64)
+	if err != nil || parsed <= 0 {
+		response.BadRequest(c, key+"必须是正整数")
+		return 0, false
+	}
+	if max > 0 && parsed > max {
+		parsed = max
+	}
+	return parsed, true
+}
+
+// parseNonNegativeQueryInt64 解析非负整数查询参数，适用于游标和可选 ID。
+func parseNonNegativeQueryInt64(c *app.RequestContext, key string, fallback int64) (int64, bool) {
+	value := c.DefaultQuery(key, strconv.FormatInt(fallback, 10))
+	parsed, err := strconv.ParseInt(value, 10, 64)
+	if err != nil || parsed < 0 {
+		response.BadRequest(c, key+"必须是非负整数")
+		return 0, false
+	}
+	return parsed, true
 }

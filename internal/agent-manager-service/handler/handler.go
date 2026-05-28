@@ -45,7 +45,10 @@ func (h *agentServiceImpl) UpdateBot(ctx context.Context, req *bot.UpdateBotReq)
 	return &bot.UpdateBotResp{Success: true, Msg: "更新成功"}, nil
 }
 
-// GetBot 返回单个 Agent 配置，并对 internal Agent 的 API Key 做脱敏。
+// GetBot 返回单个 Agent 配置。
+//
+// 当前 BotInfo IDL 不包含 API Key 或 has_api_key 字段，因此这里不能返回密钥状态；
+// 前端如果需要展示“已配置密钥”，应先扩展 IDL 后再安全返回脱敏状态。
 func (h *agentServiceImpl) GetBot(ctx context.Context, req *bot.GetBotReq) (resp *bot.GetBotResp, err error) {
 	b, err := h.svc.GetBot(ctx, req.BotId)
 	if err != nil {
@@ -54,18 +57,14 @@ func (h *agentServiceImpl) GetBot(ctx context.Context, req *bot.GetBotReq) (resp
 	if b == nil {
 		return &bot.GetBotResp{Success: false, Msg: "Agent不存在"}, nil
 	}
-	apiKey := b.APIKey
-	if b.Type == "internal" {
-		apiKey = "***"
-	}
 	return &bot.GetBotResp{
 		Success: true,
-		Bot:     botConfigFromModel(b, apiKey),
+		Bot:     botConfigFromModel(b),
 	}, nil
 }
 
 // botConfigFromModel 将数据库模型转换为 Thrift 返回结构。
-func botConfigFromModel(b *model.Bot, apiKey string) *bot.BotInfo {
+func botConfigFromModel(b *model.Bot) *bot.BotInfo {
 	return &bot.BotInfo{
 		Id:            b.ID,
 		Name:          b.Name,
@@ -88,7 +87,7 @@ func botConfigFromModel(b *model.Bot, apiKey string) *bot.BotInfo {
 	}
 }
 
-// ListBots 返回 Agent 配置列表，并对 internal Agent 的 API Key 做脱敏。
+// ListBots 返回 Agent 配置列表。
 func (h *agentServiceImpl) ListBots(ctx context.Context, req *bot.ListBotsReq) (resp *bot.ListBotsResp, err error) {
 	bots, err := h.svc.ListBots(ctx, req.OwnerId, req.Type)
 	if err != nil {
@@ -96,11 +95,7 @@ func (h *agentServiceImpl) ListBots(ctx context.Context, req *bot.ListBotsReq) (
 	}
 	var botList []*bot.BotInfo
 	for _, b := range bots {
-		apiKey := b.APIKey
-		if b.Type == "internal" {
-			apiKey = "***"
-		}
-		botList = append(botList, botConfigFromModel(&b, apiKey))
+		botList = append(botList, botConfigFromModel(&b))
 	}
 	return &bot.ListBotsResp{Success: true, Bots: botList}, nil
 }

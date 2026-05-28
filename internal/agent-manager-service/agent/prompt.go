@@ -41,7 +41,8 @@ const (
 func FileSystemInstruction(agentRoot string) string {
 	extInstruction := fmt.Sprintf(`## 文件管理操作说明
 	- 重要提示：在使用文件系统工具（如 ls、read_file、glob、grep 等）时，你必须使用绝对路径。
-	- 项目根目录为：%s
+	- 你的专属工作目录为：%s
+	- 生成代码、文档或其他文件时，必须写入这个工作目录或它的子目录，不要写到项目仓库根目录。
 	- 当博士要求列出“当前目录”中的文件时，请使用路径：%s
 	- 当博士要求使用相对路径读取文件时，请通过在前置加上 %s 将其转换为绝对路径。
 	- 示例：如果博士说“读取 main.go”，你应该调用 read_file 工具，并将 file_path 参数设为："%s/main.go")`, agentRoot, agentRoot, agentRoot, agentRoot)

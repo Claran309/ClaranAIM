@@ -25,6 +25,7 @@ let agentMenuCloseTimer = null;
 let pendingAgentThinkingByConversation = {};
 let conversationParticipantCache = {};
 let conversationGroupCollapsed = JSON.parse(localStorage.getItem('claran_conversation_group_collapsed') || '{}');
+let friendGroupCollapsed = JSON.parse(localStorage.getItem('claran_friend_group_collapsed') || '{}');
 let agentContextSidebarVisible = false;
 let agentNativeStateByConversation = {};
 let llmProfilesCache = [];
@@ -238,6 +239,16 @@ function toggleConversationGroup(groupKey) {
     loadConversations();
 }
 
+function saveFriendGroupState() {
+    localStorage.setItem('claran_friend_group_collapsed', JSON.stringify(friendGroupCollapsed));
+}
+
+function toggleFriendGroup(groupKey) {
+    friendGroupCollapsed[groupKey] = !friendGroupCollapsed[groupKey];
+    saveFriendGroupState();
+    renderFriendListFromCache();
+}
+
 function conversationGroupLabel(groupKey) {
     const labels = {
         pinned: '置顶会话',
@@ -258,6 +269,10 @@ function conversationGroupIcon(groupKey) {
         other: 'O',
     };
     return icons[groupKey] || 'O';
+}
+
+function friendGroupKey(friend) {
+    return friend && friend.group_id ? String(friend.group_id) : 'default';
 }
 
 function classifyConversation(c) {
@@ -1213,60 +1228,99 @@ async function loadFriends() {
 
     if (resp && resp.code === 0 && resp.data && resp.data.friends) {
         friendsCache = resp.data.friends;
-        const friends = friendsCache;
-        if (friends.length === 0) {
-            list.innerHTML = '<div class="empty-tip">暂无好友<br><small>点击右上角「+ 添加」添加好友</small><br><button class="btn-inline" onclick="showCreateFriendGroup()">新建分组</button></div>';
-            return;
-        }
-
-        const groupsResp = await userAPI.getFriendGroups();
-        const friendGroups = groupsResp && groupsResp.code === 0 && groupsResp.data && groupsResp.data.groups ? groupsResp.data.groups : [];
-        const groupNames = {};
-        friendGroups.forEach(g => { groupNames[g.id] = g.name; });
-        friends.forEach(f => {
-            if (f.friend_id) {
-                userNickCache[f.friend_id] = f.friend_name || '用户' + f.friend_id;
-                if (f.remark) {
-                    friendRemarkCache[f.friend_id] = f.remark;
-                } else {
-                    delete friendRemarkCache[f.friend_id];
-                }
-                if (f.friend_avatar) {
-                    userAvatarCache[f.friend_id] = f.friend_avatar;
-                }
-            }
-        });
-
-        const groupsBar = `
-            <div class="friend-group-bar">
-                <span>分组 ${friendGroups.length}</span>
-                <button class="btn-small-outline" onclick="showCreateFriendGroup()">新建分组</button>
-            </div>
-        `;
-        list.innerHTML = groupsBar + friends.map(f => {
-            const statusClass = f.friend_status === 'online' ? 'online' : 'offline';
-            const statusDot = f.friend_status === 'online' ? '●' : '○';
-            const statusText = f.friend_status === 'online' ? '在线' : '离线';
-            const displayName = f.remark || f.friend_name || '用户' + f.friend_id;
-            const avatarHTML = renderAvatarHTML(f.friend_avatar, displayName.charAt(0).toUpperCase(), '');
-            return `
-                <div class="list-item friend-item">
-                    ${avatarHTML}
-                    <div class="list-item-info">
-                        <div class="list-item-name">${escapeHTML(displayName)}</div>
-                        <div class="list-item-msg ${statusClass}">${statusDot} ${statusText}${f.group_id && groupNames[f.group_id] ? ' · ' + escapeHTML(groupNames[f.group_id]) : ''}</div>
-                    </div>
-                    <div class="friend-actions">
-                        <button class="btn-chat" onclick="showEditFriend(${jsArg(f.friend_id)}, ${jsStringArg(displayName)}, ${jsStringArg(f.remark || '')})">修改</button>
-                        <button class="btn-chat" onclick="startPrivateChat(${jsArg(f.friend_id)})">聊天</button>
-                        <button class="btn-delete-friend" onclick="deleteFriend(${jsArg(f.friend_id)}, ${jsStringArg(displayName)})" title="删除好友">✕</button>
-                    </div>
-                </div>
-            `;
-        }).join('');
+        renderFriendListFromCache(resp.data.groups || null);
     } else {
         list.innerHTML = '<div class="empty-tip">暂无好友</div>';
     }
+}
+
+async function renderFriendListFromCache(preloadedGroups = null) {
+    const list = document.getElementById('friend-list');
+    if (!list) return;
+    const friends = friendsCache || [];
+    if (friends.length === 0) {
+        list.innerHTML = '<div class="empty-tip">暂无好友<br><small>点击右上角「+ 添加」添加好友</small><br><button class="btn-inline" onclick="showCreateFriendGroup()">新建分组</button></div>';
+        return;
+    }
+
+    let friendGroups = preloadedGroups;
+    if (!Array.isArray(friendGroups)) {
+        const groupsResp = await userAPI.getFriendGroups();
+        friendGroups = groupsResp && groupsResp.code === 0 && groupsResp.data && groupsResp.data.groups ? groupsResp.data.groups : [];
+    }
+    const groupNames = { default: '默认分组' };
+    friendGroups.forEach(g => { groupNames[String(g.id)] = g.name; });
+    friends.forEach(f => {
+        if (f.friend_id) {
+            userNickCache[f.friend_id] = f.friend_name || '用户' + f.friend_id;
+            if (f.remark) {
+                friendRemarkCache[f.friend_id] = f.remark;
+            } else {
+                delete friendRemarkCache[f.friend_id];
+            }
+            if (f.friend_avatar) {
+                userAvatarCache[f.friend_id] = f.friend_avatar;
+            }
+        }
+    });
+
+    const grouped = {};
+    friends.forEach(friend => {
+        const key = friendGroupKey(friend);
+        if (!grouped[key]) grouped[key] = [];
+        grouped[key].push(friend);
+    });
+    const orderedKeys = [
+        'default',
+        ...friendGroups.map(g => String(g.id)).filter(id => id !== '0'),
+        ...Object.keys(grouped).filter(id => id !== 'default' && !friendGroups.some(g => sameID(g.id, id))),
+    ].filter((key, idx, arr) => grouped[key] && arr.indexOf(key) === idx);
+
+    const groupsBar = `
+        <div class="friend-group-bar">
+            <span>好友分组 ${orderedKeys.length}</span>
+            <button class="btn-small-outline" onclick="showCreateFriendGroup()">新建分组</button>
+        </div>
+    `;
+    list.innerHTML = groupsBar + orderedKeys.map(key => {
+        const collapsed = !!friendGroupCollapsed[key];
+        const items = grouped[key] || [];
+        return `
+            <section class="conversation-section friend-section ${collapsed ? 'collapsed' : ''}">
+                <button class="conversation-section-header" onclick="toggleFriendGroup(${jsStringArg(key)})">
+                    <span class="conversation-section-icon">F</span>
+                    <span>${escapeHTML(groupNames[key] || '未命名分组')}</span>
+                    <span class="conversation-section-count">${items.length}</span>
+                    <span class="conversation-section-caret">${collapsed ? '+' : '-'}</span>
+                </button>
+                <div class="conversation-section-body">
+                    ${collapsed ? '' : items.map(renderFriendItem).join('')}
+                </div>
+            </section>
+        `;
+    }).join('');
+}
+
+function renderFriendItem(f) {
+    const statusClass = f.friend_status === 'online' ? 'online' : 'offline';
+    const statusDot = f.friend_status === 'online' ? '●' : '○';
+    const statusText = f.friend_status === 'online' ? '在线' : '离线';
+    const displayName = f.remark || f.friend_name || '用户' + f.friend_id;
+    const avatarHTML = renderAvatarHTML(f.friend_avatar, displayName.charAt(0).toUpperCase(), '');
+    return `
+        <div class="list-item friend-item">
+            ${avatarHTML}
+            <div class="list-item-info">
+                <div class="list-item-name">${escapeHTML(displayName)}</div>
+                <div class="list-item-msg ${statusClass}">${statusDot} ${statusText}</div>
+            </div>
+            <div class="friend-actions">
+                <button class="btn-chat" onclick="showEditFriend(${jsArg(f.friend_id)}, ${jsStringArg(displayName)}, ${jsStringArg(f.remark || '')})">修改</button>
+                <button class="btn-chat" onclick="startPrivateChat(${jsArg(f.friend_id)})">聊天</button>
+                <button class="btn-delete-friend" onclick="deleteFriend(${jsArg(f.friend_id)}, ${jsStringArg(displayName)})" title="删除好友">✕</button>
+            </div>
+        </div>
+    `;
 }
 
 async function loadGroups() {
@@ -1587,11 +1641,27 @@ function createMessageHTML(m) {
     `;
 }
 
+function messageIdentity(m) {
+    if (!m) return '';
+    const id = m.id || m.msg_id;
+    if (id) return `id:${id}`;
+    if (m.client_msg_id) return `client:${m.client_msg_id}`;
+    return '';
+}
+
 function appendMessage(m) {
     if (m.msg_id && !m.id) {
         m.id = m.msg_id;
     }
     if (m.conversation_id && currentConversationID && !sameID(m.conversation_id, currentConversationID)) {
+        return;
+    }
+    const identity = messageIdentity(m);
+    if (identity && currentMessages.some(item => messageIdentity(item) === identity)) {
+        if (m.id || m.msg_id) {
+            currentMessages = currentMessages.map(item => messageIdentity(item) === identity ? { ...item, ...m } : item);
+            renderCurrentMessages();
+        }
         return;
     }
     const msgList = document.getElementById('message-list');
@@ -2659,6 +2729,7 @@ function renderMarkdownText(content) {
     const blocks = [];
     let paragraph = [];
     let list = [];
+    let table = [];
     const flushParagraph = () => {
         if (paragraph.length) {
             blocks.push(`<p>${renderInlineMarkdown(paragraph.join(' '))}</p>`);
@@ -2671,22 +2742,53 @@ function renderMarkdownText(content) {
             list = [];
         }
     };
+    const isTableDivider = (line) => /^\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?$/.test(line);
+    const parseTableRow = (line) => {
+        const normalized = line.trim().replace(/^\|/, '').replace(/\|$/, '');
+        return normalized.split('|').map(cell => cell.trim());
+    };
+    const flushTable = () => {
+        if (table.length >= 2 && isTableDivider(table[1])) {
+            const headers = parseTableRow(table[0]);
+            const rows = table.slice(2).map(parseTableRow).filter(row => row.length > 0);
+            blocks.push(`
+                <div class="md-table-wrap">
+                    <table class="md-table">
+                        <thead><tr>${headers.map(h => `<th>${renderInlineMarkdown(h)}</th>`).join('')}</tr></thead>
+                        <tbody>${rows.map(row => `<tr>${headers.map((_, idx) => `<td>${renderInlineMarkdown(row[idx] || '')}</td>`).join('')}</tr>`).join('')}</tbody>
+                    </table>
+                </div>
+            `);
+        } else if (table.length) {
+            paragraph.push(...table);
+        }
+        table = [];
+    };
     for (const line of lines) {
         const trimmed = line.trim();
         if (!trimmed) {
+            flushTable();
             flushParagraph();
             flushList();
             continue;
         }
         if (/^__CODE_BLOCK_\d+__$/.test(trimmed)) {
+            flushTable();
             flushParagraph();
             flushList();
             const idx = Number(trimmed.match(/\d+/)[0]);
             blocks.push(codeBlocks[idx] || '');
             continue;
         }
+        if (trimmed.includes('|') && (trimmed.startsWith('|') || table.length > 0)) {
+            flushParagraph();
+            flushList();
+            table.push(trimmed);
+            continue;
+        }
         const heading = trimmed.match(/^(#{1,3})\s+(.+)$/);
         if (heading) {
+            flushTable();
             flushParagraph();
             flushList();
             const level = heading[1].length + 3;
@@ -2695,13 +2797,16 @@ function renderMarkdownText(content) {
         }
         const bullet = trimmed.match(/^[-*]\s+(.+)$/);
         if (bullet) {
+            flushTable();
             flushParagraph();
             list.push(bullet[1]);
             continue;
         }
+        flushTable();
         flushList();
         paragraph.push(trimmed);
     }
+    flushTable();
     flushParagraph();
     flushList();
     return `<div class="markdown-message">${blocks.join('')}</div>`;
@@ -3431,7 +3536,8 @@ function showCreateBotForm() {
         </div>
         <div class="form-group">
             <label>工作目录</label>
-            <input type="text" id="bot-workspace" placeholder="留空则使用 storage/agent/workspaces/{bot_id}">
+            <input type="text" id="bot-workspace" placeholder="留空则使用 storage/agent/files/{bot_id}">
+            <small class="form-hint">相对路径会放在 Agent 文件根目录下；生产环境可以为每个 Agent 配置独立工作目录。</small>
         </div>
         <div class="form-group">
             <label>工具策略</label>
@@ -3877,7 +3983,8 @@ async function showEditAgentForm(botID) {
         </div>
         <div class="form-group">
             <label>工作目录</label>
-            <input type="text" id="edit-agent-workspace" value="${escapeHTML(b.workspace_root || '')}">
+            <input type="text" id="edit-agent-workspace" value="${escapeHTML(b.workspace_root || '')}" placeholder="storage/agent/files/${escapeHTML(String(botID))}">
+            <small class="form-hint">留空时使用默认 Agent 文件目录；修改后新的工具调用会在该目录内执行。</small>
         </div>
         <div class="form-group">
             <label>工具策略</label>
@@ -3934,7 +4041,22 @@ function normalizeAgentPayload(resp) {
     return resp.data.result || resp.data.result_ || resp.data.reply || resp.data.summary || resp.data.insights || resp.data.candidates || resp.data;
 }
 
+function parseAgentResultString(value) {
+    if (typeof value !== 'string') return value;
+    const raw = value.trim();
+    if (!raw) return value;
+    const fenced = raw.match(/^```json\s*([\s\S]*?)\s*```$/i);
+    const jsonText = fenced ? fenced[1].trim() : raw;
+    if (!jsonText.startsWith('{') && !jsonText.startsWith('[')) return value;
+    try {
+        return JSON.parse(jsonText);
+    } catch (e) {
+        return value;
+    }
+}
+
 function normalizeAgentResultForView(value) {
+    value = parseAgentResultString(value);
     if (value === null || value === undefined || value === '') {
         return { text: '', detail: null };
     }
@@ -3943,13 +4065,7 @@ function normalizeAgentResultForView(value) {
         const text = textFields.map(k => value[k]).find(v => typeof v === 'string' && v.trim()) || agentObjectToReadableText(value);
         return { text, detail: value };
     }
-    const text = String(value);
-    try {
-        const parsed = JSON.parse(text);
-        return normalizeAgentResultForView(parsed);
-    } catch (e) {
-        return { text, detail: null };
-    }
+    return { text: String(value), detail: null };
 }
 
 function agentObjectToReadableText(value) {
@@ -3997,9 +4113,10 @@ function agentObjectToReadableText(value) {
 }
 
 function normalizeAgentActionCards(value) {
+    value = parseAgentResultString(value);
     const source = value && value.data ? value.data : value;
     if (!source || typeof source !== 'object') return [];
-    const direct = source.cards || source.action_cards || source.actions;
+    const direct = source.cards || source.action_cards || source.actionCards || source.action_decisions || source.decisions || source.actions;
     if (!Array.isArray(direct)) return [];
     return direct.filter(card => card && typeof card === 'object').map((card, idx) => ({
         version: card.version || '1.0',
@@ -4046,11 +4163,11 @@ function renderAgentActionCard(card) {
 
 function renderAgentResult(value, meta = {}) {
     const normalized = normalizeAgentResultForView(value);
-    if (!normalized.text && !normalized.detail) return '<div class="empty-tip">暂无返回内容</div>';
+    const cards = normalizeAgentActionCards(value);
+    if (!normalized.text && !normalized.detail && cards.length === 0) return '<div class="empty-tip">暂无返回内容</div>';
     const detailID = `agent-detail-${Date.now()}-${Math.random().toString(16).slice(2)}`;
     const elapsed = meta.elapsedMs !== undefined ? `<span>耗时 ${(meta.elapsedMs / 1000).toFixed(1)} 秒</span>` : '';
     const action = meta.action ? `<span>${escapeHTML(agentActionLabel(meta.action))}</span>` : '';
-    const cards = normalizeAgentActionCards(value);
     const cardsHTML = cards.length ? `<div class="agent-action-decision-list">${cards.map(renderAgentActionCard).join('')}</div>` : '';
     const detailHTML = normalized.detail
         ? `
@@ -4250,6 +4367,9 @@ function renderAgentRunHistory(botID) {
         if (item.kind === 'sessions') {
             return `<div class="agent-chat-turn agent"><div class="agent-session-list">${item.html}</div></div>`;
         }
+        const resultCardsHTML = item.result && normalizeAgentActionCards(item.result).length
+            ? `<div class="agent-chat-cards">${normalizeAgentActionCards(item.result).map(renderAgentActionCard).join('')}</div>`
+            : '';
         const thinkingHTML = item.kind === 'thinking'
             ? `<span class="agent-thinking-timer">已思考 ${(((Date.now() - (item.startedAt || Date.now())) / 1000)).toFixed(1)} 秒</span>`
             : '';
@@ -4262,6 +4382,7 @@ function renderAgentRunHistory(botID) {
                 <div class="agent-chat-bubble">
                     <div class="agent-chat-meta">${item.role === 'user' ? '你' : '智能助手'} · ${escapeHTML(item.time || '')}${thinkingHTML}${durationHTML}</div>
                     <div class="agent-chat-text">${item.role === 'agent' ? renderMarkdownText(item.content || '') : escapeHTML(item.content || '')}</div>
+                    ${resultCardsHTML}
                 </div>
             </div>
         `;
@@ -4320,8 +4441,9 @@ async function submitAgentRun(botID, buttonEl = null) {
         if (approval) {
             agentRunHistories[key][thinkingIndex] = { role: 'agent', kind: 'approval', approval, action, durationMs, time: new Date().toLocaleTimeString() };
         } else if (resp && resp.code === 0 && resp.data && resp.data.success !== false) {
-            const normalized = normalizeAgentResultForView(normalizeAgentPayload(resp));
-            agentRunHistories[key][thinkingIndex] = { role: 'agent', content: normalized.text || '执行完成，但没有返回文本。', durationMs, time: new Date().toLocaleTimeString() };
+            const payload = normalizeAgentPayload(resp);
+            const normalized = normalizeAgentResultForView(payload);
+            agentRunHistories[key][thinkingIndex] = { role: 'agent', content: normalized.text || '执行完成，但没有返回文本。', result: payload, durationMs, time: new Date().toLocaleTimeString() };
         } else {
             agentRunHistories[key][thinkingIndex] = { role: 'agent', content: resp?.data?.msg || resp?.message || '智能助手执行失败', durationMs, time: new Date().toLocaleTimeString() };
         }

@@ -123,7 +123,7 @@ func TestRuntimeAgentCacheKeyChangesWithProviderConfig(t *testing.T) {
 		ApiKey:        "key-a",
 		BaseUrl:       "https://one.example/v1",
 		SystemPrompt:  "prompt-a",
-		WorkspaceRoot: "storage/agent/workspaces/1",
+		WorkspaceRoot: "storage/agent/files/1",
 	})
 	second := runtimeAgentCacheKey(&bot_runtime.RuntimeBotConfig{
 		BotId:         1,
@@ -131,7 +131,7 @@ func TestRuntimeAgentCacheKeyChangesWithProviderConfig(t *testing.T) {
 		ApiKey:        "key-b",
 		BaseUrl:       "https://two.example/v1",
 		SystemPrompt:  "prompt-b",
-		WorkspaceRoot: "storage/agent/workspaces/1",
+		WorkspaceRoot: "storage/agent/files/1",
 	})
 
 	if first == second {
