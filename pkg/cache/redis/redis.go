@@ -13,8 +13,10 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+// 下面这组常量定义当前包使用的固定取值，集中声明可以避免业务代码中散落魔法字符串或魔法数字。
 const cacheNullValue = "__CLARAN_CACHE_NULL__"
 
+// 下面这组变量保存当前包需要复用的运行时状态或配置入口，调用方应通过公开函数间接使用。
 var releaseLockScript = redis.NewScript(`
 if redis.call("GET", KEYS[1]) == ARGV[1] then
 	return redis.call("DEL", KEYS[1])
@@ -57,14 +59,14 @@ func NewRedisClient(addr, password string, db int) (*RedisClient, error) {
 	return &RedisClient{client: client}, nil
 }
 
-// GetInnerClient exposes the underlying go-redis client for integration points
-// that need APIs not wrapped by RedisClient.
+// GetInnerClient 暴露底层 go-redis 客户端。
+// 仅在调用方确实需要封装层未覆盖的 Redis API 时使用，普通业务优先走 RedisClient 方法。
 func (r *RedisClient) GetInnerClient() *redis.Client {
 	return r.client
 }
 
-// Get returns a string value. Missing keys are normalized to an empty string and
-// nil error so service code can treat cache miss as a normal path.
+// Get 读取字符串值；key 不存在时返回空字符串和 nil。
+// 这样业务层可以把缓存未命中当作正常分支处理，而不是异常。
 func (r *RedisClient) Get(ctx context.Context, key string) (string, error) {
 	result, err := r.client.Get(ctx, key).Result()
 	if err == redis.Nil {
@@ -78,7 +80,7 @@ func (r *RedisClient) Set(ctx context.Context, key string, value string, expirat
 	return r.client.Set(ctx, key, value, expiration).Err()
 }
 
-// SetWithJitter writes a string value with randomized TTL to reduce cache avalanche.
+// SetWithJitter 写入字符串并给 TTL 增加随机抖动，用于降低同一批 key 同时过期造成的缓存雪崩。
 func (r *RedisClient) SetWithJitter(ctx context.Context, key string, value string, expiration, jitter time.Duration) error {
 	return r.Set(ctx, key, value, jitterExpiration(expiration, jitter))
 }
@@ -110,7 +112,7 @@ func (r *RedisClient) SetJSON(ctx context.Context, key string, value interface{}
 	return r.Set(ctx, key, string(data), expiration)
 }
 
-// SetJSONWithJitter stores JSON with randomized TTL.
+// SetJSONWithJitter 序列化对象并使用带随机抖动的 TTL 写入缓存。
 func (r *RedisClient) SetJSONWithJitter(ctx context.Context, key string, value interface{}, expiration, jitter time.Duration) error {
 	data, err := json.Marshal(value)
 	if err != nil {
@@ -119,12 +121,12 @@ func (r *RedisClient) SetJSONWithJitter(ctx context.Context, key string, value i
 	return r.SetWithJitter(ctx, key, string(data), expiration, jitter)
 }
 
-// SetNull stores a short-lived null marker to prevent cache penetration.
+// SetNull 写入短期空值标记，用于拦截反复查询不存在数据造成的缓存穿透。
 func (r *RedisClient) SetNull(ctx context.Context, key string, expiration, jitter time.Duration) error {
 	return r.SetWithJitter(ctx, key, cacheNullValue, expiration, jitter)
 }
 
-// IsNullHit reports whether GetJSON returned the special cached-null marker.
+// IsNullHit 判断 GetJSON 返回的原始值是否为空值缓存标记。
 func (r *RedisClient) IsNullHit(raw string) bool {
 	return isCachedNull(raw)
 }
@@ -191,7 +193,7 @@ func (r *RedisClient) Del(ctx context.Context, keys ...string) error {
 	return r.client.Del(ctx, keys...).Err()
 }
 
-// AcquireLock attempts to acquire a Redis SETNX lock and returns its random token.
+// AcquireLock 使用 Redis SETNX 尝试获取分布式锁，并返回本次持锁 token。
 func (r *RedisClient) AcquireLock(ctx context.Context, key string, ttl time.Duration) (string, bool, error) {
 	token, err := randomToken()
 	if err != nil {
@@ -201,7 +203,7 @@ func (r *RedisClient) AcquireLock(ctx context.Context, key string, ttl time.Dura
 	return token, ok, err
 }
 
-// ReleaseLock releases a Redis lock only when the token still matches the owner.
+// ReleaseLock 只在 token 仍匹配持有者时释放锁，避免误删其他请求刚获得的新锁。
 func (r *RedisClient) ReleaseLock(ctx context.Context, key, token string) error {
 	return releaseLockScript.Run(ctx, r.client, []string{key}, token).Err()
 }
@@ -296,6 +298,7 @@ func (r *RedisClient) GetClient() *redis.Client {
 	return r.client
 }
 
+// jitterExpiration 在基础 TTL 上增加 [-jitter, +jitter] 随机偏移，避免大量缓存同一时刻失效。
 func jitterExpiration(base, jitter time.Duration) time.Duration {
 	if base <= 0 || jitter <= 0 {
 		return base
@@ -313,10 +316,12 @@ func jitterExpiration(base, jitter time.Duration) time.Duration {
 	return got
 }
 
+// isCachedNull 判断原始缓存值是否是项目约定的空值标记。
 func isCachedNull(raw string) bool {
 	return raw == cacheNullValue
 }
 
+// randomToken 生成分布式锁持有者 token，用于释放锁时校验所有权。
 func randomToken() (string, error) {
 	var b [16]byte
 	if _, err := rand.Read(b[:]); err != nil {
@@ -325,6 +330,7 @@ func randomToken() (string, error) {
 	return hex.EncodeToString(b[:]), nil
 }
 
+// hashKey 将任意缓存 key 压缩为固定长度字符串，避免锁 key 过长或包含不适合的字符。
 func hashKey(key string) string {
 	sum := sha1.Sum([]byte(key))
 	return hex.EncodeToString(sum[:])

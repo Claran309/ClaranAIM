@@ -21,9 +21,10 @@ ClaranAIM/
 │   ├── msg-core-service/                  # 会话、消息写入、推送、Outbox RPC 服务
 │   ├── msg-history-service/               # 历史消息查询 RPC 服务
 │   ├── file-service/                      # 文件元数据 RPC 服务
-│   ├── bot-manager-service/               # Agent 配置、权限、计费、调度管理服务
-│   ├── bot-runtime-service/               # Agent 运行时、长会话、工具调用服务
+│   ├── agent-manager-service/             # Agent 配置、权限、计费、调度管理服务
+│   ├── agent-runtime-service/             # Agent 运行时、长会话、工具调用服务
 │   ├── memory-service/                    # 记忆服务启动入口，负责 memory_facts 迁移/健康检查
+│   ├── settings-service/                  # 用户系统设置、LLM 预设、Prompt 模板服务
 │   ├── rag-service/                       # RAG 服务预留入口
 │   └── msg-filter-service/                # 消息审核/过滤服务预留入口
 ├── internal/                              # 各服务内部实现，外部包不应直接依赖
@@ -34,13 +35,13 @@ ClaranAIM/
 │   ├── msg-core-service/                  # 会话、消息、参与者、Outbox、DTM 分支接口
 │   ├── msg-history-service/               # 历史消息与离线消息查询
 │   ├── file-service/                      # 文件元数据、MinIO/本地存储适配
-│   ├── bot-manager-service/               # Agent 配置、权限、Kafka 消费、计费、路由
-│   │   ├── dao/                           # Bot、权限、路由、计费、订阅、审计、调度记录持久化
+│   ├── agent-manager-service/             # Agent 配置、权限、Kafka 消费、计费、路由
+│   │   ├── dao/                           # Agent、权限、路由、计费、订阅、审计、调度记录持久化
 │   │   ├── eventconsumer/                 # Agent Event Dispatcher，消费 message/im 事件并决策响应
 │   │   ├── handler/                       # Kitex RPC handler
-│   │   ├── model/                         # Bot、权限、订阅规则、审计、路由、计费模型
+│   │   ├── model/                         # Agent、权限、订阅规则、审计、路由、计费模型
 │   │   └── service/                       # Agent 管理、权限校验、runtime 调用
-│   ├── bot-runtime-service/               # Agent 执行侧实现
+│   ├── agent-runtime-service/             # Agent 执行侧实现
 │   │   ├── agent/                         # Eino Agent、工具、安全策略
 │   │   ├── component/                     # JSONL 长会话存储等运行时组件
 │   │   ├── graphTool/                     # 图/工具调用相关封装
@@ -48,9 +49,9 @@ ClaranAIM/
 │   │   ├── logic/                         # 运行时辅助逻辑
 │   │   └── service/                       # RunAgent、总结、问答、insights、sessions
 │   ├── memory-service/                    # Agent 记忆模型、DAO、召回隔离和用户治理逻辑
+│   ├── settings-service/                  # LLM 配置预设、翻译 Prompt 等用户可控设置
 │   ├── rag-service/                       # RAG 服务预留实现
 │   ├── msg-filter-service/                # 消息过滤/审核预留实现
-│   └── msg-service/                       # 消息服务旧/兼容目录
 ├── pkg/                                   # 跨服务公共包
 │   ├── cache/redis/                       # Redis 客户端与缓存辅助
 │   ├── config/                            # Viper 配置加载、环境变量覆盖
@@ -71,26 +72,28 @@ ClaranAIM/
 │   ├── message.thrift
 │   ├── file.thrift
 │   ├── bot.thrift
-│   └── bot_runtime.thrift
+│   ├── bot_runtime.thrift
+│   └── settings.thrift
 ├── kitex_gen/                             # Kitex 根据 IDL 生成的 Go 代码
 │   ├── user/
 │   ├── group/
 │   ├── message/
 │   ├── file/
-│   ├── agent/
+│   ├── bot/                               # 历史 Kitex 生成包名，业务语义已迁移为 Agent
 │   └── bot_runtime/
 ├── config/                                # 各服务 YAML 配置
 │   ├── config.yaml                        # 默认/示例公共配置
 │   ├── api-gateway.yaml
 │   ├── memory-service.yaml
+│   ├── settings-service.yaml
 │   ├── websocket-gateway.yaml
 │   ├── user-service.yaml
 │   ├── group-service.yaml
 │   ├── msg-core-service.yaml
 │   ├── msg-history-service.yaml
 │   ├── file-service.yaml
-│   ├── bot-manager-service.yaml
-│   └── bot-runtime-service.yaml
+│   ├── agent-manager-service.yaml
+│   └── agent-runtime-service.yaml
 ├── dist/                                  # 前端静态页面
 │   ├── index.html
 │   ├── css/
@@ -114,7 +117,11 @@ ClaranAIM/
 └── README.md
 ```
 
-Agent 触发规则说明：前端“Agent 触发规则”暂复用 `/bot/route/*` 接口，`agent_keyword` 表示关键词触发回复，`agent_command` 表示命令前缀触发回复，`agent_record` 表示静默记录事件不回复。bot-manager-service 会把这些规则同步到 `agent_subscription_rules`，供 Agent Event Dispatcher 消费。
+Agent 触发规则说明：前端“Agent 触发规则”使用 `/agent/route/*` 接口；`agent_keyword` 表示关键词触发回复，`agent_command` 表示命令前缀触发回复，`agent_record` 表示静默记录事件不回复。agent-manager-service 会把这些规则同步到 `agent_subscription_rules`，供 Agent Event Dispatcher 消费。
+
+命名说明：当前业务、服务目录和前端入口统一面向用户展示为 Agent，HTTP 入口只保留 `/agent/*`。由于当前环境没有 Kitex 生成工具，内部生成代码仍依赖历史 `bot.thrift`/`kitex_gen/bot` 方法名；这只是 RPC 生成代码实现细节，不再作为对外 `/bot/*` 兼容接口暴露。
+
+系统设置说明：`settings-service` 负责保存用户可复用的 LLM 预设和 Prompt 模板。创建 Agent 时可以直接选择已保存的 LLM 预设，网关会解析为 BaseURL、模型和 API Key 后写入 Agent 配置。消息翻译为手动触发能力，落在 msg-core-service，不做自动翻译。
 
 ## 快速启动
 
@@ -140,3 +147,6 @@ scripts\start.bat
 - 现在agent为我生成的代码文件仍然在根目录，我需要在/agent/files中
 - 支持配置agent工作目录
 - 我希望好友界面的分组也能像会话界面一样有分类下拉列表
+
+- 现在实现的agent-im-native，会在每次发送消息或者编辑消息时都发送事件供agent拉取，可能会带来非不要的性能开销，后续需要考虑优化。但同时为了保持项目特色，也可以考虑每次或一定量的im变更触发agent的思考
+

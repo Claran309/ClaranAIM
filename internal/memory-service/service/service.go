@@ -1,9 +1,10 @@
-// Package service implements editable Agent memory facts and recall rules.
+// Package service 实现可由用户治理的 Agent 记忆事实和召回规则。
 package service
 
 import (
 	"ClaranAIM/internal/memory-service/dao"
 	"ClaranAIM/internal/memory-service/model"
+	"ClaranAIM/pkg/memoryclient"
 	"context"
 	"errors"
 	"fmt"
@@ -11,77 +12,40 @@ import (
 	"time"
 )
 
-// MemoryService exposes the Phase4 memory operations used by API gateway and Agent runtime callers.
+// MemoryService 暴露 Phase4 记忆能力，供 api-gateway 和 Agent runtime 调用。
 type MemoryService interface {
-	CreateMemory(ctx context.Context, input CreateMemoryInput) (*model.MemoryFact, error)
-	ListMemories(ctx context.Context, viewerID int64, filter dao.MemoryFilter) ([]model.MemoryFact, int64, error)
+	CreateMemory(ctx context.Context, input CreateMemoryInput) (*memoryclient.MemoryFact, error)
+	ListMemories(ctx context.Context, viewerID int64, filter dao.MemoryFilter) ([]memoryclient.MemoryFact, int64, error)
 	Recall(ctx context.Context, input RecallInput) (RecallResult, error)
-	UpdateMemory(ctx context.Context, viewerID, memoryID int64, input UpdateMemoryInput) (*model.MemoryFact, error)
+	UpdateMemory(ctx context.Context, viewerID, memoryID int64, input UpdateMemoryInput) (*memoryclient.MemoryFact, error)
 	DeleteMemory(ctx context.Context, viewerID, memoryID int64) error
 }
 
-// CreateMemoryInput is the user/API-facing shape for one memory fact.
-type CreateMemoryInput struct {
-	BotID          int64
-	UserID         int64
-	OwnerUserID    int64
-	GroupID        int64
-	ConversationID int64
-	SessionID      string
-	Scope          string
-	Type           string
-	Title          string
-	Content        string
-	Source         string
-	Visibility     string
-	Enabled        *bool
-	VectorStatus   string
-	EmbeddingRef   string
-	Confidence     float64
-}
+// CreateMemoryInput 是创建单条记忆事实的 API 入参结构。
+type CreateMemoryInput = memoryclient.CreateMemoryInput
 
-// UpdateMemoryInput contains optional mutable fields for user-governed memory.
-type UpdateMemoryInput struct {
-	Scope        string
-	Type         string
-	Title        string
-	Content      string
-	Source       string
-	Visibility   string
-	Enabled      *bool
-	VectorStatus string
-	EmbeddingRef string
-	Confidence   *float64
-}
+// UpdateMemoryInput 保存用户可编辑记忆的可选更新字段。
+type UpdateMemoryInput = memoryclient.UpdateMemoryInput
 
-// RecallInput scopes memory retrieval before injecting facts into an Agent context.
-type RecallInput struct {
-	BotID          int64
-	UserID         int64
-	GroupID        int64
-	ConversationID int64
-	SessionID      string
-	Limit          int
-}
+// RecallInput 限定记忆召回边界，避免把不相关用户、群或会话的记忆注入 Agent。
+type RecallInput = memoryclient.RecallInput
 
-// RecallResult keeps recalled facts plus a ready-to-inject text block.
-type RecallResult struct {
-	Facts       []model.MemoryFact
-	ContextText string
-}
+// RecallResult 保存召回到的记忆事实，以及可直接拼入 prompt 的文本块。
+type RecallResult = memoryclient.RecallResult
 
+// memoryServiceImpl 是 MemoryService 的默认实现，负责参数校验、权限裁剪和 DTO 转换。
 type memoryServiceImpl struct {
 	repo dao.MemoryRepository
 }
 
-// NewMemoryService creates the memory business service.
+// NewMemoryService 创建记忆业务服务。
 func NewMemoryService(repo dao.MemoryRepository) MemoryService {
 	return &memoryServiceImpl{repo: repo}
 }
 
-// CreateMemory validates and stores a memory fact. User profile data defaults
-// to private visibility because speaking habits and preferences are personal.
-func (s *memoryServiceImpl) CreateMemory(ctx context.Context, input CreateMemoryInput) (*model.MemoryFact, error) {
+// CreateMemory 校验并保存一条记忆事实。
+// 用户偏好、发言习惯等个人画像默认私有，因为这些信息只应由本人查看和管理。
+func (s *memoryServiceImpl) CreateMemory(ctx context.Context, input CreateMemoryInput) (*memoryclient.MemoryFact, error) {
 	if s.repo == nil {
 		return nil, errors.New("memory repository未配置")
 	}
@@ -125,13 +89,12 @@ func (s *memoryServiceImpl) CreateMemory(ctx context.Context, input CreateMemory
 	if err := s.repo.Create(ctx, fact); err != nil {
 		return nil, err
 	}
-	return fact, nil
+	return memoryFactToDTO(fact), nil
 }
 
-// ListMemories returns only memory owned by the current user unless a caller has
-// already scoped the filter tighter. This protects private profile memories from
-// accidental cross-user listing.
-func (s *memoryServiceImpl) ListMemories(ctx context.Context, viewerID int64, filter dao.MemoryFilter) ([]model.MemoryFact, int64, error) {
+// ListMemories 只返回当前用户拥有的记忆。
+// 即使调用方传入更宽的过滤条件，这里也会强制按 owner_user_id 裁剪，避免个人画像被越权列出。
+func (s *memoryServiceImpl) ListMemories(ctx context.Context, viewerID int64, filter dao.MemoryFilter) ([]memoryclient.MemoryFact, int64, error) {
 	if s.repo == nil {
 		return nil, 0, errors.New("memory repository未配置")
 	}
@@ -139,12 +102,15 @@ func (s *memoryServiceImpl) ListMemories(ctx context.Context, viewerID int64, fi
 		return nil, 0, errors.New("用户未登录")
 	}
 	filter.OwnerUserID = viewerID
-	return s.repo.List(ctx, filter)
+	facts, total, err := s.repo.List(ctx, filter)
+	if err != nil {
+		return nil, 0, err
+	}
+	return memoryFactsToDTO(facts), total, nil
 }
 
-// Recall retrieves only facts that match the current Agent, user and context
-// boundary. Broad user facts may cross conversations, but conversation/session
-// facts must match exactly to avoid memory串线.
+// Recall 只召回匹配当前 Agent、用户和上下文边界的记忆。
+// 用户级记忆可以跨会话使用；群、会话、session 级记忆必须精确匹配，避免记忆串线。
 func (s *memoryServiceImpl) Recall(ctx context.Context, input RecallInput) (RecallResult, error) {
 	if s.repo == nil {
 		return RecallResult{}, errors.New("memory repository未配置")
@@ -181,12 +147,12 @@ func (s *memoryServiceImpl) Recall(ctx context.Context, input RecallInput) (Reca
 		}
 		_ = s.repo.Touch(ctx, ids, time.Now())
 	}
-	return RecallResult{Facts: facts, ContextText: FormatMemoryContext(facts)}, nil
+	return RecallResult{Facts: memoryFactsToDTO(facts), ContextText: FormatMemoryContext(facts)}, nil
 }
 
-// UpdateMemory modifies an owned memory fact. Private governance is explicit:
-// users can update or close their own memory but cannot edit others' facts.
-func (s *memoryServiceImpl) UpdateMemory(ctx context.Context, viewerID, memoryID int64, input UpdateMemoryInput) (*model.MemoryFact, error) {
+// UpdateMemory 修改当前用户拥有的记忆。
+// 用户可以编辑、关闭或调整自己的记忆，但不能修改他人的记忆事实。
+func (s *memoryServiceImpl) UpdateMemory(ctx context.Context, viewerID, memoryID int64, input UpdateMemoryInput) (*memoryclient.MemoryFact, error) {
 	fact, err := s.loadOwnedMemory(ctx, viewerID, memoryID)
 	if err != nil {
 		return nil, err
@@ -227,10 +193,10 @@ func (s *memoryServiceImpl) UpdateMemory(ctx context.Context, viewerID, memoryID
 	if err := s.repo.Update(ctx, fact); err != nil {
 		return nil, err
 	}
-	return fact, nil
+	return memoryFactToDTO(fact), nil
 }
 
-// DeleteMemory removes an owned memory fact.
+// DeleteMemory 删除当前用户拥有的记忆事实。
 func (s *memoryServiceImpl) DeleteMemory(ctx context.Context, viewerID, memoryID int64) error {
 	_, err := s.loadOwnedMemory(ctx, viewerID, memoryID)
 	if err != nil {
@@ -239,6 +205,7 @@ func (s *memoryServiceImpl) DeleteMemory(ctx context.Context, viewerID, memoryID
 	return s.repo.Delete(ctx, memoryID)
 }
 
+// loadOwnedMemory 读取一条记忆并校验当前用户是否为 owner。
 func (s *memoryServiceImpl) loadOwnedMemory(ctx context.Context, viewerID, memoryID int64) (*model.MemoryFact, error) {
 	if s.repo == nil {
 		return nil, errors.New("memory repository未配置")
@@ -262,6 +229,7 @@ func (s *memoryServiceImpl) loadOwnedMemory(ctx context.Context, viewerID, memor
 	return fact, nil
 }
 
+// validateCreateInput 校验创建记忆所需的必填字段和枚举值。
 func validateCreateInput(input CreateMemoryInput) error {
 	if input.BotID <= 0 {
 		return errors.New("bot_id不能为空")
@@ -279,6 +247,7 @@ func validateCreateInput(input CreateMemoryInput) error {
 	return validateFact(fact)
 }
 
+// validateFact 校验记忆事实的范围、类型、可见性、向量状态和内容。
 func validateFact(fact model.MemoryFact) error {
 	if !validScope(fact.Scope) {
 		return fmt.Errorf("无效的记忆范围: %s", fact.Scope)
@@ -298,6 +267,7 @@ func validateFact(fact model.MemoryFact) error {
 	return nil
 }
 
+// recallMatchesContext 判断一条记忆是否允许进入当前召回上下文。
 func recallMatchesContext(fact model.MemoryFact, input RecallInput) bool {
 	switch fact.Scope {
 	case model.ScopeUser:
@@ -313,7 +283,7 @@ func recallMatchesContext(fact model.MemoryFact, input RecallInput) bool {
 	}
 }
 
-// FormatMemoryContext converts recalled facts into a compact prompt section.
+// FormatMemoryContext 将召回到的记忆事实整理为紧凑的 prompt 文本块。
 func FormatMemoryContext(facts []model.MemoryFact) string {
 	if len(facts) == 0 {
 		return ""
@@ -338,6 +308,21 @@ func FormatMemoryContext(facts []model.MemoryFact) string {
 	return strings.TrimSpace(b.String())
 }
 
+// FormatClientMemoryContext 将 DTO 记忆转换成 prompt 文本，供 memory-service 外部调用方使用。
+func FormatClientMemoryContext(facts []memoryclient.MemoryFact) string {
+	modelFacts := make([]model.MemoryFact, 0, len(facts))
+	for _, fact := range facts {
+		modelFacts = append(modelFacts, model.MemoryFact{
+			Scope:   fact.Scope,
+			Type:    fact.Type,
+			Title:   fact.Title,
+			Content: fact.Content,
+		})
+	}
+	return FormatMemoryContext(modelFacts)
+}
+
+// validScope 校验记忆作用域枚举。
 func validScope(scope string) bool {
 	switch scope {
 	case model.ScopeUser, model.ScopeGroup, model.ScopeConversation, model.ScopeSession:
@@ -347,6 +332,7 @@ func validScope(scope string) bool {
 	}
 }
 
+// validType 校验记忆类型枚举。
 func validType(memoryType string) bool {
 	switch memoryType {
 	case model.TypePreference, model.TypeSpeakingStyle, model.TypeLongTermGoal, model.TypeGroupProfile, model.TypeProjectState, model.TypeChatSummary, model.TypeAgentRun:
@@ -356,14 +342,17 @@ func validType(memoryType string) bool {
 	}
 }
 
+// validVisibility 校验记忆可见性枚举。
 func validVisibility(visibility string) bool {
 	return visibility == model.VisibilityPrivate || visibility == model.VisibilityShared
 }
 
+// validVectorStatus 校验向量化状态枚举。
 func validVectorStatus(status string) bool {
 	return status == model.VectorPending || status == model.VectorDisabled || status == model.VectorReady
 }
 
+// defaultString 在 value 为空时返回 fallback。
 func defaultString(value, fallback string) string {
 	if value == "" {
 		return fallback
@@ -371,9 +360,47 @@ func defaultString(value, fallback string) string {
 	return value
 }
 
+// minInt 返回两个整数中的较小值。
 func minInt(a, b int) int {
 	if a < b {
 		return a
 	}
 	return b
+}
+
+// memoryFactsToDTO 批量将数据库模型转换为客户端 DTO。
+func memoryFactsToDTO(facts []model.MemoryFact) []memoryclient.MemoryFact {
+	out := make([]memoryclient.MemoryFact, 0, len(facts))
+	for i := range facts {
+		out = append(out, *memoryFactToDTO(&facts[i]))
+	}
+	return out
+}
+
+// memoryFactToDTO 将单条数据库记忆模型转换为客户端 DTO。
+func memoryFactToDTO(fact *model.MemoryFact) *memoryclient.MemoryFact {
+	if fact == nil {
+		return nil
+	}
+	return &memoryclient.MemoryFact{
+		ID:             fact.ID,
+		BotID:          fact.BotID,
+		UserID:         fact.UserID,
+		OwnerUserID:    fact.OwnerUserID,
+		GroupID:        fact.GroupID,
+		ConversationID: fact.ConversationID,
+		SessionID:      fact.SessionID,
+		Scope:          fact.Scope,
+		Type:           fact.Type,
+		Title:          fact.Title,
+		Content:        fact.Content,
+		Source:         fact.Source,
+		Visibility:     fact.Visibility,
+		Enabled:        fact.Enabled,
+		VectorStatus:   fact.VectorStatus,
+		EmbeddingRef:   fact.EmbeddingRef,
+		Confidence:     fact.Confidence,
+		CreatedAt:      fact.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:      fact.UpdatedAt.Format(time.RFC3339),
+	}
 }

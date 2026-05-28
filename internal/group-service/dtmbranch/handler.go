@@ -1,4 +1,4 @@
-// Package dtmbranch exposes HTTP branch endpoints used by DTM Saga.
+// Package dtmbranch 暴露 DTM Saga 使用的 HTTP 分支接口。
 package dtmbranch
 
 import (
@@ -7,7 +7,7 @@ import (
 	"net/http"
 )
 
-// CreateGroupPayload is the DTM branch payload for creating group metadata.
+// CreateGroupPayload 是创建群资料分支的 DTM payload。
 type CreateGroupPayload struct {
 	GroupID   int64   `json:"group_id"`
 	Name      string  `json:"name"`
@@ -15,23 +15,23 @@ type CreateGroupPayload struct {
 	MemberIDs []int64 `json:"member_ids"`
 }
 
-// Handler adapts DTM HTTP branch callbacks to group-service business methods.
+// Handler 将 DTM HTTP 分支回调适配为 group-service 业务方法。
 type Handler struct {
 	svc service.GroupService
 }
 
-// NewHandler creates a DTM branch handler.
+// NewHandler 创建 DTM 分支 handler。
 func NewHandler(svc service.GroupService) *Handler {
 	return &Handler{svc: svc}
 }
 
-// RegisterRoutes registers group-service DTM branch routes on mux.
+// RegisterRoutes 将 group-service 的 DTM 分支路由注册到 mux。
 func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/dtm/group/create", h.CreateGroup)
 	mux.HandleFunc("/dtm/group/create_compensate", h.CreateGroupCompensate)
 }
 
-// CreateGroup executes the Saga action branch that creates group rows.
+// CreateGroup 执行 Saga 正向分支：创建群资料和成员关系。
 func (h *Handler) CreateGroup(w http.ResponseWriter, r *http.Request) {
 	var payload CreateGroupPayload
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
@@ -45,7 +45,7 @@ func (h *Handler) CreateGroup(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-// CreateGroupCompensate executes the Saga compensation branch for group creation.
+// CreateGroupCompensate 执行 Saga 补偿分支：删除创建群分支写入的数据。
 func (h *Handler) CreateGroupCompensate(w http.ResponseWriter, r *http.Request) {
 	var payload CreateGroupPayload
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {

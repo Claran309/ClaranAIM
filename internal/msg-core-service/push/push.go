@@ -46,7 +46,7 @@ type MessageData struct {
 	MsgID          int64   `json:"msg_id"`           // 消息ID
 	CreatedAt      string  `json:"created_at"`       // 发送时间
 	ReplyToID      int64   `json:"reply_to_id"`      // 引用消息ID
-	Status         string  `json:"status"`           // sent/recalled
+	Status         string  `json:"status"`           // 消息状态：sent 表示已发送，recalled 表示已撤回
 	IsEdited       bool    `json:"is_edited"`        // 是否编辑过
 	EditedAt       string  `json:"edited_at"`        // 编辑时间
 	MentionUserIDs []int64 `json:"mention_user_ids"` // @用户列表

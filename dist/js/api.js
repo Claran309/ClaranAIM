@@ -232,6 +232,8 @@ const messageAPI = {
     search: (keyword, conversationID = 0, limit = 20, startAt = '', endAt = '') =>
         request('GET', `/message/search?keyword=${encodeURIComponent(keyword)}&limit=${limit}&conversation_id=${conversationID}&start_at=${encodeURIComponent(startAt)}&end_at=${encodeURIComponent(endAt)}`),
     getConversations: () => request('GET', '/message/conversations'),
+    translate: (messageID, targetLanguage = '中文', force = false) =>
+        request('POST', '/message/translate', { message_id: apiID(messageID), target_language: targetLanguage, force }),
 };
 
 const fileAPI = {
@@ -295,25 +297,22 @@ const fileAPI = {
         request('GET', `/file/list?file_type=${fileType}&limit=${limit}&offset=${offset}`),
 };
 
-const botAPI = {
-    create: (name, type, description, modelName, apiKey, baseURL, systemPrompt, skillsDir, agentRoot, extra = {}) =>
-        request('POST', '/bot/create', { name, type, description, model_name: modelName, api_key: apiKey, base_url: baseURL, system_prompt: systemPrompt, skills_dir: skillsDir, agent_root: agentRoot, ...extra }),
-    update: (botID, data) =>
-        request('PUT', '/bot/update', { bot_id: apiID(botID), ...data }),
-    get: (id) => request('GET', `/bot/${id}`),
-    list: (type = '') => request('GET', `/bot/list?type=${type}`),
-    delete: (botID) => request('DELETE', '/bot/delete', { bot_id: apiID(botID) }),
-    chat: (botID, message, conversationID = 0) =>
-        request('POST', '/bot/chat', { bot_id: apiID(botID), message, conversation_id: apiID(conversationID) }),
-    createRoute: (botID, routePattern, routeType, priority) =>
-        request('POST', '/bot/route/create', { bot_id: apiID(botID), route_pattern: routePattern, route_type: routeType, priority }),
-    listRoutes: (botID) => request('GET', `/bot/${botID}/routes`),
-    deleteRoute: (routeID) => request('DELETE', '/bot/route/delete', { route_id: apiID(routeID) }),
-    getBilling: (botID, limit = 20, offset = 0) =>
-        request('GET', `/bot/${botID}/billing?limit=${limit}&offset=${offset}`),
-};
-
 const agentAPI = {
+    create: (name, type, description, modelName, apiKey, baseURL, systemPrompt, skillsDir, agentRoot, extra = {}) =>
+        request('POST', '/agent/create', { name, type, description, model_name: modelName, api_key: apiKey, base_url: baseURL, system_prompt: systemPrompt, skills_dir: skillsDir, agent_root: agentRoot, ...extra }),
+    update: (botID, data) =>
+        request('PUT', '/agent/update', { bot_id: apiID(botID), ...data }),
+    get: (id) => request('GET', `/agent/${id}`),
+    list: (type = '') => request('GET', `/agent/list?type=${type}`),
+    delete: (botID) => request('DELETE', '/agent/delete', { bot_id: apiID(botID) }),
+    chat: (botID, message, conversationID = 0) =>
+        request('POST', '/agent/chat', { bot_id: apiID(botID), message, conversation_id: apiID(conversationID) }),
+    createRoute: (botID, routePattern, routeType, priority) =>
+        request('POST', '/agent/route/create', { bot_id: apiID(botID), route_pattern: routePattern, route_type: routeType, priority }),
+    listRoutes: (botID) => request('GET', `/agent/${botID}/routes`),
+    deleteRoute: (routeID) => request('DELETE', '/agent/route/delete', { route_id: apiID(routeID) }),
+    getBilling: (botID, limit = 20, offset = 0) =>
+        request('GET', `/agent/${botID}/billing?limit=${limit}&offset=${offset}`),
     run: (botID, conversationID, question = '') =>
         request('POST', '/agent/run', { bot_id: apiID(botID), conversation_id: apiID(conversationID), question, message: question }),
     summarize: (botID, conversationID, question = '') =>
@@ -354,6 +353,17 @@ const memoryAPI = {
     create: (data) => request('POST', '/memory/create', data),
     update: (id, data) => request('PUT', `/memory/${apiID(id)}`, data),
     delete: (id) => request('DELETE', `/memory/${apiID(id)}`),
+};
+
+const settingsAPI = {
+    listLLMProfiles: (usageType = '') =>
+        request('GET', `/settings/llm-profiles?usage_type=${encodeURIComponent(usageType)}`),
+    saveLLMProfile: (profile) =>
+        request('POST', '/settings/llm-profiles', profile),
+    deleteLLMProfile: (id) =>
+        request('DELETE', `/settings/llm-profiles/${apiID(id)}`),
+    listPrompts: () => request('GET', '/settings/prompts'),
+    savePrompt: (prompt) => request('POST', '/settings/prompts', prompt),
 };
 
 async function connectWS() {
@@ -512,3 +522,4 @@ function getAgentBotByUserID(userID) {
 function getBotDisplayName(bot) {
     return bot ? (bot.nickname || bot.name || ('助手 ' + bot.id)) : '智能助手';
 }
+

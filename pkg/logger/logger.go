@@ -1,10 +1,7 @@
-// Package logger centralizes zap logging for all backend services.
-//
-// Logs are written both to stdout and to local daily files. INFO logs stay under
-// logs/<service>/<YYYY-MM-DD>/INFO.log, while all services share
-// logs/ERR/<YYYY-MM-DD>/ERR.log so fatal/errors can be inspected from one place.
-// The package also redirects the standard library log package into zap so older
-// code paths share the same sink.
+// Package logger 集中初始化所有后端服务的 zap 日志。
+// 日志会同时输出到控制台和本地按日期分片的文件：普通日志写入 logs/<service>/<YYYY-MM-DD>/INFO.log，
+// 所有服务的错误日志统一写入 logs/ERR/<YYYY-MM-DD>/ERR.log，便于排查“哪个服务先报错”。
+// 这里还会接管标准库 log 输出，使旧代码路径也进入同一套日志收集链路。
 package logger
 
 import (
@@ -20,12 +17,14 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
+// 下面这组常量定义当前包使用的固定取值，集中声明可以避免业务代码中散落魔法字符串或魔法数字。
 const (
 	defaultLogDir = "logs"
 	timeLayout    = "2006-01-02 15:04:05.000"
 	dateLayout    = "2006-01-02"
 )
 
+// 下面这组变量保存当前包需要复用的运行时状态或配置入口，调用方应通过公开函数间接使用。
 var (
 	mu      sync.Mutex
 	service = "app"
@@ -34,22 +33,24 @@ var (
 	sink    *dailySink
 )
 
+// init 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
 func init() {
 	initLocked("app", resolveLogDir())
 }
 
-// InitService initializes logging for one service using CLARAN_LOG_DIR or logs/.
+// InitService 使用 CLARAN_LOG_DIR 或默认 logs/ 目录初始化某个服务的日志。
 func InitService(name string) {
 	InitServiceWithPath(name, resolveLogDir())
 }
 
-// InitServiceWithPath initializes logging for one service using an explicit base directory.
+// InitServiceWithPath 使用显式日志根目录初始化某个服务的日志，测试或本地调试可指定临时目录。
 func InitServiceWithPath(name, logDir string) {
 	mu.Lock()
 	defer mu.Unlock()
 	initLocked(name, logDir)
 }
 
+// initLocked 在持有全局锁时重建 zap logger、文件 sink 和标准库 log 重定向。
 func initLocked(name, logDir string) {
 	if name == "" {
 		name = "app"
@@ -100,6 +101,7 @@ func initLocked(name, logDir string) {
 	log.SetOutput(&stdLogWriter{})
 }
 
+// resolveLogDir 读取日志根目录环境变量，未配置时回退到项目内 logs 目录。
 func resolveLogDir() string {
 	if dir := os.Getenv("CLARAN_LOG_DIR"); dir != "" {
 		return dir
@@ -107,27 +109,27 @@ func resolveLogDir() string {
 	return defaultLogDir
 }
 
-// Info writes an info-level structured log.
+// Info 写入 info 级别结构化日志。
 func Info(msg string, fields ...interface{}) {
 	current().Infow(msg, normalizeFields(fields...)...)
 }
 
-// Warn writes a warning-level structured log.
+// Warn 写入 warn 级别结构化日志。
 func Warn(msg string, fields ...interface{}) {
 	current().Warnw(msg, normalizeFields(fields...)...)
 }
 
-// Error writes an error-level structured log and mirrors it to ERR.log.
+// Error 写入 error 级别结构化日志，并同步进入统一 ERR.log。
 func Error(msg string, fields ...interface{}) {
 	current().Errorw(msg, normalizeFields(fields...)...)
 }
 
-// Fatal writes a fatal log and exits through zap.
+// Fatal 写入 fatal 日志并交由 zap 结束进程。
 func Fatal(msg string, fields ...interface{}) {
 	current().Fatalw(msg, normalizeFields(fields...)...)
 }
 
-// Sync flushes zap and file sinks.
+// Sync 刷新 zap 和当前打开的日志文件，服务退出前调用可减少日志丢失。
 func Sync() {
 	mu.Lock()
 	defer mu.Unlock()
@@ -139,6 +141,7 @@ func Sync() {
 	}
 }
 
+// current 返回当前全局 SugaredLogger；如果尚未初始化则用默认配置补初始化。
 func current() *zap.SugaredLogger {
 	mu.Lock()
 	defer mu.Unlock()
@@ -148,6 +151,7 @@ func current() *zap.SugaredLogger {
 	return sugar
 }
 
+// normalizeFields 兜底处理奇数个字段参数，避免 zap 因缺少 value 产生额外错误。
 func normalizeFields(fields ...interface{}) []interface{} {
 	if len(fields)%2 == 0 {
 		return fields
@@ -155,11 +159,13 @@ func normalizeFields(fields ...interface{}) []interface{} {
 	return append(fields, "missing_value")
 }
 
+// serviceConsoleEncoder 在 zap 原始 encoder 外增加服务名前缀，使聚合日志更容易区分来源。
 type serviceConsoleEncoder struct {
 	appName string
 	zapcore.Encoder
 }
 
+// newServiceConsoleEncoder 创建带服务名前缀的控制台 encoder。
 func newServiceConsoleEncoder(appName string, cfg zapcore.EncoderConfig) zapcore.Encoder {
 	return &serviceConsoleEncoder{
 		appName: appName,
@@ -167,7 +173,7 @@ func newServiceConsoleEncoder(appName string, cfg zapcore.EncoderConfig) zapcore
 	}
 }
 
-// Clone duplicates the encoder for zap core fanout.
+// Clone 为 zap 多 core 输出复制 encoder，避免多个输出共享可变缓冲状态。
 func (e *serviceConsoleEncoder) Clone() zapcore.Encoder {
 	return &serviceConsoleEncoder{
 		appName: e.appName,
@@ -175,7 +181,7 @@ func (e *serviceConsoleEncoder) Clone() zapcore.Encoder {
 	}
 }
 
-// EncodeEntry prefixes every log line with the service name.
+// EncodeEntry 在每行日志前加上 [service] 前缀。
 func (e *serviceConsoleEncoder) EncodeEntry(entry zapcore.Entry, fields []zapcore.Field) (*buffer.Buffer, error) {
 	buf, err := e.Encoder.EncodeEntry(entry, fields)
 	if err != nil {
@@ -190,6 +196,7 @@ func (e *serviceConsoleEncoder) EncodeEntry(entry zapcore.Entry, fields []zapcor
 	return buf, nil
 }
 
+// dailySink 管理按日期切分的 INFO 与 ERR 日志文件句柄。
 type dailySink struct {
 	mu      sync.Mutex
 	infoDir string
@@ -199,11 +206,12 @@ type dailySink struct {
 	err     *os.File
 }
 
+// newDailySink 创建按日期滚动的文件 sink。
 func newDailySink(infoDir, errDir string) *dailySink {
 	return &dailySink{infoDir: infoDir, errDir: errDir}
 }
 
-// WriteInfo writes one encoded log line to the current INFO.log file.
+// WriteInfo 将一行编码后的日志写入当天 INFO.log。
 func (s *dailySink) WriteInfo(p []byte) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -219,7 +227,7 @@ func (s *dailySink) WriteInfo(p []byte) (int, error) {
 	return len(p), nil
 }
 
-// WriteError writes one encoded log line to the current ERR.log file.
+// WriteError 将一行编码后的错误日志写入当天统一 ERR.log。
 func (s *dailySink) WriteError(p []byte) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -235,6 +243,7 @@ func (s *dailySink) WriteError(p []byte) (int, error) {
 	return len(p), nil
 }
 
+// rotateLocked 在日期变化时关闭旧文件并打开当天的新 INFO/ERR 文件。
 func (s *dailySink) rotateLocked(now time.Time) error {
 	date := now.Format(dateLayout)
 	if s.date == date && s.info != nil && s.err != nil {
@@ -264,7 +273,7 @@ func (s *dailySink) rotateLocked(now time.Time) error {
 	return nil
 }
 
-// Sync flushes currently open daily files.
+// Sync 刷新当前打开的每日日志文件。
 func (s *dailySink) Sync() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -280,13 +289,14 @@ func (s *dailySink) Sync() error {
 	return firstErr
 }
 
-// Close closes currently open daily files.
+// Close 关闭当前打开的每日日志文件。
 func (s *dailySink) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.closeLocked()
 }
 
+// closeLocked 在持锁状态下关闭文件句柄，供滚动和退出流程复用。
 func (s *dailySink) closeLocked() error {
 	var firstErr error
 	if s.info != nil {
@@ -302,12 +312,13 @@ func (s *dailySink) closeLocked() error {
 	return firstErr
 }
 
+// levelWriter 把 zap core 的输出分流到 INFO.log 或 ERR.log。
 type levelWriter struct {
 	sink   *dailySink
 	target logTarget
 }
 
-// Write routes zap output to INFO.log or ERR.log.
+// Write 根据目标级别把 zap 输出写入对应日志文件。
 func (w *levelWriter) Write(p []byte) (int, error) {
 	if w.sink == nil {
 		return len(p), nil
@@ -318,7 +329,7 @@ func (w *levelWriter) Write(p []byte) (int, error) {
 	return w.sink.WriteInfo(p)
 }
 
-// Sync flushes the underlying daily sink.
+// Sync 刷新底层 dailySink。
 func (w *levelWriter) Sync() error {
 	if w.sink == nil {
 		return nil
@@ -326,16 +337,19 @@ func (w *levelWriter) Sync() error {
 	return w.sink.Sync()
 }
 
+// stdLogWriter 把标准库 log 输出桥接到项目 logger。
 type stdLogWriter struct{}
 
+// logTarget 标识 levelWriter 的目标文件类型。
 type logTarget int
 
+// 下面这组常量定义当前包使用的固定取值，集中声明可以避免业务代码中散落魔法字符串或魔法数字。
 const (
 	logTargetInfo logTarget = iota
 	logTargetError
 )
 
-// Write redirects standard-library log output into the structured logger.
+// Write 将标准库 log 的一行文本重定向为结构化 info 日志。
 func (w *stdLogWriter) Write(p []byte) (int, error) {
 	msg := string(p)
 	for len(msg) > 0 && (msg[len(msg)-1] == '\n' || msg[len(msg)-1] == '\r') {

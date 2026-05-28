@@ -19,11 +19,9 @@ import (
 	"github.com/minio/minio-go/v7/pkg/credentials"
 )
 
-// FileService defines the file-domain operations.
-//
-// The current deployment may store bytes either on local disk or MinIO, while
-// metadata is always persisted through file-service. Messages should store only
-// file references, never raw binary payloads.
+// FileService 定义文件领域操作。
+// 当前部署可以把文件字节存到本地磁盘或 MinIO，但文件元数据统一由 file-service 持久化；
+// 消息表只应保存文件引用，不应直接塞入二进制内容。
 type FileService interface {
 	UploadFile(ctx context.Context, fileName, fileType string, fileSize int64, contentType string, uploaderID int64, fileData io.Reader) (*model.FileRecord, error)
 	SaveFileRecord(ctx context.Context, fileName, fileType string, fileSize int64, contentType, fileURL string, uploaderID int64) (*model.FileRecord, error)
@@ -33,6 +31,7 @@ type FileService interface {
 	GetFileReader(ctx context.Context, fileID string) (io.ReadCloser, *model.FileRecord, error)
 }
 
+// fileServiceImpl 是 FileService 的默认实现，组合元数据仓储和本地/MinIO 对象存储。
 type fileServiceImpl struct {
 	repo          dao.FileRepository
 	storageDir    string
@@ -42,9 +41,8 @@ type fileServiceImpl struct {
 	minioEndpoint string
 }
 
-// NewFileService initializes the file service and prepares the configured object
-// store. If MinIO initialization fails, the service falls back to local storage
-// so development uploads still work.
+// NewFileService 初始化文件服务并准备对象存储。
+// 如果 MinIO 初始化失败，会降级为本地存储，保证开发环境上传功能仍然可用。
 func NewFileService(repo dao.FileRepository, storageDir, minioEndpoint, minioAccessKey, minioSecretKey, minioBucket string, useMinio bool) FileService {
 	if err := os.MkdirAll(storageDir, 0o755); err != nil {
 		log.Printf("创建存储目录失败: %v", err)
@@ -86,11 +84,9 @@ func NewFileService(repo dao.FileRepository, storageDir, minioEndpoint, minioAcc
 	}
 }
 
-// UploadFile stores a binary stream and creates its metadata record.
-//
-// This method is primarily useful for RPC callers that can stream the file body
-// directly to file-service. The HTTP gateway usually stores bytes first and then
-// calls SaveFileRecord to avoid forwarding multipart streams over RPC.
+// UploadFile 保存二进制流并创建文件元数据记录。
+// 该方法适合能直接把文件流传给 file-service 的 RPC 调用方；
+// HTTP 网关通常先保存 multipart 文件，再调用 SaveFileRecord，避免跨 RPC 转发大流。
 func (s *fileServiceImpl) UploadFile(ctx context.Context, fileName, fileType string, fileSize int64, contentType string, uploaderID int64, fileData io.Reader) (*model.FileRecord, error) {
 	if fileName == "" {
 		return nil, errors.New("文件名不能为空")
@@ -158,7 +154,7 @@ func (s *fileServiceImpl) UploadFile(ctx context.Context, fileName, fileType str
 	return record, nil
 }
 
-// GetFile returns metadata for one file ID.
+// GetFile 根据 file_id 查询文件元数据。
 func (s *fileServiceImpl) GetFile(ctx context.Context, fileID string) (*model.FileRecord, error) {
 	record, err := s.repo.GetFileByID(ctx, fileID)
 	if err != nil {
@@ -170,8 +166,8 @@ func (s *fileServiceImpl) GetFile(ctx context.Context, fileID string) (*model.Fi
 	return record, nil
 }
 
-// DeleteFile removes metadata and attempts to remove the backing object.
-// Only the uploader may delete the file in the current permission model.
+// DeleteFile 删除文件元数据，并尝试删除背后的本地/MinIO 对象。
+// 当前权限模型下只有上传者可以删除自己的文件。
 func (s *fileServiceImpl) DeleteFile(ctx context.Context, fileID string, operatorID int64) error {
 	record, err := s.repo.GetFileByID(ctx, fileID)
 	if err != nil {
@@ -201,7 +197,7 @@ func (s *fileServiceImpl) DeleteFile(ctx context.Context, fileID string, operato
 	return s.repo.DeleteFile(ctx, fileID)
 }
 
-// ListFiles returns paginated file metadata for one uploader.
+// ListFiles 分页查询某个上传者的文件元数据。
 func (s *fileServiceImpl) ListFiles(ctx context.Context, uploaderID int64, fileType string, limit, offset int64) ([]model.FileRecord, int64, error) {
 	if limit <= 0 {
 		limit = 20
@@ -209,8 +205,7 @@ func (s *fileServiceImpl) ListFiles(ctx context.Context, uploaderID int64, fileT
 	return s.repo.ListFiles(ctx, uploaderID, fileType, limit, offset)
 }
 
-// GetFileReader opens the backing object for download/preview and returns its
-// metadata alongside the stream.
+// GetFileReader 打开文件背后的对象流，用于下载或预览，并同时返回元数据。
 func (s *fileServiceImpl) GetFileReader(ctx context.Context, fileID string) (io.ReadCloser, *model.FileRecord, error) {
 	record, err := s.GetFile(ctx, fileID)
 	if err != nil {
@@ -238,12 +233,14 @@ func (s *fileServiceImpl) GetFileReader(ctx context.Context, fileID string) (io.
 	return file, record, nil
 }
 
-// GeneratePresignedURL returns a public-style object URL placeholder.
-// The expiry argument is kept for future MinIO presigned URL support.
+// GeneratePresignedURL 生成公开风格的对象 URL 占位值。
+// expiry 参数为未来接入 MinIO 预签名 URL 预留。
 func GeneratePresignedURL(endpoint, bucket, objectName string, expiry time.Duration) string {
 	return fmt.Sprintf("http://%s/%s/%s", endpoint, bucket, objectName)
 }
 
+// buildUploadObjectName 根据文件类型、ID 和扩展名生成对象存储路径。
+// 它会拒绝 /、.. 等路径穿越片段，防止用户通过 fileType 写出存储根目录。
 func buildUploadObjectName(fileType, fileID, ext string) (string, string, error) {
 	if fileType == "" {
 		fileType = "file"
@@ -270,6 +267,7 @@ func buildUploadObjectName(fileType, fileID, ext string) (string, string, error)
 	return path.Join(cleanType, fileID+ext), cleanType, nil
 }
 
+// objectNameFromFileURL 从本地 /files/ URL 或 MinIO URL 中解析对象名，并做路径安全清理。
 func objectNameFromFileURL(fileURL string) (string, error) {
 	if fileURL == "" {
 		return "", errors.New("文件地址为空")
@@ -300,7 +298,7 @@ func objectNameFromFileURL(fileURL string) (string, error) {
 	return objectName, nil
 }
 
-// SaveFileRecord persists metadata for an object already stored by the gateway.
+// SaveFileRecord 为网关已经保存好的对象写入文件元数据。
 func (s *fileServiceImpl) SaveFileRecord(ctx context.Context, fileName, fileType string, fileSize int64, contentType, fileURL string, uploaderID int64) (*model.FileRecord, error) {
 	if fileName == "" {
 		return nil, errors.New("文件名不能为空")

@@ -19,12 +19,12 @@ type Conversation struct {
 	UpdatedAt time.Time `json:"updated_at" gorm:"autoUpdateTime"`
 }
 
-// BeforeCreate assigns a snowflake ID before inserting a conversation.
+// BeforeCreate 在插入会话前补充分布式雪花 ID。
 func (c *Conversation) BeforeCreate(tx *gorm.DB) error {
 	return fillSnowflakeID(&c.ID)
 }
 
-// TableName keeps the conversation table name stable across GORM naming changes.
+// TableName 固定会话表名，避免 GORM 命名策略变化造成表名漂移。
 func (Conversation) TableName() string {
 	return "conversations"
 }
@@ -44,12 +44,12 @@ type ConversationParticipant struct {
 	JoinedAt          time.Time  `json:"joined_at" gorm:"autoCreateTime"`          // 加入会话时间
 }
 
-// BeforeCreate assigns a snowflake ID before inserting a participant row.
+// BeforeCreate 在插入会话参与者前补充分布式雪花 ID。
 func (p *ConversationParticipant) BeforeCreate(tx *gorm.DB) error {
 	return fillSnowflakeID(&p.ID)
 }
 
-// TableName keeps the participant table name explicit.
+// TableName 固定会话参与者表名。
 func (ConversationParticipant) TableName() string {
 	return "conversation_participants"
 }
@@ -65,7 +65,7 @@ type Message struct {
 	ClientMsgID    *string    `json:"client_msg_id,omitempty" gorm:"size:128;uniqueIndex"` // 客户端/内部调用方提供的幂等键，避免重试生成重复消息
 	MsgType        string     `json:"msg_type" gorm:"size:20;default:text"`                // 消息类型：text/image/file/voice/broadcast
 	ReplyToID      int64      `json:"reply_to_id" gorm:"index;default:0"`                  // 引用/回复的源消息ID
-	Status         string     `json:"status" gorm:"size:20;default:sent"`                  // sent/recalled/deleted
+	Status         string     `json:"status" gorm:"size:20;default:sent"`                  // 消息状态：sent/recalled/deleted
 	IsEdited       bool       `json:"is_edited" gorm:"default:false"`                      // 是否被编辑过
 	EditedAt       *time.Time `json:"edited_at"`                                           // 最近编辑时间，nil 表示从未编辑过
 	MentionUserIDs []int64    `json:"mention_user_ids" gorm:"-"`                           // @用户列表，运行时字段
@@ -77,12 +77,12 @@ type Message struct {
 	IsReadByMe     bool       `json:"is_read_by_me" gorm:"-"`                              // 当前查询用户是否已读该消息，运行时计算
 }
 
-// BeforeCreate assigns a snowflake ID before inserting a message.
+// BeforeCreate 在插入消息前补充分布式雪花 ID。
 func (m *Message) BeforeCreate(tx *gorm.DB) error {
 	return fillSnowflakeID(&m.ID)
 }
 
-// TableName keeps the message table name explicit.
+// TableName 固定消息表名。
 func (Message) TableName() string {
 	return "messages"
 }
@@ -111,17 +111,17 @@ type MessageUserState struct {
 	UpdatedAt      time.Time  `json:"updated_at" gorm:"autoUpdateTime"`
 }
 
-// BeforeCreate assigns a snowflake ID before inserting per-user state.
+// BeforeCreate 在插入用户级消息状态前补充分布式雪花 ID。
 func (s *MessageUserState) BeforeCreate(tx *gorm.DB) error {
 	return fillSnowflakeID(&s.ID)
 }
 
-// TableName keeps the per-user message state table name explicit.
+// TableName 固定用户级消息状态表名。
 func (MessageUserState) TableName() string {
 	return "message_user_states"
 }
 
-// MessageEditRecord is an immutable audit row for message edits.
+// MessageEditRecord 是消息编辑的不可变审计记录。
 type MessageEditRecord struct {
 	ID             int64     `json:"id" gorm:"primaryKey;autoIncrement:false"`
 	MessageID      int64     `json:"message_id" gorm:"index;not null"`
@@ -132,16 +132,41 @@ type MessageEditRecord struct {
 	CreatedAt      time.Time `json:"created_at" gorm:"autoCreateTime"`
 }
 
-// BeforeCreate assigns a snowflake ID before inserting an edit record.
+// BeforeCreate 在插入编辑记录前补充分布式雪花 ID。
 func (r *MessageEditRecord) BeforeCreate(tx *gorm.DB) error {
 	return fillSnowflakeID(&r.ID)
 }
 
-// TableName keeps the edit audit table name explicit.
+// TableName 固定消息编辑审计表名。
 func (MessageEditRecord) TableName() string {
 	return "message_edit_records"
 }
 
+// MessageTranslation 缓存某个用户对某条消息的翻译结果。
+type MessageTranslation struct {
+	ID             int64     `json:"id" gorm:"primaryKey;autoIncrement:false"`
+	MessageID      int64     `json:"message_id" gorm:"uniqueIndex:uk_msg_translation_user_lang_hash,priority:1;index;not null"`
+	UserID         int64     `json:"user_id" gorm:"uniqueIndex:uk_msg_translation_user_lang_hash,priority:2;index;not null"`
+	SourceTextHash string    `json:"source_text_hash" gorm:"uniqueIndex:uk_msg_translation_user_lang_hash,priority:3;size:64;not null"`
+	TargetLanguage string    `json:"target_language" gorm:"uniqueIndex:uk_msg_translation_user_lang_hash,priority:4;size:40;not null"`
+	TranslatedText string    `json:"translated_text" gorm:"type:text;not null"`
+	Provider       string    `json:"provider" gorm:"size:40"`
+	ModelName      string    `json:"model_name" gorm:"size:120"`
+	PromptVersion  string    `json:"prompt_version" gorm:"size:80"`
+	CreatedAt      time.Time `json:"created_at" gorm:"autoCreateTime"`
+}
+
+// BeforeCreate 是当前包对外暴露的方法，负责承接对应的业务流程、参数校验或适配逻辑。
+func (t *MessageTranslation) BeforeCreate(tx *gorm.DB) error {
+	return fillSnowflakeID(&t.ID)
+}
+
+// TableName 是当前包对外暴露的方法，负责承接对应的业务流程、参数校验或适配逻辑。
+func (MessageTranslation) TableName() string {
+	return "message_translations"
+}
+
+// fillSnowflakeID 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
 func fillSnowflakeID(id *int64) error {
 	if *id != 0 {
 		return nil

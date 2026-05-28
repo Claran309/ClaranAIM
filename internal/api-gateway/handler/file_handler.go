@@ -22,15 +22,25 @@ import (
 	"github.com/minio/minio-go/v7/pkg/credentials"
 )
 
+// 下面这组变量保存当前包需要复用的运行时状态或配置入口，调用方应通过公开函数间接使用。
 var minioClient *minio.Client
+
+// 下面这组变量保存当前包需要复用的运行时状态或配置入口，调用方应通过公开函数间接使用。
 var minioBucket string
+
+// 下面这组变量保存当前包需要复用的运行时状态或配置入口，调用方应通过公开函数间接使用。
 var useMinio bool
+
+// 下面这组变量保存当前包需要复用的运行时状态或配置入口，调用方应通过公开函数间接使用。
 var minioEndpoint string
+
+// 下面这组变量保存当前包需要复用的运行时状态或配置入口，调用方应通过公开函数间接使用。
 var storageDir string
 
-// InitFileStorage prepares the binary object store used by the HTTP gateway.
-// Metadata is persisted through file-service; the gateway owns the streaming
-// boundary because browser uploads arrive here as multipart data.
+// InitFileStorage 初始化 API 网关使用的二进制对象存储。
+//
+// 文件元数据仍由 file-service 持久化；网关只负责浏览器 multipart 上传、
+// 下载和预览的字节流边界，因此这里同时支持 MinIO 和本地磁盘两种存储。
 func InitFileStorage(cfg *config.Config) {
 	storageDir = cfg.Storage.Dir
 	if storageDir == "" {
@@ -74,19 +84,21 @@ func InitFileStorage(cfg *config.Config) {
 	}
 }
 
-// FileHandler handles browser file upload, preview, download and metadata list
-// endpoints. The gateway streams bytes because it owns HTTP multipart parsing;
-// file-service stores metadata and authorization-relevant ownership fields.
+// FileHandler 处理浏览器文件上传、预览、下载和文件列表接口。
+//
+// API 网关负责 HTTP multipart 解析和字节流传输，file-service 负责保存文件元数据
+// 以及与权限相关的归属字段，二者职责不要混在一起。
 type FileHandler struct{}
 
-// NewFileHandler constructs the stateless file HTTP handler used by the router.
+// NewFileHandler 创建路由层使用的无状态文件 HTTP handler。
 func NewFileHandler() *FileHandler {
 	return &FileHandler{}
 }
 
-// UploadFile stores the binary payload first, then asks file-service to persist
-// the metadata record. The returned file_id must come from file-service, because
-// that is the ID later used by /file/download/:id and message media payloads.
+// UploadFile 先保存二进制文件，再请求 file-service 持久化元数据。
+//
+// 返回给前端的 file_id 必须以 file-service 为准，因为下载、预览和消息媒体载荷
+// 后续都会通过这个 ID 查询文件记录。
 func (h *FileHandler) UploadFile(ctx context.Context, c *app.RequestContext) {
 	file, err := c.FormFile("file")
 	if err != nil {
@@ -189,7 +201,7 @@ func (h *FileHandler) UploadFile(ctx context.Context, c *app.RequestContext) {
 	})
 }
 
-// GetFile returns metadata for one uploaded file without streaming the content.
+// GetFile 返回单个已上传文件的元数据，不传输文件内容。
 func (h *FileHandler) GetFile(ctx context.Context, c *app.RequestContext) {
 	fileID := c.Param("id")
 	resp, err := client.FileClient.GetFile(ctx, client.NewGetFileReq(fileID))
@@ -204,16 +216,17 @@ func (h *FileHandler) GetFile(ctx context.Context, c *app.RequestContext) {
 	response.Success(c, resp)
 }
 
-// DownloadFile streams a file as an attachment.
+// DownloadFile 以附件形式向浏览器传输文件。
 func (h *FileHandler) DownloadFile(ctx context.Context, c *app.RequestContext) {
 	h.serveFileByID(ctx, c, true)
 }
 
-// PreviewFile streams a file inline for chat image/audio preview.
+// PreviewFile 以内联形式传输文件，用于聊天图片、音频等预览场景。
 func (h *FileHandler) PreviewFile(ctx context.Context, c *app.RequestContext) {
 	h.serveFileByID(ctx, c, false)
 }
 
+// serveFileByID 是当前包内部使用的方法，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
 func (h *FileHandler) serveFileByID(ctx context.Context, c *app.RequestContext, attachment bool) {
 	fileID := c.Param("id")
 	resp, err := client.FileClient.GetFile(ctx, client.NewGetFileReq(fileID))
@@ -260,8 +273,8 @@ func (h *FileHandler) serveFileByID(ctx context.Context, c *app.RequestContext, 
 		return
 	}
 
-	// Local file URLs are stored as /files/<type>/<object>. Clean the path before
-	// joining it with storageDir so a crafted URL cannot escape the storage root.
+	// 本地文件 URL 按 /files/<type>/<object> 存储；拼接 storageDir 前必须清洗路径，
+	// 防止构造出的恶意 URL 通过 ../ 逃逸到存储根目录之外。
 	relativePath := strings.TrimPrefix(resp.FileUrl, "/files/")
 	cleanPath := filepath.Clean(filepath.FromSlash(relativePath))
 	if cleanPath == "." || strings.HasPrefix(cleanPath, ".."+string(os.PathSeparator)) || filepath.IsAbs(cleanPath) {
@@ -285,6 +298,7 @@ func (h *FileHandler) serveFileByID(ctx context.Context, c *app.RequestContext, 
 	c.File(fullPath)
 }
 
+// minioObjectNameFromURL 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
 func minioObjectNameFromURL(fileURL string) (string, error) {
 	prefixes := []string{
 		fmt.Sprintf("http://%s/%s/", minioEndpoint, minioBucket),
@@ -304,6 +318,7 @@ func minioObjectNameFromURL(fileURL string) (string, error) {
 	return "", errors.New("不支持的MinIO文件地址")
 }
 
+// buildUploadObjectName 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
 func buildUploadObjectName(fileType, fileID, ext string) (string, error) {
 	if fileType == "" {
 		fileType = "file"
@@ -330,6 +345,7 @@ func buildUploadObjectName(fileType, fileID, ext string) (string, error) {
 	return path.Join(cleanType, fileID+ext), nil
 }
 
+// cleanupUploadedObject 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
 func cleanupUploadedObject(ctx context.Context, objectName string) {
 	if objectName == "" {
 		return
@@ -346,12 +362,12 @@ func cleanupUploadedObject(ctx context.Context, objectName string) {
 	}
 }
 
-// ServeLocalFile exposes local-storage objects under /files for inline preview.
-// The path is cleaned and checked before joining with storageDir, so a crafted
-// URL cannot read arbitrary files from the host.
+// ServeLocalFile 将本地存储对象通过 /files 暴露给浏览器做内联预览。
+//
+// 请求路径会先经过清洗和越界检查，再与 storageDir 拼接，避免读取主机上的任意文件。
 func (h *FileHandler) ServeLocalFile(ctx context.Context, c *app.RequestContext) {
-	// Public inline preview for local images/audio. The same path guard used by
-	// DownloadFile keeps requests inside storageDir.
+	// 本接口用于本地图片、音频等公开预览；路径防护规则与 DownloadFile 保持一致，
+	// 确保请求始终被限制在 storageDir 目录内。
 	relativePath := c.Param("filepath")
 	relativePath = strings.TrimPrefix(relativePath, "/")
 	cleanPath := filepath.Clean(filepath.FromSlash(relativePath))
@@ -368,8 +384,9 @@ func (h *FileHandler) ServeLocalFile(ctx context.Context, c *app.RequestContext)
 	c.File(fullPath)
 }
 
-// DeleteFile deletes a file metadata record and, when supported, the stored
-// object. file-service verifies that the operator owns or may delete the file.
+// DeleteFile 删除文件元数据，并在存储后端支持时同步删除实际对象。
+//
+// 操作者是否拥有该文件或是否具备删除权限，由 file-service 统一校验。
 func (h *FileHandler) DeleteFile(ctx context.Context, c *app.RequestContext) {
 	type deleteReq struct {
 		FileID string `json:"file_id"`
@@ -391,8 +408,7 @@ func (h *FileHandler) DeleteFile(ctx context.Context, c *app.RequestContext) {
 	response.Success(c, resp)
 }
 
-// ListFiles returns the current user's files with optional type filtering and
-// pagination.
+// ListFiles 按可选文件类型和分页参数返回当前用户的文件列表。
 func (h *FileHandler) ListFiles(ctx context.Context, c *app.RequestContext) {
 	id, ok := requireCurrentUserID(c)
 	if !ok {

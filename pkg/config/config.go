@@ -27,6 +27,7 @@ type Config struct {
 	Kafka      KafkaConfig      `yaml:"kafka"`
 	DTM        DTMConfig        `yaml:"dtm"`
 	Governance GovernanceConfig `yaml:"governance"`
+	Internal   InternalConfig   `yaml:"internal"`
 }
 
 // MySQLConfig MySQL数据库配置
@@ -67,6 +68,14 @@ type ServiceConfig struct {
 	Address string `yaml:"address"` // 服务监听地址（如 127.0.0.1:9001）
 }
 
+// InternalConfig 保存少数暂未生成 Kitex IDL 的内部 HTTP 服务地址。
+// 这些地址只应由服务客户端包使用，避免 api-gateway 或其他微服务直接 import 对方内部实现。
+type InternalConfig struct {
+	MemoryServiceURL   string `yaml:"memory_service_url"`
+	SettingsServiceURL string `yaml:"settings_service_url"`
+	MsgCoreServiceURL  string `yaml:"msg_core_service_url"`
+}
+
 // MinioConfig MinIO对象存储配置
 type MinioConfig struct {
 	Endpoint  string `yaml:"endpoint"`   // MinIO服务地址（如 localhost:9000）
@@ -81,14 +90,14 @@ type StorageConfig struct {
 	Dir string `yaml:"dir"`
 }
 
-// LLMConfig holds default provider settings for internal bots.
+// LLMConfig 保存平台默认 LLM 供应商配置，供内置 Agent 或用户未配置 profile 时兜底。
 type LLMConfig struct {
 	DefaultAPIKey  string `yaml:"default_api_key"`
 	DefaultBaseURL string `yaml:"default_base_url"`
 	DefaultModel   string `yaml:"default_model"`
 }
 
-// AgentConfig controls bot memory, tool and agent filesystem locations.
+// AgentConfig 控制 Agent 长会话、工具目录和工作根目录等本地文件位置。
 type AgentConfig struct {
 	SessionDir    string `yaml:"session_dir"`
 	AgentRoot     string `yaml:"agent_root"`
@@ -105,7 +114,7 @@ type KafkaConfig struct {
 	ClientID string   `yaml:"client_id"`
 }
 
-// DTMConfig controls optional distributed transaction integration.
+// DTMConfig 控制可选的 DTM 分布式事务集成。
 type DTMConfig struct {
 	Enabled              bool   `yaml:"enabled"`
 	Server               string `yaml:"server"`
@@ -115,21 +124,21 @@ type DTMConfig struct {
 	MsgCoreBranchAddress string `yaml:"msg_core_branch_address"`
 }
 
-// GovernanceConfig groups rate-limit and RPC governance settings.
+// GovernanceConfig 汇总限流、RPC 超时、熔断和连接治理配置。
 type GovernanceConfig struct {
 	RateLimit RateLimitConfig     `yaml:"rate_limit"`
 	RPC       RPCGovernanceConfig `yaml:"rpc"`
 	AgentRPC  RPCGovernanceConfig `yaml:"agent_rpc"`
 }
 
-// RateLimitConfig configures the api-gateway token-bucket limiter.
+// RateLimitConfig 配置 api-gateway 的令牌桶限流器。
 type RateLimitConfig struct {
 	Enabled       bool `yaml:"enabled"`
 	Burst         int  `yaml:"burst"`
 	WindowSeconds int  `yaml:"window_seconds"`
 }
 
-// RPCGovernanceConfig configures Kitex client/server timeout and protection knobs.
+// RPCGovernanceConfig 配置 Kitex 客户端/服务端超时、熔断和连接保护参数。
 type RPCGovernanceConfig struct {
 	TimeoutMS      int  `yaml:"timeout_ms"`
 	CircuitBreaker bool `yaml:"circuit_breaker"`
@@ -166,6 +175,9 @@ func Load(configPath string) (*Config, error) {
 	v.SetDefault("governance.agent_rpc.circuit_breaker", true)
 	v.SetDefault("governance.agent_rpc.max_connections", 1000)
 	v.SetDefault("governance.agent_rpc.max_qps", 500)
+	v.SetDefault("internal.memory_service_url", "http://127.0.0.1:9008")
+	v.SetDefault("internal.settings_service_url", "http://127.0.0.1:9009")
+	v.SetDefault("internal.msg_core_service_url", "http://127.0.0.1:9104")
 
 	// 读取 YAML 配置文件
 	v.SetConfigFile(configPath)
@@ -412,8 +424,19 @@ func applyEnvOverrides(cfg *Config) {
 			cfg.Governance.AgentRPC.MaxQPS = v
 		}
 	}
+
+	if url := os.Getenv("MEMORY_SERVICE_URL"); url != "" {
+		cfg.Internal.MemoryServiceURL = url
+	}
+	if url := os.Getenv("SETTINGS_SERVICE_URL"); url != "" {
+		cfg.Internal.SettingsServiceURL = url
+	}
+	if url := os.Getenv("MSG_CORE_INTERNAL_URL"); url != "" {
+		cfg.Internal.MsgCoreServiceURL = url
+	}
 }
 
+// splitAndTrim 将逗号分隔的环境变量拆成非空字符串切片，常用于 Kafka/Etcd 地址列表。
 func splitAndTrim(value string) []string {
 	parts := strings.Split(value, ",")
 	result := make([]string, 0, len(parts))

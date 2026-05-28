@@ -1,4 +1,4 @@
-// Package health contains simple startup health checks and service banner logs.
+// Package health 提供服务启动阶段的依赖连通性检查和统一启动日志。
 package health
 
 import (
@@ -11,7 +11,7 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// CheckMySQL verifies that MySQL is reachable and logs server version when available.
+// CheckMySQL 检查 MySQL 是否可达，并尽量记录服务端版本，便于启动问题排查。
 func CheckMySQL(db *sql.DB, serviceName string) bool {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -30,7 +30,7 @@ func CheckMySQL(db *sql.DB, serviceName string) bool {
 	return true
 }
 
-// CheckRedis verifies that Redis is reachable.
+// CheckRedis 检查 Redis 是否可达。
 func CheckRedis(rdb *redis.Client, serviceName string) bool {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -50,21 +50,21 @@ func CheckRedis(rdb *redis.Client, serviceName string) bool {
 	return true
 }
 
-// CheckEtcd logs configured Etcd endpoints. Kitex service registration performs
-// the real connectivity check during service startup.
+// CheckEtcd 记录当前服务配置的 Etcd 地址。
+// Kitex 注册流程会在服务启动时执行真正的连通性检查，这里主要用于日志可观测性。
 func CheckEtcd(endpoints []string, serviceName string) bool {
 	logger.Info("Etcd注册地址", "service", serviceName, "endpoints", fmt.Sprintf("%v", endpoints))
 	return true
 }
 
-// ServiceInfo describes one service for startup logging.
+// ServiceInfo 描述一个服务的启动日志字段。
 type ServiceInfo struct {
 	Name    string
 	Version string
 	Port    string
 }
 
-// LogStartup writes a consistent service-start banner.
+// LogStartup 输出统一格式的服务启动完成日志。
 func LogStartup(info ServiceInfo) {
 	logger.Info("========================================")
 	logger.Info("服务启动完成", "service", info.Name, "version", info.Version, "port", info.Port)

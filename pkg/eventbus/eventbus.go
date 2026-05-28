@@ -1,7 +1,6 @@
-// Package eventbus abstracts event publication and consumption.
-//
-// Production uses Kafka; tests can use memory/no-op publishers while still
-// exercising the same event envelope contract.
+// Package eventbus 抽象事件发布与消费能力。
+// 生产环境使用 Kafka；单元测试或本地禁用 Kafka 时可以使用内存/空发布器，
+// 但上层仍然走同一套 events.Envelope 契约，避免测试路径和生产路径割裂。
 package eventbus
 
 import (
@@ -10,30 +9,30 @@ import (
 	"sync"
 )
 
-// Publisher is the minimal publish/close contract used by outbox workers.
+// Publisher 是 Outbox Worker 所需的最小事件发布接口。
 type Publisher interface {
 	Publish(ctx context.Context, envelope events.Envelope) error
 	Close() error
 }
 
-// Handler processes one decoded event envelope from a consumer.
+// Handler 处理消费者已经解码完成的一条事件 Envelope。
 type Handler func(ctx context.Context, envelope events.Envelope) error
 
-// NoopPublisher accepts events and drops them. It is useful when Kafka is
-// disabled but services still need to run and write outbox rows.
+// NoopPublisher 接收事件但不真正投递。
+// 当本地开发暂时关闭 Kafka 时，服务仍可启动并写入 Outbox，不会因为缺少 broker 阻塞主流程。
 type NoopPublisher struct{}
 
-// NewNoopPublisher creates a drop-all publisher.
+// NewNoopPublisher 创建一个丢弃所有事件的发布器。
 func NewNoopPublisher() *NoopPublisher {
 	return &NoopPublisher{}
 }
 
-// Publish drops the event and returns success.
+// Publish 丢弃事件并返回成功，用于 Kafka 未启用的降级路径。
 func (p *NoopPublisher) Publish(ctx context.Context, envelope events.Envelope) error {
 	return nil
 }
 
-// Close releases no resources for the no-op publisher.
+// Close 对空发布器不需要释放资源。
 func (p *NoopPublisher) Close() error {
 	return nil
 }
@@ -44,12 +43,12 @@ type MemoryPublisher struct {
 	published []events.Envelope
 }
 
-// NewMemoryPublisher creates an in-memory publisher for tests.
+// NewMemoryPublisher 创建测试用内存发布器。
 func NewMemoryPublisher() *MemoryPublisher {
 	return &MemoryPublisher{published: []events.Envelope{}}
 }
 
-// Publish records an event in memory.
+// Publish 将事件记录到内存切片，便于测试断言。
 func (p *MemoryPublisher) Publish(ctx context.Context, envelope events.Envelope) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -57,7 +56,7 @@ func (p *MemoryPublisher) Publish(ctx context.Context, envelope events.Envelope)
 	return nil
 }
 
-// Published returns a copy of all recorded events.
+// Published 返回已记录事件的副本，避免调用方直接修改内部状态。
 func (p *MemoryPublisher) Published() []events.Envelope {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -66,14 +65,14 @@ func (p *MemoryPublisher) Published() []events.Envelope {
 	return out
 }
 
-// Reset clears recorded events.
+// Reset 清空已记录事件，便于同一个测试对象复用。
 func (p *MemoryPublisher) Reset() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.published = nil
 }
 
-// Close releases no resources for the memory publisher.
+// Close 对内存发布器不需要释放资源。
 func (p *MemoryPublisher) Close() error {
 	return nil
 }

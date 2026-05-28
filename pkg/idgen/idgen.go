@@ -11,6 +11,7 @@ import (
 	"time"
 )
 
+// 下面这组常量定义当前包使用的固定取值，集中声明可以避免业务代码中散落魔法字符串或魔法数字。
 const (
 	// twepoch 采用项目自定义纪元，减少生成 ID 的高位浪费。
 	// 2026-01-01 00:00:00 UTC = 1767225600000ms。
@@ -45,7 +46,7 @@ type Snowflake struct {
 	sequence      int64
 }
 
-// NewSnowflake creates a generator bound to one worker ID.
+// NewSnowflake 创建绑定指定 workerID 的雪花 ID 生成器。
 func NewSnowflake(workerID int64) (*Snowflake, error) {
 	if workerID < 0 || workerID > maxWorkerID {
 		return nil, errors.New("workerID must be in [0, 1023]")
@@ -53,10 +54,8 @@ func NewSnowflake(workerID int64) (*Snowflake, error) {
 	return &Snowflake{workerID: workerID}, nil
 }
 
-// NextID returns the next monotonic snowflake ID for this worker.
-//
-// Small clock rollback is tolerated by waiting; large rollback returns an error
-// because generating IDs under a stale timestamp could break ordering guarantees.
+// NextID 返回当前 worker 的下一个单调递增雪花 ID。
+// 小幅时钟回拨会通过等待容忍；大幅回拨直接报错，因为用旧时间戳继续发号会破坏趋势递增和唯一性假设。
 func (s *Snowflake) NextID() (int64, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -87,6 +86,7 @@ func (s *Snowflake) NextID() (int64, error) {
 	return ((ts - twepoch) << timestampShift) | (s.workerID << workerIDShift) | s.sequence, nil
 }
 
+// waitNextMillis 自旋等待进入下一毫秒，用于同一毫秒内序列号耗尽的情况。
 func (s *Snowflake) waitNextMillis(last int64) int64 {
 	ts := currentMillis()
 	for ts <= last {
@@ -95,6 +95,7 @@ func (s *Snowflake) waitNextMillis(last int64) int64 {
 	return ts
 }
 
+// currentMillis 返回当前 Unix 毫秒时间戳。
 func currentMillis() int64 {
 	return time.Now().UnixNano() / int64(time.Millisecond)
 }
@@ -122,8 +123,10 @@ func FallbackWorkerID() int64 {
 	return int64(h.Sum32()) & maxWorkerID
 }
 
+// 下面这组变量保存当前包需要复用的运行时状态或配置入口，调用方应通过公开函数间接使用。
 var defaultSnowflake = mustDefaultSnowflake()
 
+// mustDefaultSnowflake 创建进程级默认雪花生成器；初始化失败说明 workerID 逻辑异常，应直接暴露问题。
 func mustDefaultSnowflake() *Snowflake {
 	g, err := NewSnowflake(FallbackWorkerID())
 	if err != nil {

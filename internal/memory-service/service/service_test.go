@@ -132,7 +132,7 @@ func TestRecallMemoryRespectsBotUserConversationAndSessionIsolation(t *testing.T
 	if err != nil {
 		t.Fatalf("Recall returned error: %v", err)
 	}
-	text := FormatMemoryContext(result.Facts)
+	text := result.ContextText
 	if !strings.Contains(text, "喜欢中文") {
 		t.Fatalf("recall text = %q, want matching memory", text)
 	}

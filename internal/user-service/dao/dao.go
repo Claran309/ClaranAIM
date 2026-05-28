@@ -43,6 +43,7 @@ func InitDB(dsn string) (*gorm.DB, error) {
 	return db, nil
 }
 
+// duplicateFriendGroup 定义当前包使用的数据结构或接口，用于在业务层、持久化层和传输层之间传递明确语义。
 type duplicateFriendGroup struct {
 	UserID int64
 	Name   string

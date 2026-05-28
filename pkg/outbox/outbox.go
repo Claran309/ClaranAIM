@@ -1,9 +1,6 @@
-// Package outbox implements the transactional outbox pattern.
-//
-// Business services write Event rows in the same MySQL transaction as their
-// domain changes. A background Worker later publishes due rows to Kafka and marks
-// them published, which closes the crash gap between "DB committed" and "Kafka
-// message sent".
+// Package outbox 实现事务 Outbox 模式。
+// 业务服务在同一个 MySQL 事务里同时写业务表和 event_outbox 表；后台 Worker 之后再把待发布事件投递到 Kafka。
+// 这样即使服务在“数据库已提交、Kafka 尚未发送”的间隙崩溃，事件仍留在数据库里，可以由 Worker 重试补发。
 package outbox
 
 import (
@@ -21,25 +18,24 @@ import (
 	"gorm.io/gorm/clause"
 )
 
+// 下面这组常量定义当前包使用的固定取值，集中声明可以避免业务代码中散落魔法字符串或魔法数字。
 const (
-	// StatusPending means the event has not been published yet.
+	// StatusPending 表示事件还没有发布到 Kafka。
 	StatusPending = "pending"
-	// StatusPublished means the publisher accepted the event.
+	// StatusPublished 表示发布器已接受该事件。
 	StatusPublished = "published"
-	// StatusRetrying means a previous publish attempt failed and should be retried.
+	// StatusRetrying 表示上次发布失败，等待下一次退避重试。
 	StatusRetrying = "retrying"
 )
 
-// Publisher is the event publication dependency used by Worker.
+// Publisher 是 Worker 依赖的事件发布接口，通常由 KafkaPublisher 实现。
 type Publisher interface {
 	Publish(ctx context.Context, envelope events.Envelope) error
 }
 
-// Event is one row in event_outbox.
-//
-// Payload stores the full events.Envelope JSON. Status/RetryCount/NextRetryAt
-// let workers publish asynchronously and retry with backoff without losing the
-// relationship to the business aggregate.
+// Event 对应 event_outbox 表中的一行待发布事件。
+// Payload 保存完整 events.Envelope JSON；Status、RetryCount、NextRetryAt 负责异步发布和退避重试；
+// AggregateType/AggregateID 保留事件与业务聚合的关联，便于排查、重放和审计。
 type Event struct {
 	ID            int64      `json:"id" gorm:"primaryKey;autoIncrement:false"`
 	AggregateType string     `json:"aggregate_type" gorm:"size:50;not null;index:idx_outbox_aggregate,priority:1"`
@@ -57,12 +53,12 @@ type Event struct {
 	UpdatedAt     time.Time  `json:"updated_at" gorm:"autoUpdateTime"`
 }
 
-// TableName keeps the outbox table name stable.
+// TableName 固定 Outbox 表名，避免 GORM 按结构体名推导出不一致的表名。
 func (Event) TableName() string {
 	return "event_outbox"
 }
 
-// BeforeCreate assigns a snowflake ID when the caller did not use envelope.EventID.
+// BeforeCreate 在调用方未指定 ID 时补充分布式雪花 ID。
 func (e *Event) BeforeCreate(tx *gorm.DB) error {
 	if e.ID != 0 {
 		return nil
@@ -75,7 +71,8 @@ func (e *Event) BeforeCreate(tx *gorm.DB) error {
 	return nil
 }
 
-// NewEvent converts an event envelope into a pending outbox row.
+// NewEvent 将统一事件 Envelope 转换成待发布 Outbox 行。
+// 如果 Envelope 没有事件 ID，这里会补齐 ID，并把事件初始状态设置为 pending。
 func NewEvent(aggregateType string, aggregateID int64, envelope events.Envelope) (Event, error) {
 	if aggregateType == "" {
 		return Event{}, errors.New("aggregate type is empty")
@@ -117,44 +114,47 @@ func NewEvent(aggregateType string, aggregateID int64, envelope events.Envelope)
 	}, nil
 }
 
-// Envelope decodes the stored payload back into an event envelope.
+// Envelope 将数据库中保存的 JSON payload 还原为统一事件 Envelope。
 func (e Event) Envelope() (events.Envelope, error) {
 	return events.DecodeEnvelope([]byte(e.Payload))
 }
 
-// Store defines the persistence operations the worker needs.
+// Store 定义 Worker 需要的持久化操作。
+// 具体实现可以是 GORM/MySQL，也可以在测试中替换为内存实现。
 type Store interface {
 	FetchDue(ctx context.Context, limit int, lockFor time.Duration) ([]Event, error)
 	MarkPublished(ctx context.Context, id int64) error
 	MarkRetry(ctx context.Context, id int64, publishErr error) error
 }
 
-// GormStore is a MySQL/GORM-backed outbox store.
+// GormStore 是基于 MySQL/GORM 的 Outbox 存储实现。
 type GormStore struct {
 	db *gorm.DB
 }
 
-// NewGormStore creates a GORM-backed outbox store.
+// NewGormStore 创建基于 GORM 的 Outbox 存储。
 func NewGormStore(db *gorm.DB) *GormStore {
 	return &GormStore{db: db}
 }
 
-// AutoMigrate performs non-destructive migration for the outbox table.
+// AutoMigrate 对 Outbox 表做非破坏性迁移，不删除已有事件。
 func AutoMigrate(db *gorm.DB) error {
 	return db.AutoMigrate(&Event{})
 }
 
-// Save inserts an outbox event outside an existing transaction.
+// Save 在没有外部业务事务时直接写入 Outbox 事件。
 func (s *GormStore) Save(ctx context.Context, event Event) error {
 	return s.db.WithContext(ctx).Create(&event).Error
 }
 
-// SaveTx inserts an outbox event using the caller's business transaction.
+// SaveTx 使用调用方传入的业务事务写入 Outbox 事件。
+// 这是保证“业务数据和事件记录同时提交或同时回滚”的关键入口。
 func (s *GormStore) SaveTx(ctx context.Context, tx *gorm.DB, event Event) error {
 	return tx.WithContext(ctx).Create(&event).Error
 }
 
-// FetchDue locks and returns pending/retrying events whose retry time has arrived.
+// FetchDue 锁定并返回已到重试时间的 pending/retrying 事件。
+// locked_until 用于降低多个 Worker 并发时重复发布同一条事件的概率。
 func (s *GormStore) FetchDue(ctx context.Context, limit int, lockFor time.Duration) ([]Event, error) {
 	if limit <= 0 {
 		limit = 50
@@ -187,7 +187,7 @@ func (s *GormStore) FetchDue(ctx context.Context, limit int, lockFor time.Durati
 	return selected, err
 }
 
-// MarkPublished marks an event as successfully published.
+// MarkPublished 将事件标记为已发布，并清理锁定状态和上次错误。
 func (s *GormStore) MarkPublished(ctx context.Context, id int64) error {
 	now := time.Now()
 	return s.db.WithContext(ctx).Model(&Event{}).
@@ -201,7 +201,7 @@ func (s *GormStore) MarkPublished(ctx context.Context, id int64) error {
 		}).Error
 }
 
-// MarkRetry records a publish failure and schedules the next attempt.
+// MarkRetry 记录发布失败原因，并根据重试次数安排下一次退避重试。
 func (s *GormStore) MarkRetry(ctx context.Context, id int64, publishErr error) error {
 	now := time.Now()
 	var event Event
@@ -221,6 +221,7 @@ func (s *GormStore) MarkRetry(ctx context.Context, id int64, publishErr error) e
 	})
 }
 
+// backoff 根据重试次数计算指数退避时间，上限控制在 60 秒，避免故障时过度打爆 Kafka 或网络。
 func backoff(retryCount int) time.Duration {
 	if retryCount < 1 {
 		retryCount = 1
@@ -229,7 +230,8 @@ func backoff(retryCount int) time.Duration {
 	return time.Duration(seconds) * time.Second
 }
 
-// Worker polls the outbox and publishes events to the configured Publisher.
+// Worker 轮询 Outbox 表并把到期事件发布到配置的 Publisher。
+// 它可以在各业务服务内启动，也可以日后拆成独立发布进程。
 type Worker struct {
 	store     Store
 	publisher Publisher
@@ -238,7 +240,7 @@ type Worker struct {
 	interval  time.Duration
 }
 
-// NewWorker creates an outbox worker with conservative default polling settings.
+// NewWorker 创建带保守默认参数的 Outbox Worker。
 func NewWorker(store Store, publisher Publisher) *Worker {
 	return &Worker{
 		store:     store,
@@ -249,7 +251,7 @@ func NewWorker(store Store, publisher Publisher) *Worker {
 	}
 }
 
-// Run processes due events until the context is canceled.
+// Run 持续处理到期事件，直到 context 被取消。
 func (w *Worker) Run(ctx context.Context) {
 	if w == nil || w.store == nil || w.publisher == nil {
 		return
@@ -268,7 +270,8 @@ func (w *Worker) Run(ctx context.Context) {
 	}
 }
 
-// ProcessOnce fetches one batch and attempts to publish every event in it.
+// ProcessOnce 拉取一批到期事件并逐条尝试发布。
+// 单条事件失败只会进入 retry，不会阻断同批次其他事件继续处理。
 func (w *Worker) ProcessOnce(ctx context.Context) error {
 	if w == nil || w.store == nil || w.publisher == nil {
 		return nil

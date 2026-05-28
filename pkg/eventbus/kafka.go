@@ -10,14 +10,14 @@ import (
 	"github.com/segmentio/kafka-go"
 )
 
-// KafkaPublisher publishes Envelope records to Kafka using envelope.Topic().
+// KafkaPublisher 按 Envelope.Topic() 的映射把统一事件写入 Kafka。
 type KafkaPublisher struct {
 	writer *kafka.Writer
 }
 
-// NewKafkaPublisher creates a synchronous Kafka writer. RequiredAcks=1 keeps
-// latency low for the development setup while the transactional outbox still
-// provides retry after publication failures.
+// NewKafkaPublisher 创建同步 Kafka 写入器。
+// RequiredAcks=1 能降低开发环境延迟；可靠性主要由事务 Outbox 的失败重试兜底，
+// 因此业务 DB 提交和 Kafka 发布之间的崩溃窗口不会直接丢失事件。
 func NewKafkaPublisher(brokers []string, clientID string) *KafkaPublisher {
 	return &KafkaPublisher{
 		writer: &kafka.Writer{
@@ -38,8 +38,8 @@ func NewKafkaPublisher(brokers []string, clientID string) *KafkaPublisher {
 	}
 }
 
-// Publish writes one envelope to its derived topic using the envelope key as the
-// Kafka partition key.
+// Publish 将一条 Envelope 写入其事件类型对应的 topic。
+// envelope.Key 会作为 Kafka 分区键，保证同一聚合对象的事件尽量落在同一分区内有序处理。
 func (p *KafkaPublisher) Publish(ctx context.Context, envelope events.Envelope) error {
 	if p == nil || p.writer == nil {
 		return nil
@@ -62,7 +62,7 @@ func (p *KafkaPublisher) Publish(ctx context.Context, envelope events.Envelope) 
 	})
 }
 
-// Close flushes and closes the underlying Kafka writer.
+// Close 刷新并关闭底层 Kafka writer。
 func (p *KafkaPublisher) Close() error {
 	if p == nil || p.writer == nil {
 		return nil
@@ -70,12 +70,12 @@ func (p *KafkaPublisher) Close() error {
 	return p.writer.Close()
 }
 
-// KafkaConsumer reads one topic as part of a consumer group.
+// KafkaConsumer 以消费者组成员身份读取单个 topic。
 type KafkaConsumer struct {
 	reader *kafka.Reader
 }
 
-// NewKafkaConsumer creates a Kafka group consumer for one topic.
+// NewKafkaConsumer 创建一个绑定指定 topic 和 groupID 的 Kafka 消费者。
 func NewKafkaConsumer(brokers []string, topic, groupID string) *KafkaConsumer {
 	return &KafkaConsumer{
 		reader: kafka.NewReader(kafka.ReaderConfig{
@@ -89,11 +89,9 @@ func NewKafkaConsumer(brokers []string, topic, groupID string) *KafkaConsumer {
 	}
 }
 
-// Run continuously fetches, decodes and handles envelopes.
-//
-// Offsets are committed only after handler success. Decode failures are
-// committed because retrying malformed bytes cannot succeed without operator
-// intervention.
+// Run 持续拉取、解码并处理 Envelope。
+// offset 只在 handler 成功后提交；无法解码的脏消息会直接提交，
+// 因为重复消费格式错误的字节也无法恢复，只会卡住整个分区。
 func (c *KafkaConsumer) Run(ctx context.Context, handler Handler) {
 	if c == nil || c.reader == nil || handler == nil {
 		return
@@ -125,7 +123,7 @@ func (c *KafkaConsumer) Run(ctx context.Context, handler Handler) {
 	}
 }
 
-// Close closes the underlying Kafka reader.
+// Close 关闭底层 Kafka reader。
 func (c *KafkaConsumer) Close() error {
 	if c == nil || c.reader == nil {
 		return nil

@@ -1,6 +1,6 @@
-// Package events defines the shared event contract used by Kafka and the
-// transactional outbox. Services should exchange domain events through these
-// envelopes instead of inventing per-service wire formats.
+// Package events 定义 Kafka 与事务 Outbox 共用的事件契约。
+// 各微服务之间只传递这里声明的统一 Envelope，避免每个服务私自拼接不同格式的消息，
+// 也方便后续做幂等、审计、重放和 Agent 原生 IM 事件订阅。
 package events
 
 import (
@@ -10,65 +10,66 @@ import (
 	"time"
 )
 
+// 下面这组常量定义当前包使用的固定取值，集中声明可以避免业务代码中散落魔法字符串或魔法数字。
 const (
-	// TopicGroupEvents carries group membership and lifecycle events.
+	// TopicGroupEvents 承载群创建、解散、成员变更等群生命周期事件。
 	TopicGroupEvents = "claran.group.events"
-	// TopicMessageEvents carries message write, edit, recall and read events.
+	// TopicMessageEvents 承载消息创建、编辑、撤回和已读事件。
 	TopicMessageEvents = "claran.message.events"
-	// TopicAgentEvents carries Agent execution, tool and audit events.
+	// TopicAgentEvents 承载 Agent 执行、工具调用和审计事件。
 	TopicAgentEvents = "claran.agent.events"
-	// TopicIMEvents carries Agent-native IM events beyond the legacy message
-	// and group topics. Existing consumers can keep using their historical
-	// topics while Agent-native dispatchers subscribe to this unified contract.
+	// TopicIMEvents 承载 Agent-Native IM 的统一事件流。
+	// 旧消费者可以继续订阅消息/群聊历史 topic，Agent Dispatcher 则订阅这个统一入口，
+	// 从而把消息、文件、群事件、系统通知等都看作可被 Agent 理解的事件。
 	TopicIMEvents = "claran.im.events"
 
-	// EventTypeGroupCreated is emitted after a group and initial members commit.
+	// EventTypeGroupCreated 表示群资料和初始成员已经在业务库提交。
 	EventTypeGroupCreated = "group.created"
-	// EventTypeGroupMemberInvited is emitted after group membership expands.
+	// EventTypeGroupMemberInvited 表示群成员被邀请并完成入群。
 	EventTypeGroupMemberInvited = "group.member_invited"
-	// EventTypeGroupMemberKicked is emitted after a member is removed.
+	// EventTypeGroupMemberKicked 表示群成员被移出。
 	EventTypeGroupMemberKicked = "group.member_kicked"
-	// EventTypeGroupDeleted is emitted after a group is dissolved.
+	// EventTypeGroupDeleted 表示群被解散，订阅方应刷新会话和成员状态。
 	EventTypeGroupDeleted = "group.deleted"
 
-	// EventTypeMessageCreated is emitted after a message fact commits.
+	// EventTypeMessageCreated 表示一条消息事实已经落库。
 	EventTypeMessageCreated = "message.created"
-	// EventTypeMessageEdited is emitted after message content changes.
+	// EventTypeMessageEdited 表示消息内容被编辑。
 	EventTypeMessageEdited = "message.edited"
-	// EventTypeMessageRecalled is emitted after a message is recalled.
+	// EventTypeMessageRecalled 表示消息被撤回。
 	EventTypeMessageRecalled = "message.recalled"
-	// EventTypeMessageRead is emitted after a user's read cursor advances.
+	// EventTypeMessageRead 表示某个用户的会话已读游标推进。
 	EventTypeMessageRead = "message.read"
-	// EventTypeIMMessageEdited carries message edit facts on the unified IM topic.
+	// EventTypeIMMessageEdited 是统一 IM 事件流里的消息编辑事件名。
 	EventTypeIMMessageEdited = "im.message.edited"
-	// EventTypeIMMessageRecalled carries message recall facts on the unified IM topic.
+	// EventTypeIMMessageRecalled 是统一 IM 事件流里的消息撤回事件名。
 	EventTypeIMMessageRecalled = "im.message.recalled"
-	// EventTypeIMMessageRead carries read-receipt facts on the unified IM topic.
+	// EventTypeIMMessageRead 是统一 IM 事件流里的已读回执事件名。
 	EventTypeIMMessageRead = "im.message.read"
-	// EventTypeReactionAdded is emitted after a user reacts to a message.
+	// EventTypeReactionAdded 表示用户对消息添加了表情反应。
 	EventTypeReactionAdded = "reaction.added"
-	// EventTypeFileUploaded is emitted after a file becomes visible in a conversation.
+	// EventTypeFileUploaded 表示文件已上传并在会话中可见。
 	EventTypeFileUploaded = "file.uploaded"
-	// EventTypeVoiceTranscribed is emitted after a voice message receives text.
+	// EventTypeVoiceTranscribed 表示语音消息已经生成转写文本。
 	EventTypeVoiceTranscribed = "voice.transcribed"
-	// EventTypeGroupMemberJoined is the Agent-native group join event name.
+	// EventTypeGroupMemberJoined 是 Agent-Native 使用的群成员加入事件名。
 	EventTypeGroupMemberJoined = "group.member_joined"
-	// EventTypeGroupMemberLeft is the Agent-native group leave event name.
+	// EventTypeGroupMemberLeft 是 Agent-Native 使用的群成员离开事件名。
 	EventTypeGroupMemberLeft = "group.member_left"
-	// EventTypeSystemNotice is emitted for auditable system notices.
+	// EventTypeSystemNotice 表示需要进入审计链路的系统通知。
 	EventTypeSystemNotice = "system.notice"
-	// EventTypeTaskChanged is emitted when an external or internal task changes.
+	// EventTypeTaskChanged 表示外部工单或内部任务状态发生变化。
 	EventTypeTaskChanged = "task.changed"
 
-	// EventTypeAgentInvoked is emitted when an Agent starts handling a request.
+	// EventTypeAgentInvoked 表示 Agent 开始处理一次请求或事件。
 	EventTypeAgentInvoked = "agent.invoked"
-	// EventTypeAgentCompleted is emitted when an Agent finishes successfully.
+	// EventTypeAgentCompleted 表示 Agent 执行成功结束。
 	EventTypeAgentCompleted = "agent.completed"
-	// EventTypeAgentFailed is emitted when an Agent run fails.
+	// EventTypeAgentFailed 表示 Agent 执行失败。
 	EventTypeAgentFailed = "agent.failed"
-	// EventTypeAgentToolCalled is emitted for auditable tool calls.
+	// EventTypeAgentToolCalled 表示 Agent 调用了需要审计的工具。
 	EventTypeAgentToolCalled = "agent.tool_called"
-	// EventTypeAgentAuditRecorded is emitted after an Agent audit record is stored.
+	// EventTypeAgentAuditRecorded 表示 Agent 行为审计记录已经落库。
 	EventTypeAgentAuditRecorded = "agent.audit_recorded"
 )
 
@@ -84,7 +85,8 @@ type Envelope struct {
 	Payload    json.RawMessage `json:"payload"`
 }
 
-// NewEnvelope serializes a typed payload into the common event envelope.
+// NewEnvelope 将具体业务 payload 序列化为统一事件 Envelope。
+// 这里同时生成全局事件 ID 和发生时间，调用方只需要提供事件类型、分区 key 和业务载荷。
 func NewEnvelope(eventType, key string, payload interface{}) (Envelope, error) {
 	data, err := json.Marshal(payload)
 	if err != nil {
@@ -104,7 +106,7 @@ func NewEnvelope(eventType, key string, payload interface{}) (Envelope, error) {
 	}, nil
 }
 
-// DecodeEnvelope parses raw Kafka/outbox bytes into an Envelope.
+// DecodeEnvelope 将 Kafka 或 Outbox 中保存的原始字节解析成统一事件 Envelope。
 func DecodeEnvelope(data []byte) (Envelope, error) {
 	var envelope Envelope
 	if err := json.Unmarshal(data, &envelope); err != nil {
@@ -113,14 +115,15 @@ func DecodeEnvelope(data []byte) (Envelope, error) {
 	return envelope, nil
 }
 
-// DecodePayload decodes an envelope payload into a concrete event payload type.
+// DecodePayload 将 Envelope.Payload 反序列化为具体业务结构体。
 func DecodePayload[T any](envelope Envelope) (T, error) {
 	var payload T
 	err := json.Unmarshal(envelope.Payload, &payload)
 	return payload, err
 }
 
-// Topic maps an event type to the Kafka topic that should carry it.
+// Topic 根据事件类型选择 Kafka topic。
+// Outbox 发布器依赖这个映射决定消息发往哪里，因此新增事件类型时必须同步维护这里。
 func (e Envelope) Topic() string {
 	switch e.Type {
 	case EventTypeGroupCreated, EventTypeGroupMemberInvited, EventTypeGroupMemberKicked, EventTypeGroupDeleted:
@@ -136,12 +139,12 @@ func (e Envelope) Topic() string {
 	}
 }
 
-// Bytes serializes the envelope for outbox storage or Kafka publication.
+// Bytes 将 Envelope 序列化为 Outbox 可存储、Kafka 可发送的 JSON 字节。
 func (e Envelope) Bytes() ([]byte, error) {
 	return json.Marshal(e)
 }
 
-// GroupCreatedPayload describes the initial group member snapshot.
+// GroupCreatedPayload 描述群创建完成时的初始成员快照。
 type GroupCreatedPayload struct {
 	GroupID   int64   `json:"group_id"`
 	OwnerID   int64   `json:"owner_id"`
@@ -149,7 +152,7 @@ type GroupCreatedPayload struct {
 	Name      string  `json:"name"`
 }
 
-// GroupMemberInvitedPayload describes newly invited users and the full member snapshot.
+// GroupMemberInvitedPayload 描述新增成员以及变更后的完整成员快照。
 type GroupMemberInvitedPayload struct {
 	GroupID    int64   `json:"group_id"`
 	OperatorID int64   `json:"operator_id"`
@@ -157,7 +160,7 @@ type GroupMemberInvitedPayload struct {
 	MemberIDs  []int64 `json:"member_ids"`
 }
 
-// GroupMemberKickedPayload describes a removed user and the remaining member snapshot.
+// GroupMemberKickedPayload 描述被移除成员以及剩余成员快照。
 type GroupMemberKickedPayload struct {
 	GroupID    int64   `json:"group_id"`
 	OperatorID int64   `json:"operator_id"`
@@ -165,7 +168,7 @@ type GroupMemberKickedPayload struct {
 	MemberIDs  []int64 `json:"member_ids"`
 }
 
-// GroupDeletedPayload describes a dissolved group and users whose sidebars need refresh.
+// GroupDeletedPayload 描述被解散的群和需要刷新侧边栏的成员列表。
 type GroupDeletedPayload struct {
 	GroupID    int64   `json:"group_id"`
 	OperatorID int64   `json:"operator_id"`
@@ -194,12 +197,9 @@ type MessagePayload struct {
 	ParticipantIDs   []int64 `json:"participant_ids"`
 }
 
-// IMEventPayload is the Agent-native event contract used by the dispatcher.
-//
-// It intentionally carries conversation routing, participant visibility,
-// mentions, reply references, attachment references and idempotency metadata in
-// one place so Agent consumers do not need to reverse-engineer context from
-// several service-specific payloads.
+// IMEventPayload 是 Agent Dispatcher 消费的 Agent-Native 统一 IM 事件契约。
+// 它把会话路由、参与者可见性、@、引用、附件、权限上下文和幂等键放在同一份载荷里，
+// 避免 Agent 消费者再从多个服务的私有 payload 中反推上下文。
 type IMEventPayload struct {
 	EventType        string            `json:"event_type"`
 	ConversationID   int64             `json:"conversation_id"`
@@ -219,8 +219,9 @@ type IMEventPayload struct {
 	Metadata         map[string]string `json:"metadata"`
 }
 
-// AttachmentRef gives Agent consumers enough information to decide whether a
-// file-like event should be parsed, summarized, stored silently or ignored.
+// AttachmentRef 是文件类事件的轻量引用。
+// Agent 可以先基于类型、大小、哈希和 URL 判断是否解析、总结、静默入库或忽略，
+// 真正读取文件内容前仍要重新做权限校验。
 type AttachmentRef struct {
 	FileID      int64  `json:"file_id"`
 	Name        string `json:"name"`
@@ -230,9 +231,9 @@ type AttachmentRef struct {
 	SHA256      string `json:"sha256"`
 }
 
-// PermissionContext describes the visibility boundary attached to an IM event.
-// Downstream Agent code must still re-check permissions before loading full
-// message/file bodies; this object is the fast routing hint and audit snapshot.
+// PermissionContext 描述事件触发时的可见性边界。
+// 这个结构只作为快速路由提示和审计快照，下游 Agent 在读取完整消息、文件或知识片段前
+// 仍然必须按当前用户和 Agent 身份重新检查权限。
 type PermissionContext struct {
 	Scope          string  `json:"scope"`
 	VisibleUserIDs []int64 `json:"visible_user_ids"`
@@ -241,7 +242,7 @@ type PermissionContext struct {
 	CanWrite       bool    `json:"can_write"`
 }
 
-// AgentPayload describes runtime events for audit and async subscribers.
+// AgentPayload 描述 Agent 运行态事件，供审计、前端状态展示和异步消费者使用。
 type AgentPayload struct {
 	BotID          int64  `json:"bot_id"`
 	AgentUserID    int64  `json:"agent_user_id"`
@@ -255,7 +256,7 @@ type AgentPayload struct {
 	OutputTokens   int64  `json:"output_tokens"`
 }
 
-// WebSocketMessage wraps a message payload in the websocket-gateway protocol.
+// WebSocketMessage 将消息 payload 包装成 websocket-gateway 当前前端协议格式。
 func (p MessagePayload) WebSocketMessage() ([]byte, error) {
 	return json.Marshal(map[string]interface{}{
 		"type": p.Type,

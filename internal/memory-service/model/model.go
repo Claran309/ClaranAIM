@@ -1,4 +1,4 @@
-// Package model defines persistent memory facts for Agent personalization.
+// Package model 定义 Agent 个性化使用的持久化记忆事实。
 package model
 
 import (
@@ -8,6 +8,7 @@ import (
 	"gorm.io/gorm"
 )
 
+// 下面这组常量定义当前包使用的固定取值，集中声明可以避免业务代码中散落魔法字符串或魔法数字。
 const (
 	ScopeUser         = "user"
 	ScopeGroup        = "group"
@@ -30,7 +31,7 @@ const (
 	VectorReady    = "ready"
 )
 
-// MemoryFact stores one editable fact extracted from chat, agent output or user input.
+// MemoryFact 保存一条从聊天、Agent 输出或用户输入中提取的可编辑事实。
 type MemoryFact struct {
 	ID             int64          `json:"id" gorm:"primaryKey;autoIncrement:false"`
 	BotID          int64          `json:"bot_id" gorm:"index:idx_memory_scope,priority:1;not null"`
@@ -55,11 +56,12 @@ type MemoryFact struct {
 	DeletedAt      gorm.DeletedAt `json:"-" gorm:"index"`
 }
 
+// TableName 是当前包对外暴露的方法，负责承接对应的业务流程、参数校验或适配逻辑。
 func (MemoryFact) TableName() string {
 	return "memory_facts"
 }
 
-// BeforeCreate assigns a snowflake ID for memory facts.
+// BeforeCreate 为记忆事实补充分布式雪花 ID。
 func (m *MemoryFact) BeforeCreate(tx *gorm.DB) error {
 	if m.ID != 0 {
 		return nil

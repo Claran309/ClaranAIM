@@ -1,0 +1,555 @@
+// Package eventconsumer 实现 agent-manager-service 侧的 Kafka 消费器。
+package eventconsumer
+
+import (
+	"ClaranAIM/internal/agent-manager-service/dao"
+	"ClaranAIM/internal/agent-manager-service/model"
+	"ClaranAIM/internal/agent-manager-service/service"
+	"ClaranAIM/kitex_gen/message"
+	"ClaranAIM/kitex_gen/message/messageservice"
+	"ClaranAIM/pkg/eventbus"
+	"ClaranAIM/pkg/events"
+	"context"
+	"fmt"
+	"log"
+	"strings"
+)
+
+// 下面这组常量定义当前包使用的固定取值，集中声明可以避免业务代码中散落魔法字符串或魔法数字。
+const agentDispatchHistoryLimit int64 = 80
+
+// StartAgentMentionConsumer 启动兼容旧链路的 @Agent 消息事件分发器。
+func StartAgentMentionConsumer(ctx context.Context, consumer *eventbus.KafkaConsumer, agentService service.AgentService, dispatchRepo dao.AgentDispatchRepository, messageClient messageservice.Client) {
+	StartAgentEventDispatcherConsumer(ctx, consumer, agentService, dispatchRepo, nil, nil, messageClient)
+}
+
+// StartAgentEventDispatcherConsumer 基于一个 Kafka topic 启动 Agent 原生事件分发器。
+//
+// 迁移期间既可以消费旧的 message.created 事件，也可以消费新的统一 IM 事件，
+// 等所有服务完成 Outbox payload 迁移后再逐步收敛到统一事件契约。
+func StartAgentEventDispatcherConsumer(ctx context.Context, consumer *eventbus.KafkaConsumer, agentService service.AgentService, dispatchRepo dao.AgentDispatchRepository, subscriptionRepo dao.AgentSubscriptionRepository, auditRepo dao.AgentAuditRepository, messageClient messageservice.Client) {
+	if consumer == nil || agentService == nil || dispatchRepo == nil || messageClient == nil {
+		return
+	}
+	dispatcher := NewAgentEventDispatcher(agentService, dispatchRepo, subscriptionRepo, auditRepo, messageClient)
+	go consumer.Run(ctx, func(ctx context.Context, envelope events.Envelope) error {
+		return dispatcher.Handle(ctx, envelope)
+	})
+}
+
+// handleAgentMentionEvent 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+func handleAgentMentionEvent(ctx context.Context, envelope events.Envelope, agentService service.AgentService, dispatchRepo dao.AgentDispatchRepository, messageClient messageservice.Client) error {
+	return NewAgentEventDispatcher(agentService, dispatchRepo, nil, nil, messageClient).Handle(ctx, envelope)
+}
+
+// AgentEventDispatcher 是 Agent-Native IM 的事件路由器。
+//
+// 它消费统一 IM 事件，匹配订阅规则，记录忽略/入库/触发等决策，
+// 只有当事件确实被允许转化为 Agent 工作时才调用 runtime，避免群聊刷屏。
+type AgentEventDispatcher struct {
+	agentService     service.AgentService
+	dispatchRepo     dao.AgentDispatchRepository
+	subscriptionRepo dao.AgentSubscriptionRepository
+	auditRepo        dao.AgentAuditRepository
+	messageClient    messageservice.Client
+}
+
+// NewAgentEventDispatcher 装配 Agent 原生事件分发器。
+//
+// subscriptionRepo 和 auditRepo 在迁移期允许为空，这样旧的 @Agent consumer
+// 仍然可以沿用同一套分发逻辑。
+func NewAgentEventDispatcher(agentService service.AgentService, dispatchRepo dao.AgentDispatchRepository, subscriptionRepo dao.AgentSubscriptionRepository, auditRepo dao.AgentAuditRepository, messageClient messageservice.Client) *AgentEventDispatcher {
+	return &AgentEventDispatcher{
+		agentService:     agentService,
+		dispatchRepo:     dispatchRepo,
+		subscriptionRepo: subscriptionRepo,
+		auditRepo:        auditRepo,
+		messageClient:    messageClient,
+	}
+}
+
+// agentEvent 定义当前包使用的数据结构或接口，用于在业务层、持久化层和传输层之间传递明确语义。
+type agentEvent struct {
+	EventType        string
+	ConversationID   int64
+	ConversationType string
+	SenderID         int64
+	Content          string
+	MsgType          string
+	MsgID            int64
+	ReplyToID        int64
+	ParticipantIDs   []int64
+	MentionUserIDs   []int64
+	MentionAll       bool
+	AttachmentRefs   []events.AttachmentRef
+	IdempotencyKey   string
+}
+
+// agentDispatchDecision 定义当前包使用的数据结构或接口，用于在业务层、持久化层和传输层之间传递明确语义。
+type agentDispatchDecision struct {
+	BotID       int64
+	AgentUserID int64
+	Decision    string
+	Reason      string
+}
+
+// Handle 按 Agent 原生规则处理一条 Kafka/Outbox 事件信封。
+func (d *AgentEventDispatcher) Handle(ctx context.Context, envelope events.Envelope) error {
+	if d == nil || d.agentService == nil || d.dispatchRepo == nil || d.messageClient == nil {
+		return nil
+	}
+	event, err := decodeAgentEvent(envelope)
+	if err != nil {
+		return err
+	}
+	if event == nil {
+		return nil
+	}
+	decisions, err := d.decide(ctx, *event)
+	if err != nil {
+		return err
+	}
+	if len(decisions) == 0 {
+		return nil
+	}
+	for _, decision := range decisions {
+		bot, err := d.resolveBot(ctx, decision)
+		if err != nil {
+			return err
+		}
+		if bot == nil || !bot.IsActive || bot.AgentUserID == event.SenderID {
+			continue
+		}
+		sourceEventID := event.dispatchEventID(envelope.EventID)
+		traceID := fmt.Sprintf("agent:%s:%d", sourceEventID, bot.AgentUserID)
+		if decision.Decision == "record" {
+			_ = d.audit(ctx, envelope, *event, bot, "record", decision.Reason, traceID)
+			continue
+		}
+		if decision.Decision != "trigger" {
+			_ = d.audit(ctx, envelope, *event, bot, decision.Decision, decision.Reason, traceID)
+			continue
+		}
+		_ = d.audit(ctx, envelope, *event, bot, "trigger", decision.Reason, traceID)
+		shouldRun, err := d.dispatchRepo.Start(ctx, &model.AgentDispatchRecord{
+			EventID:        sourceEventID,
+			AgentUserID:    bot.AgentUserID,
+			BotID:          bot.ID,
+			EventType:      event.EventType,
+			Decision:       "trigger",
+			SourceEventID:  sourceEventID,
+			AgentTraceID:   traceID,
+			SourceMsgID:    event.MsgID,
+			ConversationID: event.ConversationID,
+			SenderID:       event.SenderID,
+			Status:         "started",
+		})
+		if err != nil {
+			return err
+		}
+		if !shouldRun {
+			continue
+		}
+		agentInput, err := buildAgentDispatchInput(ctx, d.messageClient, event.toMessagePayload(), bot.AgentUserID)
+		if err != nil {
+			_ = d.dispatchRepo.MarkFailed(ctx, sourceEventID, bot.AgentUserID, err.Error())
+			return err
+		}
+		result, err := d.agentService.ChatWithBot(ctx, bot.ID, event.SenderID, event.ConversationID, agentInput)
+		if err != nil {
+			_ = d.dispatchRepo.MarkFailed(ctx, sourceEventID, bot.AgentUserID, err.Error())
+			_ = d.audit(ctx, envelope, *event, bot, "failed", err.Error(), traceID)
+			log.Printf("Agent事件响应失败 bot_id=%d msg_id=%d err=%v", bot.ID, event.MsgID, err)
+			if isPermanentAgentDispatchError(err) {
+				continue
+			}
+			return err
+		}
+		reply := ""
+		if result != nil {
+			reply = result.Reply
+		}
+		clientMsgID := fmt.Sprintf("agent:%s:%d", sourceEventID, bot.AgentUserID)
+		resp, err := d.messageClient.SendMessage(ctx, &message.SendMessageReq{
+			ConversationId: event.ConversationID,
+			SenderId:       bot.AgentUserID,
+			Content:        reply,
+			MsgType:        "text",
+			ReplyToId:      event.MsgID,
+			ClientMsgId:    clientMsgID,
+		})
+		if err != nil {
+			_ = d.dispatchRepo.MarkFailed(ctx, sourceEventID, bot.AgentUserID, err.Error())
+			_ = d.audit(ctx, envelope, *event, bot, "failed", err.Error(), traceID)
+			return err
+		}
+		if resp == nil || !resp.Success {
+			msg := "msg-core-service返回空响应"
+			if resp != nil && resp.GetMsg() != "" {
+				msg = resp.GetMsg()
+			}
+			err := fmt.Errorf("Agent回复写入失败: %s", msg)
+			_ = d.dispatchRepo.MarkFailed(ctx, sourceEventID, bot.AgentUserID, err.Error())
+			_ = d.audit(ctx, envelope, *event, bot, "failed", err.Error(), traceID)
+			return err
+		}
+		if err := d.dispatchRepo.MarkCompleted(ctx, sourceEventID, bot.AgentUserID, resp.MsgId); err != nil {
+			return err
+		}
+		_ = d.audit(ctx, envelope, *event, bot, "completed", "Agent回复已写入消息事实表", traceID)
+	}
+	return nil
+}
+
+// dispatchEventID 是当前包内部使用的方法，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+func (e agentEvent) dispatchEventID(fallback string) string {
+	if strings.TrimSpace(e.IdempotencyKey) != "" {
+		return e.IdempotencyKey
+	}
+	return fallback
+}
+
+// decodeAgentEvent 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+func decodeAgentEvent(envelope events.Envelope) (*agentEvent, error) {
+	switch envelope.Type {
+	case events.EventTypeMessageCreated, events.EventTypeMessageEdited, events.EventTypeMessageRecalled:
+		payload, err := events.DecodePayload[events.MessagePayload](envelope)
+		if err != nil {
+			return nil, err
+		}
+		if strings.TrimSpace(payload.Content) == "" && len(payload.MentionUserIDs) == 0 {
+			return nil, nil
+		}
+		return &agentEvent{
+			EventType:        envelope.Type,
+			ConversationID:   payload.ConversationID,
+			ConversationType: payload.ConversationType,
+			SenderID:         payload.SenderID,
+			Content:          payload.Content,
+			MsgType:          payload.MsgType,
+			MsgID:            payload.MsgID,
+			ReplyToID:        payload.ReplyToID,
+			ParticipantIDs:   payload.ParticipantIDs,
+			MentionUserIDs:   payload.MentionUserIDs,
+			MentionAll:       payload.MentionAll,
+			IdempotencyKey:   envelope.EventID,
+		}, nil
+	case events.EventTypeIMMessageEdited, events.EventTypeIMMessageRecalled, events.EventTypeIMMessageRead, events.EventTypeReactionAdded, events.EventTypeFileUploaded, events.EventTypeVoiceTranscribed, events.EventTypeGroupMemberJoined, events.EventTypeGroupMemberLeft, events.EventTypeSystemNotice, events.EventTypeTaskChanged:
+		payload, err := events.DecodePayload[events.IMEventPayload](envelope)
+		if err != nil {
+			return nil, err
+		}
+		if payload.EventType == "" {
+			payload.EventType = envelope.Type
+		}
+		return &agentEvent{
+			EventType:        payload.EventType,
+			ConversationID:   payload.ConversationID,
+			ConversationType: payload.ConversationType,
+			SenderID:         payload.SenderID,
+			Content:          payload.Content,
+			MsgType:          payload.MsgType,
+			MsgID:            payload.MsgID,
+			ReplyToID:        payload.ReplyToID,
+			ParticipantIDs:   payload.ParticipantIDs,
+			MentionUserIDs:   payload.MentionUserIDs,
+			MentionAll:       payload.MentionAll,
+			AttachmentRefs:   payload.AttachmentRefs,
+			IdempotencyKey:   payload.IdempotencyKey,
+		}, nil
+	default:
+		return nil, nil
+	}
+}
+
+// toMessagePayload 是当前包内部使用的方法，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+func (e agentEvent) toMessagePayload() events.MessagePayload {
+	content := e.Content
+	if strings.TrimSpace(content) == "" && len(e.AttachmentRefs) > 0 {
+		parts := make([]string, 0, len(e.AttachmentRefs))
+		for _, ref := range e.AttachmentRefs {
+			name := strings.TrimSpace(ref.Name)
+			if name == "" {
+				name = fmt.Sprintf("file:%d", ref.FileID)
+			}
+			parts = append(parts, fmt.Sprintf("[附件 file_id=%d name=%s content_type=%s url=%s size=%d]", ref.FileID, name, ref.ContentType, ref.URL, ref.Size))
+		}
+		content = strings.Join(parts, " ")
+	}
+	return events.MessagePayload{
+		Type:             e.EventType,
+		ConversationID:   e.ConversationID,
+		ConversationType: e.ConversationType,
+		SenderID:         e.SenderID,
+		Content:          content,
+		MsgType:          e.MsgType,
+		MsgID:            e.MsgID,
+		ReplyToID:        e.ReplyToID,
+		MentionUserIDs:   e.MentionUserIDs,
+		MentionAll:       e.MentionAll,
+		ParticipantIDs:   e.ParticipantIDs,
+	}
+}
+
+// decide 是当前包内部使用的方法，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+func (d *AgentEventDispatcher) decide(ctx context.Context, event agentEvent) ([]agentDispatchDecision, error) {
+	decisions := make([]agentDispatchDecision, 0)
+	defaultTargets := agentTargetsFromMessage(event.toMessagePayload())
+	for _, agentUserID := range defaultTargets {
+		decisions = append(decisions, agentDispatchDecision{AgentUserID: agentUserID, Decision: "trigger", Reason: defaultTriggerReason(event)})
+	}
+	if d.subscriptionRepo != nil {
+		rules, err := d.subscriptionRepo.ListActiveRules(ctx, event.ConversationID, event.EventType)
+		if err != nil {
+			return nil, err
+		}
+		for _, rule := range rules {
+			if !ruleMatchesEvent(rule, event) {
+				continue
+			}
+			action := strings.TrimSpace(rule.Action)
+			if action == "" {
+				action = "trigger"
+			}
+			if rule.Silent {
+				action = "record"
+			}
+			decisions = append(decisions, agentDispatchDecision{
+				BotID:       rule.BotID,
+				AgentUserID: rule.AgentUserID,
+				Decision:    action,
+				Reason:      fmt.Sprintf("subscription:%s", strings.TrimSpace(rule.TriggerMode)),
+			})
+		}
+	}
+	return mergeAgentDecisions(decisions), nil
+}
+
+// resolveBot 是当前包内部使用的方法，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+func (d *AgentEventDispatcher) resolveBot(ctx context.Context, decision agentDispatchDecision) (*model.Bot, error) {
+	if decision.BotID > 0 {
+		bot, err := d.agentService.GetBot(ctx, decision.BotID)
+		if err != nil || bot != nil {
+			return bot, err
+		}
+	}
+	if decision.AgentUserID > 0 {
+		return d.agentService.GetBotByAgentUserID(ctx, decision.AgentUserID)
+	}
+	return nil, nil
+}
+
+// audit 是当前包内部使用的方法，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+func (d *AgentEventDispatcher) audit(ctx context.Context, envelope events.Envelope, event agentEvent, bot *model.Bot, decision, reason, traceID string) error {
+	if d.auditRepo == nil || bot == nil {
+		return nil
+	}
+	return d.auditRepo.Create(ctx, &model.AgentAuditRecord{
+		EventID:        envelope.EventID,
+		EventType:      event.EventType,
+		BotID:          bot.ID,
+		AgentUserID:    bot.AgentUserID,
+		ConversationID: event.ConversationID,
+		SenderID:       event.SenderID,
+		Decision:       decision,
+		Reason:         reason,
+		TraceID:        traceID,
+		SourceMsgID:    event.MsgID,
+	})
+}
+
+// defaultTriggerReason 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+func defaultTriggerReason(event agentEvent) string {
+	if event.ConversationType == "private" {
+		return "private_default"
+	}
+	return "mention"
+}
+
+// ruleMatchesEvent 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+func ruleMatchesEvent(rule model.AgentSubscriptionRule, event agentEvent) bool {
+	if rule.ConversationType != "" && rule.ConversationType != event.ConversationType {
+		return false
+	}
+	mode := strings.TrimSpace(rule.TriggerMode)
+	if mode == "" {
+		mode = "mention"
+	}
+	switch mode {
+	case "all":
+		return true
+	case "keyword":
+		return containsAnyCSVToken(event.Content, rule.Keywords)
+	case "command":
+		prefix := strings.TrimSpace(rule.CommandPrefix)
+		return prefix != "" && strings.HasPrefix(strings.TrimSpace(event.Content), prefix)
+	case "mention":
+		return containsInt64(event.MentionUserIDs, rule.AgentUserID)
+	default:
+		return containsAnyCSVToken(event.Content, rule.Keywords)
+	}
+}
+
+// mergeAgentDecisions 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+func mergeAgentDecisions(decisions []agentDispatchDecision) []agentDispatchDecision {
+	merged := make(map[int64]agentDispatchDecision)
+	order := make([]int64, 0, len(decisions))
+	for _, decision := range decisions {
+		key := decision.AgentUserID
+		if key == 0 {
+			key = -decision.BotID
+		}
+		if key == 0 {
+			continue
+		}
+		existing, ok := merged[key]
+		if !ok {
+			merged[key] = decision
+			order = append(order, key)
+			continue
+		}
+		if decisionRank(decision.Decision) > decisionRank(existing.Decision) {
+			merged[key] = decision
+		}
+	}
+	result := make([]agentDispatchDecision, 0, len(order))
+	for _, key := range order {
+		result = append(result, merged[key])
+	}
+	return result
+}
+
+// decisionRank 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+func decisionRank(decision string) int {
+	switch decision {
+	case "trigger":
+		return 3
+	case "record":
+		return 2
+	default:
+		return 1
+	}
+}
+
+// containsAnyCSVToken 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+func containsAnyCSVToken(text, csv string) bool {
+	text = strings.ToLower(text)
+	for _, part := range strings.Split(csv, ",") {
+		token := strings.ToLower(strings.TrimSpace(part))
+		if token != "" && strings.Contains(text, token) {
+			return true
+		}
+	}
+	return false
+}
+
+// containsInt64 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+func containsInt64(values []int64, target int64) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
+}
+
+// agentTargetsFromMessage 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+func agentTargetsFromMessage(payload events.MessagePayload) []int64 {
+	targets := make([]int64, 0)
+	if payload.ConversationType == "private" {
+		for _, participantID := range payload.ParticipantIDs {
+			if participantID > 0 && participantID != payload.SenderID {
+				targets = append(targets, participantID)
+			}
+		}
+		return dedupePositiveIDs(targets)
+	}
+	return dedupePositiveIDs(payload.MentionUserIDs)
+}
+
+// buildAgentDispatchInput 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+func buildAgentDispatchInput(ctx context.Context, messageClient messageservice.Client, payload events.MessagePayload, agentUserID int64) (string, error) {
+	contextText := ""
+	if messageClient != nil && payload.ConversationID > 0 && agentUserID > 0 {
+		resp, err := messageClient.GetHistory(ctx, &message.GetHistoryReq{
+			ConversationId: payload.ConversationID,
+			UserId:         agentUserID,
+			Limit:          agentDispatchHistoryLimit,
+		})
+		if err != nil {
+			return "", fmt.Errorf("读取Agent可见会话上下文失败: %w", err)
+		}
+		if resp != nil && resp.Success {
+			contextText = formatMessagesForAgentContext(resp.Messages)
+		} else if resp != nil && resp.Msg != "" {
+			return "", fmt.Errorf("读取Agent可见会话上下文失败: %s", resp.Msg)
+		}
+	}
+	if contextText == "" {
+		contextText = "（当前没有读取到历史消息。请基于用户这条消息本身回答，并说明上下文很少。）"
+	}
+	return fmt.Sprintf("你是 ClaranAIM 中的原生 Agent 成员，本轮输入来自 IM 事件流，而不是孤立聊天按钮。\n\n处理原则：\n1. 先阅读会话材料，再判断用户真正要你做什么。\n2. 如果材料很少或内容没有价值，也要直接说明这些消息基本没有有效信息，而不是拒绝总结。\n3. 群聊场景必须结合群聊上下文、引用关系和当前触发消息回答；不要只使用你和触发用户的长期记忆。\n4. 只使用你作为 Agent 用户有权看到的内容；不要猜测不可见消息、文件或知识库。\n5. 输出优先面向当前 IM 会话，可用 Markdown，但不要把 JSON 当作直接回复，除非用户明确要求机器可读 JSON。\n\n事件信息：\n- event_type: %s\n- conversation_id: %d\n- conversation_type: %s\n- sender_id: %d\n- reply_to_id: %d\n\n当前触发内容：\n%s\n\n会话材料说明：下面是 msg-core-service 从当前会话读取到的、Agent 用户有权看到的历史消息，按时间从旧到新排列；它们是本轮回答的主要事实来源。\n\n会话材料：\n%s", payload.Type, payload.ConversationID, payload.ConversationType, payload.SenderID, payload.ReplyToID, strings.TrimSpace(payload.Content), contextText), nil
+}
+
+// formatMessagesForAgentContext 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+func formatMessagesForAgentContext(messages []*message.Message) string {
+	if len(messages) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	for _, msg := range messages {
+		if msg == nil {
+			continue
+		}
+		content := strings.TrimSpace(msg.Content)
+		if content == "" {
+			content = fmt.Sprintf("[%s消息]", msg.MsgType)
+		}
+		content = strings.ReplaceAll(content, "\r\n", "\n")
+		content = strings.ReplaceAll(content, "\n", " ")
+		if len([]rune(content)) > 600 {
+			content = string([]rune(content)[:600]) + "..."
+		}
+		fmt.Fprintf(&b, "- [%s] 用户%d: %s\n", msg.CreatedAt, msg.SenderId, content)
+	}
+	return strings.TrimSpace(b.String())
+}
+
+// dedupePositiveIDs 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+func dedupePositiveIDs(ids []int64) []int64 {
+	seen := make(map[int64]struct{}, len(ids))
+	result := make([]int64, 0, len(ids))
+	for _, id := range ids {
+		if id <= 0 {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		result = append(result, id)
+	}
+	return result
+}
+
+// isPermanentAgentDispatchError 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+func isPermanentAgentDispatchError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	permanentHints := []string{
+		"无权操作该Agent",
+		"Agent权限不足",
+		"bot不存在",
+		"bot已停用",
+		"bot未配置API Key",
+		"bot未配置Base URL",
+	}
+	for _, hint := range permanentHints {
+		if strings.Contains(msg, hint) {
+			return true
+		}
+	}
+	return false
+}

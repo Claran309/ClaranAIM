@@ -25,6 +25,7 @@ type fakeMessageRepo struct {
 	messagesByClientID map[string]model.Message
 	userStates         map[int64]map[int64]model.MessageUserState
 	editRecords        []model.MessageEditRecord
+	translations       []model.MessageTranslation
 	outbox             []outbox.Event
 }
 
@@ -39,6 +40,7 @@ func newFakeMessageRepo() *fakeMessageRepo {
 		messagesByClientID: map[string]model.Message{},
 		userStates:         map[int64]map[int64]model.MessageUserState{},
 		editRecords:        []model.MessageEditRecord{},
+		translations:       []model.MessageTranslation{},
 		outbox:             []outbox.Event{},
 	}
 }
@@ -180,6 +182,25 @@ func (r *fakeMessageRepo) CreateEditRecord(ctx context.Context, record *model.Me
 	cp.ID = int64(len(r.editRecords) + 1)
 	cp.CreatedAt = time.Now()
 	r.editRecords = append(r.editRecords, cp)
+	return nil
+}
+
+func (r *fakeMessageRepo) GetTranslation(ctx context.Context, messageID, userID int64, targetLanguage, sourceHash string) (*model.MessageTranslation, error) {
+	for _, item := range r.translations {
+		if item.MessageID == messageID && item.UserID == userID && item.TargetLanguage == targetLanguage && item.SourceTextHash == sourceHash {
+			cp := item
+			return &cp, nil
+		}
+	}
+	return nil, nil
+}
+
+func (r *fakeMessageRepo) SaveTranslation(ctx context.Context, translation *model.MessageTranslation) error {
+	if translation.ID == 0 {
+		translation.ID = int64(len(r.translations) + 1)
+	}
+	cp := *translation
+	r.translations = append(r.translations, cp)
 	return nil
 }
 

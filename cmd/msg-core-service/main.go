@@ -6,6 +6,7 @@ import (
 	"ClaranAIM/internal/msg-core-service/eventconsumer"
 	"ClaranAIM/internal/msg-core-service/handler"
 	"ClaranAIM/internal/msg-core-service/service"
+	msgtransport "ClaranAIM/internal/msg-core-service/transport"
 	"ClaranAIM/kitex_gen/message/messageservice"
 	"ClaranAIM/pkg/cache/redis"
 	"ClaranAIM/pkg/config"
@@ -15,9 +16,11 @@ import (
 	"ClaranAIM/pkg/health"
 	"ClaranAIM/pkg/logger"
 	"ClaranAIM/pkg/outbox"
+	"ClaranAIM/pkg/settingsclient"
 	"context"
 	"net"
 	"net/http"
+	"strings"
 
 	"github.com/cloudwego/kitex/pkg/rpcinfo"
 	"github.com/cloudwego/kitex/pkg/transmeta"
@@ -25,6 +28,7 @@ import (
 	etcd "github.com/kitex-contrib/registry-etcd"
 )
 
+// main 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
 func main() {
 	logger.InitService("msg-core-service")
 
@@ -65,7 +69,21 @@ func main() {
 	}
 
 	msgService := service.NewMessageServiceWithPublisher(msgRepo, redisClient, cfg.Etcd.Endpoints)
+	if impl, ok := msgService.(interface {
+		SetTranslationDependencies(service.TranslationSettings, service.TranslationLLM)
+	}); ok {
+		impl.SetTranslationDependencies(settingsclient.NewHTTPClient(cfg.Internal.SettingsServiceURL), service.NewOpenAICompatibleTranslator())
+	}
 	msgHandler := handler.NewMessageServiceImpl(msgService)
+	if cfg.Internal.MsgCoreServiceURL != "" {
+		go func() {
+			logger.Info("msg-core-service内部HTTP服务已启动", "address", cfg.Internal.MsgCoreServiceURL)
+			addr := strings.TrimPrefix(strings.TrimPrefix(cfg.Internal.MsgCoreServiceURL, "http://"), "https://")
+			if err := http.ListenAndServe(addr, msgtransport.NewHTTPHandler(msgService)); err != nil {
+				logger.Error("msg-core-service内部HTTP服务停止", "error", err)
+			}
+		}()
+	}
 	if cfg.DTM.Enabled && cfg.DTM.MsgCoreBranchAddress != "" {
 		mux := http.NewServeMux()
 		dtmbranch.NewHandler(msgService).RegisterRoutes(mux)

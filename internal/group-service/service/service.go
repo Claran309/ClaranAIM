@@ -16,10 +16,8 @@ import (
 	"time"
 )
 
-// GroupService defines the group-domain business contract.
-//
-// group-service owns group metadata, membership, roles, mute state and the
-// group.* outbox events consumed by msg-core-service to maintain message fanout.
+// GroupService 定义群领域业务契约。
+// group-service 拥有群资料、成员关系、角色、禁言状态，以及供 msg-core-service 维护消息扇出的 group.* Outbox 事件。
 type GroupService interface {
 	CreateGroup(ctx context.Context, name string, ownerID int64, memberIDs []int64) (*model.Group, error)
 	CreateGroupWithID(ctx context.Context, groupID int64, name string, ownerID int64, memberIDs []int64) (*model.Group, error)
@@ -38,13 +36,13 @@ type GroupService interface {
 	PinGroup(ctx context.Context, groupID, operatorID int64, isPinned bool) error
 }
 
+// groupServiceImpl 定义当前包使用的数据结构或接口，用于在业务层、持久化层和传输层之间传递明确语义。
 type groupServiceImpl struct {
 	repo  dao.GroupRepository
 	redis *redis.RedisClient
 }
 
-// NewGroupService creates the group service with a repository and optional Redis
-// cache client.
+// NewGroupService 使用仓储和可选 Redis 缓存创建群业务服务。
 func NewGroupService(repo dao.GroupRepository, r *redis.RedisClient) GroupService {
 	return &groupServiceImpl{repo: repo, redis: r}
 }
@@ -66,6 +64,7 @@ func (s *groupServiceImpl) CreateGroupWithID(ctx context.Context, groupID int64,
 	return s.createGroup(ctx, groupID, name, ownerID, memberIDs)
 }
 
+// createGroup 是当前包内部使用的方法，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
 func (s *groupServiceImpl) createGroup(ctx context.Context, groupID int64, name string, ownerID int64, memberIDs []int64) (*model.Group, error) {
 	if name == "" {
 		return nil, errors.New("群名不能为空")
@@ -95,8 +94,8 @@ func (s *groupServiceImpl) createGroup(ctx context.Context, groupID int64, name 
 	}
 
 	if err := s.repo.WithTransaction(ctx, func(tx dao.GroupRepository) error {
-		// The group row, owner/member rows and group.created event are committed
-		// together. If Kafka is unavailable, the outbox row remains for retry.
+		// 群资料、群主/成员记录和 group.created 事件在同一事务提交。
+		// Kafka 不可用时 Outbox 行仍会保留，后续由 Worker 重试发布。
 		if err := tx.CreateGroup(ctx, group); err != nil {
 			return err
 		}
@@ -160,9 +159,8 @@ func (s *groupServiceImpl) DeleteGroup(ctx context.Context, groupID, operatorID 
 	members, _ := s.repo.GetGroupMembers(ctx, groupID)
 
 	if err := s.repo.WithTransaction(ctx, func(tx dao.GroupRepository) error {
-		// Deleting the group and writing group.deleted into the outbox in one
-		// transaction lets msg-core-service reliably mark conversation sidebars
-		// as deleted-group placeholders after Kafka delivery.
+		// 删除群资料和写入 group.deleted Outbox 事件必须在同一事务内完成。
+		// 这样 Kafka 投递后，msg-core-service 能可靠地把侧边栏会话标成“已解散群”占位。
 		if err := tx.DeleteGroup(ctx, groupID); err != nil {
 			return err
 		}
@@ -206,9 +204,8 @@ func (s *groupServiceImpl) UpdateGroup(ctx context.Context, groupID, operatorID 
 	if name != "" {
 		group.Name = name
 	}
-	// Empty announcement is a valid value: it means the operator intentionally
-	// cleared the announcement. The API gateway preserves omitted-field semantics
-	// before this service method is called.
+	// 空公告是有效值，表示操作者明确清空公告。
+	// api-gateway 会在调用本方法前保留“字段未传”和“传了空字符串”的区别。
 	group.Announcement = announcement
 
 	if err := s.repo.UpdateGroup(ctx, group); err != nil {
@@ -222,8 +219,8 @@ func (s *groupServiceImpl) UpdateGroup(ctx context.Context, groupID, operatorID 
 // GetGroup 获取群组信息
 func (s *groupServiceImpl) GetGroup(ctx context.Context, groupID int64) (*model.Group, error) {
 	if s.redis != nil {
-		// CacheAsideJSON writes null markers for misses and uses TTL jitter, so
-		// non-existent group IDs do not repeatedly penetrate the database.
+		// CacheAsideJSON 对未命中写空值标记，并给 TTL 加随机抖动。
+		// 这样不存在的群号不会反复穿透到数据库，也能降低同批缓存同时过期的风险。
 		cacheKey := fmt.Sprintf("group:info:%d", groupID)
 		var cached model.Group
 		found, err := s.redis.CacheAsideJSON(ctx, cacheKey, &cached, 15*time.Minute, func(ctx context.Context) (interface{}, bool, error) {
@@ -312,9 +309,8 @@ func (s *groupServiceImpl) InviteMember(ctx context.Context, groupID, operatorID
 
 	var members []model.GroupMember
 	if err := s.repo.WithTransaction(ctx, func(tx dao.GroupRepository) error {
-		// The event payload contains the full member snapshot, not only invited
-		// users. msg-core-service can rebuild conversation participants from a
-		// complete view and remain idempotent across retries.
+		// 事件 payload 携带完整成员快照，而不是只携带本次邀请的人。
+		// msg-core-service 可以用完整视图重建会话参与者，并在重复投递时保持幂等。
 		for _, uid := range userIDs {
 			existing, _ := tx.GetMember(ctx, groupID, uid)
 			if existing != nil {
@@ -376,9 +372,8 @@ func (s *groupServiceImpl) KickMember(ctx context.Context, groupID, operatorID, 
 
 	var members []model.GroupMember
 	if err := s.repo.WithTransaction(ctx, func(tx dao.GroupRepository) error {
-		// Publish the remaining member snapshot together with the kicked user so
-		// downstream services can remove exactly the old participant and refresh
-		// sidebar caches for affected users.
+		// 事件同时携带被踢用户和剩余成员快照。
+		// 下游服务可以准确移除旧参与者，并刷新受影响用户的侧边栏缓存。
 		if err := tx.RemoveMember(ctx, groupID, userID); err != nil {
 			return err
 		}
@@ -594,6 +589,7 @@ func (s *groupServiceImpl) PinGroup(ctx context.Context, groupID, operatorID int
 	return nil
 }
 
+// invalidateGroupCache 是当前包内部使用的方法，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
 func (s *groupServiceImpl) invalidateGroupCache(ctx context.Context, groupID int64) {
 	if s.redis == nil {
 		return
@@ -601,6 +597,7 @@ func (s *groupServiceImpl) invalidateGroupCache(ctx context.Context, groupID int
 	s.redis.Del(ctx, fmt.Sprintf("group:info:%d", groupID))
 }
 
+// invalidateGroupMembersCache 是当前包内部使用的方法，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
 func (s *groupServiceImpl) invalidateGroupMembersCache(ctx context.Context, groupID int64) {
 	if s.redis == nil {
 		return
@@ -608,6 +605,7 @@ func (s *groupServiceImpl) invalidateGroupMembersCache(ctx context.Context, grou
 	s.redis.Del(ctx, fmt.Sprintf("group:members:%d", groupID))
 }
 
+// invalidateUserGroupsCache 是当前包内部使用的方法，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
 func (s *groupServiceImpl) invalidateUserGroupsCache(ctx context.Context, userID int64) {
 	if s.redis == nil {
 		return
@@ -615,6 +613,7 @@ func (s *groupServiceImpl) invalidateUserGroupsCache(ctx context.Context, userID
 	s.redis.Del(ctx, fmt.Sprintf("user:groups:%d", userID))
 }
 
+// saveGroupEvent 是当前包内部使用的方法，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
 func (s *groupServiceImpl) saveGroupEvent(ctx context.Context, repo dao.GroupRepository, eventType string, groupID int64, payload interface{}) error {
 	envelope, err := events.NewEnvelope(eventType, strconv.FormatInt(groupID, 10), payload)
 	if err != nil {
@@ -627,6 +626,7 @@ func (s *groupServiceImpl) saveGroupEvent(ctx context.Context, repo dao.GroupRep
 	return repo.SaveOutboxEvent(ctx, record)
 }
 
+// newUniqueGroupID 是当前包内部使用的方法，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
 func (s *groupServiceImpl) newUniqueGroupID(ctx context.Context) (int64, error) {
 	for i := 0; i < 5; i++ {
 		id, err := idgen.NewUID10()
@@ -644,6 +644,7 @@ func (s *groupServiceImpl) newUniqueGroupID(ctx context.Context) (int64, error) 
 	return 0, errors.New("生成群号失败，请重试")
 }
 
+// memberIDsFromMembers 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
 func memberIDsFromMembers(members []model.GroupMember) []int64 {
 	ids := make([]int64, 0, len(members))
 	for _, member := range members {
@@ -652,6 +653,7 @@ func memberIDsFromMembers(members []model.GroupMember) []int64 {
 	return dedupeInt64(ids)
 }
 
+// dedupeInt64 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
 func dedupeInt64(ids []int64) []int64 {
 	seen := make(map[int64]struct{}, len(ids))
 	result := make([]int64, 0, len(ids))

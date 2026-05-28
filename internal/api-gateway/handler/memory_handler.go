@@ -1,9 +1,7 @@
 package handler
 
 import (
-	"ClaranAIM/internal/memory-service/dao"
-	"ClaranAIM/internal/memory-service/model"
-	memorysvc "ClaranAIM/internal/memory-service/service"
+	"ClaranAIM/pkg/memoryclient"
 	"ClaranAIM/pkg/response"
 	"context"
 	"encoding/json"
@@ -13,24 +11,28 @@ import (
 	"github.com/cloudwego/hertz/pkg/app"
 )
 
-// MemoryHandler exposes user-governed Agent memory APIs through api-gateway.
+// MemoryHandler 通过 api-gateway 暴露用户可管理的 Agent 记忆接口。
 type MemoryHandler struct {
-	svc memorysvc.MemoryService
+	svc memoryclient.Service
 }
 
-var gatewayMemoryService memorysvc.MemoryService
+// 下面这组变量保存当前包需要复用的运行时状态或配置入口，调用方应通过公开函数间接使用。
+var gatewayMemoryService memoryclient.Service
 
-// InitMemoryService wires the local memory service facade. The implementation
-// can later move behind Kitex without changing browser-facing routes.
-func InitMemoryService(svc memorysvc.MemoryService) {
+// InitMemoryService 注册当前进程内的 memory-service 门面。
+//
+// 后续如果 memory-service 拆成独立 Kitex 服务，浏览器侧路由可以保持不变，
+// 只需要替换这里注入的客户端实现。
+func InitMemoryService(svc memoryclient.Service) {
 	gatewayMemoryService = svc
 }
 
-// NewMemoryHandler creates the memory HTTP handler.
+// NewMemoryHandler 创建记忆管理 HTTP handler。
 func NewMemoryHandler() *MemoryHandler {
 	return &MemoryHandler{svc: gatewayMemoryService}
 }
 
+// ensureService 是当前包内部使用的方法，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
 func (h *MemoryHandler) ensureService(c *app.RequestContext) bool {
 	if h.svc == nil {
 		response.Error(c, "memory-service未初始化")
@@ -39,7 +41,7 @@ func (h *MemoryHandler) ensureService(c *app.RequestContext) bool {
 	return true
 }
 
-// ListMemories returns the current user's editable memory facts.
+// ListMemories 返回当前用户可查看和编辑的记忆事实列表。
 func (h *MemoryHandler) ListMemories(ctx context.Context, c *app.RequestContext) {
 	if !h.ensureService(c) {
 		return
@@ -48,7 +50,7 @@ func (h *MemoryHandler) ListMemories(ctx context.Context, c *app.RequestContext)
 	if !ok {
 		return
 	}
-	filter := dao.MemoryFilter{
+	filter := memoryclient.Filter{
 		BotID:           parseInt64Query(c, "bot_id"),
 		UserID:          parseInt64Query(c, "user_id"),
 		GroupID:         parseInt64Query(c, "group_id"),
@@ -79,7 +81,7 @@ func (h *MemoryHandler) ListMemories(ctx context.Context, c *app.RequestContext)
 	})
 }
 
-// CreateMemory lets the user explicitly add a profile, conversation or group memory.
+// CreateMemory 允许用户显式新增个人、会话或群聊范围的记忆事实。
 func (h *MemoryHandler) CreateMemory(ctx context.Context, c *app.RequestContext) {
 	if !h.ensureService(c) {
 		return
@@ -95,7 +97,7 @@ func (h *MemoryHandler) CreateMemory(ctx context.Context, c *app.RequestContext)
 	}
 	botID, err := parseOptionalMemoryNumber(req.BotID)
 	if err != nil || botID <= 0 {
-		response.BadRequest(c, "无效的Bot ID")
+		response.BadRequest(c, "无效的Agent ID")
 		return
 	}
 	targetUserID, err := parseOptionalMemoryNumber(req.UserID)
@@ -110,7 +112,7 @@ func (h *MemoryHandler) CreateMemory(ctx context.Context, c *app.RequestContext)
 		response.Forbidden(c, "只能创建自己的记忆")
 		return
 	}
-	input := memorysvc.CreateMemoryInput{
+	input := memoryclient.CreateMemoryInput{
 		BotID:          botID,
 		UserID:         targetUserID,
 		OwnerUserID:    userID,
@@ -135,7 +137,7 @@ func (h *MemoryHandler) CreateMemory(ctx context.Context, c *app.RequestContext)
 	response.Success(c, map[string]interface{}{"success": true, "memory": fact})
 }
 
-// UpdateMemory edits or disables one owned memory fact.
+// UpdateMemory 编辑或禁用当前用户拥有的一条记忆事实。
 func (h *MemoryHandler) UpdateMemory(ctx context.Context, c *app.RequestContext) {
 	if !h.ensureService(c) {
 		return
@@ -158,7 +160,7 @@ func (h *MemoryHandler) UpdateMemory(ctx context.Context, c *app.RequestContext)
 	if req.Confidence > 0 {
 		confidence = &req.Confidence
 	}
-	fact, err := h.svc.UpdateMemory(ctx, userID, memoryID, memorysvc.UpdateMemoryInput{
+	fact, err := h.svc.UpdateMemory(ctx, userID, memoryID, memoryclient.UpdateMemoryInput{
 		Scope:        req.Scope,
 		Type:         req.Type,
 		Title:        req.Title,
@@ -176,7 +178,7 @@ func (h *MemoryHandler) UpdateMemory(ctx context.Context, c *app.RequestContext)
 	response.Success(c, map[string]interface{}{"success": true, "memory": fact})
 }
 
-// DeleteMemory removes one owned memory fact.
+// DeleteMemory 删除当前用户拥有的一条记忆事实。
 func (h *MemoryHandler) DeleteMemory(ctx context.Context, c *app.RequestContext) {
 	if !h.ensureService(c) {
 		return
@@ -197,6 +199,7 @@ func (h *MemoryHandler) DeleteMemory(ctx context.Context, c *app.RequestContext)
 	response.Success(c, map[string]interface{}{"success": true})
 }
 
+// memoryRequest 定义当前包使用的数据结构或接口，用于在业务层、持久化层和传输层之间传递明确语义。
 type memoryRequest struct {
 	BotID          json.Number `json:"bot_id"`
 	UserID         json.Number `json:"user_id"`
@@ -214,12 +217,14 @@ type memoryRequest struct {
 	Confidence     float64     `json:"confidence"`
 }
 
+// bindMemoryJSON 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
 func bindMemoryJSON(c *app.RequestContext, dest interface{}) error {
 	decoder := json.NewDecoder(strings.NewReader(string(c.Request.Body())))
 	decoder.UseNumber()
 	return decoder.Decode(dest)
 }
 
+// parseOptionalMemoryNumber 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
 func parseOptionalMemoryNumber(value json.Number) (int64, error) {
 	if strings.TrimSpace(value.String()) == "" {
 		return 0, nil
@@ -227,15 +232,18 @@ func parseOptionalMemoryNumber(value json.Number) (int64, error) {
 	return strconv.ParseInt(value.String(), 10, 64)
 }
 
+// parseMemoryNumberOrZero 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
 func parseMemoryNumberOrZero(value json.Number) int64 {
 	id, _ := parseOptionalMemoryNumber(value)
 	return id
 }
 
+// parseInt64Query 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
 func parseInt64Query(c *app.RequestContext, key string) int64 {
 	return parseInt64Default(c.DefaultQuery(key, "0"), 0)
 }
 
+// parseInt64Default 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
 func parseInt64Default(value string, fallback int64) int64 {
 	parsed, err := strconv.ParseInt(strings.TrimSpace(value), 10, 64)
 	if err != nil {
@@ -244,6 +252,7 @@ func parseInt64Default(value string, fallback int64) int64 {
 	return parsed
 }
 
+// parseCSVQuery 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
 func parseCSVQuery(value string) []string {
 	if strings.TrimSpace(value) == "" {
 		return nil
@@ -259,34 +268,39 @@ func parseCSVQuery(value string) []string {
 	return out
 }
 
+// defaultMemoryScope 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
 func defaultMemoryScope(scope string) string {
 	if strings.TrimSpace(scope) == "" {
-		return model.ScopeUser
+		return memoryclient.ScopeUser
 	}
 	return strings.TrimSpace(scope)
 }
 
+// defaultMemoryType 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
 func defaultMemoryType(memoryType string) string {
 	if strings.TrimSpace(memoryType) == "" {
-		return model.TypePreference
+		return memoryclient.TypePreference
 	}
 	return strings.TrimSpace(memoryType)
 }
 
+// defaultMemoryVisibility 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
 func defaultMemoryVisibility(visibility string) string {
 	if strings.TrimSpace(visibility) == "" {
-		return model.VisibilityPrivate
+		return memoryclient.VisibilityPrivate
 	}
 	return strings.TrimSpace(visibility)
 }
 
+// defaultMemoryVectorStatus 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
 func defaultMemoryVectorStatus(status string) string {
 	if strings.TrimSpace(status) == "" {
-		return model.VectorPending
+		return memoryclient.VectorPending
 	}
 	return strings.TrimSpace(status)
 }
 
+// defaultMemorySource 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
 func defaultMemorySource(source string) string {
 	if strings.TrimSpace(source) == "" {
 		return "user_manual"

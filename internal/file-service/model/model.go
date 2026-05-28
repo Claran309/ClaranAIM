@@ -1,4 +1,4 @@
-// Package model defines file-service persistence models.
+// Package model 定义 file-service 的持久化模型。
 package model
 
 import (
@@ -8,10 +8,8 @@ import (
 	"gorm.io/gorm"
 )
 
-// FileRecord stores metadata for one uploaded object.
-//
-// The object itself may live on local disk or MinIO; FileURL points to that
-// object while FileID is the stable ID used by chat media payloads.
+// FileRecord 保存一个已上传对象的元数据。
+// 文件实体可以位于本地磁盘或 MinIO；FileURL 指向实际对象，FileID 是聊天媒体消息使用的稳定引用 ID。
 type FileRecord struct {
 	ID          int64     `json:"id" gorm:"primaryKey;autoIncrement:false"`
 	FileID      string    `json:"file_id" gorm:"uniqueIndex;size:64;not null"`
@@ -24,7 +22,7 @@ type FileRecord struct {
 	CreatedAt   time.Time `json:"created_at" gorm:"autoCreateTime"`
 }
 
-// BeforeCreate assigns a snowflake primary key before inserting metadata.
+// BeforeCreate 在插入文件元数据前补充分布式雪花主键。
 func (f *FileRecord) BeforeCreate(tx *gorm.DB) error {
 	if f.ID != 0 {
 		return nil
@@ -37,7 +35,7 @@ func (f *FileRecord) BeforeCreate(tx *gorm.DB) error {
 	return nil
 }
 
-// TableName keeps the metadata table name explicit.
+// TableName 固定文件元数据表名。
 func (FileRecord) TableName() string {
 	return "file_records"
 }

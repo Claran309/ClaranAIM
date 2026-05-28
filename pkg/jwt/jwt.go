@@ -8,15 +8,16 @@ import (
 	"github.com/golang-jwt/jwt"
 )
 
+// 下面这组常量定义当前包使用的固定取值，集中声明可以避免业务代码中散落魔法字符串或魔法数字。
 const (
-	// RoleUser is the default role for normal application users.
+	// RoleUser 是普通应用用户的默认系统角色。
 	RoleUser = "user"
-	// RoleAdmin grants access to future admin routes under /api/v1/admin.
+	// RoleAdmin 预留给未来 /api/v1/admin 管理接口做角色鉴权。
 	RoleAdmin = "admin"
 
-	// TokenTypeAccess identifies short-lived tokens used for API/WebSocket auth.
+	// TokenTypeAccess 表示短期访问 token，用于 API 和 WebSocket 鉴权。
 	TokenTypeAccess = "access"
-	// TokenTypeRefresh identifies long-lived tokens used only for renewal.
+	// TokenTypeRefresh 表示长期刷新 token，只允许用于换取新的 access token。
 	TokenTypeRefresh = "refresh"
 
 	defaultAccessExpirationHours  int64 = 2
@@ -29,7 +30,7 @@ type Claims struct {
 	UserID    int64  `json:"user_id"`    // 用户ID
 	Username  string `json:"username"`   // 用户名
 	Role      string `json:"role"`       // 系统角色：user/admin
-	TokenType string `json:"token_type"` // access/refresh
+	TokenType string `json:"token_type"` // token 类型：access 表示访问令牌，refresh 表示刷新令牌
 	jwt.StandardClaims
 }
 
@@ -43,16 +44,17 @@ func GenerateToken(secretKey string, userID int64, username string, expirationHo
 	return GenerateAccessToken(secretKey, userID, username, RoleUser, expirationHours)
 }
 
-// GenerateAccessToken creates a short-lived JWT containing user ID, username and role.
+// GenerateAccessToken 生成短期访问 JWT，载荷包含用户 ID、用户名和系统角色。
 func GenerateAccessToken(secretKey string, userID int64, username, role string, expirationHours int64) (string, error) {
 	return generateTypedToken(secretKey, userID, username, normalizeRole(role), TokenTypeAccess, expirationHours, defaultAccessExpirationHours)
 }
 
-// GenerateRefreshToken creates a long-lived JWT that can only be used to renew access tokens.
+// GenerateRefreshToken 生成长期刷新 JWT，只能用于续签 access token。
 func GenerateRefreshToken(secretKey string, userID int64, username, role string, expirationHours int64) (string, error) {
 	return generateTypedToken(secretKey, userID, username, normalizeRole(role), TokenTypeRefresh, expirationHours, defaultRefreshExpirationHours)
 }
 
+// generateTypedToken 按 token 类型生成带过期时间的 JWT，并在未配置有效期时使用默认值。
 func generateTypedToken(secretKey string, userID int64, username, role, tokenType string, expirationHours, defaultHours int64) (string, error) {
 	if expirationHours <= 0 {
 		expirationHours = defaultHours
@@ -83,7 +85,7 @@ func ParseToken(tokenString string) (*Claims, error) {
 	return ParseAccessToken(tokenString)
 }
 
-// ParseAccessToken validates a token intended for normal request authorization.
+// ParseAccessToken 校验普通请求鉴权使用的 access token。
 func ParseAccessToken(tokenString string) (*Claims, error) {
 	claims, err := parseToken(tokenString)
 	if err != nil {
@@ -97,7 +99,7 @@ func ParseAccessToken(tokenString string) (*Claims, error) {
 	return claims, nil
 }
 
-// ParseRefreshToken validates a refresh token and rejects access tokens.
+// ParseRefreshToken 校验 refresh token，并拒绝误传的 access token。
 func ParseRefreshToken(tokenString string) (*Claims, error) {
 	claims, err := parseToken(tokenString)
 	if err != nil {
@@ -110,6 +112,7 @@ func ParseRefreshToken(tokenString string) (*Claims, error) {
 	return claims, nil
 }
 
+// parseToken 使用进程内签名密钥解析并校验 JWT 签名。
 func parseToken(tokenString string) (*Claims, error) {
 	token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (interface{}, error) {
 		return []byte(GetSecretKey()), nil
@@ -128,6 +131,8 @@ func parseToken(tokenString string) (*Claims, error) {
 // jwtSecretKey 全局JWT密钥
 // 在服务启动时通过 SetSecretKey 设置
 var jwtSecretKey string
+
+// 下面这组变量保存当前包需要复用的运行时状态或配置入口，调用方应通过公开函数间接使用。
 var (
 	accessExpirationHours  = defaultAccessExpirationHours
 	refreshExpirationHours = defaultRefreshExpirationHours
@@ -145,7 +150,7 @@ func GetSecretKey() string {
 	return jwtSecretKey
 }
 
-// SetTokenExpirations updates process-wide access/refresh expiration defaults.
+// SetTokenExpirations 更新当前进程内 access/refresh token 的默认有效期。
 func SetTokenExpirations(accessHours, refreshHours int64) {
 	if accessHours <= 0 {
 		accessHours = defaultAccessExpirationHours
@@ -157,16 +162,17 @@ func SetTokenExpirations(accessHours, refreshHours int64) {
 	refreshExpirationHours = refreshHours
 }
 
-// GetAccessExpirationHours returns the current access-token lifetime in hours.
+// GetAccessExpirationHours 返回当前 access token 默认有效期，单位小时。
 func GetAccessExpirationHours() int64 {
 	return accessExpirationHours
 }
 
-// GetRefreshExpirationHours returns the current refresh-token lifetime in hours.
+// GetRefreshExpirationHours 返回当前 refresh token 默认有效期，单位小时。
 func GetRefreshExpirationHours() int64 {
 	return refreshExpirationHours
 }
 
+// normalizeRole 将未知角色降级为普通用户，避免 token 中出现未授权角色字符串。
 func normalizeRole(role string) string {
 	if role == RoleAdmin {
 		return RoleAdmin

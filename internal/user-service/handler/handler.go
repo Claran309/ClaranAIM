@@ -10,6 +10,7 @@ import (
 	"context"
 )
 
+// 下面这组变量保存当前包需要复用的运行时状态或配置入口，调用方应通过公开函数间接使用。
 var (
 	jwtSecret            string
 	jwtAccessExpiration  int64
@@ -236,6 +237,7 @@ func (h *UserServiceImpl) BatchGetUserInfo(ctx context.Context, req *user.BatchG
 	return &user.BatchGetUserInfoResp{Success: true, Users: userList}, nil
 }
 
+// toRPCUser 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
 func toRPCUser(u model.User) *user.User {
 	return &user.User{
 		Id:        u.ID,

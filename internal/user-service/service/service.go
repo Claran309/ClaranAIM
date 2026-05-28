@@ -93,13 +93,13 @@ func (s *userServiceImpl) Register(ctx context.Context, username, pwd, nickname 
 	return s.register(ctx, username, pwd, nickname, false)
 }
 
-// RegisterSystemUser creates an account for internal actors such as Agents.
-// System users can appear in IM membership and message sender fields, but they
-// are blocked from password login so they cannot be used as human accounts.
+// RegisterSystemUser 为 Agent 等内部参与者创建系统账号。
+// 系统用户可以出现在 IM 成员和消息发送者字段中，但不能通过密码登录，因此不会被当作真人账号使用。
 func (s *userServiceImpl) RegisterSystemUser(ctx context.Context, username, pwd, nickname string) (*model.User, error) {
 	return s.register(ctx, username, pwd, nickname, true)
 }
 
+// register 是当前包内部使用的方法，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
 func (s *userServiceImpl) register(ctx context.Context, username, pwd, nickname string, isSystem bool) (*model.User, error) {
 	if username == "" || pwd == "" {
 		return nil, errors.New("用户名和密码不能为空")
@@ -629,6 +629,7 @@ func (s *userServiceImpl) cacheUserInfo(ctx context.Context, user *model.User) {
 	s.redis.SetJSONWithJitter(ctx, cacheKey, user, 15*time.Minute, time.Minute)
 }
 
+// invalidateUserInfoCache 是当前包内部使用的方法，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
 func (s *userServiceImpl) invalidateUserInfoCache(ctx context.Context, userID int64) {
 	if s.redis == nil {
 		return

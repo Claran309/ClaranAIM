@@ -15,8 +15,10 @@ import (
 	"github.com/cloudwego/kitex/transport"
 )
 
+// 下面这组常量定义当前包使用的固定取值，集中声明可以避免业务代码中散落魔法字符串或魔法数字。
 const defaultRPCTimeoutMS = 5000
 
+// clientTimeout 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
 func clientTimeout(cfg config.RPCGovernanceConfig, allowDisable bool) (time.Duration, bool) {
 	timeoutMS := cfg.TimeoutMS
 	if timeoutMS <= 0 {
@@ -28,6 +30,7 @@ func clientTimeout(cfg config.RPCGovernanceConfig, allowDisable bool) (time.Dura
 	return time.Duration(timeoutMS) * time.Millisecond, true
 }
 
+// clientOptions 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
 func clientOptions(cfg config.RPCGovernanceConfig, allowDisableTimeout bool) []client.Option {
 	opts := []client.Option{
 		client.WithTransportProtocol(transport.TTHeader),

@@ -120,6 +120,7 @@ func RateLimitMiddleware(enabled bool, capacity int, refillInterval time.Duratio
 	}
 }
 
+// rateLimitKey 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
 func rateLimitKey(ctx context.Context, c *app.RequestContext) string {
 	if value, ok := c.Get("userID"); ok {
 		switch id := value.(type) {
@@ -140,6 +141,7 @@ func rateLimitKey(ctx context.Context, c *app.RequestContext) string {
 	return "ip:" + ip
 }
 
+// tokenBucketLimiter 定义当前包使用的数据结构或接口，用于在业务层、持久化层和传输层之间传递明确语义。
 type tokenBucketLimiter struct {
 	mu             sync.Mutex
 	capacity       int
@@ -147,11 +149,13 @@ type tokenBucketLimiter struct {
 	buckets        map[string]*tokenBucket
 }
 
+// tokenBucket 定义当前包使用的数据结构或接口，用于在业务层、持久化层和传输层之间传递明确语义。
 type tokenBucket struct {
 	tokens     int
 	lastRefill time.Time
 }
 
+// newTokenBucketLimiter 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
 func newTokenBucketLimiter(capacity int, refillInterval time.Duration) *tokenBucketLimiter {
 	if capacity <= 0 {
 		capacity = 120
@@ -166,6 +170,7 @@ func newTokenBucketLimiter(capacity int, refillInterval time.Duration) *tokenBuc
 	}
 }
 
+// allow 是当前包内部使用的方法，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
 func (l *tokenBucketLimiter) allow(key string) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()

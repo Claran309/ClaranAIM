@@ -210,6 +210,7 @@ func (h *MessageServiceImpl) GetConversationParticipants(ctx context.Context, re
 	return &message.GetConversationParticipantsResp{Success: true, UserIds: userIDs}, nil
 }
 
+// toRPCMessage 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
 func toRPCMessage(m *model.Message) *message.Message {
 	if m == nil {
 		return nil
@@ -233,6 +234,7 @@ func toRPCMessage(m *model.Message) *message.Message {
 	}
 }
 
+// parseOptionalTime 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
 func parseOptionalTime(value string) (time.Time, error) {
 	if value == "" {
 		return time.Time{}, nil
@@ -247,6 +249,7 @@ func parseOptionalTime(value string) (time.Time, error) {
 	return time.Time{}, errors.New("时间格式应为 RFC3339、YYYY-MM-DD HH:mm:ss 或 YYYY-MM-DD")
 }
 
+// formatTime 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
 func formatTime(t time.Time) string {
 	if t.IsZero() {
 		return ""
@@ -254,6 +257,7 @@ func formatTime(t time.Time) string {
 	return t.Format("2006-01-02 15:04:05")
 }
 
+// formatOptionalTime 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
 func formatOptionalTime(t *time.Time) string {
 	if t == nil || t.IsZero() {
 		return ""

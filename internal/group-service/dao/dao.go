@@ -66,14 +66,14 @@ func NewGroupRepo(db *gorm.DB) GroupRepository {
 	return &groupRepositoryImpl{db: db}
 }
 
-// WithTransaction executes group repository operations inside one DB transaction.
+// WithTransaction 在同一个数据库事务中执行群仓储操作。
 func (r *groupRepositoryImpl) WithTransaction(ctx context.Context, fn func(tx GroupRepository) error) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		return fn(&groupRepositoryImpl{db: tx})
 	})
 }
 
-// SaveOutboxEvent stores a group-domain event for transactional outbox delivery.
+// SaveOutboxEvent 保存群领域事件，用于事务 Outbox 投递。
 func (r *groupRepositoryImpl) SaveOutboxEvent(ctx context.Context, event outbox.Event) error {
 	return r.db.WithContext(ctx).Create(&event).Error
 }

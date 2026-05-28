@@ -86,7 +86,7 @@ AIM 的长期目标不是“在聊天里加一个 AI 按钮”，而是让 Agent
 - [ ] 支持 Agent 主动发起私聊或会话邀请，但必须经过创建者授权、频率限制和用户可见的操作记录。
 - [ ] 完善 Agent 在线状态：区分可用、运行中、等待确认、停用和配置异常。
 
-说明：Phase 2 已完成基础后端闭环：Agent 真实系统用户身份、bot-runtime-service、bot-manager 权限表、HTTP `/agent/*` 接口和 Kafka `message.created` @Agent 触发已接入；Agent @ 分发使用 `agent_dispatch_records` 和 msg-core-service `client_msg_id` 避免 Kafka 重投造成重复回复。工具确认当前是进程内 MVP，能跑通交互链路，但生产化需要持久化审批、checkpoint/resume 和超时清理。深度时间窗口检索、主题聚合、未读专用摘要、向量化记忆和多 Agent 协作继续放在后续阶段增强。
+说明：Phase 2 已完成基础后端闭环：Agent 真实系统用户身份、agent-runtime-service、agent-manager 权限表、HTTP `/agent/*` 接口和 Kafka `message.created` @Agent 触发已接入；Agent @ 分发使用 `agent_dispatch_records` 和 msg-core-service `client_msg_id` 避免 Kafka 重投造成重复回复。工具确认当前是进程内 MVP，能跑通交互链路，但生产化需要持久化审批、checkpoint/resume 和超时清理。深度时间窗口检索、主题聚合、未读专用摘要、向量化记忆和多 Agent 协作继续放在后续阶段增强。
 
 阶段反思：当前 Agent 仍然有较强“用户点击按钮后执行”的味道。下一步应把 `/agent/run` 视为人工入口，把 Kafka/Outbox 事件视为原生入口，让 Agent 更像 IM 内的协作者，而不是外挂问答框。
 
@@ -114,8 +114,8 @@ AIM 的长期目标不是“在聊天里加一个 AI 按钮”，而是让 Agent
 
 - `pkg/events`：从消息推送事件扩展为 IM 统一事件契约。
 - `msg-core-service`：继续作为消息事实源，同时为 Agent 提供可见性裁剪后的上下文读取。
-- `bot-manager-service`：从 Bot 管理 + @消费器升级为 Agent 订阅、路由、权限、审计和 dispatch 管理面。
-- `bot-runtime-service`：从同步执行接口升级为事件上下文执行器，支持异步运行、心跳、取消、checkpoint 和结构化输出。
+- `agent-manager-service`：从 Agent 管理 + @消费器升级为 Agent 订阅、路由、权限、审计和 dispatch 管理面。
+- `agent-runtime-service`：从同步执行接口升级为事件上下文执行器，支持异步运行、心跳、取消、checkpoint 和结构化输出。
 - `rag-service / memory-service`：承接消息、文件、总结和知识候选的沉淀。
 - `websocket-gateway / frontend`：展示 Agent 原生状态、上下文侧边栏、Action Card 和审批流。
 
@@ -123,7 +123,7 @@ AIM 的长期目标不是“在聊天里加一个 AI 按钮”，而是让 Agent
 
 Phase 3 MVP 说明：当前已经落地统一 `IMEventPayload`、`claran.im.events` topic、`agent_subscription_rules`、`agent_audit_records`、Agent Event Dispatcher、消息/IM 双 topic 消费、私聊默认触发、群聊 @/规则触发、静默记录和前端 Agent 原生状态/上下文侧栏。msg-core-service 已把 `file/image/voice`、编辑、撤回、已读和群成员变化纳入统一 IM 事件 outbox，Dispatcher 会把附件引用注入 Agent 上下文，并优先使用 payload `idempotency_key` 做业务幂等。Context Builder 目前基于 msg-core-service 的 Agent 可见历史窗口进行权限裁剪；RAG/Memory/Task 召回、Action Card 持久化审批、真实 ASR/OCR 和文件内容解析仍属于 Phase 5/5.6/6 的增强项。
 
-补充进展：Agent 触发规则管理已先复用 `/bot/route/*`，`agent_keyword`、`agent_command`、`agent_record` 会自动镜像到 `agent_subscription_rules`；删除 route 会同步删除镜像规则。前端“路由规则”已改为“Agent 触发规则”，面向用户展示关键词触发、命令触发和静默记录。
+补充进展：Agent 触发规则管理已统一使用 `/agent/route/*`，旧 `/bot/route/*` HTTP 兼容入口已移除。`agent_keyword`、`agent_command`、`agent_record` 会自动镜像到 `agent_subscription_rules`；删除 route 会同步删除镜像规则。前端“路由规则”已改为“Agent 触发规则”，面向用户展示关键词触发、命令触发和静默记录。
 
 ### Phase 4：Agent 记忆与用户/群画像
 
@@ -138,9 +138,22 @@ Phase 3 MVP 说明：当前已经落地统一 `IMEventPayload`、`claran.im.even
 - [x] 将用户发言习惯分析默认设置为仅本人可见。
 - [x] 支持用户查看、编辑、删除和关闭自己的记忆。
 - [x] 支持向量化记忆，为跨会话召回和个性化 Agent 提供基础。
-- [x] 保证不同 Bot、不同 Session 的记忆隔离，避免记忆串线。
+- [x] 保证不同 Agent、不同 Session 的记忆隔离，避免记忆串线。
 
-Phase 4 MVP 已落地：`memory_facts` 保存可编辑事实记忆，范围覆盖 `user/group/conversation/session`，类型覆盖偏好、表达习惯、长期目标、群背景、项目状态、聊天摘要和 Agent 运行摘要。API 网关提供 `/memory/*` 用户治理接口，前端提供“记忆管理”；bot-manager 在调用 runtime 前按 bot/user/conversation/session 召回记忆并注入提示词，调用成功后沉淀一条私有运行摘要。向量化目前是 `vector_status/embedding_ref` 预留状态，不引入真实向量库；自动发言习惯分析是可手动维护的 MVP，后续再接异步抽取与用户确认流。
+Phase 4 MVP 已落地：`memory_facts` 保存可编辑事实记忆，范围覆盖 `user/group/conversation/session`，类型覆盖偏好、表达习惯、长期目标、群背景、项目状态、聊天摘要和 Agent 运行摘要。API 网关提供 `/memory/*` 用户治理接口，前端提供“记忆管理”；agent-manager 在调用 runtime 前按 bot/user/conversation/session 召回记忆并注入提示词，调用成功后沉淀一条私有运行摘要。向量化目前是 `vector_status/embedding_ref` 预留状态，不引入真实向量库；自动发言习惯分析是可手动维护的 MVP，后续再接异步抽取与用户确认流。
+
+### Phase 4.5：系统设置、LLM 预设与手动翻译
+
+- [x] 新增 settings-service，保存用户级 LLM 预设和 Prompt 模板。
+- [x] 用户可预设多个 OpenAI-compatible BaseURL、API Key、模型名和用途。
+- [x] 创建 Agent 时可选择已保存的 LLM 预设，由 api-gateway 解析为 Agent 配置。
+- [x] 翻译功能放入 msg-core-service，用户手动点击翻译时触发。
+- [x] 翻译按用户、消息、目标语言和源内容 hash 缓存，避免重复 LLM 调用。
+- [x] 翻译 Prompt 可在系统设置中配置；默认目标是其他语言转中文。
+- [x] settings-service 从 api-gateway 本地门面改为独立内部 HTTP 服务；后续可再升级为 Kitex RPC。
+- [ ] 后续对 API Key 做加密存储或接入密钥管理服务。
+
+边界说明：本阶段不做自动翻译。自动翻译会让每条消息都进入 LLM 调用路径，成本、隐私、延迟和限流影响都更大；当前先做用户显式触发的手动翻译。
 
 ### Phase 5：聊天知识沉淀与 RAG
 
@@ -171,7 +184,7 @@ Phase 4 MVP 已落地：`memory_facts` 保存可编辑事实记忆，范围覆�
 - [ ] 前端提供“关系视图”基础展示：某个话题相关人员、结论、文件、任务和风险。
 - [ ] 后续按规模评估 Neo4j、NebulaGraph 或 TuGraph；在关系复杂度没有压垮 MySQL 前不强行引入图数据库。
 
-合理性评估：知识图谱很适合 AIM，因为 IM 天然产生人、群、消息、文件、任务、结论之间的关系。它不应该替代 RAG，而是补足“谁和谁、什么依赖什么、结论从哪里来”的结构化关系。影响模块主要包括 bot-runtime-service 的结构化抽取、rag/memory 服务的数据沉淀、msg-core-service 的消息来源引用、api-gateway 的查询接口和前端的关系展示。建议先做轻量 MySQL MVP，再根据查询复杂度迁移专用图数据库。
+合理性评估：知识图谱很适合 AIM，因为 IM 天然产生人、群、消息、文件、任务、结论之间的关系。它不应该替代 RAG，而是补足“谁和谁、什么依赖什么、结论从哪里来”的结构化关系。影响模块主要包括 agent-runtime-service 的结构化抽取、rag/memory 服务的数据沉淀、msg-core-service 的消息来源引用、api-gateway 的查询接口和前端的关系展示。建议先做轻量 MySQL MVP，再根据查询复杂度迁移专用图数据库。
 
 ### Phase 5.6：结构化卡片协议
 
@@ -185,9 +198,9 @@ Phase 4 MVP 已落地：`memory_facts` 保存可编辑事实记忆，范围覆�
 
 ### Phase 6：Tool / Skill / MCP 工作流
 
-- [ ] 为 bot-runtime-service 接入 Tool 调用。
-- [ ] 为 bot-runtime-service 接入 Skill 场景能力。
-- [ ] 为 bot-runtime-service 接入 MCP 工具生态。
+- [ ] 为 agent-runtime-service 接入 Tool 调用。
+- [ ] 为 agent-runtime-service 接入 Skill 场景能力。
+- [ ] 为 agent-runtime-service 接入 MCP 工具生态。
 - [ ] 新增 MCP Gateway，统一承接文件解析、RAG、日历、工单、Git、外部 API 等工具调用。
 - [ ] MCP Gateway 为每次工具调用记录调用方、参数摘要、权限上下文、耗时、结果状态和审计 ID。
 - [ ] 支持天气查询、代码执行、Web 搜索、数据库查询、业务系统调用等工具能力。
@@ -206,11 +219,11 @@ Phase 4 MVP 已落地：`memory_facts` 保存可编辑事实记忆，范围覆�
 
 - [ ] 新增 Agent Cooperation Service，负责 Agent Leader、子任务、阻塞等待、结果汇总和验收。
 - [ ] 支持产品 Agent、研发 Agent、测试 Agent、运维 Agent、设计 Agent、CEO Agent 等角色型 Agent。
-- [ ] 支持不同 Bot 配置不同 Prompt、Skill、工具权限和能力边界。
+- [ ] 支持不同 Agent 配置不同 Prompt、Skill、工具权限和能力边界。
 - [ ] 支持通过 @ 召集一个或多个 Agent。
 - [ ] 支持通过命令召集一个或多个 Agent。
 - [ ] 支持通过规则自动召集一个或多个 Agent。
-- [ ] 支持多 Bot 路由，按群、关键词、意图或用户指定进行分发。
+- [ ] 支持多 Agent 路由，按群、关键词、意图或用户指定进行分发。
 - [ ] 支持 Agent 之间任务交接。
 - [ ] 支持 Agent 之间共享上下文。
 - [ ] 支持多 Agent 结果合并。
@@ -243,15 +256,15 @@ agent输出可@他人
 - [ ] 完善服务降级。
 - [ ] 完善服务重试。
 - [x] 完善服务熔断：Kitex 客户端默认启用 circuit breaker。
-- [x] 完善限流和成本控制：API Gateway 已接入用户/IP 令牌桶限流，Bot 计费已严格按模型 usage token 记录；生产多实例限流仍需 Redis/网关层共享实现。
+- [x] 完善限流和成本控制：API Gateway 已接入用户/IP 令牌桶限流，Agent 计费已严格按模型 usage token 记录；生产多实例限流仍需 Redis/网关层共享实现。
 - [x] 接入并默认开启 DTM 分布式事务基础设施：Docker Compose 提供 dtm-server，`pkg/config` 默认启用 DTM，`pkg/dtm` 提供 Saga 构建器；已用于创建群组时协调 group-service 创建群元数据和 msg-core-service 创建群聊会话，当前不改造高频消息链路。
 - [ ] 引入 Prometheus 指标采集。
 - [ ] 引入 Jaeger 链路追踪。
 - [ ] 引入 Grafana 可视化。
 - [ ] 引入 ELK 日志聚合。
 - [ ] 完善 Zap 结构化日志。
-- [ ] 监控在线人数、消息吞吐量、Bot 响应延迟、Agent 工具调用耗时和错误率。
-- [ ] 使用 K6 压测登录、会话列表、消息收发、群聊消息、历史查询、文件上传、Bot 对话和 Agent 总结。
+- [ ] 监控在线人数、消息吞吐量、Agent 响应延迟、Agent 工具调用耗时和错误率。
+- [ ] 使用 K6 压测登录、会话列表、消息收发、群聊消息、历史查询、文件上传、Agent 对话和 Agent 总结。
 - [ ] 推进 Kubernetes 部署。
 - [ ] 支持滚动升级、灰度发布和环境隔离。
 - [ ] 推进 CI/CD 流水线。
@@ -269,7 +282,7 @@ agent输出可@他人
 
 - [ ] 优化 Web 前端 UI，使聊天、群管理、Bot、知识库、工具审批等工作流更清晰。
 - [ ] 支持 Markdown 消息渲染。
-- [ ] 支持 Bot/Agent 流式输出。
+- [ ] 支持 Agent 流式输出。
 - [ ] 支持结构化 Action Card 展示与操作。
 - [ ] 支持 Agent 上下文侧边栏：展示当前会话摘要、相关知识、任务、风险、引用来源和可执行动作。
 - [ ] 支持表情包能力：图片快速保存为表情，建立用户私有表情库、缩略图和快速发送入口。
@@ -287,7 +300,7 @@ agent输出可@他人
 - [x] 保持 WebSocket 网关与 msg-core-service 解耦，消息核心同事务写 `message.*` Outbox 事件，Outbox worker 发布 Kafka，WebSocket 网关消费后推送；HTTP `/push` 仅作为兼容入口。
 - [ ] 将历史、归档、冷存储、离线同步逻辑逐步从 msg-core-service 拆到 msg-history-service。
 - [ ] 未来 AI 服务可按需要使用 Python 或独立运行时，但通过 RPC/API 与 Go 主系统解耦。
-- [ ] Bot 路由未来可扩展为 API Gateway 级别的路由分发。
+- [ ] Agent 路由未来可扩展为 API Gateway 级别的路由分发。
 
 ### 4.2 消息与推送性能
 
@@ -306,7 +319,7 @@ agent输出可@他人
 
 ### 4.4 计费与成本
 
-- [x] 当前 Bot 计费使用 Eino `ResponseMeta.Usage` 中的真实 Token 用量，不再按字符数估算。
+- [x] 当前 Agent 计费使用 Eino `ResponseMeta.Usage` 中的真实 Token 用量，不再按字符数估算。
 - [ ] 扩展更多模型供应商的 usage 字段兼容映射，并对缺失 usage 的模型接入做告警和配置拦截。
 - [ ] 为 Agent 工具调用、RAG 检索、长任务、多 Agent 协作建立成本记录。
 - [ ] 为群空间、用户、Bot 增加配额、限流和成本告警。
@@ -322,13 +335,13 @@ agent输出可@他人
 | msg-core-service | 9003 | 已完成 |
 | msg-history-service | 9004 | 已完成 |
 | file-service | 9005 | 已完成 |
-| bot-manager-service | 9006 | 已完成 |
+| agent-manager-service | 9006 | 已完成 |
 | api-gateway | 8080 | 已完成 |
 | websocket-gateway | 8081 | 已完成 |
 
 ### 5.2 待新增或增强服务
 
-- [x] bot-runtime-service：Agent 执行面，负责基础上下文、工具调用、JSONL 长会话和结构化理解；长期任务、流式事件、多 Agent 协作待增强。
+- [x] agent-runtime-service：Agent 执行面，负责基础上下文、工具调用、JSONL 长会话和结构化理解；长期任务、流式事件、多 Agent 协作待增强。
 - [ ] rag-service：知识库、文档上传、向量检索、聊天知识入库。
 - [ ] memory-service：用户记忆、群记忆、项目状态和向量化记忆。
 - [ ] msg-filter-service：敏感内容检测、实时审核、多语言翻译。
@@ -354,9 +367,13 @@ agent输出可@他人
 ## 7. 当前待办与验收重点
 
 - [ ] 继续自查历史消息、群权限、多端同步等边界问题。
-- [ ] 验证不同会话、不同 Bot、不同 Session 之间消息和记忆不串线。
+- [ ] 验证不同会话、不同 Agent、不同 Session 之间消息和记忆不串线。
 - [ ] 验证文件上传、元数据保存、MinIO/本地存储和下载链路稳定。
 - [ ] 验证语音消息按住录音、松手发送、会话内播放体验稳定。
 - [ ] 验证群成员权限、禁言、管理员、群主转让和群公告。
 - [ ] 验证前端会话列表、未读红点、历史消息、图片预览、文件下载、语音播放。
 - [ ] 为核心 IM、Agent、RAG、Memory、Tool 调用建立分层测试与验收脚本。
+
+
+
+

@@ -1,0 +1,52 @@
+service:
+  name: "agent-manager-service"
+  address: "127.0.0.1:9006"
+
+mysql:
+  dsn: ""
+
+redis:
+  addr: ""
+  password: ""
+  db: 0
+
+jwt:
+  secret_key: ""
+  expiration: 0
+
+etcd:
+  endpoints: []
+
+llm:
+  default_api_key: ""
+  default_base_url: ""
+  default_model: ""
+
+agent:
+  session_dir: "storage/agent/managerRuntimeFile"
+  agent_root: "storage/agent/workspaces"
+  cozeloop_api_token: ""
+  cozeloop_workspace_id: ""
+  skills_dir: ""
+
+kafka:
+  enabled: true
+  brokers:
+    - "127.0.0.1:9092"
+  client_id: "agent-manager-service"
+
+governance:
+  rpc:
+    timeout_ms: 60000
+    circuit_breaker: true
+    max_connections: 1000
+    max_qps: 1000
+  agent_rpc:
+    timeout_ms: 0
+    circuit_breaker: true
+    max_connections: 1000
+    max_qps: 500
+
+internal:
+  memory_service_url: "http://127.0.0.1:9008"
+

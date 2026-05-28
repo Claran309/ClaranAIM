@@ -79,21 +79,30 @@ AIM 需要一个可配置的 Agent 能力层，而不是写死几个 Bot：
 - RAG：把聊天知识、文档知识、组织知识变成可检索上下文。
 - Policy：控制 Agent 能看什么、能做什么、什么时候需要用户确认。
 
-未来 bot-manager-service 更偏管理面，bot-runtime-service 更偏执行面。manager 负责 Bot 配置、路由、权限、计费和审计；runtime 负责 Agent 会话、工具调用、长期任务、流式事件、多 Agent 协作。
+未来 agent-manager-service 更偏管理面，agent-runtime-service 更偏执行面。manager 负责 Agent 配置、路由、权限、计费和审计；runtime 负责 Agent 会话、工具调用、长期任务、流式事件、多 Agent 协作。
 
 当前 Phase 2 已将这个边界落到代码层：
 
-- `bot-manager-service` 保存 Bot/Agent 配置、`agent_user_id`、工作目录、工具策略和 `bot_permissions`。
-- `bot-runtime-service` 独立暴露 Kitex RPC，负责 Eino DeepAgent、JSONL 长会话、web_search、answer_from_document/RAG、Skill 和本地工具后端。
-- Agent 在 IM 里不是虚拟 sender，而是 user-service 中的真实系统用户；群聊 @Agent 时，bot-manager 消费 `claran.message.events` 的 `message.created` 事件，识别 `mention_user_ids` 中的 Agent 用户，调用 runtime 后再通过 msg-core-service 以 Agent 用户身份写回消息。
+- `agent-manager-service` 保存 Agent 配置、`agent_user_id`、工作目录、工具策略和 `bot_permissions`。
+- `agent-runtime-service` 独立暴露 Kitex RPC，负责 Eino DeepAgent、JSONL 长会话、web_search、answer_from_document/RAG、Skill 和本地工具后端。
+- Agent 在 IM 里不是虚拟 sender，而是 user-service 中的真实系统用户；群聊 @Agent 时，agent-manager 消费 `claran.message.events` 的 `message.created` 事件，识别 `mention_user_ids` 中的 Agent 用户，调用 runtime 后再通过 msg-core-service 以 Agent 用户身份写回消息。
 - user-service 会将 Agent 用户标记为 `is_system=true`，这类账号可作为群成员和消息发送者，但不能通过密码登录。
 - Phase 3 将原 @Agent consumer 升级为 Agent Event Dispatcher：同时消费 `claran.message.events` 和 `claran.im.events`，把消息、文件、语音、表情、系统通知、任务变化等统一为 `IMEventPayload` 后决策。
-- Agent 订阅规则保存在 `agent_subscription_rules`。私聊 Agent 默认触发；群聊默认低打扰，只响应 @、命令或关键词规则；文件/语音/任务等事件可配置为 `record` 静默记录或 `trigger` 执行。为了避免本阶段大量重生成 Kitex 代码，管理入口先复用 `/bot/route/*`：`agent_keyword`、`agent_command`、`agent_record` 会被 bot-manager-service 镜像成订阅规则。
+- Agent 订阅规则保存在 `agent_subscription_rules`。私聊 Agent 默认触发；群聊默认低打扰，只响应 @、命令或关键词规则；文件/语音/任务等事件可配置为 `record` 静默记录或 `trigger` 执行。管理入口统一使用 `/agent/route/*`：`agent_keyword`、`agent_command`、`agent_record` 会被 agent-manager-service 镜像成订阅规则。旧 `/bot/*` HTTP 兼容入口已移除。
+
+### 2.x 系统设置与 LLM 预设
+
+settings-service 是用户可控配置面，作为独立 HTTP 内部服务运行，自己持有 settings 表和 DAO。api-gateway、msg-core-service 和 agent-manager-service 只能通过 `pkg/settingsclient` 的内部 HTTP client 调用它，不能 import settings-service 的 internal 包。它保存：
+
+- LLM 预设：`base_url`、`api_key`、`model_name`、用途和默认标记。创建 Agent 时，前端传 `llm_profile_id`，网关解析该预设后写入 Agent 配置。
+- Prompt 模板：翻译 Prompt 已接入，后续可扩展总结、回复候选、代码审查和知识抽取 Prompt。
+
+消息翻译放在 msg-core-service：用户手动点击翻译后，msg-core 校验消息可见性，读取 settings-service 的翻译配置，调用 OpenAI-compatible chat completions，并把译文按源消息 hash 缓存到 `message_translations`。当前不做自动翻译，避免每条消息都产生额外 LLM 成本和隐私扩散。`r`n`r`n`memory-service` 同样作为独立 HTTP 内部服务运行在 9008，agent-manager-service 和 api-gateway 通过 `pkg/memoryclient` 调用；`msg-core-service` 的手动翻译内部 HTTP 入口运行在 9104，api-gateway 通过 `pkg/messageclient` 调用。微服务之间不允许直接 import 对方 `internal/*-service` 包。
 - msg-core-service 作为消息事实源，会在发送 `file/image/voice` 消息时同事务写入统一 IM 事件 outbox：`file/image` 对应 `file.uploaded`，`voice` 对应 `voice.transcribed` 事件信封。编辑、撤回、已读会额外产生 `im.message.edited/recalled/read` envelope；payload 内仍使用业务事件名 `message.edited/recalled/read`。group-service 的成员邀请/踢出事件由 msg-core-service 消费后转换成带 `conversation_id` 的 `group.member_joined/left` unified IM 事件。
 - Agent @/事件分发使用 `agent_dispatch_records(event_id, agent_user_id)` 记录执行状态和 `agent_trace_id`。对 unified IM 事件，`event_id` 优先取 payload `idempotency_key`，缺失时退回 Kafka envelope ID；Agent 回复使用 msg-core-service 的 `client_msg_id=agent:{dispatch_key}:{agent_user_id}` 做消息落库幂等，避免 Kafka 重投或上游重复生成同一业务事件导致重复回复。
 - Agent 行为审计保存在 `agent_audit_records`，记录 trigger、record、failed、completed 等决策，便于解释“为什么 Agent 没反应/为什么响应了”。
 - 前端支持最小 Action Card 协议，识别 Agent 返回 JSON 中的 `cards/action_cards/actions` 数组并渲染为审批、任务、知识引用、诊断等卡片；服务端持久化卡片操作和回调将在结构化卡片协议阶段补齐。
-- 高频聊天与 Agent 响应继续走 MySQL 消息事实表 + Transactional Outbox + Kafka；DTM 只适合后续低频强一致管理流程，例如创建系统用户和 Bot 记录的 Saga 补偿。
+- 高频聊天与 Agent 响应继续走 MySQL 消息事实表 + Transactional Outbox + Kafka；DTM 只适合后续低频强一致管理流程，例如创建系统用户和 Agent 记录的 Saga 补偿。
 
 ### 4. Agent 在 IM 中为什么重要
 
@@ -129,12 +138,12 @@ Agent 的价值来自真实上下文。IM 是上下文密度最高的软件形�
   - 增加人工审核队列，避免错误知识污染知识库。
 
 - Phase C：工具调用与工作流
-  - bot-runtime-service 支持 Tool、Skill、MCP。
+  - agent-runtime-service 支持 Tool、Skill、MCP。
   - 支持异步任务、长任务进度、失败重试和用户确认。
   - 将 Agent 行为写入审计日志。
 
 - Phase D：多 Agent 协作
-  - 多 Bot 路由和角色分工。
+  - 多 Agent 路由和角色分工。
   - Agent 之间可交接任务、互相补充上下文。
   - 群聊中支持“召集团队”式智能协作。
 
@@ -253,14 +262,14 @@ sequenceDiagram
 主要表：
 
 - `bots`：Bot 名称、类型、模型名、BaseURL、系统提示词、技能目录、所有者、启停状态。
-- `bot_routes`：Bot 路由规则，用于未来按群、关键词、意图分发。
+- `bot_routes`：Agent 路由规则，用于未来按群、关键词、意图分发。
 - `billing_records`：对话、错误、空回复等计费记录。
 
 AI 对话链路：
 
 1. 前端选择 AI 助手或创建 Bot。
-2. api-gateway 调用 bot-manager-service。
-3. bot-manager-service 根据 Bot 配置创建或复用 Agent。
+2. api-gateway 调用 agent-manager-service。
+3. agent-manager-service 根据 Agent 配置创建或复用 Agent。
 4. Agent 读取会话记忆，调用 OpenAI-compatible LLM。
 5. 回复返回前端，同时写入 session store 和计费表。
 
@@ -351,8 +360,11 @@ AI 对话链路：
 | msg-core-service | 9003 | Kitex | 会话管理/消息发送/消息搜索/禁言校验/实时推送 |
 | msg-history-service | 9004 | Kitex | 消息历史归档/离线消息/已读未读 |
 | file-service | 9005 | Kitex | 文件元数据管理/MinIO 对象存储集成 |
-| bot-manager-service | 9006 | Kitex | Bot/Agent 配置、真实用户身份绑定、权限、路由、计费、审计、@Agent 调度 |
-| bot-runtime-service | 9007 | Kitex | Agent 执行、长会话、Eino DeepAgent、工具调用、RAG/WebSearch、结构化理解输出 |
+| agent-manager-service | 9006 | Kitex | Agent 配置、真实用户身份绑定、权限、路由、计费、审计、@Agent 调度 |
+| agent-runtime-service | 9007 | Kitex | Agent 执行、长会话、Eino DeepAgent、工具调用、RAG/WebSearch、结构化理解输出 |
+| settings-service | 9009 | net/http + GORM | 用户级系统设置、LLM 预设、Prompt 模板；内部 HTTP 服务，自己持有 DB/DAO |
+
+命名迁移说明：产品语义、服务目录、启动入口和 HTTP 入口已统一为 Agent，网关只暴露 `/agent/*`。内部 `kitex_gen/bot`、`kitex_gen/bot_runtime` 仍保留历史生成包名，避免在 Kitex 生成器不可用时破坏 RPC 链路；它们是实现细节，不再代表对外 `/bot/*` 兼容层。
 
 ---
 
@@ -653,8 +665,8 @@ idl/file.thrift → kitex_gen/file/
   ├── fileservice/client.go    ← 文件上传/下载/删除/列表
   └── file/model.go            ← FileMeta 结构体
 idl/bot.thrift → kitex_gen/bot/
-  ├── botservice/client.go     ← Bot CRUD/对话/路由/计费
-  └── bot/model.go             ← BotConfig/BotRoute/BillingRecord
+  ├── botservice/client.go     ← 历史生成包名，当前承载 Agent CRUD/对话/路由/计费
+  └── bot/model.go             ← 历史生成模型名，当前承载 Agent 配置/路由/计费结构
 ```
 
 **RPC 客户端配置**（api-gateway 中）：
@@ -665,7 +677,7 @@ UserClient, _ = userservice.NewClient("user-service",
 )
 ```
 
-普通 IM RPC 使用 `governance.rpc.timeout_ms`，避免登录、会话、消息、文件等短请求无限挂起。Agent 执行、总结、问答、候选回复和审批继续执行属于长运行任务，api-gateway 到 bot-manager-service、bot-manager-service 到 bot-runtime-service 单独使用 `governance.agent_rpc`；当 `agent_rpc.timeout_ms: 0` 时不设置固定 Kitex 客户端 deadline。Agent 是否死亡不应该靠 60 秒同步请求判断，后续应由异步任务、心跳、取消接口和运行审计判断。
+普通 IM RPC 使用 `governance.rpc.timeout_ms`，避免登录、会话、消息、文件等短请求无限挂起。Agent 执行、总结、问答、候选回复和审批继续执行属于长运行任务，api-gateway 到 agent-manager-service、agent-manager-service 到 agent-runtime-service 单独使用 `governance.agent_rpc`；当 `agent_rpc.timeout_ms: 0` 时不设置固定 Kitex 客户端 deadline。Agent 是否死亡不应该靠 60 秒同步请求判断，后续应由异步任务、心跳、取消接口和运行审计判断。
 
 **RPC 服务端配置**（各服务 main.go 中）：
 ```go
@@ -819,7 +831,7 @@ group-service:
 - msg-core-service 管理 conversations、conversation_participants、messages 表（含 group_id 字段）
 - msg-history-service 管理 message_history、offline_messages 表
 - file-service 管理 file_metas 表（文件元数据，实际文件存储在 MinIO）
-- bot-manager-service 管理 bots、bot_routes、billing_records 表
+- agent-manager-service 管理 bots、bot_routes、billing_records 表
 
 **启动时自动迁移**：
 ```go
@@ -1070,7 +1082,7 @@ services:
    ├── msg-core-service (:9003)  → 自动建表 + 注册到 Etcd
    ├── msg-history-service (:9004) → 自动建表 + 注册到 Etcd
    ├── file-service (:9005)      → 自动建表 + 注册到 Etcd + 初始化 MinIO Bucket
-   ├── bot-manager-service (:9006) → 自动建表 + 注册到 Etcd
+   ├── agent-manager-service (:9006) → 自动建表 + 注册到 Etcd
    ├── api-gateway (:8080)       → 初始化 RPC 客户端（从 Etcd 发现服务）
    └── websocket-gateway (:8081) → 启动 Hub 事件循环
 4. 浏览器打开 dist/index.html    → 前端页面
@@ -1097,7 +1109,7 @@ services:
 | SQL 注入防护 | GORM | 参数化查询，不拼接 SQL |
 | 用户存在性校验 | api-gateway/user-service | 添加好友/创建群组/发送消息前校验 |
 | 群聊禁言校验 | msg-core-service | 发送消息前检查群成员禁言状态 |
-| Bot API Key 隐藏 | bot-manager-service | 内部 Bot 响应中隐藏 API Key |
+| Agent API Key 隐藏 | agent-manager-service | 内部 Agent 响应中隐藏 API Key |
 
 ---
 
@@ -1170,7 +1182,7 @@ api-gateway: FileHandler.GetFile()
 
 ---
 
-## 十二、Bot 管理服务实现原理
+## 十二、Agent 管理服务实现原理
 
 ### 12.1 Bot 类型区分
 
@@ -1197,7 +1209,7 @@ api-gateway: FileHandler.GetFile()
   LLM_DEFAULT_BASE_URL=https://api.openai.com/v1
   LLM_DEFAULT_MODEL=gpt-4o-mini
 
-bot-manager-service.yaml:
+agent-manager-service.yaml:
   llm:
     default_api_key: ${LLM_DEFAULT_API_KEY}
     default_base_url: ${LLM_DEFAULT_BASE_URL}
@@ -1215,7 +1227,7 @@ bot-manager-service.yaml:
 ### 12.2 Agent 对话流程
 
 ```
-前端 POST /api/v1/bot/chat
+前端 POST /api/v1/agent/chat
   │  {bot_id: 1, message: "你好"}
   │
   ▼
@@ -1223,10 +1235,10 @@ api-gateway: BotHandler.Chat()
   │  调用 RPC: BotClient.ChatWithBot(ctx, &ChatWithBotReq{...})
   │
   ▼
-bot-manager-service: ChatWithBot()
+agent-manager-service: ChatWithBot()
   │
   │  ── 第1步：校验 ──
-  │  1. 查询 Bot 配置 → 校验 Bot 存在且已启用
+  │  1. 查询 Agent 配置 → 校验 Bot 存在且已启用
   │  2. 校验 API Key 和 Base URL 非空
   │
   │  ── 第2步：创建 Agent ──
@@ -1260,13 +1272,13 @@ bot-manager-service: ChatWithBot()
 返回 ChatWithBotResp{success: true, reply: "..."}
 ```
 
-### 12.3 Bot 路由管理
+### 12.3 Agent 路由管理
 
 ```
 BotRoute 模型:
   ├── id          路由ID
   ├── bot_id      关联的Bot
-  ├── path        路由路径（如 /api/bot/chat）
+  ├── path        路由路径（如 /api/agent/chat）
   ├── method      HTTP方法（POST/GET）
   ├── description 路由描述
   └── is_active   是否启用
@@ -1489,9 +1501,9 @@ WebSocket 断开时:
 
 ### 16.2 Agent 与 AI 增强
 
-- bot-runtime-service：承载更复杂的 Agent 运行时，与 bot-manager-service 分离。
+- agent-runtime-service：承载更复杂的 Agent 运行时，与 agent-manager-service 分离。
 - memory-service：沉淀用户偏好、群聊摘要、跨会话长期记忆。
-- Phase4 当前实现为 MySQL `memory_facts` MVP：api-gateway 提供 `/memory/*` 用户治理接口，bot-manager-service 在调用 runtime 前召回 `bot/user/conversation/session` 范围内的启用记忆并注入输入，调用成功后写入私有 Agent 运行摘要。向量化以 `vector_status/embedding_ref` 预留，真实向量库和自动抽取确认流放入后续 RAG/Memory 增强阶段。
+- Phase4 当前实现为 MySQL `memory_facts` MVP：api-gateway 提供 `/memory/*` 用户治理接口，agent-manager-service 在调用 runtime 前召回 `bot/user/conversation/session` 范围内的启用记忆并注入输入，调用成功后写入私有 Agent 运行摘要。向量化以 `vector_status/embedding_ref` 预留，真实向量库和自动抽取确认流放入后续 RAG/Memory 增强阶段。
 - rag-service：支持知识库、文档上传、向量检索、私有/公共知识范围。
 - MCP 工具集成：让 Agent 能调用外部工具、数据库、浏览器或业务系统。
 - 多 Agent 协作：不同角色 Agent 在同一群中协同处理问题。
@@ -1504,14 +1516,19 @@ WebSocket 断开时:
 - Kafka：已用于群组事件同步和消息实时推送；`group.*` 与 `message.*` 已通过 MySQL Transactional Outbox 覆盖生产前崩溃窗口。后续继续补消费者幂等、搜索索引、AI 后处理和审计事件流，详见 `docs/ReliabilityAndEventConsistency.md`。
 - DTM：已作为默认开启的基础设施接入 Docker Compose、配置系统和 `pkg/dtm`，并用于创建群组时协调 group-service 与 msg-core-service。当前不强行改造高频消息链路，避免把 Outbox 已覆盖的事件可靠发布问题复杂化；后续低频跨服务补偿事务可按 Saga/TCC 接入。
 - 可观测性：Prometheus、Jaeger、Grafana、ELK。
-- 压测：K6 场景覆盖登录、会话列表、群聊消息、文件上传、Bot 对话。
+- 压测：K6 场景覆盖登录、会话列表、群聊消息、文件上传、Agent 对话。
 - 部署：Kubernetes、滚动升级、配置中心、灰度发布。
 
 ### 16.4 总体演进路线
 
 1. 稳定 IM 核心：会话、历史、未读、多媒体、群权限。
 2. 补齐高级 IM：已读、引用、撤回、编辑、离线、多端、审核、翻译。
-3. 完善 Agent 助手：Bot 管理、路由、记忆、计费、上下文总结。
+3. 完善 Agent 助手：Agent 管理、路由、记忆、计费、上下文总结。
 4. 引入事件总线：将消息、文件、AI 后处理、搜索索引异步化。
 5. 构建知识与记忆层：RAG、memory-service、长期偏好。
 6. 工程化上线：可观测性、压测、K8s、服务治理、安全审计。
+
+
+
+
+

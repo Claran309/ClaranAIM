@@ -55,9 +55,8 @@ func NewHub() *Hub {
 //   - 连接注销：从clients表移除Client并关闭Send通道
 //   - 消息广播：向目标用户的所有连接发送消息
 //
-// Run serializes all connection mutations through channels. This keeps the
-// public Register/Unregister/Broadcast methods simple and avoids callers
-// touching the clients map directly.
+// Run 通过 channel 串行处理连接注册、注销和广播。
+// 这样对外 Register/Unregister/Broadcast 方法只负责投递事件，调用方不会直接并发修改 clients map。
 func (h *Hub) Run() {
 	for {
 		select {

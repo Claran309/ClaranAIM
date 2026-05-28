@@ -1,4 +1,4 @@
-// Package dao owns memory-service persistence.
+// Package dao 负责 memory-service 的持久化访问。
 package dao
 
 import (
@@ -11,7 +11,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// InitDB opens MySQL and migrates memory tables without dropping data.
+// InitDB 打开 MySQL，并对记忆表执行非破坏性迁移。
 func InitDB(dsn string) (*gorm.DB, error) {
 	db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{})
 	if err != nil {
@@ -23,7 +23,7 @@ func InitDB(dsn string) (*gorm.DB, error) {
 	return db, nil
 }
 
-// MemoryFilter describes query constraints for memory facts.
+// MemoryFilter 描述记忆事实查询条件。
 type MemoryFilter struct {
 	BotID           int64
 	UserID          int64
@@ -38,7 +38,7 @@ type MemoryFilter struct {
 	Offset          int
 }
 
-// MemoryRepository defines persistence operations used by the service layer.
+// MemoryRepository 定义 service 层使用的记忆持久化操作。
 type MemoryRepository interface {
 	Create(ctx context.Context, fact *model.MemoryFact) error
 	Update(ctx context.Context, fact *model.MemoryFact) error
@@ -48,23 +48,27 @@ type MemoryRepository interface {
 	Touch(ctx context.Context, ids []int64, at time.Time) error
 }
 
+// memoryRepositoryImpl 是基于 GORM 的记忆仓储实现。
 type memoryRepositoryImpl struct {
 	db *gorm.DB
 }
 
-// NewMemoryRepo creates a GORM-backed repository.
+// NewMemoryRepo 创建基于 GORM 的记忆仓储。
 func NewMemoryRepo(db *gorm.DB) MemoryRepository {
 	return &memoryRepositoryImpl{db: db}
 }
 
+// Create 是当前包对外暴露的方法，负责承接对应的业务流程、参数校验或适配逻辑。
 func (r *memoryRepositoryImpl) Create(ctx context.Context, fact *model.MemoryFact) error {
 	return r.db.WithContext(ctx).Create(fact).Error
 }
 
+// Update 是当前包对外暴露的方法，负责承接对应的业务流程、参数校验或适配逻辑。
 func (r *memoryRepositoryImpl) Update(ctx context.Context, fact *model.MemoryFact) error {
 	return r.db.WithContext(ctx).Save(fact).Error
 }
 
+// GetByID 是当前包对外暴露的方法，负责承接对应的业务流程、参数校验或适配逻辑。
 func (r *memoryRepositoryImpl) GetByID(ctx context.Context, id int64) (*model.MemoryFact, error) {
 	var fact model.MemoryFact
 	err := r.db.WithContext(ctx).Where("id = ?", id).First(&fact).Error
@@ -74,6 +78,7 @@ func (r *memoryRepositoryImpl) GetByID(ctx context.Context, id int64) (*model.Me
 	return &fact, err
 }
 
+// List 是当前包对外暴露的方法，负责承接对应的业务流程、参数校验或适配逻辑。
 func (r *memoryRepositoryImpl) List(ctx context.Context, filter MemoryFilter) ([]model.MemoryFact, int64, error) {
 	query := r.db.WithContext(ctx).Model(&model.MemoryFact{})
 	query = applyFilter(query, filter)
@@ -94,10 +99,12 @@ func (r *memoryRepositoryImpl) List(ctx context.Context, filter MemoryFilter) ([
 	return facts, total, err
 }
 
+// Delete 是当前包对外暴露的方法，负责承接对应的业务流程、参数校验或适配逻辑。
 func (r *memoryRepositoryImpl) Delete(ctx context.Context, id int64) error {
 	return r.db.WithContext(ctx).Delete(&model.MemoryFact{}, id).Error
 }
 
+// Touch 是当前包对外暴露的方法，负责承接对应的业务流程、参数校验或适配逻辑。
 func (r *memoryRepositoryImpl) Touch(ctx context.Context, ids []int64, at time.Time) error {
 	if len(ids) == 0 {
 		return nil
@@ -105,6 +112,7 @@ func (r *memoryRepositoryImpl) Touch(ctx context.Context, ids []int64, at time.T
 	return r.db.WithContext(ctx).Model(&model.MemoryFact{}).Where("id IN ?", ids).Update("last_used_at", at).Error
 }
 
+// applyFilter 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
 func applyFilter(query *gorm.DB, filter MemoryFilter) *gorm.DB {
 	if filter.BotID > 0 {
 		query = query.Where("bot_id = ?", filter.BotID)

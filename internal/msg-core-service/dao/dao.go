@@ -28,6 +28,7 @@ func InitDB(dsn string) (*gorm.DB, error) {
 		&model.Message{},
 		&model.MessageUserState{},
 		&model.MessageEditRecord{},
+		&model.MessageTranslation{},
 	}
 
 	for _, m := range models {
@@ -51,7 +52,7 @@ type MessageRepository interface {
 	GetConversationByID(ctx context.Context, id int64) (*model.Conversation, error)
 	// UpdateConversation 更新会话信息（主要用于更新UpdatedAt时间戳）
 	UpdateConversation(ctx context.Context, conv *model.Conversation) error
-	// DeleteConversation deletes one conversation and its participants.
+	// DeleteConversation 删除一个会话及其参与者记录。
 	DeleteConversation(ctx context.Context, conversationID int64) error
 	// AddParticipant 添加会话参与者
 	AddParticipant(ctx context.Context, p *model.ConversationParticipant) error
@@ -63,31 +64,35 @@ type MessageRepository interface {
 	GetUserConversations(ctx context.Context, userID int64) ([]model.ConversationParticipant, error)
 	// CreateMessage 创建新消息
 	CreateMessage(ctx context.Context, msg *model.Message) error
-	// GetMessageByID returns a message fact by ID, or nil when it does not exist.
+	// GetMessageByID 根据 ID 查询消息事实，不存在时返回 nil。
 	GetMessageByID(ctx context.Context, messageID int64) (*model.Message, error)
-	// GetMessageByClientMsgID returns the existing message for an idempotent send key.
+	// GetMessageByClientMsgID 根据幂等发送 key 查询已存在消息。
 	GetMessageByClientMsgID(ctx context.Context, clientMsgID string) (*model.Message, error)
-	// UpdateMessage persists changes such as edit metadata or recalled status.
+	// UpdateMessage 持久化消息编辑元数据或撤回状态等变更。
 	UpdateMessage(ctx context.Context, msg *model.Message) error
-	// CreateEditRecord appends an immutable audit record for message edits.
+	// CreateEditRecord 追加一条不可变的消息编辑审计记录。
 	CreateEditRecord(ctx context.Context, record *model.MessageEditRecord) error
-	// UpsertMessageUserState creates or merges one user's per-message state.
+	// GetTranslation 查询某用户、目标语言和源文本 hash 对应的翻译缓存。
+	GetTranslation(ctx context.Context, messageID, userID int64, targetLanguage, sourceHash string) (*model.MessageTranslation, error)
+	// SaveTranslation 保存一条翻译结果。
+	SaveTranslation(ctx context.Context, translation *model.MessageTranslation) error
+	// UpsertMessageUserState 创建或合并某个用户对单条消息的本地状态。
 	UpsertMessageUserState(ctx context.Context, state *model.MessageUserState) error
-	// MarkMessagesReadThrough marks all messages up to messageID as read by userID.
+	// MarkMessagesReadThrough 将 messageID 之前的消息标记为该用户已读。
 	MarkMessagesReadThrough(ctx context.Context, conversationID, userID, messageID int64, readAt time.Time) error
-	// MarkMessageLocalDeleted hides one message only for one user's local view.
+	// MarkMessageLocalDeleted 仅在某个用户本地视图中隐藏一条消息。
 	MarkMessageLocalDeleted(ctx context.Context, conversationID, userID, messageID int64, deletedAt time.Time) error
-	// UpdateParticipantReadCursor stores the conversation-level read cursor.
+	// UpdateParticipantReadCursor 保存会话级已读游标。
 	UpdateParticipantReadCursor(ctx context.Context, conversationID, userID, messageID int64, readAt time.Time) error
-	// UpdateParticipantSettings stores per-user conversation UI settings.
+	// UpdateParticipantSettings 保存用户级会话 UI 设置。
 	UpdateParticipantSettings(ctx context.Context, conversationID, userID int64, draft *string, isPinned *bool, notifyEnabled *bool) error
 	// GetMessages 获取会话的消息列表，支持分页（beforeID游标分页）
 	GetMessages(ctx context.Context, conversationID int64, limit, beforeID int64) ([]model.Message, error)
-	// GetMessagesForUser returns history filtered by user-local deletion state.
+	// GetMessagesForUser 返回按用户本地删除状态过滤后的历史消息。
 	GetMessagesForUser(ctx context.Context, conversationID, userID, limit, beforeID int64) ([]model.Message, error)
-	// CountUnreadMessages counts unread non-recalled messages for one user.
+	// CountUnreadMessages 统计某用户未读且未撤回的消息数。
 	CountUnreadMessages(ctx context.Context, conversationID, userID, lastReadMessageID int64) (int64, error)
-	// GetMessageReadStats computes read receipt counters for visible messages.
+	// GetMessageReadStats 计算可见消息的已读回执统计。
 	GetMessageReadStats(ctx context.Context, conversationID int64, messageIDs []int64, viewerID int64) (map[int64]MessageReadStat, error)
 	// SearchMessages 在指定会话中搜索包含关键词的消息
 	SearchMessages(ctx context.Context, conversationIDs []int64, keyword string, limit int64, startAt, endAt *time.Time) ([]model.Message, error)
@@ -95,17 +100,18 @@ type MessageRepository interface {
 	FindPrivateConversation(ctx context.Context, userID1, userID2 int64) (*model.Conversation, error)
 	// FindGroupConversation 根据groupID查找群聊会话（避免重复创建）
 	FindGroupConversation(ctx context.Context, groupID int64) (*model.Conversation, error)
-	// WithTransaction executes repository operations against a single DB transaction.
+	// WithTransaction 在同一个数据库事务中执行一组仓储操作。
 	WithTransaction(ctx context.Context, fn func(tx MessageRepository) error) error
-	// SaveOutboxEvent stores a domain event in the same transaction as business data.
+	// SaveOutboxEvent 在业务数据同一事务中保存一条领域事件。
 	SaveOutboxEvent(ctx context.Context, event outbox.Event) error
 }
 
+// messageRepositoryImpl 是基于 GORM 的消息仓储实现。
 type messageRepositoryImpl struct {
 	db *gorm.DB
 }
 
-// MessageReadStat is the aggregated read-receipt state for one message.
+// MessageReadStat 是单条消息的聚合已读回执状态。
 type MessageReadStat struct {
 	MessageID      int64
 	ReadCount      int64
@@ -113,19 +119,19 @@ type MessageReadStat struct {
 	IsReadByMe     bool
 }
 
-// NewMessageRepo creates a GORM-backed message repository.
+// NewMessageRepo 创建基于 GORM 的消息仓储。
 func NewMessageRepo(db *gorm.DB) MessageRepository {
 	return &messageRepositoryImpl{db: db}
 }
 
-// WithTransaction wraps a repository callback in a GORM transaction.
+// WithTransaction 使用 GORM 事务包装一组仓储操作。
 func (r *messageRepositoryImpl) WithTransaction(ctx context.Context, fn func(tx MessageRepository) error) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		return fn(&messageRepositoryImpl{db: tx})
 	})
 }
 
-// SaveOutboxEvent inserts a pending outbox record for later Kafka publication.
+// SaveOutboxEvent 插入待发布 Outbox 记录，稍后由 Worker 发布到 Kafka。
 func (r *messageRepositoryImpl) SaveOutboxEvent(ctx context.Context, event outbox.Event) error {
 	return r.db.WithContext(ctx).Create(&event).Error
 }
@@ -170,7 +176,7 @@ func (r *messageRepositoryImpl) AddParticipant(ctx context.Context, p *model.Con
 	return r.db.WithContext(ctx).Create(p).Error
 }
 
-// RemoveParticipant removes a user from a conversation fanout list.
+// RemoveParticipant 从会话扇出列表中移除一个用户。
 func (r *messageRepositoryImpl) RemoveParticipant(ctx context.Context, conversationID, userID int64) error {
 	return r.db.WithContext(ctx).
 		Where("conversation_id = ? AND user_id = ?", conversationID, userID).
@@ -198,7 +204,7 @@ func (r *messageRepositoryImpl) CreateMessage(ctx context.Context, msg *model.Me
 	return r.db.WithContext(ctx).Create(msg).Error
 }
 
-// GetMessageByID loads one message fact by ID.
+// GetMessageByID 根据 ID 加载一条消息事实。
 func (r *messageRepositoryImpl) GetMessageByID(ctx context.Context, messageID int64) (*model.Message, error) {
 	var msg model.Message
 	err := r.db.WithContext(ctx).Where("id = ?", messageID).First(&msg).Error
@@ -208,7 +214,7 @@ func (r *messageRepositoryImpl) GetMessageByID(ctx context.Context, messageID in
 	return &msg, err
 }
 
-// GetMessageByClientMsgID loads a message produced by a previous idempotent send.
+// GetMessageByClientMsgID 查询之前由同一幂等 key 发送出的消息。
 func (r *messageRepositoryImpl) GetMessageByClientMsgID(ctx context.Context, clientMsgID string) (*model.Message, error) {
 	if clientMsgID == "" {
 		return nil, nil
@@ -221,14 +227,31 @@ func (r *messageRepositoryImpl) GetMessageByClientMsgID(ctx context.Context, cli
 	return &msg, err
 }
 
-// UpdateMessage saves a changed message fact.
+// UpdateMessage 保存变更后的消息事实。
 func (r *messageRepositoryImpl) UpdateMessage(ctx context.Context, msg *model.Message) error {
 	return r.db.WithContext(ctx).Save(msg).Error
 }
 
-// CreateEditRecord appends an audit row for a message edit.
+// CreateEditRecord 为消息编辑追加一条审计记录。
 func (r *messageRepositoryImpl) CreateEditRecord(ctx context.Context, record *model.MessageEditRecord) error {
 	return r.db.WithContext(ctx).Create(record).Error
+}
+
+// GetTranslation 是当前包对外暴露的方法，负责承接对应的业务流程、参数校验或适配逻辑。
+func (r *messageRepositoryImpl) GetTranslation(ctx context.Context, messageID, userID int64, targetLanguage, sourceHash string) (*model.MessageTranslation, error) {
+	var translation model.MessageTranslation
+	err := r.db.WithContext(ctx).
+		Where("message_id = ? AND user_id = ? AND target_language = ? AND source_text_hash = ?", messageID, userID, targetLanguage, sourceHash).
+		First(&translation).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	return &translation, err
+}
+
+// SaveTranslation 是当前包对外暴露的方法，负责承接对应的业务流程、参数校验或适配逻辑。
+func (r *messageRepositoryImpl) SaveTranslation(ctx context.Context, translation *model.MessageTranslation) error {
+	return r.db.WithContext(ctx).Create(translation).Error
 }
 
 // UpsertMessageUserState 创建或合并用户级消息状态。
@@ -289,7 +312,7 @@ func (r *messageRepositoryImpl) MarkMessageLocalDeleted(ctx context.Context, con
 	return r.UpsertMessageUserState(ctx, state)
 }
 
-// UpdateParticipantReadCursor stores the latest read message for unread counts.
+// UpdateParticipantReadCursor 保存最新已读消息，用于未读数计算。
 func (r *messageRepositoryImpl) UpdateParticipantReadCursor(ctx context.Context, conversationID, userID, messageID int64, readAt time.Time) error {
 	return r.db.WithContext(ctx).
 		Model(&model.ConversationParticipant{}).
@@ -300,7 +323,7 @@ func (r *messageRepositoryImpl) UpdateParticipantReadCursor(ctx context.Context,
 		}).Error
 }
 
-// UpdateParticipantSettings updates optional per-user conversation settings.
+// UpdateParticipantSettings 更新用户级会话设置。
 func (r *messageRepositoryImpl) UpdateParticipantSettings(ctx context.Context, conversationID, userID int64, draft *string, isPinned *bool, notifyEnabled *bool) error {
 	updates := map[string]interface{}{}
 	if draft != nil {
@@ -368,7 +391,7 @@ func (r *messageRepositoryImpl) CountUnreadMessages(ctx context.Context, convers
 	return count, err
 }
 
-// GetMessageReadStats aggregates read counts and viewer read state for messages.
+// GetMessageReadStats 聚合消息已读人数和当前查看者已读状态。
 func (r *messageRepositoryImpl) GetMessageReadStats(ctx context.Context, conversationID int64, messageIDs []int64, viewerID int64) (map[int64]MessageReadStat, error) {
 	stats := make(map[int64]MessageReadStat, len(messageIDs))
 	if len(messageIDs) == 0 {

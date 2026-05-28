@@ -1,8 +1,6 @@
-// Package client holds the api-gateway side of all internal RPC dependencies.
-//
-// The gateway translates browser HTTP requests into Kitex RPC calls. Keeping the
-// generated request construction in this package gives handlers a small, stable
-// surface and prevents HTTP binding details from leaking into service clients.
+// Package client 保存 api-gateway 侧的内部 RPC 客户端和请求构造器。
+// 网关负责把浏览器 HTTP 请求转换为 Kitex RPC 调用；把生成请求结构的代码集中在这里，
+// 可以让 handler 保持轻量，也避免 HTTP 绑定细节泄漏到各微服务客户端之外。
 package client
 
 import (
@@ -27,34 +25,30 @@ import (
 	etcd "github.com/kitex-contrib/registry-etcd"
 )
 
+// 下面这组变量保存当前包需要复用的运行时状态或配置入口，调用方应通过公开函数间接使用。
 var (
 	once sync.Once
 
-	// UserClient calls user-service for accounts, profiles, friends and online
-	// status. It is initialized once by InitClients during api-gateway startup.
+	// UserClient 调用 user-service，负责账号、个人资料、好友和在线状态相关能力。
+	// 它在 api-gateway 启动阶段由 InitClients 初始化一次。
 	UserClient userservice.Client
-	// GroupClient calls group-service for group metadata, membership and roles.
+	// GroupClient 调用 group-service，负责群资料、群成员和群角色。
 	GroupClient groupservice.Client
-	// MessageClient calls msg-core-service for conversations, message writes,
-	// read receipts and local message state.
+	// MessageClient 调用 msg-core-service，负责会话、消息写入、已读回执和本地消息状态。
 	MessageClient messageservice.Client
-	// HistoryClient is kept for the history-service RPC contract. Most current
-	// history reads go through msg-core-service so per-user visibility rules stay
-	// in one place.
+	// HistoryClient 保留给历史消息服务的 RPC 契约。
+	// 当前大部分历史读取走 msg-core-service，以便用户可见性规则集中在同一处。
 	HistoryClient historyservice.Client
-	// FileClient calls file-service for file metadata after the gateway streams
-	// binary content to local storage or MinIO.
+	// FileClient 调用 file-service，在网关把二进制内容写入本地或 MinIO 后保存文件元数据。
 	FileClient fileservice.Client
-	// BotClient calls bot-manager-service for bot CRUD, bot chat, routing and
-	// billing records.
-	BotClient botservice.Client
-	// AgentBotClient calls bot-manager-service methods that may block on long
-	// Agent thinking or tool execution. It intentionally uses agent_rpc timeout
-	// policy so ordinary IM RPC deadlines do not kill long-running Agent work.
-	AgentBotClient botservice.Client
-	// BotRuntimeClient calls bot-runtime-service for runtime-owned data that is
-	// not part of bot-manager-service's Thrift facade, such as session metadata.
-	BotRuntimeClient botruntimeservice.Client
+	// AgentClient 调用 agent-manager-service，负责 Agent 管理、对话、路由和计费记录。
+	// 生成代码包名暂时仍叫 bot，等 IDL 安全重生成后再统一迁移。
+	AgentClient botservice.Client
+	// AgentLongTaskClient 调用可能长时间阻塞的 Agent 方法，例如长思考或工具执行。
+	// 它使用独立 agent_rpc 治理配置，避免普通 IM RPC 超时误杀长任务。
+	AgentLongTaskClient botservice.Client
+	// AgentRuntimeClient 调用 agent-runtime-service，读取运行时拥有的数据，例如长会话元信息。
+	AgentRuntimeClient botruntimeservice.Client
 )
 
 // InitClients 初始化 api-gateway 到各内部 Kitex 服务的客户端。
@@ -115,56 +109,55 @@ func InitClients(etcdEndpoints []string, rpcCfg ...config.RPCGovernanceConfig) {
 			log.Fatal("创建file-service客户端失败:", err)
 		}
 
-		BotClient, err = botservice.NewClient("bot-manager-service",
+		AgentClient, err = botservice.NewClient("agent-manager-service",
 			baseOptions...,
 		)
 		if err != nil {
-			log.Fatal("创建bot-manager-service客户端失败:", err)
+			log.Fatal("创建agent-manager-service客户端失败:", err)
 		}
 
-		AgentBotClient, err = botservice.NewClient("bot-manager-service",
+		AgentLongTaskClient, err = botservice.NewClient("agent-manager-service",
 			agentOptions...,
 		)
 		if err != nil {
-			log.Fatal("创建bot-manager-service长任务客户端失败:", err)
+			log.Fatal("创建agent-manager-service长任务客户端失败:", err)
 		}
 
-		BotRuntimeClient, err = botruntimeservice.NewClient("bot-runtime-service",
+		AgentRuntimeClient, err = botruntimeservice.NewClient("agent-runtime-service",
 			baseOptions...,
 		)
 		if err != nil {
-			log.Fatal("创建bot-runtime-service客户端失败:", err)
+			log.Fatal("创建agent-runtime-service客户端失败:", err)
 		}
 
 		log.Println("RPC客户端初始化成功")
 	})
 }
 
-// NewRegisterReq builds a user-service register request from HTTP form fields.
+// NewRegisterReq 根据 HTTP 表单字段构造 user-service 注册请求。
 func NewRegisterReq(username, password, nickname string) *user.RegisterReq {
 	return &user.RegisterReq{Username: username, Password: password, Nickname: nickname}
 }
 
-// NewRegisterSystemUserReq creates a non-login account for internal actors such
-// as Agents. Normal browser registration must keep using NewRegisterReq.
+// NewRegisterSystemUserReq 构造系统用户注册请求。
+// Agent 等内部身份使用这种不可直接登录的账号，普通浏览器注册必须继续走 NewRegisterReq。
 func NewRegisterSystemUserReq(username, password, nickname string) *user.RegisterReq {
 	return &user.RegisterReq{Username: username, Password: password, Nickname: nickname, IsSystem: true}
 }
 
-// NewLoginReq builds a user-service login request. Password verification stays
-// inside user-service; the gateway never hashes or stores passwords.
+// NewLoginReq 构造登录请求。
+// 密码校验留在 user-service 内部，网关不负责哈希或保存密码。
 func NewLoginReq(username, password string) *user.LoginReq {
 	return &user.LoginReq{Username: username, Password: password}
 }
 
-// NewGetUserInfoReq builds the profile lookup request used by profile pages,
-// friend lists and message sender-name hydration.
+// NewGetUserInfoReq 构造用户资料查询请求，供个人页、好友列表和消息发送者展示使用。
 func NewGetUserInfoReq(userID int64) *user.GetUserInfoReq {
 	return &user.GetUserInfoReq{UserId: userID}
 }
 
-// NewUpdateUserInfoReq builds the profile update request. fullUpdate tells
-// user-service whether empty strings are intentional clears or should be ignored.
+// NewUpdateUserInfoReq 构造用户资料更新请求。
+// fullUpdate 用于告诉 user-service：空字符串是主动清空字段，还是应被忽略。
 func NewUpdateUserInfoReq(
 	userID int64,
 	nickname, email, phone, avatar, cover, signature, bio, location, website, gender, birthday string,
@@ -187,130 +180,124 @@ func NewUpdateUserInfoReq(
 	}
 }
 
-// NewAddFriendReq builds the friend-add request. userID is always the current
-// authenticated user, never a client-supplied value.
+// NewAddFriendReq 构造添加好友请求。
+// userID 必须来自当前登录态，不能信任客户端传入的操作者 ID。
 func NewAddFriendReq(userID, friendID, groupID int64, remark string) *user.AddFriendReq {
 	return &user.AddFriendReq{UserId: userID, FriendId: friendID, GroupId: groupID, Remark: remark}
 }
 
-// NewDeleteFriendReq builds the symmetric friend-delete request.
+// NewDeleteFriendReq 构造双向删除好友请求。
 func NewDeleteFriendReq(userID, friendID int64) *user.DeleteFriendReq {
 	return &user.DeleteFriendReq{UserId: userID, FriendId: friendID}
 }
 
-// NewUpdateFriendRemarkReq builds a request for remark/group changes on one
-// friend relation owned by the current user.
+// NewUpdateFriendRemarkReq 构造好友备注或分组变更请求。
 func NewUpdateFriendRemarkReq(userID, friendID, groupID int64, remark string) *user.UpdateFriendRemarkReq {
 	return &user.UpdateFriendRemarkReq{UserId: userID, FriendId: friendID, Remark: remark, GroupId: groupID}
 }
 
-// NewGetFriendListReq builds the friend-list lookup request for the sidebar.
+// NewGetFriendListReq 构造侧边栏好友列表查询请求。
 func NewGetFriendListReq(userID int64) *user.GetFriendListReq {
 	return &user.GetFriendListReq{UserId: userID}
 }
 
-// NewBatchGetUserInfoReq builds a batch profile request used to hydrate message
-// sender names and avatars without issuing one RPC per visible message.
+// NewBatchGetUserInfoReq 构造批量资料查询请求，避免可见消息逐条 RPC 查询昵称头像。
 func NewBatchGetUserInfoReq(ids []int64) *user.BatchGetUserInfoReq {
 	return &user.BatchGetUserInfoReq{UserIds: ids}
 }
 
-// The New...Req helpers below intentionally contain no business rules. They are
-// narrow adapters from handler-validated primitive values into generated Thrift
-// structs. Permission checks, membership checks and persistence all remain in
-// the owning microservice.
+// 下面的 New...Req 辅助函数刻意不放业务规则。
+// 它们只把 handler 已校验的基础值适配成 Thrift 结构体；权限、成员关系和持久化仍由所属微服务负责。
 
-// NewCreateGroupReq builds a group-service create request.
+// NewCreateGroupReq 构造 group-service 创建群请求。
 func NewCreateGroupReq(name string, ownerID int64, memberIDs []int64) *group.CreateGroupReq {
 	return &group.CreateGroupReq{Name: name, OwnerId: ownerID, MemberIds: memberIDs}
 }
 
-// NewDeleteGroupReq builds a group deletion request with the current user as operator.
+// NewDeleteGroupReq 构造删除群请求，operator 使用当前登录用户。
 func NewDeleteGroupReq(groupID, operatorID int64) *group.DeleteGroupReq {
 	return &group.DeleteGroupReq{GroupId: groupID, OperatorId: operatorID}
 }
 
-// NewGetGroupReq builds a group metadata lookup request.
+// NewGetGroupReq 构造群资料查询请求。
 func NewGetGroupReq(groupID int64) *group.GetGroupReq {
 	return &group.GetGroupReq{GroupId: groupID}
 }
 
-// NewGetUserGroupsReq builds the current user's group-list request.
+// NewGetUserGroupsReq 构造当前用户群列表查询请求。
 func NewGetUserGroupsReq(userID int64) *group.GetUserGroupsReq {
 	return &group.GetUserGroupsReq{UserId: userID}
 }
 
-// NewUpdateGroupReq builds a group metadata update request. An empty announcement
-// is meaningful and means "clear announcement" after the gateway has confirmed
-// the JSON field was explicitly present.
+// NewUpdateGroupReq 构造群资料更新请求。
+// 当网关确认 announcement 字段显式出现时，空字符串表示清空公告。
 func NewUpdateGroupReq(groupID, operatorID int64, name, announcement string) *group.UpdateGroupReq {
 	return &group.UpdateGroupReq{GroupId: groupID, OperatorId: operatorID, Name: name, Announcement: announcement}
 }
 
-// NewInviteMemberReq builds a group member invite request.
+// NewInviteMemberReq 构造邀请群成员请求。
 func NewInviteMemberReq(groupID, operatorID int64, userIDs []int64) *group.InviteMemberReq {
 	return &group.InviteMemberReq{GroupId: groupID, OperatorId: operatorID, UserIds: userIDs}
 }
 
-// NewKickMemberReq builds a group member removal request.
+// NewKickMemberReq 构造移除群成员请求。
 func NewKickMemberReq(groupID, operatorID, userID int64) *group.KickMemberReq {
 	return &group.KickMemberReq{GroupId: groupID, OperatorId: operatorID, UserId: userID}
 }
 
-// NewGetGroupMembersReq builds a group member list request.
+// NewGetGroupMembersReq 构造群成员列表请求。
 func NewGetGroupMembersReq(groupID int64) *group.GetGroupMembersReq {
 	return &group.GetGroupMembersReq{GroupId: groupID}
 }
 
-// NewTransferOwnerReq builds a group ownership transfer request.
+// NewTransferOwnerReq 构造群主转让请求。
 func NewTransferOwnerReq(groupID, operatorID, newOwnerID int64) *group.TransferOwnerReq {
 	return &group.TransferOwnerReq{GroupId: groupID, OperatorId: operatorID, NewOwnerId_: newOwnerID}
 }
 
-// NewPinGroupReq builds a per-user group pin/unpin request.
+// NewPinGroupReq 构造当前用户的群置顶/取消置顶请求。
 func NewPinGroupReq(groupID, operatorID int64, isPinned bool) *group.PinGroupReq {
 	return &group.PinGroupReq{GroupId: groupID, OperatorId: operatorID, IsPinned: isPinned}
 }
 
-// NewMuteMemberReq builds a timed mute request for group moderation.
+// NewMuteMemberReq 构造群成员定时禁言请求。
 func NewMuteMemberReq(groupID, operatorID, userID, durationMinutes int64) *group.MuteMemberReq {
 	return &group.MuteMemberReq{GroupId: groupID, OperatorId: operatorID, UserId: userID, DurationMinutes: durationMinutes}
 }
 
-// NewUnmuteMemberReq builds a group unmute request.
+// NewUnmuteMemberReq 构造解除禁言请求。
 func NewUnmuteMemberReq(groupID, operatorID, userID int64) *group.UnmuteMemberReq {
 	return &group.UnmuteMemberReq{GroupId: groupID, OperatorId: operatorID, UserId: userID}
 }
 
-// NewSetRoleReq builds a group role update request.
+// NewSetRoleReq 构造群角色更新请求。
 func NewSetRoleReq(groupID, operatorID, userID int64, role string) *group.SetRoleReq {
 	return &group.SetRoleReq{GroupId: groupID, OperatorId: operatorID, UserId: userID, Role: role}
 }
 
-// NewCheckMemberReq builds a group membership check request.
+// NewCheckMemberReq 构造群成员身份检查请求。
 func NewCheckMemberReq(groupID, userID int64) *group.CheckMemberReq {
 	return &group.CheckMemberReq{GroupId: groupID, UserId: userID}
 }
 
-// NewCreateConversationReq builds a msg-core-service conversation request.
+// NewCreateConversationReq 构造 msg-core-service 创建会话请求。
 func NewCreateConversationReq(convType string, participantIDs []int64, groupID int64) *message.CreateConversationReq {
 	return &message.CreateConversationReq{Type: convType, ParticipantIds: participantIDs, GroupId: groupID}
 }
 
-// NewSendMessageReq builds a plain message send request.
+// NewSendMessageReq 构造普通消息发送请求。
 func NewSendMessageReq(conversationID, senderID int64, content, msgType string) *message.SendMessageReq {
 	return NewSendMessageExtReq(conversationID, senderID, content, msgType, 0, nil, false)
 }
 
-// NewSendMessageExtReq builds a message send request carrying reply and mention
-// metadata. It is used by normal text, media references and broadcast messages.
+// NewSendMessageExtReq 构造带引用和 @ 元数据的消息发送请求。
+// 普通文本、媒体引用和广播消息都复用这一入口。
 func NewSendMessageExtReq(conversationID, senderID int64, content, msgType string, replyToID int64, mentionUserIDs []int64, mentionAll bool) *message.SendMessageReq {
 	return NewSendMessageExtReqWithClientID(conversationID, senderID, content, msgType, replyToID, mentionUserIDs, mentionAll, "")
 }
 
-// NewSendMessageExtReqWithClientID adds an optional idempotency key. Internal
-// producers such as Agent dispatchers should pass a stable key derived from the
-// source event so Kafka retries do not create duplicate replies.
+// NewSendMessageExtReqWithClientID 在消息发送请求上附加可选幂等键。
+// Agent Dispatcher 等内部生产者应使用来源事件推导稳定 client_msg_id，避免 Kafka 重试生成重复回复。
 func NewSendMessageExtReqWithClientID(conversationID, senderID int64, content, msgType string, replyToID int64, mentionUserIDs []int64, mentionAll bool, clientMsgID string) *message.SendMessageReq {
 	return &message.SendMessageReq{
 		ConversationId: conversationID,
@@ -324,121 +311,119 @@ func NewSendMessageExtReqWithClientID(conversationID, senderID int64, content, m
 	}
 }
 
-// NewGetHistoryReq builds a history query for one user's visible message view.
+// NewGetHistoryReq 构造当前用户可见视角下的历史消息查询请求。
 func NewGetHistoryReq(conversationID, userID, limit, beforeID int64) *message.GetHistoryReq {
 	return &message.GetHistoryReq{ConversationId: conversationID, UserId: userID, Limit: limit, BeforeId: beforeID}
 }
 
-// NewDeleteLocalMessageReq builds a request that hides one message only for the
-// current user, leaving the global message fact intact.
+// NewDeleteLocalMessageReq 构造“仅对当前用户隐藏消息”的请求，不删除全局消息事实。
 func NewDeleteLocalMessageReq(conversationID, userID, messageID int64) *message.DeleteLocalMessageReq {
 	return &message.DeleteLocalMessageReq{ConversationId: conversationID, UserId: userID, MessageId: messageID}
 }
 
-// NewSearchMessagesReq builds a user-scoped history search request.
+// NewSearchMessagesReq 构造用户范围内的历史消息搜索请求。
 func NewSearchMessagesReq(userID int64, keyword string, limit int64) *message.SearchMessagesReq {
 	return &message.SearchMessagesReq{UserId: userID, Keyword: keyword, Limit: limit}
 }
 
-// NewSearchMessagesInConvReq builds a conversation-scoped search request.
+// NewSearchMessagesInConvReq 构造指定会话范围内的消息搜索请求。
 func NewSearchMessagesInConvReq(conversationIDs []int64, keyword string, limit int64) *message.SearchMessagesReq {
 	return &message.SearchMessagesReq{ConversationIds: conversationIDs, Keyword: keyword, Limit: limit}
 }
 
-// NewSearchMessagesAdvancedReq builds a search request with optional time bounds.
+// NewSearchMessagesAdvancedReq 构造带可选时间范围的高级搜索请求。
 func NewSearchMessagesAdvancedReq(userID int64, conversationIDs []int64, keyword string, limit int64, startAt, endAt string) *message.SearchMessagesReq {
 	return &message.SearchMessagesReq{UserId: userID, ConversationIds: conversationIDs, Keyword: keyword, Limit: limit, StartAt: startAt, EndAt: endAt}
 }
 
-// NewUploadFileReq builds a metadata write request after the gateway has stored
-// the binary object in local storage or MinIO.
+// NewUploadFileReq 构造文件元数据写入请求，二进制内容应已由网关写入本地或 MinIO。
 func NewUploadFileReq(fileName, fileType string, fileSize int64, contentType, fileURL string, uploaderID int64) *file.UploadFileReq {
 	return &file.UploadFileReq{FileName: fileName, FileType: fileType, FileSize: fileSize, ContentType: contentType, FileUrl: fileURL, UploaderId: uploaderID}
 }
 
-// NewGetFileReq builds a file metadata lookup request.
+// NewGetFileReq 构造文件元数据查询请求。
 func NewGetFileReq(fileID string) *file.GetFileReq {
 	return &file.GetFileReq{FileId: fileID}
 }
 
-// NewDeleteFileReq builds a metadata deletion request with an operator identity.
+// NewDeleteFileReq 构造带操作者身份的文件元数据删除请求。
 func NewDeleteFileReq(fileID string, operatorID int64) *file.DeleteFileReq {
 	return &file.DeleteFileReq{FileId: fileID, OperatorId: operatorID}
 }
 
-// NewListFilesReq builds a paginated file metadata list request.
+// NewListFilesReq 构造分页文件元数据列表请求。
 func NewListFilesReq(uploaderID int64, fileType string, limit, offset int64) *file.ListFilesReq {
 	return &file.ListFilesReq{UploaderId: uploaderID, FileType: fileType, Limit: limit, Offset: offset}
 }
 
-// NewCreateBotReq builds a bot creation request with owner and model settings.
-func NewCreateBotReq(name, botType, description, modelName, apiKey, baseURL, systemPrompt, skillsDir, agentRoot, avatar, signature, workspaceRoot, toolPolicy string, ownerID int64) *bot.CreateBotReq {
+// NewCreateAgentReq 构造 Agent 创建请求，包含创建者和模型配置。
+func NewCreateAgentReq(name, botType, description, modelName, apiKey, baseURL, systemPrompt, skillsDir, agentRoot, avatar, signature, workspaceRoot, toolPolicy string, ownerID int64) *bot.CreateBotReq {
 	return &bot.CreateBotReq{Name: name, Type: botType, Description: description, ModelName: modelName, ApiKey: apiKey, BaseUrl: baseURL, SystemPrompt: systemPrompt, SkillsDir: skillsDir, AgentRoot: agentRoot, Avatar: avatar, Signature: signature, WorkspaceRoot: workspaceRoot, ToolPolicy: toolPolicy, OwnerId: ownerID}
 }
 
-// NewUpdateBotReq builds a bot update request. Empty secrets are interpreted by
-// bot-manager-service, not by the gateway.
-func NewUpdateBotReq(botID, operatorID int64, name, description, modelName, apiKey, baseURL, systemPrompt, skillsDir, agentRoot, avatar, signature, workspaceRoot, toolPolicy string, isActive bool, isActiveSet bool) *bot.UpdateBotReq {
+// NewUpdateAgentReq 构造 Agent 更新请求。
+// 空密钥字段由 agent-manager-service 判断含义，网关不擅自决定保留或清空。
+func NewUpdateAgentReq(botID, operatorID int64, name, description, modelName, apiKey, baseURL, systemPrompt, skillsDir, agentRoot, avatar, signature, workspaceRoot, toolPolicy string, isActive bool, isActiveSet bool) *bot.UpdateBotReq {
 	return &bot.UpdateBotReq{BotId: botID, OperatorId: operatorID, Name: name, Description: description, ModelName: modelName, ApiKey: apiKey, BaseUrl: baseURL, SystemPrompt: systemPrompt, SkillsDir: skillsDir, AgentRoot: agentRoot, Avatar: avatar, Signature: signature, WorkspaceRoot: workspaceRoot, ToolPolicy: toolPolicy, IsActive: isActive, IsActiveSet: isActiveSet}
 }
 
-// NewGetBotReq builds a bot metadata lookup request.
-func NewGetBotReq(botID int64) *bot.GetBotReq {
+// NewGetAgentReq 构造 Agent 元数据查询请求。
+func NewGetAgentReq(botID int64) *bot.GetBotReq {
 	return &bot.GetBotReq{BotId: botID}
 }
 
-// NewListBotsReq builds a user-scoped bot list request.
-func NewListBotsReq(ownerID int64, botType string) *bot.ListBotsReq {
+// NewListAgentsReq 构造当前用户范围内的 Agent 列表请求。
+func NewListAgentsReq(ownerID int64, botType string) *bot.ListBotsReq {
 	return &bot.ListBotsReq{OwnerId: ownerID, Type: botType}
 }
 
-// NewDeleteBotReq builds a bot deletion request with an operator identity.
-func NewDeleteBotReq(botID, operatorID int64) *bot.DeleteBotReq {
+// NewDeleteAgentReq 构造带操作者身份的 Agent 删除请求。
+func NewDeleteAgentReq(botID, operatorID int64) *bot.DeleteBotReq {
 	return &bot.DeleteBotReq{BotId: botID, OperatorId: operatorID}
 }
 
-// NewCreateRouteReq builds a bot routing rule creation request.
+// NewCreateRouteReq 构造 Agent 路由规则创建请求。
 func NewCreateRouteReq(botID int64, routePattern, routeType string, priority int64) *bot.CreateRouteReq {
 	return &bot.CreateRouteReq{BotId: botID, RoutePattern: routePattern, RouteType: routeType, Priority: priority}
 }
 
-// NewListRoutesReq builds a bot route list request.
+// NewListRoutesReq 构造 Agent 路由规则列表请求。
 func NewListRoutesReq(botID int64) *bot.ListRoutesReq {
 	return &bot.ListRoutesReq{BotId: botID}
 }
 
-// NewDeleteRouteReq builds a bot route deletion request.
+// NewDeleteRouteReq 构造 Agent 路由规则删除请求。
 func NewDeleteRouteReq(routeID, operatorID int64) *bot.DeleteRouteReq {
 	return &bot.DeleteRouteReq{RouteId: routeID, OperatorId: operatorID}
 }
 
-// NewGetBillingReq builds a paginated billing lookup request.
+// NewGetBillingReq 构造分页计费记录查询请求。
 func NewGetBillingReq(botID, userID, limit, offset int64) *bot.GetBillingReq {
 	return &bot.GetBillingReq{BotId: botID, UserId: userID, Limit: limit, Offset: offset}
 }
 
-// NewChatWithBotReq builds a bot chat request. conversationID is part of the
-// memory key so the same bot can keep separate context per conversation.
-func NewChatWithBotReq(botID, userID, conversationID int64, message string) *bot.ChatWithBotReq {
+// NewChatWithAgentReq 构造 Agent 对话请求。
+// conversationID 会进入记忆 key，使同一个 Agent 在不同 IM 会话中保持独立上下文。
+func NewChatWithAgentReq(botID, userID, conversationID int64, message string) *bot.ChatWithBotReq {
 	return &bot.ChatWithBotReq{BotId: botID, UserId: userID, ConversationId: conversationID, Message: message}
 }
 
-// NewAgentTaskReq builds one context-aware Agent task request.
+// NewAgentTaskReq 构造一次上下文感知的 Agent 任务请求。
 func NewAgentTaskReq(botID, userID, conversationID int64, question string) *bot.AgentTaskReq {
 	return &bot.AgentTaskReq{BotId: botID, UserId: userID, ConversationId: conversationID, Question: question}
 }
 
-// NewGrantPermissionReq builds an Agent permission grant request.
+// NewGrantPermissionReq 构造 Agent 权限授予请求。
 func NewGrantPermissionReq(botID, operatorID, userID int64, role string) *bot.GrantPermissionReq {
 	return &bot.GrantPermissionReq{BotId: botID, OperatorId: operatorID, UserId: userID, Role: role}
 }
 
-// NewRevokePermissionReq builds an Agent permission revoke request.
+// NewRevokePermissionReq 构造 Agent 权限撤销请求。
 func NewRevokePermissionReq(botID, operatorID, userID int64) *bot.RevokePermissionReq {
 	return &bot.RevokePermissionReq{BotId: botID, OperatorId: operatorID, UserId: userID}
 }
 
-// NewListPermissionsReq builds an Agent permission list request.
+// NewListPermissionsReq 构造 Agent 权限列表查询请求。
 func NewListPermissionsReq(botID, operatorID int64) *bot.ListPermissionsReq {
 	return &bot.ListPermissionsReq{BotId: botID, OperatorId: operatorID}
 }

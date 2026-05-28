@@ -19,6 +19,7 @@ import (
 	"time"
 )
 
+// main 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
 func main() {
 	logger.InitService("websocket-gateway")
 
@@ -144,6 +145,7 @@ func main() {
 	}
 }
 
+// syncOnlineStatusToRedis 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
 func syncOnlineStatusToRedis(redisClient *redis.RedisClient, h *hub.Hub) {
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()

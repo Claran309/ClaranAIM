@@ -4,6 +4,7 @@ package handler
 import (
 	"ClaranAIM/internal/api-gateway/client"
 	"ClaranAIM/kitex_gen/message"
+	"ClaranAIM/pkg/messageclient"
 	"ClaranAIM/pkg/response"
 	"bytes"
 	"context"
@@ -17,6 +18,17 @@ import (
 // MessageHandler 处理所有消息相关的 HTTP 请求
 type MessageHandler struct{}
 
+// 下面这组变量保存当前包需要复用的运行时状态或配置入口，调用方应通过公开函数间接使用。
+var gatewayMessageDomainService messageclient.TranslationService
+
+// InitMessageDomainService 注册消息领域的本地扩展能力。
+//
+// 这些能力暂时还没有进入 Kitex IDL，例如手动翻译；网关通过该门面调用
+// msg-core-service 的领域服务，避免把实现细节散落到 handler 中。
+func InitMessageDomainService(svc messageclient.TranslationService) {
+	gatewayMessageDomainService = svc
+}
+
 // NewMessageHandler 创建消息 HTTP handler。
 //
 // 当前 handler 本身无状态，所有跨服务能力都通过 client 包中的 Kitex
@@ -25,12 +37,14 @@ func NewMessageHandler() *MessageHandler {
 	return &MessageHandler{}
 }
 
+// bindJSONUseNumber 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
 func bindJSONUseNumber(c *app.RequestContext, dest interface{}) error {
 	decoder := json.NewDecoder(bytes.NewReader(c.Request.Body()))
 	decoder.UseNumber()
 	return decoder.Decode(dest)
 }
 
+// numberToInt64 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
 func numberToInt64(value json.Number) (int64, error) {
 	return strconv.ParseInt(value.String(), 10, 64)
 }
@@ -153,11 +167,10 @@ func (h *MessageHandler) SendMessage(ctx context.Context, c *app.RequestContext)
 	response.Success(c, resp)
 }
 
-// MarkConversationRead advances the current user's read cursor for a conversation.
+// MarkConversationRead 推进当前用户在指定会话中的已读游标。
 //
-// message_id may be omitted or zero, in which case msg-core-service marks the
-// latest visible message as read. The service layer then publishes a read event
-// so other participants can update their read receipts.
+// message_id 可以省略或传 0，此时 msg-core-service 会把当前可见的最后一条消息
+// 标记为已读；服务层随后发布已读事件，其他参与者据此更新已读回执。
 func (h *MessageHandler) MarkConversationRead(ctx context.Context, c *app.RequestContext) {
 	type markReadReq struct {
 		ConversationID json.Number `json:"conversation_id"`
@@ -235,8 +248,10 @@ func (h *MessageHandler) DeleteLocalMessage(ctx context.Context, c *app.RequestC
 	response.Success(c, resp)
 }
 
-// EditMessage updates the content of one message authored by the current user.
-// Ownership, edit window and message-state rules are enforced by msg-core-service.
+// EditMessage 编辑当前用户自己发送的一条消息。
+//
+// 消息归属、可编辑时间窗口和当前消息状态由 msg-core-service 统一校验，
+// 网关只负责传递操作者身份和请求参数。
 func (h *MessageHandler) EditMessage(ctx context.Context, c *app.RequestContext) {
 	type editReq struct {
 		MessageID json.Number `json:"message_id"`
@@ -268,8 +283,9 @@ func (h *MessageHandler) EditMessage(ctx context.Context, c *app.RequestContext)
 	response.Success(c, resp)
 }
 
-// RecallMessage recalls one message for all participants when msg-core-service
-// accepts the current user as an allowed operator.
+// RecallMessage 在 msg-core-service 认可当前用户有操作权限时撤回一条消息。
+//
+// 撤回是面向所有会话参与者的全局消息状态变更，不等同于本地删除聊天记录。
 func (h *MessageHandler) RecallMessage(ctx context.Context, c *app.RequestContext) {
 	type recallReq struct {
 		MessageID json.Number `json:"message_id"`
@@ -384,4 +400,42 @@ func (h *MessageHandler) GetUserConversations(ctx context.Context, c *app.Reques
 		return
 	}
 	response.Success(c, resp)
+}
+
+// TranslateMessage 通过 msg-core-service 手动翻译一条当前用户可见的文本消息。
+func (h *MessageHandler) TranslateMessage(ctx context.Context, c *app.RequestContext) {
+	type translateReq struct {
+		MessageID      json.Number `json:"message_id"`
+		TargetLanguage string      `json:"target_language"`
+		Force          bool        `json:"force"`
+	}
+	var req translateReq
+	if err := bindJSONUseNumber(c, &req); err != nil {
+		response.BadRequest(c, "参数错误")
+		return
+	}
+	messageID, err := numberToInt64(req.MessageID)
+	if err != nil || messageID <= 0 {
+		response.BadRequest(c, "无效的消息ID")
+		return
+	}
+	userID, ok := requireCurrentUserID(c)
+	if !ok {
+		return
+	}
+	if gatewayMessageDomainService == nil {
+		response.Error(c, "msg-core-service翻译能力未初始化")
+		return
+	}
+	result, err := gatewayMessageDomainService.TranslateMessage(ctx, messageclient.TranslateMessageInput{
+		MessageID:      messageID,
+		UserID:         userID,
+		TargetLanguage: req.TargetLanguage,
+		Force:          req.Force,
+	})
+	if err != nil {
+		response.Error(c, err.Error())
+		return
+	}
+	response.Success(c, map[string]interface{}{"success": true, "translation": result})
 }

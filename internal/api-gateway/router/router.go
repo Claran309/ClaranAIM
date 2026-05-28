@@ -23,8 +23,9 @@ func RegisterRoutes(r *route.Engine, cfg ...*config.Config) {
 	groupHandler := handler.NewGroupHandler()
 	messageHandler := handler.NewMessageHandler()
 	fileHandler := handler.NewFileHandler()
-	botHandler := handler.NewBotHandler()
+	agentHandler := handler.NewAgentHandler()
 	memoryHandler := handler.NewMemoryHandler()
+	settingsHandler := handler.NewSettingsHandler()
 
 	r.Use(middleware.CORSMiddleware())
 	if len(cfg) > 0 && cfg[0] != nil {
@@ -45,8 +46,7 @@ func RegisterRoutes(r *route.Engine, cfg ...*config.Config) {
 	auth := r.Group("/api/v1")
 	auth.Use(middleware.JWTAuthMiddleware())
 	{
-		// Authenticated REST facade. Handlers keep HTTP concerns here and delegate
-		// business rules to Kitex services through internal/api-gateway/client.
+		// 需要登录的 REST 门面。handler 只处理 HTTP 绑定和登录态，业务规则交给内部 Kitex 服务。
 		auth.GET("/user/info", userHandler.GetUserInfo)
 		auth.PUT("/user/info", userHandler.UpdateUserInfo)
 		auth.POST("/user/avatar", userHandler.UpdateAvatar)
@@ -60,12 +60,10 @@ func RegisterRoutes(r *route.Engine, cfg ...*config.Config) {
 		auth.GET("/user/batch", userHandler.BatchGetUserInfo)
 
 		auth.POST("/group/create", groupHandler.CreateGroup)
-		auth.GET("/group/:id", groupHandler.GetGroup)
 		auth.GET("/group/list", groupHandler.GetUserGroups)
 		auth.POST("/group/join", groupHandler.JoinGroupByID)
 		auth.POST("/group/invite", groupHandler.InviteMember)
 		auth.POST("/group/kick", groupHandler.KickMember)
-		auth.GET("/group/:id/members", groupHandler.GetGroupMembers)
 		auth.POST("/group/transfer", groupHandler.TransferOwner)
 		auth.PUT("/group/info", groupHandler.UpdateGroupInfo)
 		auth.POST("/group/pin", groupHandler.PinGroup)
@@ -73,6 +71,8 @@ func RegisterRoutes(r *route.Engine, cfg ...*config.Config) {
 		auth.POST("/group/unmute", groupHandler.UnmuteMember)
 		auth.POST("/group/role", groupHandler.SetRole)
 		auth.POST("/group/delete", groupHandler.DeleteGroup)
+		auth.GET("/group/:id", groupHandler.GetGroup)
+		auth.GET("/group/:id/members", groupHandler.GetGroupMembers)
 
 		auth.POST("/message/conversation", messageHandler.CreateConversation)
 		auth.POST("/message/send", messageHandler.SendMessage)
@@ -84,42 +84,48 @@ func RegisterRoutes(r *route.Engine, cfg ...*config.Config) {
 		auth.GET("/message/history/:id", messageHandler.GetHistory)
 		auth.GET("/message/search", messageHandler.SearchMessages)
 		auth.GET("/message/conversations", messageHandler.GetUserConversations)
+		auth.POST("/message/translate", messageHandler.TranslateMessage)
 
 		auth.POST("/file/upload", fileHandler.UploadFile)
 		auth.GET("/file/download/:id", fileHandler.DownloadFile)
+		auth.GET("/file/list", fileHandler.ListFiles)
 		auth.GET("/file/:id", fileHandler.GetFile)
 		auth.DELETE("/file/:id", fileHandler.DeleteFile)
-		auth.GET("/file/list", fileHandler.ListFiles)
 
-		auth.POST("/bot/create", botHandler.CreateBot)
-		auth.PUT("/bot/update", botHandler.UpdateBot)
-		auth.GET("/bot/:id", botHandler.GetBot)
-		auth.GET("/bot/list", botHandler.ListBots)
-		auth.DELETE("/bot/delete", botHandler.DeleteBot)
-		auth.POST("/bot/chat", botHandler.ChatWithBot)
-		auth.POST("/bot/route/create", botHandler.CreateRoute)
-		auth.GET("/bot/:id/routes", botHandler.ListRoutes)
-		auth.DELETE("/bot/route/delete", botHandler.DeleteRoute)
-		auth.GET("/bot/:id/billing", botHandler.GetBilling)
-
-		auth.POST("/agent/run", botHandler.RunAgent)
-		auth.POST("/agent/summarize", botHandler.SummarizeConversation)
-		auth.POST("/agent/ask", botHandler.AskConversation)
-		auth.POST("/agent/insights", botHandler.ExtractInsights)
-		auth.POST("/agent/reply-candidates", botHandler.GenerateReplyCandidates)
-		auth.GET("/agent/approvals", botHandler.ListAgentApprovals)
-		auth.POST("/agent/approval/confirm", botHandler.ConfirmAgentApproval)
-		auth.POST("/agent/approval/reject", botHandler.RejectAgentApproval)
-		auth.POST("/agent/add-friend", botHandler.AddAgentAsFriend)
-		auth.POST("/agent/permission/grant", botHandler.GrantPermission)
-		auth.POST("/agent/permission/revoke", botHandler.RevokePermission)
-		auth.GET("/agent/:id/permissions", botHandler.ListPermissions)
-		auth.GET("/agent/:id/sessions", botHandler.ListAgentSessions)
+		auth.POST("/agent/create", agentHandler.CreateAgent)
+		auth.PUT("/agent/update", agentHandler.UpdateAgent)
+		auth.GET("/agent/list", agentHandler.ListAgents)
+		auth.DELETE("/agent/delete", agentHandler.DeleteAgent)
+		auth.POST("/agent/chat", agentHandler.ChatWithAgent)
+		auth.POST("/agent/route/create", agentHandler.CreateRoute)
+		auth.DELETE("/agent/route/delete", agentHandler.DeleteRoute)
+		auth.POST("/agent/run", agentHandler.RunAgent)
+		auth.POST("/agent/summarize", agentHandler.SummarizeConversation)
+		auth.POST("/agent/ask", agentHandler.AskConversation)
+		auth.POST("/agent/insights", agentHandler.ExtractInsights)
+		auth.POST("/agent/reply-candidates", agentHandler.GenerateReplyCandidates)
+		auth.GET("/agent/approvals", agentHandler.ListAgentApprovals)
+		auth.POST("/agent/approval/confirm", agentHandler.ConfirmAgentApproval)
+		auth.POST("/agent/approval/reject", agentHandler.RejectAgentApproval)
+		auth.POST("/agent/add-friend", agentHandler.AddAgentAsFriend)
+		auth.POST("/agent/permission/grant", agentHandler.GrantPermission)
+		auth.POST("/agent/permission/revoke", agentHandler.RevokePermission)
+		auth.GET("/agent/:id", agentHandler.GetAgent)
+		auth.GET("/agent/:id/routes", agentHandler.ListRoutes)
+		auth.GET("/agent/:id/billing", agentHandler.GetBilling)
+		auth.GET("/agent/:id/permissions", agentHandler.ListPermissions)
+		auth.GET("/agent/:id/sessions", agentHandler.ListAgentSessions)
 
 		auth.GET("/memory/list", memoryHandler.ListMemories)
 		auth.POST("/memory/create", memoryHandler.CreateMemory)
 		auth.PUT("/memory/:id", memoryHandler.UpdateMemory)
 		auth.DELETE("/memory/:id", memoryHandler.DeleteMemory)
+
+		auth.GET("/settings/llm-profiles", settingsHandler.ListLLMProfiles)
+		auth.POST("/settings/llm-profiles", settingsHandler.SaveLLMProfile)
+		auth.DELETE("/settings/llm-profiles/:id", settingsHandler.DeleteLLMProfile)
+		auth.GET("/settings/prompts", settingsHandler.ListPrompts)
+		auth.POST("/settings/prompts", settingsHandler.SavePrompt)
 	}
 
 	admin := r.Group("/api/v1/admin")
@@ -128,7 +134,7 @@ func RegisterRoutes(r *route.Engine, cfg ...*config.Config) {
 		// 管理层路由占位：后续新增系统管理接口必须挂在该分组下。
 	}
 
-	// Local object preview endpoint for files stored by the gateway. Metadata
+	// 网关本地存储文件的预览端点；元数据仍由 file-service 管理。
 	// access remains authenticated through /api/v1/file/*.
 	r.GET("/files/*filepath", fileHandler.ServeLocalFile)
 	r.GET("/file/preview/:id", fileHandler.PreviewFile)

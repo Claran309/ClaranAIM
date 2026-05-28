@@ -4,16 +4,18 @@ import (
 	"ClaranAIM/internal/api-gateway/client"
 	"ClaranAIM/internal/api-gateway/handler"
 	"ClaranAIM/internal/api-gateway/router"
-	memorydao "ClaranAIM/internal/memory-service/dao"
-	memorysvc "ClaranAIM/internal/memory-service/service"
 	"ClaranAIM/pkg/config"
 	"ClaranAIM/pkg/health"
 	"ClaranAIM/pkg/jwt"
 	"ClaranAIM/pkg/logger"
+	"ClaranAIM/pkg/memoryclient"
+	"ClaranAIM/pkg/messageclient"
+	"ClaranAIM/pkg/settingsclient"
 
 	"github.com/cloudwego/hertz/pkg/app/server"
 )
 
+// main 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
 func main() {
 	logger.InitService("api-gateway")
 
@@ -30,11 +32,11 @@ func main() {
 
 	handler.InitFileStorage(cfg)
 	handler.InitDTMConfig(cfg.DTM)
-	memoryDB, err := memorydao.InitDB(cfg.MySQL.DSN)
-	if err != nil {
-		logger.Fatal("初始化memory-service数据库失败", "error", err)
-	}
-	handler.InitMemoryService(memorysvc.NewMemoryService(memorydao.NewMemoryRepo(memoryDB)))
+	handler.InitMemoryService(memoryclient.NewHTTPClient(cfg.Internal.MemoryServiceURL))
+	settingsService := settingsclient.NewHTTPClient(cfg.Internal.SettingsServiceURL)
+	handler.InitSettingsService(settingsService)
+	handler.InitAgentSettingsService(settingsService)
+	handler.InitMessageDomainService(messageclient.NewHTTPClient(cfg.Internal.MsgCoreServiceURL))
 	if cfg.DTM.Enabled {
 		logger.Info("DTM分布式事务配置已启用", "server", cfg.DTM.Server)
 	} else {

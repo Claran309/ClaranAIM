@@ -52,6 +52,7 @@ func (OfflineMessage) TableName() string {
 	return "offline_messages"
 }
 
+// fillSnowflakeID 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
 func fillSnowflakeID(id *int64) error {
 	if *id != 0 {
 		return nil

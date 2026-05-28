@@ -172,6 +172,23 @@ struct RecallMessageResp {
     2: string msg
 }
 
+struct TranslateMessageReq {
+    1: i64 message_id
+    2: i64 user_id
+    3: string target_language
+    4: bool force
+}
+
+struct TranslateMessageResp {
+    1: bool success
+    2: i64 message_id
+    3: string target_language
+    4: string translated_text
+    5: bool cached
+    6: string model_name
+    7: string msg
+}
+
 // 消息核心服务
 service MessageService {
     CreateConversationResp CreateConversation(1: CreateConversationReq req)
@@ -185,6 +202,7 @@ service MessageService {
     GetHistoryResp GetHistory(1: GetHistoryReq req)
     SearchMessagesResp SearchMessages(1: SearchMessagesReq req)
     GetConversationParticipantsResp GetConversationParticipants(1: GetConversationParticipantsReq req)
+    TranslateMessageResp TranslateMessage(1: TranslateMessageReq req)
 }
 
 // ===== 消息历史服务 =====

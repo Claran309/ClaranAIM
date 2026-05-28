@@ -1220,6 +1220,43 @@
 
 ***
 
+### 3.10 手动翻译消息
+
+**POST** `/message/translate`
+
+需要认证。该接口不会自动翻译所有消息，只在用户点击“翻译”时触发。翻译能力落在 msg-core-service，并通过 settings-service 读取当前用户的翻译 LLM 预设和翻译 Prompt；如果用户未配置，则使用系统默认 LLM 配置。
+
+| 参数            | 类型    | 必填 | 说明 |
+| --------------- | ------- | ---- | ---- |
+| message_id      | int64   | 是   | 要翻译的消息 ID |
+| target_language | string  | 否   | 目标语言，默认 `中文` |
+| force           | bool    | 否   | 是否跳过缓存强制重新翻译 |
+
+响应示例：
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "success": true,
+    "message_id": 49895688258818048,
+    "target_language": "中文",
+    "translated_text": "这里是译文",
+    "cached": false
+  }
+}
+```
+
+核心逻辑：
+
+- 校验当前用户是否能看到该消息，不能翻译无权限消息。
+- 按 `user_id + message_id + target_language + source_hash` 缓存译文，消息内容未变化时直接返回缓存。
+- 调用 OpenAI-compatible `/chat/completions` 接口，真实 URL/API Key/模型来自用户设置或系统默认配置。
+- 翻译失败不会修改原消息，只返回错误给前端。
+
+***
+
 ## 四、文件模块 (file-service)
 
 ### 4.1 上传文件
@@ -1369,18 +1406,20 @@ curl -X POST http://localhost:8080/api/v1/file/upload \
 
 ***
 
-## 五、AI 助手模块 (bot-manager-service)
+## 五、AI 助手模块 (agent-manager-service)
+
+说明：面向业务和前端的接口统一使用 `/agent/*`。旧 `/bot/*` HTTP 兼容入口已删除；当前仍存在的 `kitex_gen/bot` 只是历史 Kitex 生成包名，不代表网关对外暴露 `/bot/*`。
 
 ### 5.1 创建 AI 助手
 
-**POST** `/bot/create`
+**POST** `/agent/create`
 
 需要认证。
 
 | 参数            | 类型     | 必填 | 说明                              |
 | ------------- | ------ | -- | ------------------------------- |
 | name          | string | 是  | 助手名称                            |
-| type          | string | 是  | 类型：`internal`（内部Bot）/ `custom`（自部署Bot） |
+| type          | string | 是  | 类型：`internal`（平台内置 Agent）/ `custom`（自部署 Agent） |
 | description   | string | 否  | 助手描述                            |
 | model_name    | string | 是  | LLM 模型名称（如 gpt-4o-mini）        |
 | api_key       | string | 否  | LLM API Key                     |
@@ -1392,6 +1431,7 @@ curl -X POST http://localhost:8080/api/v1/file/upload \
 | signature     | string | 否  | Agent 作为用户展示时的个性签名           |
 | workspace_root | string | 否 | Agent 文件/代码工具允许使用的工作目录       |
 | tool_policy   | string | 否  | 工具策略，默认 `safe`                  |
+| llm_profile_id | int64 | 否 | settings-service 中保存的 LLM 预设 ID；传入后优先使用该预设的 BaseURL、模型和 API Key |
 
 请求示例：
 
@@ -1423,22 +1463,23 @@ curl -X POST http://localhost:8080/api/v1/file/upload \
 
 核心逻辑：
 
-- 创建 Bot 记录到 MySQL（bots 表）
+- 创建 Agent 记录到 MySQL（bots 表）
 - 创建或绑定一个真实系统用户作为 `agent_user_id`，Agent 在 IM 中以该用户身份被 @ 和发送消息；该用户 `is_system=true`，不能通过密码登录
 - 创建者自动拥有 `owner` 权限
-- internal/custom 配置都由 bot-manager 保存，执行交给 bot-runtime-service
+- internal/custom 配置都由 agent-manager-service 保存，执行交给 agent-runtime-service
+- 如果传入 `llm_profile_id`，api-gateway 会调用 settings-service 读取该用户拥有的 LLM 预设，再把预设解析为 Agent 配置；前端不需要重复填写 API Key
 
 ***
 
 ### 5.2 更新 AI 助手
 
-**PUT** `/bot/update`
+**PUT** `/agent/update`
 
 需要认证。
 
 | 参数            | 类型      | 必填 | 说明        |
 | ------------- | ------- | -- | --------- |
-| bot_id        | int64   | 是  | Bot ID    |
+| bot_id        | int64   | 是  | Agent ID  |
 | name          | string  | 否  | 新名称       |
 | description   | string  | 否  | 新描述       |
 | model_name    | string  | 否  | 新模型名称     |
@@ -1456,19 +1497,19 @@ curl -X POST http://localhost:8080/api/v1/file/upload \
 核心逻辑：
 
 - `owner/admin` 可操作，创建者可给其他用户授予 Agent 权限
-- 更新配置后 bot-runtime-service 下次调用会按新的配置快照创建/复用 Agent
+- 更新配置后 agent-runtime-service 下次调用会按新的配置快照创建/复用 Agent
 
 ***
 
 ### 5.3 获取 AI 助手详情
 
-**GET** `/bot/:id`
+**GET** `/agent/:id`
 
 需要认证。
 
 | 参数 | 类型    | 必填      | 说明      |
 | -- | ----- | ------- | ------- |
-| id | int64 | 是（路径参数） | Bot ID  |
+| id | int64 | 是（路径参数） | Agent ID |
 
 响应示例：
 
@@ -1504,7 +1545,7 @@ curl -X POST http://localhost:8080/api/v1/file/upload \
 
 ### 5.4 获取 AI 助手列表
 
-**GET** `/bot/list`
+**GET** `/agent/list`
 
 需要认证。
 
@@ -1539,13 +1580,13 @@ curl -X POST http://localhost:8080/api/v1/file/upload \
 
 ### 5.5 删除 AI 助手
 
-**DELETE** `/bot/delete`
+**DELETE** `/agent/delete`
 
 需要认证。
 
 | 参数     | 类型    | 必填 | 说明       |
 | ------ | ----- | -- | -------- |
-| bot_id | int64 | 是  | Bot ID   |
+| bot_id | int64 | 是  | Agent ID |
 
 核心逻辑：
 
@@ -1557,13 +1598,13 @@ curl -X POST http://localhost:8080/api/v1/file/upload \
 
 ### 5.6 与 AI 助手对话
 
-**POST** `/bot/chat`
+**POST** `/agent/chat`
 
 需要认证。
 
 | 参数              | 类型     | 必填 | 说明                |
 | --------------- | ------ | -- | ----------------- |
-| bot_id          | int64  | 是  | Bot ID            |
+| bot_id          | int64  | 是  | Agent ID          |
 | message         | string | 是  | 用户消息              |
 | conversation_id | int64  | 否  | 关联的会话ID，0=不关联     |
 
@@ -1596,11 +1637,11 @@ curl -X POST http://localhost:8080/api/v1/file/upload \
 核心逻辑：
 
 1. 检查 Bot 是否存在且启用
-2. bot-manager-service 做权限、路由、计费入口校验
-3. bot-runtime-service 获取或创建 Eino DeepAgent 并调用 Agent.Run()
+2. agent-manager-service 做权限、路由、计费入口校验
+3. agent-runtime-service 获取或创建 Eino DeepAgent 并调用 Agent.Run()
 4. 从 Eino `schema.Message.ResponseMeta.Usage` 读取模型返回的真实 Token 用量，并按模型单价计算费用
 5. 记录计费信息到 billing_records 表
-6. 如果通过群聊 @Agent 触发，bot-manager-service 消费 `message.created` Kafka 事件，调用 runtime 后用 Agent 的 `agent_user_id` 写回消息
+6. 如果通过群聊 @Agent 触发，agent-manager-service 消费 `message.created` Kafka 事件，调用 runtime 后用 Agent 的 `agent_user_id` 写回消息
 7. @Agent 分发通过 `agent_dispatch_records(event_id, agent_user_id)` 记录状态，Agent 回复通过 msg-core-service `client_msg_id=agent:{event_id}:{agent_user_id}` 做消息幂等，Kafka 重投不会重复生成多条回复
 
 说明：
@@ -1616,7 +1657,7 @@ curl -X POST http://localhost:8080/api/v1/file/upload \
 
 | 接口 | 方法 | 说明 |
 | --- | --- | --- |
-| `/agent/run` | POST | Agent 原生运行入口，参数与 `/bot/chat` 相同 |
+| `/agent/run` | POST | Agent 原生运行入口，参数与 `/agent/chat` 相同 |
 | `/agent/summarize` | POST | 对指定会话生成总结 |
 | `/agent/ask` | POST | 基于会话上下文问答 |
 | `/agent/insights` | POST | 提取结论、分歧、风险、待办和负责人 |
@@ -1630,11 +1671,11 @@ curl -X POST http://localhost:8080/api/v1/file/upload \
 
 | 参数 | 类型 | 必填 | 说明 |
 | --- | --- | --- | --- |
-| bot_id | int64 | 是 | Agent/Bot ID |
+| bot_id | int64 | 是 | Agent ID |
 | conversation_id | int64 | 否 | 会话 ID |
 | question | string | 否 | 问题或附加指令 |
 
-当 `/agent/run` 或 `/bot/chat` 触发高风险工具策略时，网关会返回待确认状态：
+当 `/agent/run` 或 `/agent/chat` 触发高风险工具策略时，网关会返回待确认状态：
 
 ```json
 {
@@ -1659,7 +1700,7 @@ curl -X POST http://localhost:8080/api/v1/file/upload \
 }
 ```
 
-说明：当前确认流是轻量 MVP，审批状态保存在 api-gateway 进程内。它已经能跑通 `agent-ask -> user-approve -> agent-act` 基础链路；生产级别应将审批记录、checkpoint/resume 状态和超时清理移动到 bot-runtime-service 或专用任务表中。
+说明：当前确认流是轻量 MVP，审批状态保存在 api-gateway 进程内。它已经能跑通 `agent-ask -> user-approve -> agent-act` 基础链路；生产级别应将审批记录、checkpoint/resume 状态和超时清理移动到 agent-runtime-service 或专用任务表中。
 
 将 Agent 加为好友请求：
 
@@ -1766,7 +1807,7 @@ curl -X POST http://localhost:8080/api/v1/file/upload \
 
 ### 5.6.3 Agent-Native IM 事件与订阅
 
-Agent 原生入口优先走 Kafka/Outbox，而不是前端 HTTP 按钮。bot-manager-service 当前同时消费：
+Agent 原生入口优先走 Kafka/Outbox，而不是前端 HTTP 按钮。agent-manager-service 当前同时消费：
 
 | Topic | 说明 |
 | --- | --- |
@@ -1836,9 +1877,7 @@ Agent 原生入口优先走 Kafka/Outbox，而不是前端 HTTP 按钮。bot-man
 - Dispatcher 构建 Agent 上下文时，会把附件引用注入提示词，格式包含 `file_id/name/content_type/url/size`，保证 Agent 至少知道“有哪个文件进入了会话事件流”。
 - Dispatcher 幂等优先使用 payload 中的 `idempotency_key`，缺失时退回 Kafka envelope `event_id`；Agent 回复的 `client_msg_id` 同样使用这个 dispatch key，避免同一业务事件重复投递时重复生成 Agent 回复。
 
-兼容管理入口：
-
-当前未新增 BotService Thrift 方法，前端先复用 `/bot/route/*` 管理 Agent 订阅规则。bot-manager-service 会把以下 route 类型镜像到 `agent_subscription_rules`：
+Agent 触发规则管理入口：`/agent/route/*` 用于管理 Agent 订阅规则。旧 `/bot/route/*` HTTP 兼容入口已删除。agent-manager-service 会把以下 route 类型镜像到 `agent_subscription_rules`：
 
 | route_type | route_pattern 含义 | Dispatcher 行为 |
 | --- | --- | --- |
@@ -1878,13 +1917,13 @@ Agent 任务返回 JSON 时，前端会识别 `cards`、`action_cards` 或 `acti
 
 ### 5.7 创建路由规则
 
-**POST** `/bot/route/create`
+**POST** `/agent/route/create`
 
 需要认证。
 
 | 参数            | 类型     | 必填 | 说明                                |
 | ------------- | ------ | -- | --------------------------------- |
-| bot_id        | int64  | 是  | Bot ID                            |
+| bot_id        | int64  | 是  | Agent ID                          |
 | route_pattern | string | 是  | 路由匹配模式                            |
 | route_type    | string | 是  | 路由类型：`keyword`（关键词）/ `regex`（正则） |
 | priority      | int64  | 否  | 优先级，默认 0，数值越大优先级越高               |
@@ -1902,7 +1941,7 @@ Agent 任务返回 JSON 时，前端会识别 `cards`、`action_cards` 或 `acti
 
 核心逻辑：
 
-- 路由规则用于消息分发，当用户消息匹配路由模式时自动转发给对应 Bot
+- 路由规则用于 Agent 事件分发，当用户消息或 IM 事件匹配规则时触发 Agent
 - keyword 类型：消息包含关键词即匹配
 - regex 类型：使用正则表达式匹配
 
@@ -1910,19 +1949,19 @@ Agent 任务返回 JSON 时，前端会识别 `cards`、`action_cards` 或 `acti
 
 ### 5.8 获取路由规则列表
 
-**GET** `/bot/:id/routes`
+**GET** `/agent/:id/routes`
 
 需要认证。
 
 | 参数 | 类型    | 必填      | 说明      |
 | -- | ----- | ------- | ------- |
-| id | int64 | 是（路径参数） | Bot ID  |
+| id | int64 | 是（路径参数） | Agent ID |
 
 ***
 
 ### 5.9 删除路由规则
 
-**DELETE** `/bot/route/delete`
+**DELETE** `/agent/route/delete`
 
 需要认证。
 
@@ -1934,13 +1973,13 @@ Agent 任务返回 JSON 时，前端会识别 `cards`、`action_cards` 或 `acti
 
 ### 5.10 获取计费记录
 
-**GET** `/bot/:id/billing`
+**GET** `/agent/:id/billing`
 
 需要认证。
 
 | 参数     | 类型    | 必填 | 说明      |
 | ------ | ----- | -- | ------- |
-| id     | int64 | 是（路径参数） | Bot ID  |
+| id     | int64 | 是（路径参数） | Agent ID |
 | limit  | int64 | 否  | 每页条数，默认 20 |
 | offset | int64 | 否  | 偏移量，默认 0   |
 
@@ -1972,9 +2011,73 @@ Agent 任务返回 JSON 时，前端会识别 `cards`、`action_cards` 或 `acti
 
 ***
 
-## 六、WebSocket 网关 (websocket-gateway)
+## 六、系统设置模块 (settings-service)
 
-### 6.1 建立 WebSocket 连接
+settings-service 保存用户级系统设置。本阶段先落地 LLM 预设和 Prompt 模板：用户可以预设多个 OpenAI-compatible BaseURL、API Key、模型名和用途，在创建 Agent 或手动翻译时复用。
+
+### 6.1 获取 LLM 预设列表
+
+**GET** `/settings/llm-profiles?usage_type=agent`
+
+需要认证。
+
+| 参数       | 类型   | 必填 | 说明 |
+| ---------- | ------ | ---- | ---- |
+| usage_type | string | 否   | 过滤用途：`agent`、`translation`、`general` |
+
+响应中的 `api_key` 会被隐藏，只返回 `has_api_key`。
+
+### 6.2 保存 LLM 预设
+
+**POST** `/settings/llm-profiles`
+
+需要认证。
+
+| 参数           | 类型   | 必填 | 说明 |
+| -------------- | ------ | ---- | ---- |
+| id             | int64  | 否   | 传入则更新，不传则创建 |
+| name           | string | 是   | 预设名称 |
+| provider       | string | 否   | 供应商标识，如 `openai-compatible` |
+| usage_type     | string | 否   | 用途：`agent`、`translation`、`general` |
+| base_url       | string | 是   | API Base URL |
+| api_key        | string | 否   | API Key |
+| api_key_action | string | 否   | `set`、`keep`、`clear`，更新时默认 `keep` |
+| model_name     | string | 是   | 模型名称 |
+| enabled        | bool   | 否   | 是否启用 |
+| is_default     | bool   | 否   | 是否作为该用途默认预设 |
+
+### 6.3 删除 LLM 预设
+
+**DELETE** `/settings/llm-profiles/:id`
+
+需要认证。只能删除当前用户自己的预设。
+
+### 6.4 获取 Prompt 模板
+
+**GET** `/settings/prompts`
+
+需要认证。当前前端使用 `translation` 类型保存翻译 Prompt，后续可扩展总结、代码审查、回复候选等 Prompt。
+
+### 6.5 保存 Prompt 模板
+
+**POST** `/settings/prompts`
+
+需要认证。
+
+| 参数       | 类型   | 必填 | 说明 |
+| ---------- | ------ | ---- | ---- |
+| id         | int64  | 否   | 传入则更新，不传则创建 |
+| type       | string | 是   | Prompt 类型，如 `translation` |
+| name       | string | 是   | 模板名称 |
+| content    | string | 是   | Prompt 内容 |
+| enabled    | bool   | 否   | 是否启用 |
+| is_default | bool   | 否   | 是否作为默认模板 |
+
+***
+
+## 七、WebSocket 网关 (websocket-gateway)
+
+### 7.1 建立 WebSocket 连接
 
 **GET** `ws://localhost:8081/ws?token=<JWT_TOKEN>`
 
@@ -2017,7 +2120,7 @@ Agent 任务返回 JSON 时，前端会识别 `cards`、`action_cards` 或 `acti
 
 ***
 
-### 6.2 消息推送接口（内部兼容接口）
+### 7.2 消息推送接口（内部兼容接口）
 
 **POST** `http://localhost:8081/push`
 
@@ -2036,16 +2139,16 @@ Agent 任务返回 JSON 时，前端会识别 `cards`、`action_cards` 或 `acti
 
 ***
 
-### 6.3 Kafka 事件主题（内部）
+### 7.3 Kafka 事件主题（内部）
 
 Kafka 默认开启，默认 broker 为 `127.0.0.1:9092`。本地如暂时不启动 Kafka，可设置 `KAFKA_ENABLED=false`；业务请求仍会把待发布事件写入 `event_outbox`，等 Kafka 恢复并启用 worker 后继续投递。
 
 | Topic | 生产者 | 消费者 | 说明 |
 | ----- | ------ | ------ | ---- |
 | `claran.group.events` | group-service Outbox worker | msg-core-service | 群创建、邀请、踢人、解散事件，用于同步群聊会话和参与者 |
-| `claran.message.events` | msg-core-service Outbox worker | websocket-gateway、bot-manager-service | 新消息、编辑、撤回、已读事件，用于在线 WebSocket 推送和兼容 Agent @ 分发 |
-| `claran.im.events` | 各 IM 事件生产者 | bot-manager-service | Agent-Native IM 统一事件，承载表情、文件、语音转写、群成员、系统通知、任务变化等事件 |
-| `claran.agent.events` | bot-manager-service / bot-runtime-service | 审计、成本监控、异步后处理消费者 | Agent 运行、完成、失败、工具调用和审计事件 |
+| `claran.message.events` | msg-core-service Outbox worker | websocket-gateway、agent-manager-service | 新消息、编辑、撤回、已读事件，用于在线 WebSocket 推送和兼容 Agent @ 分发 |
+| `claran.im.events` | 各 IM 事件生产者 | agent-manager-service | Agent-Native IM 统一事件，承载表情、文件、语音转写、群成员、系统通知、任务变化等事件 |
+| `claran.agent.events` | agent-manager-service / agent-runtime-service | 审计、成本监控、异步后处理消费者 | Agent 运行、完成、失败、工具调用和审计事件 |
 
 可靠性边界：
 
@@ -2066,7 +2169,7 @@ Kafka 默认开启，默认 broker 为 `127.0.0.1:9092`。本地如暂时不启�
 }
 ```
 
-### 6.4 查询在线用户
+### 7.4 查询在线用户
 
 **GET** `http://localhost:8081/online`
 
@@ -2080,7 +2183,7 @@ Kafka 默认开启，默认 broker 为 `127.0.0.1:9092`。本地如暂时不启�
 
 ***
 
-### 6.5 查询用户是否在线
+### 7.5 查询用户是否在线
 
 **GET** `http://localhost:8081/is_online?user_id=1`
 
@@ -2095,7 +2198,7 @@ Kafka 默认开启，默认 broker 为 `127.0.0.1:9092`。本地如暂时不启�
 
 ***
 
-## 七、数据库表结构
+## 八、数据库表结构
 
 ### ID 生成规则
 
@@ -2276,7 +2379,7 @@ Kafka 默认开启，默认 broker 为 `127.0.0.1:9092`。本地如暂时不启�
 | created_at      | datetime     | 创建时间                                  |
 | updated_at      | datetime     | 更新时间                                  |
 
-### bots 表 (bot-manager-service)
+### bots 表 (agent-manager-service)
 
 | 字段            | 类型           | 说明                                    |
 | ------------- | ------------ | ------------------------------------- |
@@ -2295,23 +2398,23 @@ Kafka 默认开启，默认 broker 为 `127.0.0.1:9092`。本地如暂时不启�
 | created_at    | datetime     | 创建时间                                  |
 | updated_at    | datetime     | 更新时间                                  |
 
-### bot_routes 表 (bot-manager-service)
+### bot_routes 表 (agent-manager-service)
 
 | 字段            | 类型           | 说明                                |
 | ------------- | ------------ | --------------------------------- |
 | id            | bigint PK    | 雪花ID                               |
-| bot_id        | bigint       | Bot ID，索引                         |
+| bot_id        | bigint       | Agent ID，索引                         |
 | route_pattern | varchar(255) | 路由匹配模式                            |
 | route_type    | varchar(50)  | 路由类型：keyword/regex               |
 | priority      | int          | 优先级，默认 0                          |
 | created_at    | datetime     | 创建时间                              |
 
-### billing_records 表 (bot-manager-service)
+### billing_records 表 (agent-manager-service)
 
 | 字段            | 类型           | 说明       |
 | ------------- | ------------ | -------- |
 | id            | bigint PK    | 雪花ID      |
-| bot_id        | bigint       | Bot ID，索引 |
+| bot_id        | bigint       | Agent ID，索引 |
 | user_id       | bigint       | 用户ID，索引  |
 | conversation_id | bigint     | 关联会话ID，0 表示不关联具体 IM 会话 |
 | action        | varchar(50)  | 操作类型     |
@@ -2324,7 +2427,7 @@ Kafka 默认开启，默认 broker 为 `127.0.0.1:9092`。本地如暂时不启�
 
 ***
 
-## 八、Redis 缓存 Key 规范
+## 九、Redis 缓存 Key 规范
 
 | Key 模式                      | 服务                        | TTL         | 说明        |
 | --------------------------- | ------------------------- | ----------- | --------- |
@@ -2342,7 +2445,7 @@ Kafka 默认开启，默认 broker 为 `127.0.0.1:9092`。本地如暂时不启�
 
 ***
 
-## 九、前端页面功能映射
+## 十、前端页面功能映射
 
 | 页面/按钮            | 对应接口                                                    | 说明                |
 | ---------------- | ------------------------------------------------------- | ----------------- |
@@ -2362,18 +2465,18 @@ Kafka 默认开启，默认 broker 为 `127.0.0.1:9092`。本地如暂时不启�
 | "+创建群组"按钮        | POST /group/create                                      | 弹窗输入群名和成员         |
 | 消息输入框             | POST /message/send                                      | 发送文本消息            |
 | 附件按钮（📎）         | POST /file/upload → POST /message/send                  | 上传文件并发送多媒体消息      |
-| AI助手按钮（🤖）        | GET /bot/list → POST /bot/chat                          | 打开AI助手面板进行对话      |
+| AI助手按钮（🤖）        | GET /agent/list → POST /agent/chat                          | 打开AI助手面板进行对话      |
 | "搜索"按钮           | GET /message/search                                     | 搜索当前会话消息          |
 | "详情"按钮           | GET /message/history/:id                                | 查看会话详情            |
 | 个人信息编辑           | PUT /user/info                                          | 编辑昵称、头像、头图、签名、简介等资料 |
-| AI助手管理面板          | POST /bot/create → GET /bot/list → POST /bot/chat      | 创建/管理/对话AI助手      |
-| AI助手路由管理          | POST /bot/route/create → GET /bot/:id/routes            | 配置消息路由规则          |
-| AI助手计费查询          | GET /bot/:id/billing                                    | 查看Token用量和费用      |
+| AI助手管理面板          | POST /agent/create → GET /agent/list → POST /agent/chat      | 创建/管理/对话AI助手      |
+| AI助手路由管理          | POST /agent/route/create → GET /agent/:id/routes            | 配置消息路由规则          |
+| AI助手计费查询          | GET /agent/:id/billing                                    | 查看Token用量和费用      |
 | WebSocket 连接     | ws://localhost:8081/ws?token=xxx                        | 登录后自动建立，接收实时消息    |
 
 ***
 
-## 十、多媒体消息格式规范
+## 十一、多媒体消息格式规范
 
 ### 消息类型
 
@@ -2393,7 +2496,7 @@ Kafka 默认开启，默认 broker 为 `127.0.0.1:9092`。本地如暂时不启�
 
 ***
 
-## 十一、服务端口一览
+## 十二、服务端口一览
 
 | 服务                  | 端口   | 协议       | 说明         |
 | ------------------- | ---- | -------- | ---------- |
@@ -2402,7 +2505,7 @@ Kafka 默认开启，默认 broker 为 `127.0.0.1:9092`。本地如暂时不启�
 | msg-core-service    | 9003 | Thrift RPC | 消息核心服务     |
 | msg-history-service | 9004 | Thrift RPC | 消息历史服务     |
 | file-service        | 9005 | Thrift RPC | 文件服务       |
-| bot-manager-service | 9006 | Thrift RPC | AI助手管理服务   |
+| agent-manager-service | 9006 | Thrift RPC | AI助手管理服务   |
 | api-gateway         | 8080 | HTTP      | API 网关     |
 | websocket-gateway   | 8081 | HTTP/WS   | WebSocket 网关 |
 | Kafka               | 9092 | TCP       | 事件总线       |
@@ -2414,3 +2517,12 @@ Kafka 默认开启，默认 broker 为 `127.0.0.1:9092`。本地如暂时不启�
 | MySQL               | 3306 | TCP       | 数据库        |
 | Redis               | 6379 | TCP       | 缓存         |
 | Etcd                | 2379 | gRPC      | 服务注册与发现    |
+
+
+
+
+
+
+
+
+

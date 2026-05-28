@@ -27,6 +27,8 @@ let conversationParticipantCache = {};
 let conversationGroupCollapsed = JSON.parse(localStorage.getItem('claran_conversation_group_collapsed') || '{}');
 let agentContextSidebarVisible = false;
 let agentNativeStateByConversation = {};
+let llmProfilesCache = [];
+let messageTranslations = {};
 const LOCAL_LOG_KEY = 'claran_frontend_logs';
 const LOCAL_LOG_LIMIT = 500;
 
@@ -1073,7 +1075,7 @@ async function enterMainPage() {
 }
 
 async function refreshAgentCache() {
-    const resp = await botAPI.list();
+    const resp = await agentAPI.list();
     if (!(resp && resp.code === 0 && resp.data && resp.data.bots)) return;
     botCache = resp.data.bots;
     agentUserIDToBot = {};
@@ -1555,8 +1557,11 @@ function createMessageHTML(m) {
     ` : '';
     const editedHTML = m.is_edited ? '<span class="message-edited">已编辑</span>' : '';
     const agentDurationHTML = m.agent_thinking_duration_ms ? `<span class="agent-thinking-duration">思考 ${(Number(m.agent_thinking_duration_ms) / 1000).toFixed(1)} 秒</span>` : '';
+    const translation = messageTranslations[String(messageID)];
+    const translationHTML = translation ? `<div class="message-translation"><div class="translation-label">译文 · ${escapeHTML(translation.target_language || '中文')}</div>${renderMarkdownText(translation.translated_text || '')}</div>` : '';
     const actionsHTML = (!isBot && status !== 'recalled' && messageID) ? `
         <div class="message-actions">
+            <button type="button" onclick="translateMessage(${jsArg(messageID)}, this)">翻译</button>
             <button type="button" onclick="setPendingReply(${jsArg(messageID)})">回复</button>
             <button type="button" onclick="deleteLocalMessage(${jsArg(messageID)})">删除</button>
             ${isSent ? `<button type="button" onclick="editMessage(${jsArg(messageID)})">编辑</button><button type="button" onclick="recallMessage(${jsArg(messageID)})">撤回</button>` : ''}
@@ -1575,7 +1580,7 @@ function createMessageHTML(m) {
                     ${agentDurationHTML}
                     ${readReceiptHTML(m)}
                 </div>
-                <div class="message-bubble ${errorClass} ${status === 'recalled' ? 'recalled-bubble' : ''}">${replyHTML}${bubbleContent}</div>
+                <div class="message-bubble ${errorClass} ${status === 'recalled' ? 'recalled-bubble' : ''}">${replyHTML}${bubbleContent}${translationHTML}</div>
                 ${actionsHTML}
             </div>
         </div>
@@ -1605,6 +1610,28 @@ function appendMessage(m) {
         msgList.innerHTML += createMessageHTML(m);
         hydrateMedia(msgList);
         msgList.scrollTop = msgList.scrollHeight;
+    }
+}
+
+async function translateMessage(messageID, buttonEl = null) {
+    if (!messageID) return;
+    const oldText = buttonEl ? buttonEl.textContent : '';
+    if (buttonEl) {
+        buttonEl.disabled = true;
+        buttonEl.textContent = '翻译中';
+    }
+    const resp = await messageAPI.translate(messageID, '中文', false);
+    if (buttonEl) {
+        buttonEl.disabled = false;
+        buttonEl.textContent = oldText || '翻译';
+    }
+    if (resp && resp.code === 0 && resp.data?.success) {
+        const translation = resp.data.translation;
+        messageTranslations[String(messageID)] = translation;
+        renderCurrentMessages();
+        showToast(translation.cached ? '已显示缓存译文' : '翻译完成', 'success');
+    } else {
+        showToast(resp?.message || resp?.data?.msg || '翻译失败', 'error');
     }
 }
 
@@ -2954,8 +2981,7 @@ async function uploadAndSendFile() {
 }
 
 async function sendVoiceBlob(blob, durationMs) {
-    // Voice messages use the same media contract as images/files: upload the
-    // binary first, then send a lightweight [voice]url|id|name[/voice] message.
+    // 语音消息复用图片/文件的媒体协议：先上传二进制文件，再发送轻量的 [voice]url|id|name[/voice] 引用。
     if (!currentConversationID) {
         showToast('请先打开一个会话', 'warning');
         return;
@@ -3006,8 +3032,7 @@ async function sendVoiceBlob(blob, durationMs) {
 }
 
 async function startVoiceRecording(e) {
-    // Long-press recording mirrors mobile chat apps. MediaRecorder streams audio
-    // chunks locally until mouse/touch release, then the final Blob is uploaded.
+    // 长按录音模拟移动端聊天体验：MediaRecorder 先在本地收集音频片段，松开鼠标/手指后再上传最终 Blob。
     if (e) e.preventDefault();
     if (!currentConversationID) {
         showToast('请先打开一个会话', 'warning');
@@ -3066,8 +3091,7 @@ function stopVoiceRecording(e) {
 }
 
 function bindVoiceRecorder() {
-    // Bind once on page load. Release listeners live on window so sending still
-    // happens if the pointer leaves the circular record button before mouseup.
+    // 页面加载后只绑定一次；释放事件挂在 window 上，避免指针滑出录音按钮后无法结束并发送。
     const btn = document.getElementById('voice-record-btn');
     if (!btn || btn.dataset.bound === '1') return;
     btn.dataset.bound = '1';
@@ -3144,9 +3168,166 @@ function renderTextMessage(content) {
     return placeholders.reduce((text, html, idx) => text.replace(`__MENTION_${idx}__`, html), withMentions);
 }
 
+async function showSystemSettings() {
+    showModal('系统设置', `
+        <div class="settings-tabs">
+            <button class="btn-small active" onclick="renderLLMSettings()">LLM 预设</button>
+            <button class="btn-small" onclick="renderPromptSettings()">Prompt</button>
+        </div>
+        <div id="settings-content" class="settings-content">加载中...</div>
+    `);
+    await renderLLMSettings();
+}
+
+async function renderLLMSettings() {
+    const area = document.getElementById('settings-content');
+    if (!area) return;
+    area.innerHTML = '<div class="empty-tip">加载中...</div>';
+    const resp = await settingsAPI.listLLMProfiles();
+    if (!resp || resp.code !== 0 || !resp.data?.success) {
+        area.innerHTML = `<div class="empty-tip">加载失败<br><small>${escapeHTML(resp?.message || '')}</small></div>`;
+        return;
+    }
+    llmProfilesCache = resp.data.profiles || [];
+    area.innerHTML = `
+            <div class="agent-help-box">
+                <strong>LLM 预设</strong>
+                <p>这里保存可复用的模型服务配置。创建 Agent 或翻译消息时可以直接选择这些预设，API Key 不会回显。</p>
+            </div>
+            <input id="setting-llm-id" type="hidden" value="">
+            <div class="settings-list">
+                ${llmProfilesCache.length ? llmProfilesCache.map(renderLLMProfileCard).join('') : '<div class="empty-tip">暂无 LLM 预设</div>'}
+            </div>
+        <div class="settings-editor">
+            <h4>新增 / 修改 LLM 预设</h4>
+            <div class="profile-form-grid">
+                <div class="form-group">
+                    <label>配置名称</label>
+                    <input id="setting-llm-name" type="text" placeholder="例如：智谱翻译 / OpenAI 工作模型">
+                </div>
+                <div class="form-group">
+                    <label>用途</label>
+                    <select id="setting-llm-usage" class="form-select">
+                        <option value="translation">翻译</option>
+                        <option value="agent">Agent</option>
+                        <option value="general">通用</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>BaseURL</label>
+                    <input id="setting-llm-baseurl" type="text" placeholder="https://api.example.com/v1">
+                </div>
+                <div class="form-group">
+                    <label>模型名</label>
+                    <input id="setting-llm-model" type="text" placeholder="例如 glm-4.7 / gpt-4o-mini">
+                </div>
+            </div>
+            <div class="form-group">
+                <label>API Key</label>
+                <input id="setting-llm-apikey" type="password" placeholder="留空则不写入；保存时会设置为新密钥">
+            </div>
+            <label class="checkbox-row"><input id="setting-llm-default" type="checkbox"><span>设为该用途默认配置</span></label>
+            <button class="btn-primary" onclick="saveLLMSetting()">保存 LLM 预设</button>
+        </div>
+    `;
+}
+
+function renderLLMProfileCard(profile) {
+    return `
+        <div class="memory-card">
+            <div class="memory-card-head">
+                <strong>${escapeHTML(profile.name || '未命名')}</strong>
+                <span>${escapeHTML(profile.usage_type || 'general')} ${profile.is_default ? '· 默认' : ''}</span>
+            </div>
+            <div class="memory-card-meta">
+                <span>${escapeHTML(profile.model_name || '未配置模型')}</span>
+                <span>${escapeHTML(profile.base_url || '未配置BaseURL')}</span>
+                <span>${profile.has_api_key ? '已保存密钥' : '未保存密钥'}</span>
+            </div>
+            <div class="memory-card-actions">
+                <button class="btn-small" onclick="fillLLMSettingForm(${jsStringArg(JSON.stringify(profile).replace(/</g, '\\u003c'))})">填入表单</button>
+                <button class="btn-small danger-soft" onclick="deleteLLMSetting(${jsArg(profile.id)})">删除</button>
+            </div>
+        </div>
+    `;
+}
+
+function fillLLMSettingForm(profileJSON) {
+    const profile = JSON.parse(profileJSON);
+    document.getElementById('setting-llm-id').value = profile.id || '';
+    document.getElementById('setting-llm-name').value = profile.name || '';
+    document.getElementById('setting-llm-usage').value = profile.usage_type || 'translation';
+    document.getElementById('setting-llm-baseurl').value = profile.base_url || '';
+    document.getElementById('setting-llm-model').value = profile.model_name || '';
+    document.getElementById('setting-llm-default').checked = !!profile.is_default;
+}
+
+async function saveLLMSetting() {
+    const apiKey = document.getElementById('setting-llm-apikey').value.trim();
+    const data = {
+        id: Number(document.getElementById('setting-llm-id')?.value || 0),
+        name: document.getElementById('setting-llm-name').value.trim(),
+        usage_type: document.getElementById('setting-llm-usage').value,
+        base_url: document.getElementById('setting-llm-baseurl').value.trim(),
+        model_name: document.getElementById('setting-llm-model').value.trim(),
+        api_key: apiKey,
+        api_key_action: apiKey ? 'set' : 'keep',
+        is_default: document.getElementById('setting-llm-default').checked,
+        enabled: true,
+    };
+    const resp = await settingsAPI.saveLLMProfile(data);
+    if (resp && resp.code === 0 && resp.data?.success) {
+        showToast('LLM 预设已保存', 'success');
+        await renderLLMSettings();
+    } else {
+        showToast(resp?.message || resp?.data?.msg || '保存失败', 'error');
+    }
+}
+
+async function deleteLLMSetting(id) {
+    if (!confirm('确定删除这个 LLM 预设？')) return;
+    const resp = await settingsAPI.deleteLLMProfile(id);
+    if (resp && resp.code === 0 && resp.data?.success) {
+        showToast('LLM 预设已删除', 'success');
+        await renderLLMSettings();
+    } else {
+        showToast(resp?.message || resp?.data?.msg || '删除失败', 'error');
+    }
+}
+
+async function renderPromptSettings() {
+    const area = document.getElementById('settings-content');
+    if (!area) return;
+    const resp = await settingsAPI.listPrompts();
+    const prompts = resp?.data?.prompts || [];
+    const translationPrompt = prompts.find(p => p.type === 'translation')?.content || '请将下面内容翻译成中文。只输出译文，保留代码、链接、数字、专有名词和 Markdown 结构。';
+    area.innerHTML = `
+        <div class="agent-help-box">
+            <strong>Prompt 设置</strong>
+            <p>当前先支持翻译 Prompt，后续摘要、改写、Agent 上下文也会复用同一配置服务。</p>
+        </div>
+        <div class="form-group">
+            <label>翻译 Prompt</label>
+            <textarea id="setting-translation-prompt" rows="7">${escapeHTML(translationPrompt)}</textarea>
+            <small>可使用 {{text}} 和 {{target_language}} 占位符。</small>
+        </div>
+        <button class="btn-primary" onclick="saveTranslationPrompt()">保存 Prompt</button>
+    `;
+}
+
+async function saveTranslationPrompt() {
+    const content = document.getElementById('setting-translation-prompt').value.trim();
+    const resp = await settingsAPI.savePrompt({ type: 'translation', name: '翻译 Prompt', content, enabled: true, is_default: true });
+    if (resp && resp.code === 0 && resp.data?.success) {
+        showToast('Prompt 已保存', 'success');
+    } else {
+        showToast(resp?.message || resp?.data?.msg || '保存失败', 'error');
+    }
+}
+
 async function loadBotSidebar() {
     const list = document.getElementById('bot-list');
-    const resp = await botAPI.list();
+    const resp = await agentAPI.list();
     if (resp && resp.code === 0 && resp.data && resp.data.bots) {
         botCache = resp.data.bots;
         agentUserIDToBot = {};
@@ -3212,6 +3393,13 @@ function showCreateBotForm() {
             </select>
         </div>
         <div class="form-group">
+            <label>使用已保存的 LLM 预设</label>
+            <select id="bot-llm-profile" class="form-select" onchange="onAgentLLMProfileChange()">
+                <option value="">不使用预设</option>
+            </select>
+            <small class="form-hint">可在系统设置中预设 BaseURL、模型和 API Key；选择后创建 Agent 时会优先使用该预设。</small>
+        </div>
+        <div class="form-group">
             <label>描述</label>
             <input type="text" id="bot-desc" placeholder="这个助手能帮你做什么">
         </div>
@@ -3256,12 +3444,46 @@ function showCreateBotForm() {
         </div>
         <button id="create-bot-submit" class="btn-primary" onclick="createBot()">创建智能助手</button>
     `);
+    loadLLMProfilesForAgentCreate();
 }
 
 function onBotTypeChange() {
     const type = document.getElementById('bot-type').value;
     const customFields = document.getElementById('custom-bot-fields');
     customFields.style.display = type === 'custom' ? 'block' : 'none';
+}
+
+async function loadLLMProfilesForAgentCreate() {
+    const select = document.getElementById('bot-llm-profile');
+    if (!select) return;
+    try {
+        const resp = await settingsAPI.listLLMProfiles();
+        const profiles = resp?.data?.profiles || [];
+        llmProfilesCache = profiles;
+        select.innerHTML = '<option value="">不使用预设</option>' + profiles.map(profile => {
+            const label = `${profile.name || '未命名预设'} · ${profile.model_name || '未设置模型'}`;
+            return `<option value="${escapeHTML(String(profile.id))}">${escapeHTML(label)}</option>`;
+        }).join('');
+    } catch (err) {
+        select.innerHTML = '<option value="">预设加载失败</option>';
+    }
+}
+
+function onAgentLLMProfileChange() {
+    const profileID = document.getElementById('bot-llm-profile')?.value || '';
+    const typeSelect = document.getElementById('bot-type');
+    const modelInput = document.getElementById('bot-model');
+    const baseURLInput = document.getElementById('bot-baseurl');
+    const customFields = document.getElementById('custom-bot-fields');
+    if (!profileID) {
+        onBotTypeChange();
+        return;
+    }
+    const profile = llmProfilesCache.find(item => String(item.id) === String(profileID));
+    if (typeSelect) typeSelect.value = 'custom';
+    if (customFields) customFields.style.display = 'none';
+    if (modelInput && profile?.model_name) modelInput.value = profile.model_name;
+    if (baseURLInput && profile?.base_url) baseURLInput.value = profile.base_url;
 }
 
 function closeAgentItemMenus(exceptID = '') {
@@ -3571,9 +3793,10 @@ async function createBot() {
     const signature = document.getElementById('bot-signature')?.value?.trim() || '';
     const workspaceRoot = document.getElementById('bot-workspace')?.value?.trim() || '';
     const toolPolicy = document.getElementById('bot-tool-policy')?.value || 'safe';
+    const llmProfileID = document.getElementById('bot-llm-profile')?.value || '';
     if (!name) { showToast('请填写助手名称', 'warning'); return; }
-    if (type === 'custom' && !apiKey) { showToast('自定义模型必须填写模型密钥', 'warning'); return; }
-    if (type === 'custom' && !baseURL) { showToast('自定义模型必须填写模型服务地址', 'warning'); return; }
+    if (!llmProfileID && type === 'custom' && !apiKey) { showToast('自定义模型必须填写模型密钥', 'warning'); return; }
+    if (!llmProfileID && type === 'custom' && !baseURL) { showToast('自定义模型必须填写模型服务地址', 'warning'); return; }
     botCreateSubmitting = true;
     const submitBtn = document.getElementById('create-bot-submit');
     if (submitBtn) {
@@ -3581,11 +3804,12 @@ async function createBot() {
         submitBtn.textContent = '创建中...';
     }
     try {
-        const resp = await botAPI.create(name, type, description, modelName, apiKey, baseURL, systemPrompt, '', '', {
+        const resp = await agentAPI.create(name, type, description, modelName, apiKey, baseURL, systemPrompt, '', '', {
             avatar,
             signature,
             workspace_root: workspaceRoot,
             tool_policy: toolPolicy,
+            llm_profile_id: llmProfileID ? Number(llmProfileID) : 0,
         });
         if (resp && resp.code === 0 && resp.data && resp.data.success) {
             showToast('智能助手创建成功', 'success');
@@ -3604,7 +3828,7 @@ async function createBot() {
 }
 
 async function toggleBot(botID, isActive) {
-    const resp = await botAPI.update(botID, { is_active: isActive });
+    const resp = await agentAPI.update(botID, { is_active: isActive });
     if (resp && resp.code === 0 && resp.data && resp.data.success) {
         showToast(isActive ? '已启用' : '已停用', 'success');
         loadBotSidebar();
@@ -3614,7 +3838,7 @@ async function toggleBot(botID, isActive) {
 }
 
 async function showEditAgentForm(botID) {
-    const resp = await botAPI.get(botID);
+    const resp = await agentAPI.get(botID);
     if (!(resp && resp.code === 0 && resp.data && resp.data.bot)) {
         showToast(resp?.data?.msg || '加载智能助手失败', 'error');
         return;
@@ -3684,7 +3908,7 @@ async function saveAgentConfig(botID) {
         showToast('助手昵称不能为空', 'warning');
         return;
     }
-    const resp = await botAPI.update(botID, data);
+    const resp = await agentAPI.update(botID, data);
     if (resp && resp.code === 0 && resp.data && resp.data.success) {
         showToast('智能助手已更新', 'success');
         closeModal();
@@ -3696,7 +3920,7 @@ async function saveAgentConfig(botID) {
 
 async function deleteBot(botID) {
     if (!confirm('确定要删除该智能助手吗？')) return;
-    const resp = await botAPI.delete(botID);
+    const resp = await agentAPI.delete(botID);
     if (resp && resp.code === 0 && resp.data && resp.data.success) {
         showToast('已删除', 'success');
         loadBotSidebar();
@@ -4303,7 +4527,7 @@ async function sendBotChatMsg() {
     appendMessage(thinkingMsg);
     botPendingReplies[activeBotID] = thinkingMsg;
 
-    const resp = await botAPI.chat(activeBotID, content, botConversationID);
+    const resp = await agentAPI.chat(activeBotID, content, botConversationID);
 
     delete botPendingReplies[activeBotID];
     const isStillActive = currentBotID === activeBotID && activeBotSeq === botChatSeq;
@@ -4352,7 +4576,7 @@ async function createBotRoute(botID) {
     const pattern = document.getElementById('route-pattern').value.trim();
     const routeType = document.getElementById('route-type').value;
     if (!pattern) { showToast('请填写路由模式', 'warning'); return; }
-    const resp = await botAPI.createRoute(botID, pattern, routeType, 0);
+    const resp = await agentAPI.createRoute(botID, pattern, routeType, 0);
     if (resp && resp.code === 0 && resp.data && resp.data.success) {
         showToast('Agent 触发规则已添加', 'success');
         loadBotRoutes(botID);
@@ -4363,9 +4587,9 @@ async function createBotRoute(botID) {
 
 async function loadBotRoutes(botID) {
     const area = document.getElementById('route-list-area');
-    if (!botID) { area.innerHTML = '<div class="empty-tip">请输入Bot ID</div>'; return; }
+    if (!botID) { area.innerHTML = '<div class="empty-tip">请输入Agent ID</div>'; return; }
     area.innerHTML = '<div class="search-loading"><div class="spinner"></div>加载中...</div>';
-    const resp = await botAPI.listRoutes(botID);
+    const resp = await agentAPI.listRoutes(botID);
     if (resp && resp.code === 0 && resp.data && resp.data.routes) {
         const routes = resp.data.routes;
         if (routes.length === 0) {
@@ -4391,7 +4615,7 @@ async function loadBotRoutes(botID) {
 
 async function deleteBotRoute(routeID, botID) {
     if (!confirm('确定删除该 Agent 触发规则？')) return;
-    const resp = await botAPI.deleteRoute(routeID);
+    const resp = await agentAPI.deleteRoute(routeID);
     if (resp && resp.code === 0 && resp.data && resp.data.success) {
         showToast('已删除', 'success');
         loadBotRoutes(botID);
@@ -4404,7 +4628,7 @@ async function loadBotBilling(botID) {
     const area = document.getElementById('billing-list-area');
     if (!botID) { area.innerHTML = '<div class="empty-tip">参数错误</div>'; return; }
     area.innerHTML = '<div class="search-loading"><div class="spinner"></div>加载中...</div>';
-    const resp = await botAPI.getBilling(botID);
+    const resp = await agentAPI.getBilling(botID);
     if (resp && resp.code === 0 && resp.data && resp.data.records) {
         const records = resp.data.records;
         if (records.length === 0) {
@@ -4432,3 +4656,5 @@ window.onload = function () {
         enterMainPage();
     }
 };
+
+

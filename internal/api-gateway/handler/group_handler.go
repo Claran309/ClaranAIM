@@ -1,6 +1,5 @@
-// Package handler contains api-gateway HTTP handlers. GroupHandler adapts the
-// browser's group-management REST calls to group-service RPCs while preserving
-// the authenticated operator identity from JWT middleware.
+// Package handler 包含 api-gateway 的 HTTP 处理器。
+// 本文件把浏览器的群管理 REST 请求适配为 group-service RPC，并始终沿用 JWT 中的操作者身份。
 package handler
 
 import (
@@ -19,23 +18,24 @@ import (
 	"github.com/cloudwego/hertz/pkg/app"
 )
 
-// GroupHandler handles group metadata, membership, role, mute and pin endpoints.
-// Permission checks live in group-service; this layer only validates transport
-// shape and enriches requests with the current operator ID.
+// GroupHandler 处理群资料、成员、角色、禁言和置顶接口。
+// 权限判断属于 group-service；网关只校验传输层形状并补充当前操作者 ID。
 type GroupHandler struct{}
 
+// 下面这组变量保存当前包需要复用的运行时状态或配置入口，调用方应通过公开函数间接使用。
 var dtmCfg *config.DTMConfig
 
-// InitDTMConfig stores the DTM branch addresses used by group creation Saga.
+// InitDTMConfig 保存创建群 Saga 需要使用的 DTM 分支地址。
 func InitDTMConfig(cfg config.DTMConfig) {
 	dtmCfg = &cfg
 }
 
-// NewGroupHandler constructs the stateless group HTTP handler used by the router.
+// NewGroupHandler 创建无状态群组 HTTP handler，供 router 注册路由。
 func NewGroupHandler() *GroupHandler {
 	return &GroupHandler{}
 }
 
+// parseJSONNumberList 将 JSON 数字数组解析为正整数 ID 列表，避免大整数精度丢失。
 func parseJSONNumberList(values []json.Number, name string) ([]int64, error) {
 	result := make([]int64, 0, len(values))
 	for _, value := range values {
@@ -48,6 +48,7 @@ func parseJSONNumberList(values []json.Number, name string) ([]int64, error) {
 	return result, nil
 }
 
+// parseJSONNumber 将 JSON 数字字段解析为正 int64。
 func parseJSONNumber(value json.Number, name string) (int64, error) {
 	id, err := strconv.ParseInt(value.String(), 10, 64)
 	if err != nil || id <= 0 {
@@ -56,6 +57,7 @@ func parseJSONNumber(value json.Number, name string) (int64, error) {
 	return id, nil
 }
 
+// rawJSONField 判断请求体中某个字段是否显式出现，用于区分“不修改”和“清空字段”。
 func rawJSONField(c *app.RequestContext, field string) (json.RawMessage, bool) {
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(c.Request.Body(), &raw); err != nil {
@@ -65,16 +67,15 @@ func rawJSONField(c *app.RequestContext, field string) (json.RawMessage, bool) {
 	return value, ok
 }
 
+// bindGroupJSONUseNumber 使用 json.Number 解码群组请求，保护 10 位群号和雪花 ID 的精度。
 func bindGroupJSONUseNumber(c *app.RequestContext, dest interface{}) error {
 	decoder := json.NewDecoder(bytes.NewReader(c.Request.Body()))
 	decoder.UseNumber()
 	return decoder.Decode(dest)
 }
 
-// CreateGroup creates a group with the current user as owner.
-//
-// The gateway pre-checks invited user IDs so the UI can report invalid members
-// before group-service writes group membership and group-created events.
+// CreateGroup 创建群聊，并把当前用户设为群主。
+// 网关会先检查被邀请用户是否存在，让前端在 group-service 写成员关系和事件前得到清晰错误。
 func (h *GroupHandler) CreateGroup(ctx context.Context, c *app.RequestContext) {
 	type createGroupReq struct {
 		Name      string        `json:"name"`
@@ -117,6 +118,8 @@ func (h *GroupHandler) CreateGroup(ctx context.Context, c *app.RequestContext) {
 	response.Success(c, resp)
 }
 
+// createGroupWithDTM 使用 DTM Saga 同时创建群资料和群会话。
+// 这是低频管理动作，适合用 Saga 兜底跨服务一致性；高频消息链路不走 DTM。
 func (h *GroupHandler) createGroupWithDTM(ctx context.Context, c *app.RequestContext, name string, ownerID int64, memberIDs []int64) {
 	groupID, err := idgen.NewUID10()
 	if err != nil {
@@ -163,6 +166,7 @@ func (h *GroupHandler) createGroupWithDTM(ctx context.Context, c *app.RequestCon
 	})
 }
 
+// dedupeGroupParticipants 合并群主和邀请成员并去重，确保群会话参与者列表稳定。
 func dedupeGroupParticipants(ownerID int64, memberIDs []int64) []int64 {
 	seen := map[int64]struct{}{}
 	result := make([]int64, 0, len(memberIDs)+1)
@@ -179,7 +183,7 @@ func dedupeGroupParticipants(ownerID int64, memberIDs []int64) []int64 {
 	return result
 }
 
-// GetGroup returns group metadata such as name, owner, avatar and announcement.
+// GetGroup 查询群名称、群主、头像、公告等群资料。
 func (h *GroupHandler) GetGroup(ctx context.Context, c *app.RequestContext) {
 	groupIDStr := c.Param("id")
 	groupID, err := strconv.ParseInt(groupIDStr, 10, 64)
@@ -195,7 +199,7 @@ func (h *GroupHandler) GetGroup(ctx context.Context, c *app.RequestContext) {
 	response.Success(c, resp)
 }
 
-// GetUserGroups returns all groups visible to the current user.
+// GetUserGroups 查询当前用户可见的所有群聊。
 func (h *GroupHandler) GetUserGroups(ctx context.Context, c *app.RequestContext) {
 	id, ok := requireCurrentUserID(c)
 	if !ok {
@@ -209,8 +213,8 @@ func (h *GroupHandler) GetUserGroups(ctx context.Context, c *app.RequestContext)
 	response.Success(c, resp)
 }
 
-// InviteMember adds users to a group. group-service performs the actual role
-// checks and emits membership events for msg-core-service synchronization.
+// InviteMember 邀请用户入群。
+// group-service 负责实际角色校验，并发布成员变更事件供 msg-core-service 同步会话成员。
 func (h *GroupHandler) InviteMember(ctx context.Context, c *app.RequestContext) {
 	type inviteReq struct {
 		GroupID json.Number   `json:"group_id"`
@@ -252,10 +256,8 @@ func (h *GroupHandler) InviteMember(ctx context.Context, c *app.RequestContext) 
 	response.Success(c, resp)
 }
 
-// JoinGroupByID lets the current user join a group by entering its public
-// 10-digit group number. It intentionally only submits the current user ID;
-// inviting other users still goes through /group/invite and group-service role
-// checks.
+// JoinGroupByID 允许当前用户输入公开 10 位群号加入群聊。
+// 该接口只提交当前用户自己；替别人邀请仍走 /group/invite 并由 group-service 做角色校验。
 func (h *GroupHandler) JoinGroupByID(ctx context.Context, c *app.RequestContext) {
 	type joinReq struct {
 		GroupID json.Number `json:"group_id"`
@@ -319,8 +321,7 @@ func (h *GroupHandler) JoinGroupByID(ctx context.Context, c *app.RequestContext)
 	})
 }
 
-// KickMember removes one user from a group after group-service validates that
-// the current operator has permission.
+// KickMember 移除一个群成员，具体权限由 group-service 校验。
 func (h *GroupHandler) KickMember(ctx context.Context, c *app.RequestContext) {
 	type kickReq struct {
 		GroupID json.Number `json:"group_id"`
@@ -353,11 +354,9 @@ func (h *GroupHandler) KickMember(ctx context.Context, c *app.RequestContext) {
 	response.Success(c, resp)
 }
 
-// GetGroupMembers returns group membership enriched with user profile fields.
-//
-// group-service owns membership, but the browser also needs display names and
-// avatars. The gateway joins those profile fields through user-service to avoid
-// coupling group-service to the user table.
+// GetGroupMembers 查询群成员并补充用户展示资料。
+// group-service 拥有成员关系，浏览器还需要昵称和头像；网关通过 user-service 拼接展示字段，
+// 避免 group-service 直接耦合用户表。
 func (h *GroupHandler) GetGroupMembers(ctx context.Context, c *app.RequestContext) {
 	groupIDStr := c.Param("id")
 	groupID, err := strconv.ParseInt(groupIDStr, 10, 64)
@@ -400,7 +399,7 @@ func (h *GroupHandler) GetGroupMembers(ctx context.Context, c *app.RequestContex
 	})
 }
 
-// TransferOwner transfers group ownership to another member.
+// TransferOwner 将群主身份转让给另一名群成员。
 func (h *GroupHandler) TransferOwner(ctx context.Context, c *app.RequestContext) {
 	type transferReq struct {
 		GroupID    json.Number `json:"group_id"`
@@ -433,11 +432,8 @@ func (h *GroupHandler) TransferOwner(ctx context.Context, c *app.RequestContext)
 	response.Success(c, resp)
 }
 
-// UpdateGroupInfo updates group name and announcement.
-//
-// announcement has two distinct meanings: omitted means "leave unchanged" and
-// an explicit empty string means "clear announcement". The gateway preserves
-// that distinction before converting the request into the current Thrift shape.
+// UpdateGroupInfo 更新群名称和公告。
+// announcement 未出现表示保持不变；显式传空字符串表示清空公告，网关在转成 Thrift 请求前保留这个区别。
 func (h *GroupHandler) UpdateGroupInfo(ctx context.Context, c *app.RequestContext) {
 	type updateReq struct {
 		GroupID      json.Number `json:"group_id"`
@@ -478,7 +474,7 @@ func (h *GroupHandler) UpdateGroupInfo(ctx context.Context, c *app.RequestContex
 	response.Success(c, resp)
 }
 
-// PinGroup updates the current user's pin state for a group in the sidebar.
+// PinGroup 更新当前用户侧边栏里的群置顶状态。
 func (h *GroupHandler) PinGroup(ctx context.Context, c *app.RequestContext) {
 	type pinReq struct {
 		GroupID  json.Number `json:"group_id"`
@@ -506,7 +502,7 @@ func (h *GroupHandler) PinGroup(ctx context.Context, c *app.RequestContext) {
 	response.Success(c, resp)
 }
 
-// MuteMember applies a timed mute to one group member.
+// MuteMember 对某个群成员设置定时禁言。
 func (h *GroupHandler) MuteMember(ctx context.Context, c *app.RequestContext) {
 	type muteReq struct {
 		GroupID         json.Number `json:"group_id"`
@@ -540,7 +536,7 @@ func (h *GroupHandler) MuteMember(ctx context.Context, c *app.RequestContext) {
 	response.Success(c, resp)
 }
 
-// UnmuteMember clears a member's group mute state.
+// UnmuteMember 清除某个成员的群禁言状态。
 func (h *GroupHandler) UnmuteMember(ctx context.Context, c *app.RequestContext) {
 	type unmuteReq struct {
 		GroupID json.Number `json:"group_id"`
@@ -573,7 +569,7 @@ func (h *GroupHandler) UnmuteMember(ctx context.Context, c *app.RequestContext) 
 	response.Success(c, resp)
 }
 
-// SetRole changes a group member's role, such as member/admin.
+// SetRole 修改群成员角色，例如普通成员或管理员。
 func (h *GroupHandler) SetRole(ctx context.Context, c *app.RequestContext) {
 	type setRoleReq struct {
 		GroupID json.Number `json:"group_id"`
@@ -607,8 +603,8 @@ func (h *GroupHandler) SetRole(ctx context.Context, c *app.RequestContext) {
 	response.Success(c, resp)
 }
 
-// DeleteGroup dissolves a group. msg-core-service keeps historical group
-// conversations visible as deleted-group placeholders until users hide them.
+// DeleteGroup 解散群聊。
+// msg-core-service 会保留历史群会话，并以“已解散群”的占位形式展示，直到用户主动隐藏。
 func (h *GroupHandler) DeleteGroup(ctx context.Context, c *app.RequestContext) {
 	type deleteReq struct {
 		GroupID json.Number `json:"group_id"`

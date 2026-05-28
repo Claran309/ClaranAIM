@@ -28,12 +28,14 @@ func NewUserHandler() *UserHandler {
 	return &UserHandler{}
 }
 
+// bindUserJSONUseNumber 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
 func bindUserJSONUseNumber(c *app.RequestContext, dest interface{}) error {
 	decoder := json.NewDecoder(bytes.NewReader(c.Request.Body()))
 	decoder.UseNumber()
 	return decoder.Decode(dest)
 }
 
+// parseOptionalJSONNumber 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
 func parseOptionalJSONNumber(value json.Number, name string) (int64, error) {
 	if value.String() == "" {
 		return 0, nil
@@ -106,11 +108,10 @@ func (h *UserHandler) Login(ctx context.Context, c *app.RequestContext) {
 	})
 }
 
-// RefreshToken exchanges a refresh token for a new access token.
+// RefreshToken 使用 refresh token 换取新的 access token。
 //
-// The refresh token is parsed locally to verify its type and signature, then the
-// user is fetched from user-service so disabled/deleted users cannot keep
-// refreshing access tokens forever.
+// 网关会先在本地校验 refresh token 的签名和类型，再向 user-service 查询用户状态；
+// 这样可以避免已禁用或已删除的用户继续通过旧 refresh token 续签访问令牌。
 func (h *UserHandler) RefreshToken(ctx context.Context, c *app.RequestContext) {
 	type refreshReq struct {
 		RefreshToken string `json:"refresh_token"`
@@ -371,7 +372,7 @@ func (h *UserHandler) UpdateFriendRemark(ctx context.Context, c *app.RequestCont
 	response.Success(c, resp)
 }
 
-// GetFriendList returns the current user's friends with remarks and status.
+// GetFriendList 获取当前用户的好友列表，并返回备注、分组和在线状态等展示信息。
 func (h *UserHandler) GetFriendList(ctx context.Context, c *app.RequestContext) {
 	id, ok := requireCurrentUserID(c)
 	if !ok {
@@ -473,6 +474,7 @@ func splitIDs(s string) []string {
 	return result
 }
 
+// splitByComma 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
 func splitByComma(s string) []string {
 	var result []string
 	start := 0
@@ -486,6 +488,7 @@ func splitByComma(s string) []string {
 	return result
 }
 
+// trimSpace 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
 func trimSpace(s string) string {
 	start, end := 0, len(s)
 	for start < end && (s[start] == ' ' || s[start] == '\t') {
@@ -497,6 +500,7 @@ func trimSpace(s string) string {
 	return s[start:end]
 }
 
+// firstNonEmpty 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
 func firstNonEmpty(values ...string) string {
 	for _, value := range values {
 		if value != "" {

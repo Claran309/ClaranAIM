@@ -1,7 +1,5 @@
-// Package handler implements file-service Kitex RPC handlers.
-//
-// These handlers translate generated Thrift requests into service calls and keep
-// transport-level nil/required-field checks close to the RPC boundary.
+// Package handler 实现 file-service 的 Kitex RPC 入口。
+// Handler 负责把生成的 Thrift 请求转换为 service 调用，并在 RPC 边界处理 nil 和必填字段校验。
 package handler
 
 import (
@@ -11,17 +9,17 @@ import (
 	"errors"
 )
 
-// FileServiceImpl is the Kitex server implementation for file-service.
+// FileServiceImpl 是 file-service 的 Kitex 服务端实现。
 type FileServiceImpl struct {
 	svc service.FileService
 }
 
-// NewFileServiceImpl wires the business service into the generated RPC server.
+// NewFileServiceImpl 将业务服务注入生成的 RPC 服务端。
 func NewFileServiceImpl(svc service.FileService) file.FileService {
 	return &FileServiceImpl{svc: svc}
 }
 
-// UploadFile stores a metadata record for a file already uploaded by the gateway.
+// UploadFile 为网关已上传的文件保存元数据记录。
 func (h *FileServiceImpl) UploadFile(ctx context.Context, req *file.UploadFileReq) (resp *file.UploadFileResp, err error) {
 	if req == nil {
 		return &file.UploadFileResp{Success: false, Msg: "upload request is nil"}, nil
@@ -47,7 +45,7 @@ func (h *FileServiceImpl) UploadFile(ctx context.Context, req *file.UploadFileRe
 	}, nil
 }
 
-// GetFile returns file metadata by file_id.
+// GetFile 根据 file_id 返回文件元数据。
 func (h *FileServiceImpl) GetFile(ctx context.Context, req *file.GetFileReq) (resp *file.GetFileResp, err error) {
 	if req == nil {
 		return &file.GetFileResp{Success: false, Msg: "get file request is nil"}, nil
@@ -70,7 +68,7 @@ func (h *FileServiceImpl) GetFile(ctx context.Context, req *file.GetFileReq) (re
 	}, nil
 }
 
-// DeleteFile removes a file after service-level ownership validation.
+// DeleteFile 在 service 层完成所有权校验后删除文件。
 func (h *FileServiceImpl) DeleteFile(ctx context.Context, req *file.DeleteFileReq) (resp *file.DeleteFileResp, err error) {
 	if req == nil {
 		return &file.DeleteFileResp{Success: false, Msg: "delete file request is nil"}, nil
@@ -88,7 +86,7 @@ func (h *FileServiceImpl) DeleteFile(ctx context.Context, req *file.DeleteFileRe
 	return &file.DeleteFileResp{Success: true, Msg: "删除成功"}, nil
 }
 
-// ListFiles returns a paginated list of file metadata for one uploader.
+// ListFiles 返回某个上传者的分页文件元数据列表。
 func (h *FileServiceImpl) ListFiles(ctx context.Context, req *file.ListFilesReq) (resp *file.ListFilesResp, err error) {
 	if req == nil {
 		return &file.ListFilesResp{Success: false, Msg: "list files request is nil"}, nil
