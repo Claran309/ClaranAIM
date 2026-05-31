@@ -126,6 +126,9 @@ func RegisterRoutes(r *route.Engine, cfg ...*config.Config) {
 		auth.DELETE("/settings/llm-profiles/:id", settingsHandler.DeleteLLMProfile)
 		auth.GET("/settings/prompts", settingsHandler.ListPrompts)
 		auth.POST("/settings/prompts", settingsHandler.SavePrompt)
+		auth.GET("/settings/skills", settingsHandler.ListSkills)
+		auth.POST("/settings/skills/upload", settingsHandler.UploadSkill)
+		auth.DELETE("/settings/skills/:id", settingsHandler.DeleteSkill)
 	}
 
 	admin := r.Group("/api/v1/admin")

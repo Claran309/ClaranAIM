@@ -22,7 +22,8 @@ import (
 // 权限判断属于 group-service；网关只校验传输层形状并补充当前操作者 ID。
 type GroupHandler struct{}
 
-// 下面这组变量保存当前包需要复用的运行时状态或配置入口，调用方应通过公开函数间接使用。
+// dtmCfg 保存创建群聊 Saga 的外部地址配置。
+// 只有启用 DTM 时网关才使用它；未启用时创建群走普通 group-service/msg-core-service RPC。
 var dtmCfg *config.DTMConfig
 
 // InitDTMConfig 保存创建群 Saga 需要使用的 DTM 分支地址。

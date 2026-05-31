@@ -48,7 +48,7 @@ type MessageService interface {
 	ApplyGroupEvent(ctx context.Context, envelope events.Envelope) error
 }
 
-// 下面这组常量定义当前包使用的固定取值，集中声明可以避免业务代码中散落魔法字符串或魔法数字。
+// 消息状态会写入 messages.status 并被前端直接展示，新增状态需要同步客户端渲染逻辑。
 const (
 	// MessageStatusSent 表示消息事实已经正常持久化并可投递。
 	MessageStatusSent = "sent"
@@ -56,7 +56,7 @@ const (
 	MessageStatusRecalled = "recalled"
 )
 
-// 下面这组常量定义当前包使用的固定取值，集中声明可以避免业务代码中散落魔法字符串或魔法数字。
+// 默认撤回窗口限制普通用户只能撤回短时间内发送的消息，后续管理员策略可在这里扩展。
 const defaultRecallWindow = 2 * time.Minute
 
 // SendMessageOptions 表示完整发消息契约。
@@ -150,7 +150,7 @@ type mediaMessagePayload struct {
 	SHA256      string `json:"sha256"`
 }
 
-// 下面这组变量保存当前包需要复用的运行时状态或配置入口，调用方应通过公开函数间接使用。
+// errConversationAccessDenied 是会话可见性校验的统一错误，便于 handler 转成稳定的权限提示。
 var errConversationAccessDenied = errors.New("无权访问该会话")
 
 // NewMessageService 连接消息领域、Redis 和 group-service。
@@ -897,7 +897,8 @@ func (s *messageServiceImpl) GetConversationParticipants(ctx context.Context, co
 	return userIDs, nil
 }
 
-// hydrateReadReceiptFields 是当前包内部使用的方法，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// hydrateReadReceiptFields 为历史消息补齐“我是否已读”和“已读/应读人数”。
+// 这些字段不直接存在 messages 表中，需要从用户级消息状态表按批量 message_id 统计。
 func (s *messageServiceImpl) hydrateReadReceiptFields(ctx context.Context, conversationID, viewerID int64, messages []model.Message) error {
 	if len(messages) == 0 {
 		return nil
@@ -919,7 +920,8 @@ func (s *messageServiceImpl) hydrateReadReceiptFields(ctx context.Context, conve
 	return nil
 }
 
-// invalidateConversationCache 是当前包内部使用的方法，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// invalidateConversationCache 删除某个用户的会话列表缓存。
+// 任何影响侧边栏排序、最后一条消息或未读数的写操作后都应调用它。
 func (s *messageServiceImpl) invalidateConversationCache(ctx context.Context, userID int64) {
 	if s.redis == nil {
 		return
@@ -927,12 +929,14 @@ func (s *messageServiceImpl) invalidateConversationCache(ctx context.Context, us
 	s.redis.Del(ctx, fmt.Sprintf("user:conversations:%d", userID))
 }
 
-// createMessageUserStates 是当前包内部使用的方法，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// createMessageUserStates 为消息参与者初始化投递/已读状态。
+// 默认走当前 service 的仓储，事务场景使用 createMessageUserStatesWithRepo 注入事务 repo。
 func (s *messageServiceImpl) createMessageUserStates(ctx context.Context, msg *model.Message, participants []model.ConversationParticipant) error {
 	return s.createMessageUserStatesWithRepo(ctx, s.repo, msg, participants)
 }
 
-// createMessageUserStatesWithRepo 是当前包内部使用的方法，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// createMessageUserStatesWithRepo 在指定仓储上写入用户级消息状态。
+// 发送者立即标记已读，接收者只标记已投递，未读数由 ReadAt 是否为空决定。
 func (s *messageServiceImpl) createMessageUserStatesWithRepo(ctx context.Context, repo dao.MessageRepository, msg *model.Message, participants []model.ConversationParticipant) error {
 	if msg == nil {
 		return nil
@@ -958,7 +962,8 @@ func (s *messageServiceImpl) createMessageUserStatesWithRepo(ctx context.Context
 	return nil
 }
 
-// invalidateConversationParticipantsCache 是当前包内部使用的方法，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// invalidateConversationParticipantsCache 刷新会话内所有参与者的会话列表缓存。
+// 群成员同步、撤回、编辑和新消息都会改变不同用户看到的会话摘要。
 func (s *messageServiceImpl) invalidateConversationParticipantsCache(ctx context.Context, conversationID int64) {
 	participants, err := s.repo.GetParticipants(ctx, conversationID)
 	if err != nil {
@@ -969,7 +974,8 @@ func (s *messageServiceImpl) invalidateConversationParticipantsCache(ctx context
 	}
 }
 
-// saveMessageState 是当前包内部使用的方法，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// saveMessageState 把消息编辑/撤回等状态变化写入 Outbox。
+// WebSocket 网关消费该事件后更新在线客户端，同时保留 Kafka 重试能力。
 func (s *messageServiceImpl) saveMessageState(ctx context.Context, repo dao.MessageRepository, msg *model.Message, eventType, pushType string) error {
 	if msg == nil {
 		return nil
@@ -1004,7 +1010,8 @@ func (s *messageServiceImpl) saveMessageState(ctx context.Context, repo dao.Mess
 	}, userIDsFromParticipants(participants))
 }
 
-// saveReadReceipt 是当前包内部使用的方法，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// saveReadReceipt 把某个用户的已读动作广播给同会话其他参与者。
+// 读者本人不需要收到自己的 read 事件，因此 targetUserIDs 会排除 readerID。
 func (s *messageServiceImpl) saveReadReceipt(ctx context.Context, repo dao.MessageRepository, conversationID, readerID, messageID int64) error {
 	participants, err := repo.GetParticipants(ctx, conversationID)
 	if err != nil {
@@ -1027,7 +1034,8 @@ func (s *messageServiceImpl) saveReadReceipt(ctx context.Context, repo dao.Messa
 	}, targetUserIDs)
 }
 
-// fetchGroupMembers 是当前包内部使用的方法，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// fetchGroupMembers 从 group-service 读取群成员快照。
+// msg-core-service 把 group_members 当作群聊权限源，而不是只相信 conversation_participants 的旧数据。
 func (s *messageServiceImpl) fetchGroupMembers(ctx context.Context, groupID int64) (*group.GetGroupMembersResp, error) {
 	if s.groupClient == nil {
 		return nil, nil
@@ -1042,7 +1050,8 @@ func (s *messageServiceImpl) fetchGroupMembers(ctx context.Context, groupID int6
 	return resp, nil
 }
 
-// ensureConversationParticipant 是当前包内部使用的方法，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// ensureConversationParticipant 校验用户是否有权访问会话。
+// 群聊优先同步 group-service 成员表，保证新入群成员能读取会话、被踢成员立即失去权限。
 func (s *messageServiceImpl) ensureConversationParticipant(ctx context.Context, conv *model.Conversation, userID int64) error {
 	if conv.Type == "group" && conv.GroupID > 0 && s.groupClient != nil {
 		membersResp, err := s.fetchGroupMembers(ctx, conv.GroupID)
@@ -1082,7 +1091,8 @@ func (s *messageServiceImpl) ensureConversationParticipant(ctx context.Context, 
 	return errConversationAccessDenied
 }
 
-// checkGroupMute 是当前包内部使用的方法，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// checkGroupMute 在发送群消息前检查禁言状态。
+// 如果 group-service 暂不可用，本地开发阶段选择放行，避免消息核心链路因依赖抖动完全不可用。
 func (s *messageServiceImpl) checkGroupMute(ctx context.Context, conv *model.Conversation, senderID int64) error {
 	if conv.Type != "group" || conv.GroupID <= 0 || s.groupClient == nil {
 		return nil
@@ -1110,7 +1120,8 @@ func (s *messageServiceImpl) checkGroupMute(ctx context.Context, conv *model.Con
 	return errConversationAccessDenied
 }
 
-// syncConversationParticipants 是当前包内部使用的方法，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// syncConversationParticipants 把 group-service 成员快照补写到 conversation_participants。
+// 它只追加缺失成员，不删除旧成员；踢人权限仍由 ensureConversationParticipant 的实时群成员校验兜底。
 func (s *messageServiceImpl) syncConversationParticipants(ctx context.Context, conversationID int64, userIDs []int64) error {
 	userIDs = dedupeUserIDs(userIDs)
 	if len(userIDs) == 0 {
@@ -1141,7 +1152,7 @@ func (s *messageServiceImpl) syncConversationParticipants(ctx context.Context, c
 	return nil
 }
 
-// dedupeUserIDs 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// dedupeUserIDs 过滤非正 ID 并保持首次出现顺序，用于参与者和推送目标去重。
 func dedupeUserIDs(userIDs []int64) []int64 {
 	seen := make(map[int64]struct{}, len(userIDs))
 	result := make([]int64, 0, len(userIDs))
@@ -1158,7 +1169,7 @@ func dedupeUserIDs(userIDs []int64) []int64 {
 	return result
 }
 
-// joinInt64 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// joinInt64 把 ID 列表序列化为逗号分隔字符串，用于事件幂等键和审计元数据。
 func joinInt64(ids []int64) string {
 	if len(ids) == 0 {
 		return ""
@@ -1170,7 +1181,8 @@ func joinInt64(ids []int64) string {
 	return strings.Join(parts, ",")
 }
 
-// marshalMentionUserIDs 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// marshalMentionUserIDs 将 @ 用户 ID 列表保存为 JSON 字符串。
+// 空列表存为空字符串，避免数据库里到处出现无意义的 []。
 func marshalMentionUserIDs(userIDs []int64) (string, error) {
 	if len(userIDs) == 0 {
 		return "", nil
@@ -1182,7 +1194,8 @@ func marshalMentionUserIDs(userIDs []int64) (string, error) {
 	return string(data), nil
 }
 
-// hydrateMessageRuntimeFields 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// hydrateMessageRuntimeFields 从持久化 JSON 字段恢复运行时字段。
+// 目前主要恢复 MentionUserIDs，方便 handler、事件和前端统一使用切片。
 func hydrateMessageRuntimeFields(msg *model.Message) {
 	if msg == nil || msg.MentionsJSON == "" {
 		return
@@ -1193,7 +1206,7 @@ func hydrateMessageRuntimeFields(msg *model.Message) {
 	}
 }
 
-// countUnreadMessages 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// countUnreadMessages 查询失败时返回 0，避免会话列表因为未读统计失败整体不可用。
 func countUnreadMessages(ctx context.Context, repo dao.MessageRepository, conversationID, userID, lastReadMessageID int64) int64 {
 	count, err := repo.CountUnreadMessages(ctx, conversationID, userID, lastReadMessageID)
 	if err != nil {
@@ -1202,7 +1215,7 @@ func countUnreadMessages(ctx context.Context, repo dao.MessageRepository, conver
 	return count
 }
 
-// formatOptionalTime 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// formatOptionalTime 将可空时间转为前端/RPC 使用的本地时间字符串。
 func formatOptionalTime(t *time.Time) string {
 	if t == nil || t.IsZero() {
 		return ""
@@ -1210,7 +1223,7 @@ func formatOptionalTime(t *time.Time) string {
 	return t.Format("2006-01-02 15:04:05")
 }
 
-// formatTime 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// formatTime 将非指针时间转成统一展示格式，零值返回空字符串。
 func formatTime(t time.Time) string {
 	if t.IsZero() {
 		return ""
@@ -1273,7 +1286,8 @@ func (s *messageServiceImpl) ApplyGroupEvent(ctx context.Context, envelope event
 	}
 }
 
-// saveMessageEvent 是当前包内部使用的方法，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// saveMessageEvent 把传统消息推送事件写入 Outbox。
+// 业务数据库提交和 Kafka 发布之间通过 Outbox 解耦，避免“消息已落库但事件丢失”。
 func (s *messageServiceImpl) saveMessageEvent(ctx context.Context, repo dao.MessageRepository, eventType string, data messageEventData, targetUserIDs []int64) error {
 	payload := events.MessagePayload{
 		Type:             data.Type,
@@ -1305,7 +1319,8 @@ func (s *messageServiceImpl) saveMessageEvent(ctx context.Context, repo dao.Mess
 	return repo.SaveOutboxEvent(ctx, record)
 }
 
-// saveAgentNativeGroupMemberEvent 是当前包内部使用的方法，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// saveAgentNativeGroupMemberEvent 把群成员变更转成统一 IM 事件。
+// Agent dispatcher 会用这些事件决定是否静默记录群成员变化或触发群助手。
 func (s *messageServiceImpl) saveAgentNativeGroupMemberEvent(ctx context.Context, conv *model.Conversation, operatorID int64, eventType string, userIDs []int64, participantIDs []int64) error {
 	if conv == nil || conv.ID <= 0 || len(userIDs) == 0 {
 		return nil
@@ -1345,7 +1360,8 @@ func (s *messageServiceImpl) saveAgentNativeGroupMemberEvent(ctx context.Context
 	return s.repo.SaveOutboxEvent(ctx, record)
 }
 
-// saveAgentNativeIMEvent 是当前包内部使用的方法，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// saveAgentNativeIMEvent 为文件、图片、语音等消息生成 Agent-Native IM 事件。
+// 普通文本走 message.created；带附件的消息还需要附件引用，供 Agent 做文件入口处理。
 func (s *messageServiceImpl) saveAgentNativeIMEvent(ctx context.Context, repo dao.MessageRepository, conv *model.Conversation, msg *model.Message, participantIDs []int64) error {
 	if conv == nil || msg == nil {
 		return nil
@@ -1388,7 +1404,8 @@ func (s *messageServiceImpl) saveAgentNativeIMEvent(ctx context.Context, repo da
 	return repo.SaveOutboxEvent(ctx, record)
 }
 
-// saveAgentNativeMessageStateEvent 是当前包内部使用的方法，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// saveAgentNativeMessageStateEvent 把编辑、撤回等消息状态变化转换为统一 IM 事件。
+// 这让 Agent 能感知上下文被修改，而不只处理新消息。
 func (s *messageServiceImpl) saveAgentNativeMessageStateEvent(ctx context.Context, repo dao.MessageRepository, conv *model.Conversation, msg *model.Message, businessEventType string, actorID int64) error {
 	if conv == nil || msg == nil {
 		return nil
@@ -1437,7 +1454,8 @@ func (s *messageServiceImpl) saveAgentNativeMessageStateEvent(ctx context.Contex
 	return repo.SaveOutboxEvent(ctx, record)
 }
 
-// saveAgentNativeReadEvent 是当前包内部使用的方法，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// saveAgentNativeReadEvent 把已读游标变化写成统一 IM 事件。
+// 目前主要用于审计和未来 Agent 在线状态/未读摘要判断。
 func (s *messageServiceImpl) saveAgentNativeReadEvent(ctx context.Context, repo dao.MessageRepository, conv *model.Conversation, readerID, messageID int64, readAt time.Time) error {
 	if conv == nil {
 		return nil
@@ -1474,7 +1492,8 @@ func (s *messageServiceImpl) saveAgentNativeReadEvent(ctx context.Context, repo 
 	return repo.SaveOutboxEvent(ctx, record)
 }
 
-// imEnvelopeTypeForMessageEvent 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// imEnvelopeTypeForMessageEvent 将传统消息事件名映射到 Agent-Native IM 事件名。
+// 返回空字符串表示该事件暂不进入 Agent 原生流水线。
 func imEnvelopeTypeForMessageEvent(eventType string) string {
 	switch eventType {
 	case events.EventTypeMessageEdited:
@@ -1488,7 +1507,8 @@ func imEnvelopeTypeForMessageEvent(eventType string) string {
 	}
 }
 
-// agentNativeEventFromMessage 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// agentNativeEventFromMessage 判断一条消息是否需要额外生成附件类 IM 事件。
+// 文本消息不在这里处理，避免与 message.created 重复触发 Agent。
 func agentNativeEventFromMessage(msg *model.Message) (string, events.AttachmentRef, bool) {
 	if msg == nil {
 		return "", events.AttachmentRef{}, false
@@ -1505,7 +1525,8 @@ func agentNativeEventFromMessage(msg *model.Message) (string, events.AttachmentR
 	}
 }
 
-// attachmentRefFromMessageContent 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// attachmentRefFromMessageContent 从消息内容中提取附件引用。
+// 兼容旧格式前缀（[file]/[img]/[voice]）和新的 JSON media payload。
 func attachmentRefFromMessageContent(content string) events.AttachmentRef {
 	trimmed := strings.TrimSpace(content)
 	for _, prefix := range []string{"[file]", "[img]", "[voice]"} {
@@ -1541,7 +1562,7 @@ func attachmentRefFromMessageContent(content string) events.AttachmentRef {
 	}
 }
 
-// userIDsFromParticipants 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// userIDsFromParticipants 将会话参与者模型压成去重后的用户 ID 列表。
 func userIDsFromParticipants(participants []model.ConversationParticipant) []int64 {
 	userIDs := make([]int64, 0, len(participants))
 	for _, p := range participants {

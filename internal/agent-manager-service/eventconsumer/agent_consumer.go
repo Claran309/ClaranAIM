@@ -15,7 +15,8 @@ import (
 	"strings"
 )
 
-// 下面这组常量定义当前包使用的固定取值，集中声明可以避免业务代码中散落魔法字符串或魔法数字。
+// agentDispatchHistoryLimit 控制 Agent 被 IM 事件触发时最多读取多少条历史消息。
+// 过小会失去群聊上下文，过大会增加 LLM 输入成本；当前取 80 作为本地开发的折中值。
 const agentDispatchHistoryLimit int64 = 80
 
 // StartAgentMentionConsumer 启动兼容旧链路的 @Agent 消息事件分发器。
@@ -37,7 +38,8 @@ func StartAgentEventDispatcherConsumer(ctx context.Context, consumer *eventbus.K
 	})
 }
 
-// handleAgentMentionEvent 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// handleAgentMentionEvent 保留给旧测试和旧 consumer 的兼容入口。
+// 新链路应直接创建 AgentEventDispatcher，让 @、文件、群成员等事件走同一套决策逻辑。
 func handleAgentMentionEvent(ctx context.Context, envelope events.Envelope, agentService service.AgentService, dispatchRepo dao.AgentDispatchRepository, messageClient messageservice.Client) error {
 	return NewAgentEventDispatcher(agentService, dispatchRepo, nil, nil, messageClient).Handle(ctx, envelope)
 }
@@ -68,7 +70,8 @@ func NewAgentEventDispatcher(agentService service.AgentService, dispatchRepo dao
 	}
 }
 
-// agentEvent 定义当前包使用的数据结构或接口，用于在业务层、持久化层和传输层之间传递明确语义。
+// agentEvent 是 dispatcher 内部统一后的 IM 事件视图。
+// 它把旧 MessagePayload 和新 IMEventPayload 压成同一个结构，后续决策不再关心 Kafka 来源 topic。
 type agentEvent struct {
 	EventType        string
 	ConversationID   int64
@@ -85,7 +88,8 @@ type agentEvent struct {
 	IdempotencyKey   string
 }
 
-// agentDispatchDecision 定义当前包使用的数据结构或接口，用于在业务层、持久化层和传输层之间传递明确语义。
+// agentDispatchDecision 表示某个 Agent 对当前事件的处理结果。
+// Decision 可为 trigger、record 或 ignore；BotID 可来自订阅规则，AgentUserID 可来自 @ 或私聊参与者。
 type agentDispatchDecision struct {
 	BotID       int64
 	AgentUserID int64
@@ -201,7 +205,8 @@ func (d *AgentEventDispatcher) Handle(ctx context.Context, envelope events.Envel
 	return nil
 }
 
-// dispatchEventID 是当前包内部使用的方法，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// dispatchEventID 返回用于幂等去重的事件 ID。
+// 统一 IM 事件优先使用 payload.idempotency_key；旧事件没有时退回 envelope.EventID。
 func (e agentEvent) dispatchEventID(fallback string) string {
 	if strings.TrimSpace(e.IdempotencyKey) != "" {
 		return e.IdempotencyKey
@@ -209,7 +214,8 @@ func (e agentEvent) dispatchEventID(fallback string) string {
 	return fallback
 }
 
-// decodeAgentEvent 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// decodeAgentEvent 兼容旧消息事件和新 Agent-Native IM 事件。
+// 无法触发 Agent 的空消息会返回 nil，让 consumer 安静跳过而不是写失败记录。
 func decodeAgentEvent(envelope events.Envelope) (*agentEvent, error) {
 	switch envelope.Type {
 	case events.EventTypeMessageCreated, events.EventTypeMessageEdited, events.EventTypeMessageRecalled:
@@ -262,7 +268,8 @@ func decodeAgentEvent(envelope events.Envelope) (*agentEvent, error) {
 	}
 }
 
-// toMessagePayload 是当前包内部使用的方法，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// toMessagePayload 把统一事件降级成旧 MessagePayload 形状。
+// 这样上下文构建和 @ 目标识别可以在迁移期复用原有 helper。
 func (e agentEvent) toMessagePayload() events.MessagePayload {
 	content := e.Content
 	if strings.TrimSpace(content) == "" && len(e.AttachmentRefs) > 0 {
@@ -291,7 +298,8 @@ func (e agentEvent) toMessagePayload() events.MessagePayload {
 	}
 }
 
-// decide 是当前包内部使用的方法，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// decide 根据私聊/@默认规则和订阅规则合并出 Agent 决策。
+// 私聊 Agent 默认触发；群聊默认只 @ 触发，额外的关键词/命令/静默记录由订阅规则补充。
 func (d *AgentEventDispatcher) decide(ctx context.Context, event agentEvent) ([]agentDispatchDecision, error) {
 	decisions := make([]agentDispatchDecision, 0)
 	defaultTargets := agentTargetsFromMessage(event.toMessagePayload())
@@ -325,7 +333,8 @@ func (d *AgentEventDispatcher) decide(ctx context.Context, event agentEvent) ([]
 	return mergeAgentDecisions(decisions), nil
 }
 
-// resolveBot 是当前包内部使用的方法，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// resolveBot 根据决策中的 BotID 或 Agent 系统用户 ID 找到 Bot 配置。
+// 订阅规则通常带 BotID，普通 @ 事件通常只知道被 @ 的 agent_user_id。
 func (d *AgentEventDispatcher) resolveBot(ctx context.Context, decision agentDispatchDecision) (*model.Bot, error) {
 	if decision.BotID > 0 {
 		bot, err := d.agentService.GetBot(ctx, decision.BotID)
@@ -339,7 +348,8 @@ func (d *AgentEventDispatcher) resolveBot(ctx context.Context, decision agentDis
 	return nil, nil
 }
 
-// audit 是当前包内部使用的方法，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// audit 记录事件、决策、原因和 traceID。
+// auditRepo 允许为空，便于迁移期旧 consumer 复用 dispatcher 而不强依赖审计表。
 func (d *AgentEventDispatcher) audit(ctx context.Context, envelope events.Envelope, event agentEvent, bot *model.Bot, decision, reason, traceID string) error {
 	if d.auditRepo == nil || bot == nil {
 		return nil
@@ -358,7 +368,7 @@ func (d *AgentEventDispatcher) audit(ctx context.Context, envelope events.Envelo
 	})
 }
 
-// defaultTriggerReason 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// defaultTriggerReason 标注默认触发来源，方便审计时区分私聊自动触发和群聊 @ 触发。
 func defaultTriggerReason(event agentEvent) string {
 	if event.ConversationType == "private" {
 		return "private_default"
@@ -366,7 +376,8 @@ func defaultTriggerReason(event agentEvent) string {
 	return "mention"
 }
 
-// ruleMatchesEvent 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// ruleMatchesEvent 判断订阅规则是否命中当前事件。
+// TriggerMode 支持 all、keyword、command、mention；未知模式按关键词兜底处理。
 func ruleMatchesEvent(rule model.AgentSubscriptionRule, event agentEvent) bool {
 	if rule.ConversationType != "" && rule.ConversationType != event.ConversationType {
 		return false
@@ -390,7 +401,8 @@ func ruleMatchesEvent(rule model.AgentSubscriptionRule, event agentEvent) bool {
 	}
 }
 
-// mergeAgentDecisions 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// mergeAgentDecisions 合并同一 Agent 的多条规则命中结果。
+// 如果同时命中 record 和 trigger，优先 trigger，避免被静默规则压掉显式 @ 或命令。
 func mergeAgentDecisions(decisions []agentDispatchDecision) []agentDispatchDecision {
 	merged := make(map[int64]agentDispatchDecision)
 	order := make([]int64, 0, len(decisions))
@@ -419,7 +431,7 @@ func mergeAgentDecisions(decisions []agentDispatchDecision) []agentDispatchDecis
 	return result
 }
 
-// decisionRank 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// decisionRank 定义决策优先级：触发执行 > 静默记录 > 忽略/未知。
 func decisionRank(decision string) int {
 	switch decision {
 	case "trigger":
@@ -431,7 +443,8 @@ func decisionRank(decision string) int {
 	}
 }
 
-// containsAnyCSVToken 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// containsAnyCSVToken 用逗号分隔关键词做大小写不敏感包含匹配。
+// 这是订阅规则的轻量 MVP，后续可替换为更强的命令解析或意图分类。
 func containsAnyCSVToken(text, csv string) bool {
 	text = strings.ToLower(text)
 	for _, part := range strings.Split(csv, ",") {
@@ -443,7 +456,7 @@ func containsAnyCSVToken(text, csv string) bool {
 	return false
 }
 
-// containsInt64 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// containsInt64 判断 @ 列表中是否包含指定 Agent 用户 ID。
 func containsInt64(values []int64, target int64) bool {
 	for _, value := range values {
 		if value == target {
@@ -453,7 +466,8 @@ func containsInt64(values []int64, target int64) bool {
 	return false
 }
 
-// agentTargetsFromMessage 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// agentTargetsFromMessage 推导默认目标 Agent。
+// 私聊取除发送者外的会话参与者；群聊只取 mention_user_ids，避免每条群消息都触发 Agent。
 func agentTargetsFromMessage(payload events.MessagePayload) []int64 {
 	targets := make([]int64, 0)
 	if payload.ConversationType == "private" {
@@ -467,7 +481,8 @@ func agentTargetsFromMessage(payload events.MessagePayload) []int64 {
 	return dedupePositiveIDs(payload.MentionUserIDs)
 }
 
-// buildAgentDispatchInput 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// buildAgentDispatchInput 为 runtime 构造带 IM 上下文的用户输入。
+// 历史消息以 Agent 用户身份读取，确保上下文裁剪和普通用户可见性保持一致。
 func buildAgentDispatchInput(ctx context.Context, messageClient messageservice.Client, payload events.MessagePayload, agentUserID int64) (string, error) {
 	contextText := ""
 	if messageClient != nil && payload.ConversationID > 0 && agentUserID > 0 {
@@ -491,7 +506,8 @@ func buildAgentDispatchInput(ctx context.Context, messageClient messageservice.C
 	return fmt.Sprintf("你是 ClaranAIM 中的原生 Agent 成员，本轮输入来自 IM 事件流，而不是孤立聊天按钮。\n\n处理原则：\n1. 先阅读会话材料，再判断用户真正要你做什么。\n2. 如果材料很少或内容没有价值，也要直接说明这些消息基本没有有效信息，而不是拒绝总结。\n3. 群聊场景必须结合群聊上下文、引用关系和当前触发消息回答；不要只使用你和触发用户的长期记忆。\n4. 只使用你作为 Agent 用户有权看到的内容；不要猜测不可见消息、文件或知识库。\n5. 输出优先面向当前 IM 会话，可用 Markdown，但不要把 JSON 当作直接回复，除非用户明确要求机器可读 JSON。\n\n事件信息：\n- event_type: %s\n- conversation_id: %d\n- conversation_type: %s\n- sender_id: %d\n- reply_to_id: %d\n\n当前触发内容：\n%s\n\n会话材料说明：下面是 msg-core-service 从当前会话读取到的、Agent 用户有权看到的历史消息，按时间从旧到新排列；它们是本轮回答的主要事实来源。\n\n会话材料：\n%s", payload.Type, payload.ConversationID, payload.ConversationType, payload.SenderID, payload.ReplyToID, strings.TrimSpace(payload.Content), contextText), nil
 }
 
-// formatMessagesForAgentContext 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// formatMessagesForAgentContext 将消息历史压缩为适合 LLM 阅读的文本窗口。
+// 单条消息限制 600 个 rune，避免附件描述或长文本把 Agent 输入撑爆。
 func formatMessagesForAgentContext(messages []*message.Message) string {
 	if len(messages) == 0 {
 		return ""
@@ -515,7 +531,7 @@ func formatMessagesForAgentContext(messages []*message.Message) string {
 	return strings.TrimSpace(b.String())
 }
 
-// dedupePositiveIDs 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// dedupePositiveIDs 过滤空 ID 并保持原顺序，用于 @ 目标和私聊参与者去重。
 func dedupePositiveIDs(ids []int64) []int64 {
 	seen := make(map[int64]struct{}, len(ids))
 	result := make([]int64, 0, len(ids))
@@ -532,7 +548,8 @@ func dedupePositiveIDs(ids []int64) []int64 {
 	return result
 }
 
-// isPermanentAgentDispatchError 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// isPermanentAgentDispatchError 判断错误是否不值得 Kafka 重试。
+// 配置缺失、权限不足和 Agent 停用这类问题重试也不会恢复，直接记录失败即可。
 func isPermanentAgentDispatchError(err error) bool {
 	if err == nil {
 		return false

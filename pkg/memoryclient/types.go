@@ -2,7 +2,8 @@ package memoryclient
 
 import "context"
 
-// 下面这组常量定义当前包使用的固定取值，集中声明可以避免业务代码中散落魔法字符串或魔法数字。
+// 这些枚举值同时写入 memory_facts 表并暴露给网关/Agent 服务。
+// Scope 决定记忆隔离边界，Visibility 决定谁能读取，VectorStatus 为后续向量化召回预留状态位。
 const (
 	ScopeUser         = "user"
 	ScopeGroup        = "group"

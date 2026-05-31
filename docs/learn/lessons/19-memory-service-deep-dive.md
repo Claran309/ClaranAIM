@@ -17,7 +17,8 @@
 - `internal/memory-service/model/model.go`
 - `internal/memory-service/dao/dao.go`
 - `internal/memory-service/service/service.go`
-- `internal/memory-service/transport/http.go`
+- `idl/memory.thrift`
+- `kitex_gen/memory/memoryservice`
 - `pkg/memoryclient`
 - `internal/api-gateway/handler/memory_handler.go`
 - `internal/agent-manager-service/service/service.go`
@@ -124,4 +125,3 @@ ready
 2. 写一条 shared group_profile。
 3. 设计记忆自动抽取候选表。
 4. 设计用户删除记忆后的 Agent 行为。
-

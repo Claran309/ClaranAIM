@@ -421,10 +421,10 @@ type fakeBotService struct {
 	lastMessage string
 }
 
-func (s *fakeBotService) CreateBot(context.Context, string, string, string, string, string, string, string, string, string, string, string, string, string, int64, string, string, string) (*model.Bot, error) {
+func (s *fakeBotService) CreateBot(context.Context, string, string, string, string, string, string, string, string, string, string, string, string, string, int64, int64, int64, int64, float64, string, bool, string, string, string) (*model.Bot, error) {
 	return nil, nil
 }
-func (s *fakeBotService) UpdateBot(context.Context, int64, int64, string, string, string, string, string, string, string, string, string, string, string, string, bool, bool, string, string, string) error {
+func (s *fakeBotService) UpdateBot(context.Context, int64, int64, string, string, string, string, string, string, string, string, string, string, string, string, bool, bool, int64, int64, int64, float64, string, bool, string, string, string) error {
 	return nil
 }
 func (s *fakeBotService) GetBot(context.Context, int64) (*model.Bot, error) { return nil, nil }

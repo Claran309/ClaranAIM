@@ -107,12 +107,34 @@ func TestCreateBotFailsWhenAgentSystemUserCreationFails(t *testing.T) {
 		registerResp: &user.RegisterResp{Success: false, Msg: "user-service unavailable"},
 	}, "storage/agent/files")
 
-	created, err := svc.CreateBot(context.Background(), "Agent", "internal", "desc", "glm-4.7", "", "", "", "", "", "", "", "", "", 1001, "default-key", "https://llm.example/v1", "glm-4.7")
+	created, err := svc.CreateBot(context.Background(), "Agent", "internal", "desc", "glm-4.7", "", "", "", "", "", "", "", "", "", 1001, 0, 0, 0, 0, "", false, "default-key", "https://llm.example/v1", "glm-4.7")
 	if err == nil {
 		t.Fatalf("CreateBot returned bot=%#v, want error", created)
 	}
 	if botRepo.created != nil {
 		t.Fatalf("bot was persisted despite system user failure: %#v", botRepo.created)
+	}
+}
+
+func TestCreateBotAppliesDefaultRuntimeSettings(t *testing.T) {
+	botRepo := &fakeBotRepo{}
+	svc := NewAgentService(botRepo, &fakePermissionRepo{}, nil, &fakeBillingRepo{}, nil, nil, "storage/agent/files")
+
+	created, err := svc.CreateBot(context.Background(), "Agent", "internal", "desc", "glm-4.7", "", "", "", "", "", "", "", "", "", 1001, 0, 0, 0, 0, "", false, "default-key", "https://llm.example/v1", "glm-4.7")
+	if err != nil {
+		t.Fatalf("CreateBot returned error: %v", err)
+	}
+	if created.ContextMessageLimit != DefaultContextMessageLimit {
+		t.Fatalf("context message limit = %d, want %d", created.ContextMessageLimit, DefaultContextMessageLimit)
+	}
+	if created.MemoryRecallLimit != DefaultMemoryRecallLimit {
+		t.Fatalf("memory recall limit = %d, want %d", created.MemoryRecallLimit, DefaultMemoryRecallLimit)
+	}
+	if created.GroupTriggerMode != DefaultGroupTriggerMode {
+		t.Fatalf("group trigger mode = %q, want %q", created.GroupTriggerMode, DefaultGroupTriggerMode)
+	}
+	if !created.AutoReplyEnabled {
+		t.Fatal("auto reply should be enabled by default")
 	}
 }
 
@@ -129,7 +151,7 @@ func TestUpdateBotKeepsActiveStateWhenFieldNotSet(t *testing.T) {
 	}}
 	svc := NewAgentService(botRepo, &fakePermissionRepo{}, nil, &fakeBillingRepo{}, nil, nil, "storage/agent/files")
 
-	err := svc.UpdateBot(context.Background(), 1, 1001, "New Agent", "", "", "", "", "", "", "", "", "", "", "", false, false, "default-key", "https://llm.example/v1", "glm-4.7")
+	err := svc.UpdateBot(context.Background(), 1, 1001, "New Agent", "", "", "", "", "", "", "", "", "", "", "", false, false, 0, 0, 0, 0, "", false, "default-key", "https://llm.example/v1", "glm-4.7")
 	if err != nil {
 		t.Fatalf("UpdateBot returned error: %v", err)
 	}
@@ -151,12 +173,53 @@ func TestUpdateBotAppliesActiveStateWhenFieldSet(t *testing.T) {
 	}}
 	svc := NewAgentService(botRepo, &fakePermissionRepo{}, nil, &fakeBillingRepo{}, nil, nil, "storage/agent/files")
 
-	err := svc.UpdateBot(context.Background(), 1, 1001, "", "", "", "", "", "", "", "", "", "", "", "", false, true, "default-key", "https://llm.example/v1", "glm-4.7")
+	err := svc.UpdateBot(context.Background(), 1, 1001, "", "", "", "", "", "", "", "", "", "", "", "", false, true, 0, 0, 0, 0, "", false, "default-key", "https://llm.example/v1", "glm-4.7")
 	if err != nil {
 		t.Fatalf("UpdateBot returned error: %v", err)
 	}
 	if botRepo.byID.IsActive {
 		t.Fatal("UpdateBot with is_active=false should deactivate bot")
+	}
+}
+
+func TestUpdateBotAppliesRuntimeSettingsWhenProvided(t *testing.T) {
+	botRepo := &fakeBotRepo{byID: &model.Bot{
+		ID:                  1,
+		Name:                "Agent",
+		Type:                "custom",
+		ModelName:           "glm-4.7",
+		APIKey:              "key",
+		BaseURL:             "https://llm.example/v1",
+		OwnerID:             1001,
+		IsActive:            true,
+		ContextMessageLimit: DefaultContextMessageLimit,
+		MemoryRecallLimit:   DefaultMemoryRecallLimit,
+		GroupTriggerMode:    DefaultGroupTriggerMode,
+		AutoReplyEnabled:    true,
+	}}
+	svc := NewAgentService(botRepo, &fakePermissionRepo{}, nil, &fakeBillingRepo{}, nil, nil, "storage/agent/files")
+
+	err := svc.UpdateBot(context.Background(), 1, 1001, "", "", "", "", "", "", "", "", "", "", "", "", true, false, 150, 20, 4096, 0.2, "keyword", false, "default-key", "https://llm.example/v1", "glm-4.7")
+	if err != nil {
+		t.Fatalf("UpdateBot returned error: %v", err)
+	}
+	if botRepo.byID.ContextMessageLimit != 150 {
+		t.Fatalf("context message limit = %d, want 150", botRepo.byID.ContextMessageLimit)
+	}
+	if botRepo.byID.MemoryRecallLimit != 20 {
+		t.Fatalf("memory recall limit = %d, want 20", botRepo.byID.MemoryRecallLimit)
+	}
+	if botRepo.byID.MaxOutputTokens != 4096 {
+		t.Fatalf("max output tokens = %d, want 4096", botRepo.byID.MaxOutputTokens)
+	}
+	if botRepo.byID.Temperature != 0.2 {
+		t.Fatalf("temperature = %.2f, want 0.2", botRepo.byID.Temperature)
+	}
+	if botRepo.byID.GroupTriggerMode != "keyword" {
+		t.Fatalf("group trigger mode = %q, want keyword", botRepo.byID.GroupTriggerMode)
+	}
+	if botRepo.byID.AutoReplyEnabled {
+		t.Fatal("auto reply should be disabled when explicitly set false")
 	}
 }
 
@@ -239,14 +302,16 @@ func TestChatWithBotInjectsRecalledMemoryAndStoresRunSummary(t *testing.T) {
 		},
 	}
 	svc := NewAgentService(&fakeBotRepo{byID: &model.Bot{
-		ID:        1,
-		Name:      "Agent",
-		Type:      "custom",
-		ModelName: "glm-4.7",
-		APIKey:    "key",
-		BaseURL:   "https://llm.example/v1",
-		OwnerID:   1001,
-		IsActive:  true,
+		ID:                  1,
+		Name:                "Agent",
+		Type:                "custom",
+		ModelName:           "glm-4.7",
+		APIKey:              "key",
+		BaseURL:             "https://llm.example/v1",
+		OwnerID:             1001,
+		IsActive:            true,
+		ContextMessageLimit: 42,
+		MemoryRecallLimit:   5,
 	}}, &fakePermissionRepo{}, nil, &fakeBillingRepo{}, runtime, nil, "storage/agent/files")
 	svc.(*agentServiceImpl).SetMemoryService(memory)
 
@@ -262,6 +327,12 @@ func TestChatWithBotInjectsRecalledMemoryAndStoresRunSummary(t *testing.T) {
 	}
 	if memory.recallInput.BotID != 1 || memory.recallInput.UserID != 1001 || memory.recallInput.ConversationID != 33 {
 		t.Fatalf("unexpected recall scope: %#v", memory.recallInput)
+	}
+	if memory.recallInput.Limit != 5 {
+		t.Fatalf("memory recall limit = %d, want 5", memory.recallInput.Limit)
+	}
+	if runtime.lastReq == nil || runtime.lastReq.Bot == nil || runtime.lastReq.Bot.ContextMessageLimit != 42 {
+		t.Fatalf("runtime config did not include context limit: %#v", runtime.lastReq)
 	}
 	if len(memory.created) != 1 || memory.created[0].Type != memoryclient.TypeAgentRun || memory.created[0].Scope != memoryclient.ScopeConversation {
 		t.Fatalf("expected one agent run memory summary, got %#v", memory.created)

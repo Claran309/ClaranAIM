@@ -2,7 +2,6 @@ package service
 
 import (
 	"ClaranAIM/internal/msg-core-service/model"
-	"ClaranAIM/pkg/messageclient"
 	"ClaranAIM/pkg/settingsclient"
 	"context"
 	"crypto/sha256"
@@ -26,17 +25,6 @@ type TranslateMessageResult struct {
 	TranslatedText string `json:"translated_text"`
 	Cached         bool   `json:"cached"`
 	ModelName      string `json:"model_name"`
-}
-
-// ToClient 将 msg-core-service 内部翻译结果转换为跨服务客户端 DTO。
-func (r TranslateMessageResult) ToClient() messageclient.TranslateMessageResult {
-	return messageclient.TranslateMessageResult{
-		MessageID:      r.MessageID,
-		TargetLanguage: r.TargetLanguage,
-		TranslatedText: r.TranslatedText,
-		Cached:         r.Cached,
-		ModelName:      r.ModelName,
-	}
 }
 
 // TranslationSettings 解析用户或系统级翻译 LLM 与 prompt 配置。

@@ -99,7 +99,9 @@ func (s *userServiceImpl) RegisterSystemUser(ctx context.Context, username, pwd,
 	return s.register(ctx, username, pwd, nickname, true)
 }
 
-// register 是当前包内部使用的方法，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// register 复用真人注册和 Agent 系统用户注册的公共流程。
+// 真人和系统用户都需要唯一用户名、bcrypt 密码和 10 位 UID；区别只在 IsSystem 标记，
+// 登录时会据此拒绝系统用户用密码进入应用。
 func (s *userServiceImpl) register(ctx context.Context, username, pwd, nickname string, isSystem bool) (*model.User, error) {
 	if username == "" || pwd == "" {
 		return nil, errors.New("用户名和密码不能为空")
@@ -639,7 +641,8 @@ func (s *userServiceImpl) cacheUserInfo(ctx context.Context, user *model.User) {
 	s.redis.SetJSONWithJitter(ctx, cacheKey, user, 15*time.Minute, time.Minute)
 }
 
-// invalidateUserInfoCache 是当前包内部使用的方法，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// invalidateUserInfoCache 执行用户资料的写后删除策略。
+// 用户昵称、头像、个人资料等写库成功后先删缓存，下一次读取再回源重建，避免写缓存失败造成脏读。
 func (s *userServiceImpl) invalidateUserInfoCache(ctx context.Context, userID int64) {
 	if s.redis == nil {
 		return

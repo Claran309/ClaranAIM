@@ -43,7 +43,8 @@ func InitDB(dsn string) (*gorm.DB, error) {
 	return db, nil
 }
 
-// duplicateFriendGroup 定义当前包使用的数据结构或接口，用于在业务层、持久化层和传输层之间传递明确语义。
+// duplicateFriendGroup 保存一次重复好友分组合并任务。
+// KeepID 是该用户同名分组中保留的最小 ID，其余分组会迁移好友引用后删除。
 type duplicateFriendGroup struct {
 	UserID int64
 	Name   string

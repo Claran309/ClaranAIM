@@ -7,6 +7,7 @@ import (
 	"ClaranAIM/internal/agent-manager-service/service"
 	"ClaranAIM/kitex_gen/bot/botservice"
 	"ClaranAIM/kitex_gen/bot_runtime/botruntimeservice"
+	"ClaranAIM/kitex_gen/memory/memoryservice"
 	"ClaranAIM/kitex_gen/message/messageservice"
 	"ClaranAIM/kitex_gen/user/userservice"
 	"ClaranAIM/pkg/config"
@@ -26,7 +27,8 @@ import (
 	etcd "github.com/kitex-contrib/registry-etcd"
 )
 
-// main 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// main 启动 Agent 管理服务。
+// 该服务持有 Agent 配置、权限、路由、审计和事件调度，并通过 Kitex 调用 runtime/user/msg 服务。
 func main() {
 	logger.InitService("agent-manager-service")
 
@@ -68,6 +70,10 @@ func main() {
 	if err != nil {
 		logger.Fatal("创建msg-core-service客户端失败", "error", err)
 	}
+	memoryClient, err := memoryservice.NewClient("memory-service", clientOptions...)
+	if err != nil {
+		logger.Fatal("创建memory-service客户端失败", "error", err)
+	}
 
 	agentService := service.NewAgentService(botRepo, permissionRepo, routeRepo, billingRepo, runtimeClient, userClient, cfg.Agent.AgentRoot)
 	if impl, ok := agentService.(interface {
@@ -78,7 +84,7 @@ func main() {
 	if impl, ok := agentService.(interface {
 		SetMemoryService(service.AgentMemoryService)
 	}); ok {
-		impl.SetMemoryService(memoryclient.NewHTTPClient(cfg.Internal.MemoryServiceURL))
+		impl.SetMemoryService(memoryclient.NewRPCClient(memoryClient))
 	}
 	agentHandler := handler.NewAgentServiceImpl(agentService, cfg)
 

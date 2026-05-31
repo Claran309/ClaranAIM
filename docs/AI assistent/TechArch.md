@@ -92,12 +92,14 @@ AIM 需要一个可配置的 Agent 能力层，而不是写死几个 Bot：
 
 ### 2.x 系统设置与 LLM 预设
 
-settings-service 是用户可控配置面，作为独立 HTTP 内部服务运行，自己持有 settings 表和 DAO。api-gateway、msg-core-service 和 agent-manager-service 只能通过 `pkg/settingsclient` 的内部 HTTP client 调用它，不能 import settings-service 的 internal 包。它保存：
+settings-service 是用户可控配置面，作为独立 Kitex RPC 服务运行，自己持有 settings 表和 DAO。api-gateway、msg-core-service 和 agent-manager-service 只能通过 `settingsservice.Client` + `pkg/settingsclient.RPCClient` 调用它，不能 import settings-service 的 internal 包。它保存：
 
 - LLM 预设：`base_url`、`api_key`、`model_name`、用途和默认标记。创建 Agent 时，前端传 `llm_profile_id`，网关解析该预设后写入 Agent 配置。
 - Prompt 模板：翻译 Prompt 已接入，后续可扩展总结、回复候选、代码审查和知识抽取 Prompt。
 
-消息翻译放在 msg-core-service：用户手动点击翻译后，msg-core 校验消息可见性，读取 settings-service 的翻译配置，调用 OpenAI-compatible chat completions，并把译文按源消息 hash 缓存到 `message_translations`。当前不做自动翻译，避免每条消息都产生额外 LLM 成本和隐私扩散。`r`n`r`n`memory-service` 同样作为独立 HTTP 内部服务运行在 9008，agent-manager-service 和 api-gateway 通过 `pkg/memoryclient` 调用；`msg-core-service` 的手动翻译内部 HTTP 入口运行在 9104，api-gateway 通过 `pkg/messageclient` 调用。微服务之间不允许直接 import 对方 `internal/*-service` 包。
+消息翻译放在 msg-core-service：用户手动点击翻译后，api-gateway 调用 `MessageService.TranslateMessage` RPC；msg-core 校验消息可见性，读取 settings-service 的翻译配置，调用 OpenAI-compatible chat completions，并把译文按源消息 hash 缓存到 `message_translations`。当前不做自动翻译，避免每条消息都产生额外 LLM 成本和隐私扩散。
+
+memory-service 同样作为独立 Kitex RPC 服务运行在 9008，agent-manager-service 和 api-gateway 通过 `memoryservice.Client` + `pkg/memoryclient.RPCClient` 调用。普通内部业务通信统一走 Kitex RPC；仅 DTM 分支回调、websocket 网关和浏览器 API 保留 HTTP。微服务之间不允许直接 import 对方 `internal/*-service` 包。
 - msg-core-service 作为消息事实源，会在发送 `file/image/voice` 消息时同事务写入统一 IM 事件 outbox：`file/image` 对应 `file.uploaded`，`voice` 对应 `voice.transcribed` 事件信封。编辑、撤回、已读会额外产生 `im.message.edited/recalled/read` envelope；payload 内仍使用业务事件名 `message.edited/recalled/read`。group-service 的成员邀请/踢出事件由 msg-core-service 消费后转换成带 `conversation_id` 的 `group.member_joined/left` unified IM 事件。
 - Agent @/事件分发使用 `agent_dispatch_records(event_id, agent_user_id)` 记录执行状态和 `agent_trace_id`。对 unified IM 事件，`event_id` 优先取 payload `idempotency_key`，缺失时退回 Kafka envelope ID；Agent 回复使用 msg-core-service 的 `client_msg_id=agent:{dispatch_key}:{agent_user_id}` 做消息落库幂等，避免 Kafka 重投或上游重复生成同一业务事件导致重复回复。
 - Agent 行为审计保存在 `agent_audit_records`，记录 trigger、record、failed、completed 等决策，便于解释“为什么 Agent 没反应/为什么响应了”。
@@ -362,7 +364,8 @@ AI 对话链路：
 | file-service | 9005 | Kitex | 文件元数据管理/MinIO 对象存储集成 |
 | agent-manager-service | 9006 | Kitex | Agent 配置、真实用户身份绑定、权限、路由、计费、审计、@Agent 调度 |
 | agent-runtime-service | 9007 | Kitex | Agent 执行、长会话、Eino DeepAgent、工具调用、RAG/WebSearch、结构化理解输出 |
-| settings-service | 9009 | net/http + GORM | 用户级系统设置、LLM 预设、Prompt 模板；内部 HTTP 服务，自己持有 DB/DAO |
+| memory-service | 9008 | Kitex + GORM | 用户/群/会话记忆事实、记忆治理、Agent 记忆召回 |
+| settings-service | 9009 | Kitex + GORM | 用户级系统设置、LLM 预设、Prompt 模板、Agent Skill；自己持有 DB/DAO |
 
 命名迁移说明：产品语义、服务目录、启动入口和 HTTP 入口已统一为 Agent，网关只暴露 `/agent/*`。内部 `kitex_gen/bot`、`kitex_gen/bot_runtime` 仍保留历史生成包名，避免在 Kitex 生成器不可用时破坏 RPC 链路；它们是实现细节，不再代表对外 `/bot/*` 兼容层。
 

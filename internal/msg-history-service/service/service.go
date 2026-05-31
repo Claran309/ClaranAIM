@@ -26,7 +26,7 @@ type HistoryService interface {
 	GetUnreadCount(ctx context.Context, userID int64) (int64, error)
 }
 
-// historyServiceImpl 定义当前包使用的数据结构或接口，用于在业务层、持久化层和传输层之间传递明确语义。
+// historyServiceImpl 保持消息历史服务的业务规则：参数默认值、游标方向和离线消息语义都在这里处理。
 type historyServiceImpl struct {
 	repo dao.HistoryRepository
 }

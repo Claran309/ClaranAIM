@@ -2673,6 +2673,275 @@ var fieldIDToName_RecallMessageResp = map[int16]string{
 	2: "msg",
 }
 
+type TranslateMessageReq struct {
+	MessageId      int64  `thrift:"message_id,1" frugal:"1,default,i64" json:"message_id"`
+	UserId         int64  `thrift:"user_id,2" frugal:"2,default,i64" json:"user_id"`
+	TargetLanguage string `thrift:"target_language,3" frugal:"3,default,string" json:"target_language"`
+	Force          bool   `thrift:"force,4" frugal:"4,default,bool" json:"force"`
+}
+
+func NewTranslateMessageReq() *TranslateMessageReq {
+	return &TranslateMessageReq{}
+}
+
+func (p *TranslateMessageReq) InitDefault() {
+}
+
+func (p *TranslateMessageReq) GetMessageId() (v int64) {
+	return p.MessageId
+}
+
+func (p *TranslateMessageReq) GetUserId() (v int64) {
+	return p.UserId
+}
+
+func (p *TranslateMessageReq) GetTargetLanguage() (v string) {
+	return p.TargetLanguage
+}
+
+func (p *TranslateMessageReq) GetForce() (v bool) {
+	return p.Force
+}
+func (p *TranslateMessageReq) SetMessageId(val int64) {
+	p.MessageId = val
+}
+func (p *TranslateMessageReq) SetUserId(val int64) {
+	p.UserId = val
+}
+func (p *TranslateMessageReq) SetTargetLanguage(val string) {
+	p.TargetLanguage = val
+}
+func (p *TranslateMessageReq) SetForce(val bool) {
+	p.Force = val
+}
+
+func (p *TranslateMessageReq) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("TranslateMessageReq(%+v)", *p)
+}
+
+func (p *TranslateMessageReq) DeepEqual(ano *TranslateMessageReq) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.MessageId) {
+		return false
+	}
+	if !p.Field2DeepEqual(ano.UserId) {
+		return false
+	}
+	if !p.Field3DeepEqual(ano.TargetLanguage) {
+		return false
+	}
+	if !p.Field4DeepEqual(ano.Force) {
+		return false
+	}
+	return true
+}
+
+func (p *TranslateMessageReq) Field1DeepEqual(src int64) bool {
+
+	if p.MessageId != src {
+		return false
+	}
+	return true
+}
+func (p *TranslateMessageReq) Field2DeepEqual(src int64) bool {
+
+	if p.UserId != src {
+		return false
+	}
+	return true
+}
+func (p *TranslateMessageReq) Field3DeepEqual(src string) bool {
+
+	if strings.Compare(p.TargetLanguage, src) != 0 {
+		return false
+	}
+	return true
+}
+func (p *TranslateMessageReq) Field4DeepEqual(src bool) bool {
+
+	if p.Force != src {
+		return false
+	}
+	return true
+}
+
+var fieldIDToName_TranslateMessageReq = map[int16]string{
+	1: "message_id",
+	2: "user_id",
+	3: "target_language",
+	4: "force",
+}
+
+type TranslateMessageResp struct {
+	Success        bool   `thrift:"success,1" frugal:"1,default,bool" json:"success"`
+	MessageId      int64  `thrift:"message_id,2" frugal:"2,default,i64" json:"message_id"`
+	TargetLanguage string `thrift:"target_language,3" frugal:"3,default,string" json:"target_language"`
+	TranslatedText string `thrift:"translated_text,4" frugal:"4,default,string" json:"translated_text"`
+	Cached         bool   `thrift:"cached,5" frugal:"5,default,bool" json:"cached"`
+	ModelName      string `thrift:"model_name,6" frugal:"6,default,string" json:"model_name"`
+	Msg            string `thrift:"msg,7" frugal:"7,default,string" json:"msg"`
+}
+
+func NewTranslateMessageResp() *TranslateMessageResp {
+	return &TranslateMessageResp{}
+}
+
+func (p *TranslateMessageResp) InitDefault() {
+}
+
+func (p *TranslateMessageResp) GetSuccess() (v bool) {
+	return p.Success
+}
+
+func (p *TranslateMessageResp) GetMessageId() (v int64) {
+	return p.MessageId
+}
+
+func (p *TranslateMessageResp) GetTargetLanguage() (v string) {
+	return p.TargetLanguage
+}
+
+func (p *TranslateMessageResp) GetTranslatedText() (v string) {
+	return p.TranslatedText
+}
+
+func (p *TranslateMessageResp) GetCached() (v bool) {
+	return p.Cached
+}
+
+func (p *TranslateMessageResp) GetModelName() (v string) {
+	return p.ModelName
+}
+
+func (p *TranslateMessageResp) GetMsg() (v string) {
+	return p.Msg
+}
+func (p *TranslateMessageResp) SetSuccess(val bool) {
+	p.Success = val
+}
+func (p *TranslateMessageResp) SetMessageId(val int64) {
+	p.MessageId = val
+}
+func (p *TranslateMessageResp) SetTargetLanguage(val string) {
+	p.TargetLanguage = val
+}
+func (p *TranslateMessageResp) SetTranslatedText(val string) {
+	p.TranslatedText = val
+}
+func (p *TranslateMessageResp) SetCached(val bool) {
+	p.Cached = val
+}
+func (p *TranslateMessageResp) SetModelName(val string) {
+	p.ModelName = val
+}
+func (p *TranslateMessageResp) SetMsg(val string) {
+	p.Msg = val
+}
+
+func (p *TranslateMessageResp) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("TranslateMessageResp(%+v)", *p)
+}
+
+func (p *TranslateMessageResp) DeepEqual(ano *TranslateMessageResp) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.Success) {
+		return false
+	}
+	if !p.Field2DeepEqual(ano.MessageId) {
+		return false
+	}
+	if !p.Field3DeepEqual(ano.TargetLanguage) {
+		return false
+	}
+	if !p.Field4DeepEqual(ano.TranslatedText) {
+		return false
+	}
+	if !p.Field5DeepEqual(ano.Cached) {
+		return false
+	}
+	if !p.Field6DeepEqual(ano.ModelName) {
+		return false
+	}
+	if !p.Field7DeepEqual(ano.Msg) {
+		return false
+	}
+	return true
+}
+
+func (p *TranslateMessageResp) Field1DeepEqual(src bool) bool {
+
+	if p.Success != src {
+		return false
+	}
+	return true
+}
+func (p *TranslateMessageResp) Field2DeepEqual(src int64) bool {
+
+	if p.MessageId != src {
+		return false
+	}
+	return true
+}
+func (p *TranslateMessageResp) Field3DeepEqual(src string) bool {
+
+	if strings.Compare(p.TargetLanguage, src) != 0 {
+		return false
+	}
+	return true
+}
+func (p *TranslateMessageResp) Field4DeepEqual(src string) bool {
+
+	if strings.Compare(p.TranslatedText, src) != 0 {
+		return false
+	}
+	return true
+}
+func (p *TranslateMessageResp) Field5DeepEqual(src bool) bool {
+
+	if p.Cached != src {
+		return false
+	}
+	return true
+}
+func (p *TranslateMessageResp) Field6DeepEqual(src string) bool {
+
+	if strings.Compare(p.ModelName, src) != 0 {
+		return false
+	}
+	return true
+}
+func (p *TranslateMessageResp) Field7DeepEqual(src string) bool {
+
+	if strings.Compare(p.Msg, src) != 0 {
+		return false
+	}
+	return true
+}
+
+var fieldIDToName_TranslateMessageResp = map[int16]string{
+	1: "success",
+	2: "message_id",
+	3: "target_language",
+	4: "translated_text",
+	5: "cached",
+	6: "model_name",
+	7: "msg",
+}
+
 type SaveMessageReq struct {
 	ConversationId int64  `thrift:"conversation_id,1" frugal:"1,default,i64" json:"conversation_id"`
 	SenderId       int64  `thrift:"sender_id,2" frugal:"2,default,i64" json:"sender_id"`
@@ -3452,6 +3721,8 @@ type MessageService interface {
 	SearchMessages(ctx context.Context, req *SearchMessagesReq) (r *SearchMessagesResp, err error)
 
 	GetConversationParticipants(ctx context.Context, req *GetConversationParticipantsReq) (r *GetConversationParticipantsResp, err error)
+
+	TranslateMessage(ctx context.Context, req *TranslateMessageReq) (r *TranslateMessageResp, err error)
 }
 
 type MessageServiceCreateConversationArgs struct {
@@ -4727,6 +4998,122 @@ func (p *MessageServiceGetConversationParticipantsResult) Field0DeepEqual(src *G
 }
 
 var fieldIDToName_MessageServiceGetConversationParticipantsResult = map[int16]string{
+	0: "success",
+}
+
+type MessageServiceTranslateMessageArgs struct {
+	Req *TranslateMessageReq `thrift:"req,1" frugal:"1,default,TranslateMessageReq" json:"req"`
+}
+
+func NewMessageServiceTranslateMessageArgs() *MessageServiceTranslateMessageArgs {
+	return &MessageServiceTranslateMessageArgs{}
+}
+
+func (p *MessageServiceTranslateMessageArgs) InitDefault() {
+}
+
+var MessageServiceTranslateMessageArgs_Req_DEFAULT *TranslateMessageReq
+
+func (p *MessageServiceTranslateMessageArgs) GetReq() (v *TranslateMessageReq) {
+	if !p.IsSetReq() {
+		return MessageServiceTranslateMessageArgs_Req_DEFAULT
+	}
+	return p.Req
+}
+func (p *MessageServiceTranslateMessageArgs) SetReq(val *TranslateMessageReq) {
+	p.Req = val
+}
+
+func (p *MessageServiceTranslateMessageArgs) IsSetReq() bool {
+	return p.Req != nil
+}
+
+func (p *MessageServiceTranslateMessageArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("MessageServiceTranslateMessageArgs(%+v)", *p)
+}
+
+func (p *MessageServiceTranslateMessageArgs) DeepEqual(ano *MessageServiceTranslateMessageArgs) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.Req) {
+		return false
+	}
+	return true
+}
+
+func (p *MessageServiceTranslateMessageArgs) Field1DeepEqual(src *TranslateMessageReq) bool {
+
+	if !p.Req.DeepEqual(src) {
+		return false
+	}
+	return true
+}
+
+var fieldIDToName_MessageServiceTranslateMessageArgs = map[int16]string{
+	1: "req",
+}
+
+type MessageServiceTranslateMessageResult struct {
+	Success *TranslateMessageResp `thrift:"success,0,optional" frugal:"0,optional,TranslateMessageResp" json:"success,omitempty"`
+}
+
+func NewMessageServiceTranslateMessageResult() *MessageServiceTranslateMessageResult {
+	return &MessageServiceTranslateMessageResult{}
+}
+
+func (p *MessageServiceTranslateMessageResult) InitDefault() {
+}
+
+var MessageServiceTranslateMessageResult_Success_DEFAULT *TranslateMessageResp
+
+func (p *MessageServiceTranslateMessageResult) GetSuccess() (v *TranslateMessageResp) {
+	if !p.IsSetSuccess() {
+		return MessageServiceTranslateMessageResult_Success_DEFAULT
+	}
+	return p.Success
+}
+func (p *MessageServiceTranslateMessageResult) SetSuccess(x interface{}) {
+	p.Success = x.(*TranslateMessageResp)
+}
+
+func (p *MessageServiceTranslateMessageResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *MessageServiceTranslateMessageResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("MessageServiceTranslateMessageResult(%+v)", *p)
+}
+
+func (p *MessageServiceTranslateMessageResult) DeepEqual(ano *MessageServiceTranslateMessageResult) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field0DeepEqual(ano.Success) {
+		return false
+	}
+	return true
+}
+
+func (p *MessageServiceTranslateMessageResult) Field0DeepEqual(src *TranslateMessageResp) bool {
+
+	if !p.Success.DeepEqual(src) {
+		return false
+	}
+	return true
+}
+
+var fieldIDToName_MessageServiceTranslateMessageResult = map[int16]string{
 	0: "success",
 }
 

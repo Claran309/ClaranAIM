@@ -156,17 +156,18 @@ type MessageTranslation struct {
 	CreatedAt      time.Time `json:"created_at" gorm:"autoCreateTime"`
 }
 
-// BeforeCreate 是当前包对外暴露的方法，负责承接对应的业务流程、参数校验或适配逻辑。
+// BeforeCreate 在插入翻译缓存前补充分布式雪花 ID。
 func (t *MessageTranslation) BeforeCreate(tx *gorm.DB) error {
 	return fillSnowflakeID(&t.ID)
 }
 
-// TableName 是当前包对外暴露的方法，负责承接对应的业务流程、参数校验或适配逻辑。
+// TableName 固定消息翻译缓存表名。
 func (MessageTranslation) TableName() string {
 	return "message_translations"
 }
 
-// fillSnowflakeID 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// fillSnowflakeID 供各消息领域模型的 GORM BeforeCreate 钩子复用。
+// 测试或导入场景预置 ID 时不会覆盖原值。
 func fillSnowflakeID(id *int64) error {
 	if *id != 0 {
 		return nil

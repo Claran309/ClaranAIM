@@ -95,7 +95,7 @@ func (FriendGroup) TableName() string {
 	return "friend_groups"
 }
 
-// fillSnowflakeID 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// fillSnowflakeID 复用项目雪花 ID 生成器；如果调用方已经指定 ID，则保留该 ID 不覆盖。
 func fillSnowflakeID(id *int64) error {
 	if *id != 0 {
 		return nil

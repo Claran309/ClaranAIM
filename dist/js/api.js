@@ -364,6 +364,46 @@ const settingsAPI = {
         request('DELETE', `/settings/llm-profiles/${apiID(id)}`),
     listPrompts: () => request('GET', '/settings/prompts'),
     savePrompt: (prompt) => request('POST', '/settings/prompts', prompt),
+    listSkills: (scope = '', agentID = -1) =>
+        request('GET', `/settings/skills?scope=${encodeURIComponent(scope)}&agent_id=${apiID(agentID)}`),
+    uploadSkill: async ({ fileList, name = '', description = '', scope = 'global', agentID = 0, isDefault = false }) => {
+        const formData = new FormData();
+        Array.from(fileList || []).forEach(file => {
+            const relPath = file.webkitRelativePath || file.name;
+            formData.append('file', file, relPath);
+        });
+        formData.append('name', name);
+        formData.append('description', description);
+        formData.append('scope', scope);
+        formData.append('agent_id', apiID(agentID || 0));
+        formData.append('is_default', String(!!isDefault));
+        const uploadOnce = () => fetch(`${API_BASE}/settings/skills/upload`, {
+            method: 'POST',
+            headers: authHeaders(),
+            body: formData,
+        });
+        try {
+            apiLocalLog('info', 'Skill上传请求', { scope, agentID, count: (fileList || []).length });
+            let resp = await uploadOnce();
+            if (resp.status === 401 && await refreshAccessToken()) {
+                resp = await uploadOnce();
+            }
+            const text = await resp.text();
+            const result = text ? parseJSONSafeInt(text) : null;
+            if (!resp.ok || result?.code !== 0) {
+                const msg = result?.message || result?.data?.msg || 'Skill上传失败';
+                apiLocalLog('warn', 'Skill上传失败', { status: resp.status, message: msg });
+                showToast(msg, 'error');
+                return result;
+            }
+            return result;
+        } catch (err) {
+            apiLocalLog('error', 'Skill上传网络错误', { message: err.message, stack: err.stack || '' });
+            showToast('Skill上传网络错误: ' + err.message, 'error');
+            return null;
+        }
+    },
+    deleteSkill: (id) => request('DELETE', `/settings/skills/${apiID(id)}`),
 };
 
 async function connectWS() {

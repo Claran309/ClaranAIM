@@ -16,7 +16,8 @@
 - `internal/memory-service/model/model.go`
 - `internal/memory-service/dao/dao.go`
 - `internal/memory-service/service/service.go`
-- `internal/memory-service/transport/http.go`
+- `idl/memory.thrift`
+- `kitex_gen/memory/memoryservice`
 - `pkg/memoryclient`
 - `internal/agent-manager-service/service/service.go`
 - `internal/agent-runtime-service/graphTool/rag.go`
@@ -138,4 +139,3 @@ TopK
 2. 设计一条群背景 memory。
 3. 画出 Agent 调用前召回 memory 的链路。
 4. 把当前 RAG MVP 画成 DAG。
-

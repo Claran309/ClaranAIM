@@ -11,25 +11,38 @@ import (
 // Bot 保存构建和运行一个 Agent 实例所需的配置。
 // 表名暂时仍为 bots，是为了兼容已有数据库和历史 Kitex IDL；业务语义已经是 Agent。
 type Bot struct {
-	ID            int64     `json:"id" gorm:"primaryKey;autoIncrement:false"`
-	Name          string    `json:"name" gorm:"size:100;not null"`
-	Type          string    `json:"type" gorm:"size:20;not null;default:internal"`
-	Description   string    `json:"description" gorm:"type:text"`
-	ModelName     string    `json:"model_name" gorm:"size:100;not null"`
-	APIKey        string    `json:"api_key" gorm:"size:255"`
-	BaseURL       string    `json:"base_url" gorm:"size:255"`
-	SystemPrompt  string    `json:"system_prompt" gorm:"type:text"`
-	SkillsDir     string    `json:"skills_dir" gorm:"size:255"`
-	AgentRoot     string    `json:"agent_root" gorm:"size:255"`
-	AgentUserID   int64     `json:"agent_user_id" gorm:"index;default:0"`
-	Avatar        string    `json:"avatar" gorm:"size:255"`
-	Signature     string    `json:"signature" gorm:"size:120"`
-	WorkspaceRoot string    `json:"workspace_root" gorm:"size:255"`
-	ToolPolicy    string    `json:"tool_policy" gorm:"size:50;default:safe"`
-	OwnerID       int64     `json:"owner_id" gorm:"index;not null"`
-	IsActive      bool      `json:"is_active" gorm:"default:true"`
-	CreatedAt     time.Time `json:"created_at" gorm:"autoCreateTime"`
-	UpdatedAt     time.Time `json:"updated_at" gorm:"autoUpdateTime"`
+	ID            int64  `json:"id" gorm:"primaryKey;autoIncrement:false"`
+	Name          string `json:"name" gorm:"size:100;not null"`
+	Type          string `json:"type" gorm:"size:20;not null;default:internal"`
+	Description   string `json:"description" gorm:"type:text"`
+	ModelName     string `json:"model_name" gorm:"size:100;not null"`
+	APIKey        string `json:"api_key" gorm:"size:255"`
+	BaseURL       string `json:"base_url" gorm:"size:255"`
+	SystemPrompt  string `json:"system_prompt" gorm:"type:text"`
+	SkillsDir     string `json:"skills_dir" gorm:"size:255"`
+	AgentRoot     string `json:"agent_root" gorm:"size:255"`
+	AgentUserID   int64  `json:"agent_user_id" gorm:"index;default:0"`
+	Avatar        string `json:"avatar" gorm:"size:255"`
+	Signature     string `json:"signature" gorm:"size:120"`
+	WorkspaceRoot string `json:"workspace_root" gorm:"size:255"`
+	ToolPolicy    string `json:"tool_policy" gorm:"size:50;default:safe"`
+	// ContextMessageLimit 控制上下文型任务从 msg-core-service 读取的最近消息条数。
+	// 这是 Agent 会话感知能力的核心运行参数，前端可配置，服务端会做范围裁剪。
+	ContextMessageLimit int64 `json:"context_message_limit" gorm:"default:80"`
+	// MemoryRecallLimit 控制每轮 Agent 对话从 memory-service 召回的长期记忆条数。
+	MemoryRecallLimit int64 `json:"memory_recall_limit" gorm:"default:12"`
+	// MaxOutputTokens 预留给支持输出长度控制的模型配置；0 表示使用模型供应商默认值。
+	MaxOutputTokens int64 `json:"max_output_tokens" gorm:"default:0"`
+	// Temperature 预留给模型采样温度；0 表示使用运行时默认值，避免破坏旧配置。
+	Temperature float64 `json:"temperature" gorm:"default:0"`
+	// GroupTriggerMode 控制 Agent 在群聊中的默认触发方式，例如 mention、keyword、all。
+	GroupTriggerMode string `json:"group_trigger_mode" gorm:"size:30;default:mention"`
+	// AutoReplyEnabled 控制 Agent 是否允许根据订阅规则自动回复；关闭后仍可手动运行。
+	AutoReplyEnabled bool      `json:"auto_reply_enabled" gorm:"default:true"`
+	OwnerID          int64     `json:"owner_id" gorm:"index;not null"`
+	IsActive         bool      `json:"is_active" gorm:"default:true"`
+	CreatedAt        time.Time `json:"created_at" gorm:"autoCreateTime"`
+	UpdatedAt        time.Time `json:"updated_at" gorm:"autoUpdateTime"`
 }
 
 // BeforeCreate 在插入 Agent 配置前补充分布式雪花 ID。

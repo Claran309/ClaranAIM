@@ -210,7 +210,33 @@ func (h *MessageServiceImpl) GetConversationParticipants(ctx context.Context, re
 	return &message.GetConversationParticipantsResp{Success: true, UserIds: userIDs}, nil
 }
 
-// toRPCMessage 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// TranslateMessage 手动翻译一条当前用户可见的文本消息。
+//
+// 翻译能力已经进入 msg-core-service 的 Kitex IDL，api-gateway 不再通过内部
+// HTTP transport 绕行调用。这里同样只做 DTO 转换，可见性校验、缓存命中、
+// settings-service 配置读取和 LLM 调用都在 service 层完成。
+func (h *MessageServiceImpl) TranslateMessage(ctx context.Context, req *message.TranslateMessageReq) (resp *message.TranslateMessageResp, err error) {
+	result, err := h.svc.TranslateMessage(ctx, service.TranslateMessageInput{
+		MessageID:      req.MessageId,
+		UserID:         req.UserId,
+		TargetLanguage: req.TargetLanguage,
+		Force:          req.Force,
+	})
+	if err != nil {
+		return &message.TranslateMessageResp{Success: false, Msg: err.Error()}, nil
+	}
+	return &message.TranslateMessageResp{
+		Success:        true,
+		MessageId:      result.MessageID,
+		TargetLanguage: result.TargetLanguage,
+		TranslatedText: result.TranslatedText,
+		Cached:         result.Cached,
+		ModelName:      result.ModelName,
+	}, nil
+}
+
+// toRPCMessage 将 msg-core 内部模型转换为 Kitex RPC DTO。
+// 这里集中处理时间格式和已读字段，避免每个 RPC 方法各自拼装响应。
 func toRPCMessage(m *model.Message) *message.Message {
 	if m == nil {
 		return nil
@@ -234,7 +260,8 @@ func toRPCMessage(m *model.Message) *message.Message {
 	}
 }
 
-// parseOptionalTime 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// parseOptionalTime 解析搜索接口的起止时间。
+// 支持 RFC3339、完整本地时间和日期三种格式，空字符串表示不限制该边界。
 func parseOptionalTime(value string) (time.Time, error) {
 	if value == "" {
 		return time.Time{}, nil
@@ -249,7 +276,7 @@ func parseOptionalTime(value string) (time.Time, error) {
 	return time.Time{}, errors.New("时间格式应为 RFC3339、YYYY-MM-DD HH:mm:ss 或 YYYY-MM-DD")
 }
 
-// formatTime 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// formatTime 将数据库时间转成 RPC 统一字符串格式。
 func formatTime(t time.Time) string {
 	if t.IsZero() {
 		return ""
@@ -257,7 +284,7 @@ func formatTime(t time.Time) string {
 	return t.Format("2006-01-02 15:04:05")
 }
 
-// formatOptionalTime 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// formatOptionalTime 处理编辑时间等可空字段，nil 和零值都返回空字符串。
 func formatOptionalTime(t *time.Time) string {
 	if t == nil || t.IsZero() {
 		return ""

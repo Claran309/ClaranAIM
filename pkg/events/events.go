@@ -10,7 +10,8 @@ import (
 	"time"
 )
 
-// 下面这组常量定义当前包使用的固定取值，集中声明可以避免业务代码中散落魔法字符串或魔法数字。
+// Topic 和 EventType 是 Kafka/Outbox 的跨服务协议。
+// 新增事件时要同时维护 Envelope.Topic，否则 Outbox Worker 无法判断该把事件发到哪个 topic。
 const (
 	// TopicGroupEvents 承载群创建、解散、成员变更等群生命周期事件。
 	TopicGroupEvents = "claran.group.events"

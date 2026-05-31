@@ -46,7 +46,3 @@ governance:
     circuit_breaker: true
     max_connections: 1000
     max_qps: 500
-
-internal:
-  memory_service_url: "http://127.0.0.1:9008"
-

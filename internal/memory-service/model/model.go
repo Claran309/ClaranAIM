@@ -8,7 +8,8 @@ import (
 	"gorm.io/gorm"
 )
 
-// 下面这组常量定义当前包使用的固定取值，集中声明可以避免业务代码中散落魔法字符串或魔法数字。
+// 记忆事实的分类枚举。
+// Scope 控制隔离粒度，Visibility 控制读取权限，VectorStatus 预留给后续向量库异步处理流程。
 const (
 	ScopeUser         = "user"
 	ScopeGroup        = "group"
@@ -56,7 +57,7 @@ type MemoryFact struct {
 	DeletedAt      gorm.DeletedAt `json:"-" gorm:"index"`
 }
 
-// TableName 是当前包对外暴露的方法，负责承接对应的业务流程、参数校验或适配逻辑。
+// TableName 固定表名，避免 GORM 根据结构体名推导成 memory_facts 以外的名称。
 func (MemoryFact) TableName() string {
 	return "memory_facts"
 }

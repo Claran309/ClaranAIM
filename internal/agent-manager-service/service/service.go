@@ -21,8 +21,8 @@ import (
 // agent-manager-service 拥有 Agent 配置、路由规则、权限和计费记录；
 // 真正的模型运行由 agent-runtime-service 承担，这里负责组装配置、鉴权、调用 runtime 和记录结果。
 type AgentService interface {
-	CreateBot(ctx context.Context, name, botType, description, modelName, apiKey, baseURL, systemPrompt, skillsDir, agentRoot, avatar, signature, workspaceRoot, toolPolicy string, ownerID int64, defaultAPIKey, defaultBaseURL, defaultModel string) (*model.Bot, error)
-	UpdateBot(ctx context.Context, botID, operatorID int64, name, description, modelName, apiKey, baseURL, systemPrompt, skillsDir, agentRoot, avatar, signature, workspaceRoot, toolPolicy string, isActive bool, isActiveSet bool, defaultAPIKey, defaultBaseURL, defaultModel string) error
+	CreateBot(ctx context.Context, name, botType, description, modelName, apiKey, baseURL, systemPrompt, skillsDir, agentRoot, avatar, signature, workspaceRoot, toolPolicy string, ownerID, contextMessageLimit, memoryRecallLimit, maxOutputTokens int64, temperature float64, groupTriggerMode string, autoReplyEnabled bool, defaultAPIKey, defaultBaseURL, defaultModel string) (*model.Bot, error)
+	UpdateBot(ctx context.Context, botID, operatorID int64, name, description, modelName, apiKey, baseURL, systemPrompt, skillsDir, agentRoot, avatar, signature, workspaceRoot, toolPolicy string, isActive bool, isActiveSet bool, contextMessageLimit, memoryRecallLimit, maxOutputTokens int64, temperature float64, groupTriggerMode string, autoReplyEnabled bool, defaultAPIKey, defaultBaseURL, defaultModel string) error
 	GetBot(ctx context.Context, botID int64) (*model.Bot, error)
 	ListBots(ctx context.Context, ownerID int64, botType string) ([]model.Bot, error)
 	DeleteBot(ctx context.Context, botID, operatorID int64) error
@@ -63,6 +63,21 @@ type agentServiceImpl struct {
 	memoryService    AgentMemoryService
 }
 
+const (
+	// DefaultContextMessageLimit 是 Agent 未配置时读取最近会话消息的默认条数。
+	DefaultContextMessageLimit int64 = 80
+	// MinContextMessageLimit 防止配置过小导致“总结会话”几乎看不到上下文。
+	MinContextMessageLimit int64 = 10
+	// MaxContextMessageLimit 防止一次任务把过多聊天历史塞进模型输入。
+	MaxContextMessageLimit int64 = 500
+	// DefaultMemoryRecallLimit 是长期记忆召回的默认条数。
+	DefaultMemoryRecallLimit int64 = 12
+	// MaxMemoryRecallLimit 防止长期记忆过多污染当前任务。
+	MaxMemoryRecallLimit int64 = 50
+	// DefaultGroupTriggerMode 表示群聊中默认只响应 @ 或命令式触发。
+	DefaultGroupTriggerMode = "mention"
+)
+
 // AgentMemoryService 是 agent-manager-service 依赖的最小 memory-service 契约。
 // 这里避免直接 import memory-service 内部实现，保持微服务边界。
 type AgentMemoryService interface {
@@ -99,7 +114,7 @@ func (s *agentServiceImpl) SetMemoryService(memory AgentMemoryService) {
 // CreateBot 创建一个由用户拥有的 Agent 配置。
 // internal 类型使用平台默认模型供应商；custom 类型必须提供自己的 API Key 和 Base URL。
 // 创建成功后会为 Agent 创建真实系统用户，并授予创建者 owner 权限。
-func (s *agentServiceImpl) CreateBot(ctx context.Context, name, botType, description, modelName, apiKey, baseURL, systemPrompt, skillsDir, agentRoot, avatar, signature, workspaceRoot, toolPolicy string, ownerID int64, defaultAPIKey, defaultBaseURL, defaultModel string) (*model.Bot, error) {
+func (s *agentServiceImpl) CreateBot(ctx context.Context, name, botType, description, modelName, apiKey, baseURL, systemPrompt, skillsDir, agentRoot, avatar, signature, workspaceRoot, toolPolicy string, ownerID, contextMessageLimit, memoryRecallLimit, maxOutputTokens int64, temperature float64, groupTriggerMode string, autoReplyEnabled bool, defaultAPIKey, defaultBaseURL, defaultModel string) (*model.Bot, error) {
 	if name == "" {
 		return nil, errors.New("bot名称不能为空")
 	}
@@ -146,23 +161,30 @@ func (s *agentServiceImpl) CreateBot(ctx context.Context, name, botType, descrip
 	}
 
 	bot := &model.Bot{
-		Name:          name,
-		Type:          botType,
-		Description:   description,
-		ModelName:     effectiveModel,
-		APIKey:        effectiveAPIKey,
-		BaseURL:       effectiveBaseURL,
-		SystemPrompt:  systemPrompt,
-		SkillsDir:     skillsDir,
-		AgentRoot:     agentRoot,
-		AgentUserID:   agentUserID,
-		Avatar:        avatar,
-		Signature:     signature,
-		WorkspaceRoot: workspaceRoot,
-		ToolPolicy:    toolPolicy,
-		OwnerID:       ownerID,
-		IsActive:      true,
+		Name:                name,
+		Type:                botType,
+		Description:         description,
+		ModelName:           effectiveModel,
+		APIKey:              effectiveAPIKey,
+		BaseURL:             effectiveBaseURL,
+		SystemPrompt:        systemPrompt,
+		SkillsDir:           skillsDir,
+		AgentRoot:           agentRoot,
+		AgentUserID:         agentUserID,
+		Avatar:              avatar,
+		Signature:           signature,
+		WorkspaceRoot:       workspaceRoot,
+		ToolPolicy:          toolPolicy,
+		ContextMessageLimit: contextMessageLimit,
+		MemoryRecallLimit:   memoryRecallLimit,
+		MaxOutputTokens:     maxOutputTokens,
+		Temperature:         temperature,
+		GroupTriggerMode:    groupTriggerMode,
+		AutoReplyEnabled:    true,
+		OwnerID:             ownerID,
+		IsActive:            true,
 	}
+	normalizeAgentRuntimeSettings(bot)
 
 	if err := s.botRepo.CreateBot(ctx, bot); err != nil {
 		return nil, err
@@ -180,7 +202,7 @@ func (s *agentServiceImpl) CreateBot(ctx context.Context, name, botType, descrip
 }
 
 // UpdateBot 修改 Agent 配置，并由权限系统保证只有 owner/admin 可以操作。
-func (s *agentServiceImpl) UpdateBot(ctx context.Context, botID, operatorID int64, name, description, modelName, apiKey, baseURL, systemPrompt, skillsDir, agentRoot, avatar, signature, workspaceRoot, toolPolicy string, isActive bool, isActiveSet bool, defaultAPIKey, defaultBaseURL, defaultModel string) error {
+func (s *agentServiceImpl) UpdateBot(ctx context.Context, botID, operatorID int64, name, description, modelName, apiKey, baseURL, systemPrompt, skillsDir, agentRoot, avatar, signature, workspaceRoot, toolPolicy string, isActive bool, isActiveSet bool, contextMessageLimit, memoryRecallLimit, maxOutputTokens int64, temperature float64, groupTriggerMode string, autoReplyEnabled bool, defaultAPIKey, defaultBaseURL, defaultModel string) error {
 	bot, err := s.botRepo.GetBotByID(ctx, botID)
 	if err != nil {
 		return err
@@ -243,6 +265,23 @@ func (s *agentServiceImpl) UpdateBot(ctx context.Context, botID, operatorID int6
 	if isActiveSet {
 		bot.IsActive = isActive
 	}
+	if contextMessageLimit > 0 {
+		bot.ContextMessageLimit = contextMessageLimit
+	}
+	if memoryRecallLimit > 0 {
+		bot.MemoryRecallLimit = memoryRecallLimit
+	}
+	if maxOutputTokens >= 0 {
+		bot.MaxOutputTokens = maxOutputTokens
+	}
+	if temperature >= 0 {
+		bot.Temperature = temperature
+	}
+	if groupTriggerMode != "" {
+		bot.GroupTriggerMode = groupTriggerMode
+	}
+	bot.AutoReplyEnabled = autoReplyEnabled
+	normalizeAgentRuntimeSettings(bot)
 
 	if err := s.botRepo.UpdateBot(ctx, bot); err != nil {
 		return err
@@ -311,7 +350,7 @@ func (s *agentServiceImpl) ChatWithBot(ctx context.Context, botID, userID, conve
 		return nil, errors.New("agent-runtime-service未配置")
 	}
 	sessionID := defaultAgentSessionID(botID, userID, conversationID)
-	runtimeInput := s.buildInputWithMemory(ctx, botID, userID, conversationID, sessionID, message)
+	runtimeInput := s.buildInputWithMemory(ctx, botInfo, userID, conversationID, sessionID, message)
 	resp, err := s.runtimeClient.RunAgent(ctx, &bot_runtime.RunAgentReq{
 		Bot:            s.runtimeConfig(botInfo),
 		UserId:         userID,
@@ -371,20 +410,24 @@ func defaultAgentSessionID(botID, userID, conversationID int64) string {
 
 // buildInputWithMemory 在用户输入前注入可召回的长期记忆。
 // 记忆只作为辅助背景，用户当前输入仍具有更高优先级。
-func (s *agentServiceImpl) buildInputWithMemory(ctx context.Context, botID, userID, conversationID int64, sessionID, message string) string {
+func (s *agentServiceImpl) buildInputWithMemory(ctx context.Context, botInfo *model.Bot, userID, conversationID int64, sessionID, message string) string {
 	if s.memoryService == nil {
 		return message
 	}
+	if botInfo == nil {
+		return message
+	}
+	normalizeAgentRuntimeSettings(botInfo)
 	result, err := s.memoryService.Recall(ctx, memoryclient.RecallInput{
-		BotID:          botID,
+		BotID:          botInfo.ID,
 		UserID:         userID,
 		ConversationID: conversationID,
 		SessionID:      sessionID,
-		Limit:          12,
+		Limit:          int(botInfo.MemoryRecallLimit),
 	})
 	if err != nil || strings.TrimSpace(result.ContextText) == "" {
 		if err != nil {
-			log.Printf("召回Agent长期记忆失败: bot_id=%d user_id=%d err=%v", botID, userID, err)
+			log.Printf("召回Agent长期记忆失败: bot_id=%d user_id=%d err=%v", botInfo.ID, userID, err)
 		}
 		return message
 	}
@@ -547,23 +590,71 @@ func validPermissionRole(role string) bool {
 
 // runtimeConfig 将数据库中的 Agent 配置转换为 agent-runtime-service 的运行配置。
 func (s *agentServiceImpl) runtimeConfig(bot *model.Bot) *bot_runtime.RuntimeBotConfig {
+	normalizeAgentRuntimeSettings(bot)
 	workspace := bot.WorkspaceRoot
 	if workspace == "" {
 		workspace = defaultWorkspaceRoot(s.workspaceBase, bot.ID)
 	}
 	return &bot_runtime.RuntimeBotConfig{
-		BotId:              bot.ID,
-		AgentUserId:        bot.AgentUserID,
-		Name:               bot.Name,
-		Description:        bot.Description,
-		ModelName:          bot.ModelName,
-		ApiKey:             bot.APIKey,
-		BaseUrl:            bot.BaseURL,
-		SystemPrompt:       bot.SystemPrompt,
-		SkillsDir:          bot.SkillsDir,
-		WorkspaceRoot:      workspace,
-		ToolPolicy:         bot.ToolPolicy,
-		IncludeDomainTools: bot.Name == "Amiya" || bot.Type == "internal",
+		BotId:               bot.ID,
+		AgentUserId:         bot.AgentUserID,
+		Name:                bot.Name,
+		Description:         bot.Description,
+		ModelName:           bot.ModelName,
+		ApiKey:              bot.APIKey,
+		BaseUrl:             bot.BaseURL,
+		SystemPrompt:        bot.SystemPrompt,
+		SkillsDir:           bot.SkillsDir,
+		WorkspaceRoot:       workspace,
+		ToolPolicy:          bot.ToolPolicy,
+		IncludeDomainTools:  true,
+		ContextMessageLimit: bot.ContextMessageLimit,
+		MemoryRecallLimit:   bot.MemoryRecallLimit,
+		MaxOutputTokens:     bot.MaxOutputTokens,
+		Temperature:         bot.Temperature,
+		GroupTriggerMode:    bot.GroupTriggerMode,
+		AutoReplyEnabled:    bot.AutoReplyEnabled,
+	}
+}
+
+// normalizeAgentRuntimeSettings 对 Agent 运行参数做服务端兜底和范围裁剪。
+// 前端传来的值只作为用户偏好，最终仍由这里保证不会过小、过大或落到未知触发模式。
+func normalizeAgentRuntimeSettings(bot *model.Bot) {
+	if bot == nil {
+		return
+	}
+	if bot.ContextMessageLimit <= 0 {
+		bot.ContextMessageLimit = DefaultContextMessageLimit
+	}
+	if bot.ContextMessageLimit < MinContextMessageLimit {
+		bot.ContextMessageLimit = MinContextMessageLimit
+	}
+	if bot.ContextMessageLimit > MaxContextMessageLimit {
+		bot.ContextMessageLimit = MaxContextMessageLimit
+	}
+	if bot.MemoryRecallLimit <= 0 {
+		bot.MemoryRecallLimit = DefaultMemoryRecallLimit
+	}
+	if bot.MemoryRecallLimit > MaxMemoryRecallLimit {
+		bot.MemoryRecallLimit = MaxMemoryRecallLimit
+	}
+	if bot.MaxOutputTokens < 0 {
+		bot.MaxOutputTokens = 0
+	}
+	if bot.Temperature < 0 {
+		bot.Temperature = 0
+	}
+	if bot.Temperature > 2 {
+		bot.Temperature = 2
+	}
+	switch strings.ToLower(strings.TrimSpace(bot.GroupTriggerMode)) {
+	case "mention", "mention_only", "keyword", "command", "all", "silent":
+		bot.GroupTriggerMode = strings.ToLower(strings.TrimSpace(bot.GroupTriggerMode))
+		if bot.GroupTriggerMode == "mention_only" {
+			bot.GroupTriggerMode = "mention"
+		}
+	default:
+		bot.GroupTriggerMode = DefaultGroupTriggerMode
 	}
 }
 

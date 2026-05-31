@@ -1410,6 +1410,14 @@ curl -X POST http://localhost:8080/api/v1/file/upload \
 
 说明：面向业务和前端的接口统一使用 `/agent/*`。旧 `/bot/*` HTTP 兼容入口已删除；当前仍存在的 `kitex_gen/bot` 只是历史 Kitex 生成包名，不代表网关对外暴露 `/bot/*`。
 
+Agent 配置新增运行参数：
+- `context_message_limit`：会话总结、问答、洞察读取的最近消息条数，服务端默认 80，范围裁剪为 10-500。
+- `memory_recall_limit`：每轮 Agent 对话召回的长期记忆条数，默认 12，最大 50。
+- `max_output_tokens`：预留给模型输出长度控制，0 表示使用模型默认值。
+- `temperature`：模型创造性参数，服务端裁剪在 0-2。
+- `group_trigger_mode`：群聊触发方式，支持 `mention`、`keyword`、`command`、`all`、`silent`。
+- `auto_reply_enabled`：是否允许 Agent 根据订阅规则自动回复；关闭后仍可手动运行 Agent。
+
 ### 5.1 创建 AI 助手
 
 **POST** `/agent/create`
@@ -1437,7 +1445,7 @@ curl -X POST http://localhost:8080/api/v1/file/upload \
 
 ```json
 {
-  "name": "Amiya",
+  "name": "Claran Assistant",
   "type": "internal",
   "description": "项目助手，帮助解答技术问题",
   "model_name": "gpt-4o-mini",
@@ -1521,7 +1529,7 @@ curl -X POST http://localhost:8080/api/v1/file/upload \
     "success": true,
     "bot": {
       "id": 1,
-      "name": "Amiya",
+      "name": "Claran Assistant",
       "type": "internal",
       "description": "项目助手",
       "model_name": "gpt-4o-mini",
@@ -1564,7 +1572,7 @@ curl -X POST http://localhost:8080/api/v1/file/upload \
     "bots": [
       {
         "id": 1,
-        "name": "Amiya",
+        "name": "Claran Assistant",
         "type": "internal",
         "description": "项目助手",
         "model_name": "gpt-4o-mini",
@@ -2013,7 +2021,7 @@ Agent 任务返回 JSON 时，前端会识别 `cards`、`action_cards` 或 `acti
 
 ## 六、系统设置模块 (settings-service)
 
-settings-service 保存用户级系统设置。本阶段先落地 LLM 预设和 Prompt 模板：用户可以预设多个 OpenAI-compatible BaseURL、API Key、模型名和用途，在创建 Agent 或手动翻译时复用。
+settings-service 保存用户级系统设置。本阶段已落地 LLM 预设、Prompt 模板和 Agent Skill 配置：用户可以预设多个 OpenAI-compatible BaseURL、API Key、模型名和用途，在创建 Agent 或手动翻译时复用；也可以上传全局 Skill 或单个 Agent 专属 Skill。
 
 ### 6.1 获取 LLM 预设列表
 
@@ -2072,6 +2080,77 @@ settings-service 保存用户级系统设置。本阶段先落地 LLM 预设和 
 | content    | string | 是   | Prompt 内容 |
 | enabled    | bool   | 否   | 是否启用 |
 | is_default | bool   | 否   | 是否作为默认模板 |
+
+### 6.6 获取 Agent Skill 列表
+
+**GET** `/settings/skills?scope=global&agent_id=0`
+
+需要认证。用于查询当前用户上传的全局 Skill 或某个 Agent 的专属 Skill。
+
+| 参数     | 类型   | 必填 | 说明 |
+| -------- | ------ | ---- | ---- |
+| scope    | string | 否   | `global` 表示全局 Skill，`agent` 表示 Agent 专属 Skill，留空返回当前用户全部启用 Skill |
+| agent_id | int64  | 否   | 查询某个 Agent 的专属 Skill；查询全局 Skill 时传 0 |
+
+响应示例：
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "success": true,
+    "skills": [
+      {
+        "id": 10001,
+        "owner_id": 1000000001,
+        "agent_id": 0,
+        "scope": "global",
+        "name": "代码审查",
+        "description": "为 Agent 增加代码审查流程能力",
+        "skills_dir": "D:/CodeStudy/GoProjects/src/ClaranAIM/storage/agent/skills/global/1000000001/skill_4",
+        "entry_file": "SKILL.md",
+        "source_type": "package",
+        "is_default": true,
+        "enabled": true
+      }
+    ]
+  }
+}
+```
+
+### 6.7 上传 Agent Skill
+
+**POST** `/settings/skills/upload`
+
+需要认证。Content-Type 为 `multipart/form-data`。支持三类上传：
+
+- 单个 `SKILL.md`
+- `.zip` Skill 包，包根目录必须包含 `SKILL.md`
+- 浏览器文件夹上传，文件夹内必须包含 `SKILL.md`
+
+| 表单字段    | 类型   | 必填 | 说明 |
+| ----------- | ------ | ---- | ---- |
+| file        | file   | 是   | 一个或多个文件；zip 会由网关解包 |
+| name        | string | 否   | Skill 名称；为空时自动推断 |
+| description | string | 否   | Skill 说明 |
+| scope       | string | 否   | `global` 或 `agent`，默认 `global` |
+| agent_id    | int64  | 否   | `scope=agent` 时必填 |
+| is_default  | bool   | 否   | 是否作为默认 Skill |
+
+安全规则：
+
+- 上传包最大 5MB，最多 80 个文件
+- Skill 包必须包含根目录 `SKILL.md`
+- 禁止绝对路径和 `../` 路径穿越
+- 文件落盘目录由 settings-service 生成，浏览器不能直接指定 runtime 读取目录
+- 全局 Skill 默认写入 `storage/agent/skills/global/{owner_id}/{skill_name}`，Agent 专属 Skill 写入 `storage/agent/skills/agents/{agent_id}/{skill_name}`
+
+### 6.8 删除 Agent Skill
+
+**DELETE** `/settings/skills/:id`
+
+需要认证。只能删除当前用户自己的 Skill 元数据。已落盘文件默认保留，避免误删正在运行中的 Agent Skill 目录。
 
 ***
 

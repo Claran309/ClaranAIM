@@ -4,7 +4,6 @@ package handler
 import (
 	"ClaranAIM/internal/api-gateway/client"
 	"ClaranAIM/kitex_gen/message"
-	"ClaranAIM/pkg/messageclient"
 	"ClaranAIM/pkg/response"
 	"bytes"
 	"context"
@@ -18,17 +17,6 @@ import (
 // MessageHandler 处理所有消息相关的 HTTP 请求
 type MessageHandler struct{}
 
-// 下面这组变量保存当前包需要复用的运行时状态或配置入口，调用方应通过公开函数间接使用。
-var gatewayMessageDomainService messageclient.TranslationService
-
-// InitMessageDomainService 注册消息领域的本地扩展能力。
-//
-// 这些能力暂时还没有进入 Kitex IDL，例如手动翻译；网关通过该门面调用
-// msg-core-service 的领域服务，避免把实现细节散落到 handler 中。
-func InitMessageDomainService(svc messageclient.TranslationService) {
-	gatewayMessageDomainService = svc
-}
-
 // NewMessageHandler 创建消息 HTTP handler。
 //
 // 当前 handler 本身无状态，所有跨服务能力都通过 client 包中的 Kitex
@@ -37,14 +25,14 @@ func NewMessageHandler() *MessageHandler {
 	return &MessageHandler{}
 }
 
-// bindJSONUseNumber 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// bindJSONUseNumber 使用 UseNumber 解码消息请求体，避免雪花 ID 被 float64 截断。
 func bindJSONUseNumber(c *app.RequestContext, dest interface{}) error {
 	decoder := json.NewDecoder(bytes.NewReader(c.Request.Body()))
 	decoder.UseNumber()
 	return decoder.Decode(dest)
 }
 
-// numberToInt64 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// numberToInt64 将 json.Number 转成 int64，供会话、消息、用户 ID 字段复用。
 func numberToInt64(value json.Number) (int64, error) {
 	return strconv.ParseInt(value.String(), 10, 64)
 }
@@ -431,13 +419,9 @@ func (h *MessageHandler) TranslateMessage(ctx context.Context, c *app.RequestCon
 	if !ok {
 		return
 	}
-	if gatewayMessageDomainService == nil {
-		response.Error(c, "msg-core-service翻译能力未初始化")
-		return
-	}
-	result, err := gatewayMessageDomainService.TranslateMessage(ctx, messageclient.TranslateMessageInput{
-		MessageID:      messageID,
-		UserID:         userID,
+	result, err := client.MessageClient.TranslateMessage(ctx, &message.TranslateMessageReq{
+		MessageId:      messageID,
+		UserId:         userID,
 		TargetLanguage: req.TargetLanguage,
 		Force:          req.Force,
 	})
@@ -445,7 +429,24 @@ func (h *MessageHandler) TranslateMessage(ctx context.Context, c *app.RequestCon
 		response.Error(c, err.Error())
 		return
 	}
-	response.Success(c, map[string]interface{}{"success": true, "translation": result})
+	if result == nil || !result.Success {
+		msg := "翻译失败"
+		if result != nil && result.Msg != "" {
+			msg = result.Msg
+		}
+		response.Error(c, msg)
+		return
+	}
+	response.Success(c, map[string]interface{}{
+		"success": true,
+		"translation": map[string]interface{}{
+			"message_id":      result.MessageId,
+			"target_language": result.TargetLanguage,
+			"translated_text": result.TranslatedText,
+			"cached":          result.Cached,
+			"model_name":      result.ModelName,
+		},
+	})
 }
 
 // parsePositiveLimit 解析分页 limit，并限制最大值，避免非法或过大的请求直接打到服务层。

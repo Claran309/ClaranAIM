@@ -25,16 +25,17 @@ import (
 // 这里仅做 HTTP 参数绑定、登录态提取和响应适配；Agent 归属、模型配置、计费和权限规则由 agent-manager-service 执行。
 type AgentHandler struct{}
 
-// 下面这组常量定义当前包使用的固定取值，集中声明可以避免业务代码中散落魔法字符串或魔法数字。
-const agentContextHistoryLimit int64 = 80
+// defaultAgentContextHistoryLimit 是读取会话上下文的兜底条数。
+// 正常情况下该值来自 Agent 配置；只有读取配置失败或旧数据为空时才使用这里的默认值。
+const defaultAgentContextHistoryLimit int64 = 80
 
-// 下面这组常量定义当前包使用的固定取值，集中声明可以避免业务代码中散落魔法字符串或魔法数字。
+// agentApprovalStatusPending 表示 Agent 工具动作正在等待用户确认。
 const agentApprovalStatusPending = "pending"
 
-// 下面这组常量定义当前包使用的固定取值，集中声明可以避免业务代码中散落魔法字符串或魔法数字。
+// agentApprovalStatusConfirmed 表示用户已经允许 Agent 继续执行等待中的动作。
 const agentApprovalStatusConfirmed = "confirmed"
 
-// 下面这组常量定义当前包使用的固定取值，集中声明可以避免业务代码中散落魔法字符串或魔法数字。
+// agentApprovalStatusRejected 表示用户拒绝了 Agent 的待执行动作。
 const agentApprovalStatusRejected = "rejected"
 
 // agentApproval 是网关内存中的轻量审批记录，用于 MVP 版本的 agent-ask -> user-approve -> agent-act 交互。
@@ -50,13 +51,15 @@ type agentApproval struct {
 	UpdatedAt      string `json:"updated_at"`
 }
 
-// 下面这组变量保存当前包需要复用的运行时状态或配置入口，调用方应通过公开函数间接使用。
+// agentApprovals 是网关进程内的轻量审批存储。
+// 这是单实例 MVP，跨实例或跨重启可靠性应迁移到 runtime checkpoint 表。
 var agentApprovals = struct {
 	sync.Mutex
 	items map[string]agentApproval
 }{items: make(map[string]agentApproval)}
 
-// 下面这组变量保存当前包需要复用的运行时状态或配置入口，调用方应通过公开函数间接使用。
+// gatewayAgentSettingsService 用于创建 Agent 时解析用户保存的 LLM 预设。
+// 网关只拿服务间密钥结果，不把 API Key 明文返回给浏览器。
 var gatewayAgentSettingsService settingsclient.Service
 
 // InitAgentSettingsService 注入 settings-service 客户端。
@@ -160,20 +163,26 @@ func buildApprovalConfirmationMessage(approval agentApproval, message string) st
 // 生成代码里仍有历史 bot 命名，是因为 Kitex IDL 尚未安全重生成到 agent 包名。
 func (h *AgentHandler) CreateAgent(ctx context.Context, c *app.RequestContext) {
 	type createBotReq struct {
-		Name          string `json:"name"`
-		Type          string `json:"type"`
-		Description   string `json:"description"`
-		ModelName     string `json:"model_name"`
-		APIKey        string `json:"api_key"`
-		BaseURL       string `json:"base_url"`
-		SystemPrompt  string `json:"system_prompt"`
-		SkillsDir     string `json:"skills_dir"`
-		AgentRoot     string `json:"agent_root"`
-		Avatar        string `json:"avatar"`
-		Signature     string `json:"signature"`
-		WorkspaceRoot string `json:"workspace_root"`
-		ToolPolicy    string `json:"tool_policy"`
-		LLMProfileID  int64  `json:"llm_profile_id"`
+		Name                string  `json:"name"`
+		Type                string  `json:"type"`
+		Description         string  `json:"description"`
+		ModelName           string  `json:"model_name"`
+		APIKey              string  `json:"api_key"`
+		BaseURL             string  `json:"base_url"`
+		SystemPrompt        string  `json:"system_prompt"`
+		SkillsDir           string  `json:"skills_dir"`
+		AgentRoot           string  `json:"agent_root"`
+		Avatar              string  `json:"avatar"`
+		Signature           string  `json:"signature"`
+		WorkspaceRoot       string  `json:"workspace_root"`
+		ToolPolicy          string  `json:"tool_policy"`
+		LLMProfileID        int64   `json:"llm_profile_id"`
+		ContextMessageLimit int64   `json:"context_message_limit"`
+		MemoryRecallLimit   int64   `json:"memory_recall_limit"`
+		MaxOutputTokens     int64   `json:"max_output_tokens"`
+		Temperature         float64 `json:"temperature"`
+		GroupTriggerMode    string  `json:"group_trigger_mode"`
+		AutoReplyEnabled    bool    `json:"auto_reply_enabled"`
 	}
 	var req createBotReq
 	if err := c.BindJSON(&req); err != nil {
@@ -199,7 +208,7 @@ func (h *AgentHandler) CreateAgent(ctx context.Context, c *app.RequestContext) {
 		req.BaseURL = profile.BaseURL
 		req.ModelName = profile.ModelName
 	}
-	resp, err := client.AgentClient.CreateBot(ctx, client.NewCreateAgentReq(req.Name, req.Type, req.Description, req.ModelName, req.APIKey, req.BaseURL, req.SystemPrompt, req.SkillsDir, req.AgentRoot, req.Avatar, req.Signature, req.WorkspaceRoot, req.ToolPolicy, id))
+	resp, err := client.AgentClient.CreateBot(ctx, client.NewCreateAgentReq(req.Name, req.Type, req.Description, req.ModelName, req.APIKey, req.BaseURL, req.SystemPrompt, req.SkillsDir, req.AgentRoot, req.Avatar, req.Signature, req.WorkspaceRoot, req.ToolPolicy, id, req.ContextMessageLimit, req.MemoryRecallLimit, req.MaxOutputTokens, req.Temperature, req.GroupTriggerMode, req.AutoReplyEnabled))
 	if err != nil {
 		response.Error(c, err.Error())
 		return
@@ -211,20 +220,26 @@ func (h *AgentHandler) CreateAgent(ctx context.Context, c *app.RequestContext) {
 // operatorID 始终来自 JWT 当前用户，防止用户通过伪造 JSON 替别人修改 Agent。
 func (h *AgentHandler) UpdateAgent(ctx context.Context, c *app.RequestContext) {
 	type updateBotReq struct {
-		BotID         json.Number `json:"bot_id"`
-		Name          string      `json:"name"`
-		Description   string      `json:"description"`
-		ModelName     string      `json:"model_name"`
-		APIKey        string      `json:"api_key"`
-		BaseURL       string      `json:"base_url"`
-		SystemPrompt  string      `json:"system_prompt"`
-		SkillsDir     string      `json:"skills_dir"`
-		AgentRoot     string      `json:"agent_root"`
-		Avatar        string      `json:"avatar"`
-		Signature     string      `json:"signature"`
-		WorkspaceRoot string      `json:"workspace_root"`
-		ToolPolicy    string      `json:"tool_policy"`
-		IsActive      bool        `json:"is_active"`
+		BotID               json.Number `json:"bot_id"`
+		Name                string      `json:"name"`
+		Description         string      `json:"description"`
+		ModelName           string      `json:"model_name"`
+		APIKey              string      `json:"api_key"`
+		BaseURL             string      `json:"base_url"`
+		SystemPrompt        string      `json:"system_prompt"`
+		SkillsDir           string      `json:"skills_dir"`
+		AgentRoot           string      `json:"agent_root"`
+		Avatar              string      `json:"avatar"`
+		Signature           string      `json:"signature"`
+		WorkspaceRoot       string      `json:"workspace_root"`
+		ToolPolicy          string      `json:"tool_policy"`
+		IsActive            bool        `json:"is_active"`
+		ContextMessageLimit int64       `json:"context_message_limit"`
+		MemoryRecallLimit   int64       `json:"memory_recall_limit"`
+		MaxOutputTokens     int64       `json:"max_output_tokens"`
+		Temperature         float64     `json:"temperature"`
+		GroupTriggerMode    string      `json:"group_trigger_mode"`
+		AutoReplyEnabled    bool        `json:"auto_reply_enabled"`
 	}
 	var raw map[string]json.RawMessage
 	if err := bindAgentJSONUseNumber(c, &raw); err != nil {
@@ -240,6 +255,10 @@ func (h *AgentHandler) UpdateAgent(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 	_, isActiveSet := raw["is_active"]
+	_, autoReplySet := raw["auto_reply_enabled"]
+	if !autoReplySet {
+		req.AutoReplyEnabled = true
+	}
 	botID, err := parseAgentJSONNumber(req.BotID, "Agent ID")
 	if err != nil {
 		response.BadRequest(c, "无效的Agent ID")
@@ -249,7 +268,7 @@ func (h *AgentHandler) UpdateAgent(ctx context.Context, c *app.RequestContext) {
 	if !ok {
 		return
 	}
-	resp, err := client.AgentClient.UpdateBot(ctx, client.NewUpdateAgentReq(botID, id, req.Name, req.Description, req.ModelName, req.APIKey, req.BaseURL, req.SystemPrompt, req.SkillsDir, req.AgentRoot, req.Avatar, req.Signature, req.WorkspaceRoot, req.ToolPolicy, req.IsActive, isActiveSet))
+	resp, err := client.AgentClient.UpdateBot(ctx, client.NewUpdateAgentReq(botID, id, req.Name, req.Description, req.ModelName, req.APIKey, req.BaseURL, req.SystemPrompt, req.SkillsDir, req.AgentRoot, req.Avatar, req.Signature, req.WorkspaceRoot, req.ToolPolicy, req.IsActive, isActiveSet, req.ContextMessageLimit, req.MemoryRecallLimit, req.MaxOutputTokens, req.Temperature, req.GroupTriggerMode, req.AutoReplyEnabled))
 	if err != nil {
 		response.Error(c, err.Error())
 		return
@@ -566,7 +585,8 @@ func (h *AgentHandler) agentTask(ctx context.Context, c *app.RequestContext, tas
 	}
 	question := strings.TrimSpace(req.Question)
 	if conversationID > 0 {
-		contextText, ctxErr := h.buildAgentConversationContext(ctx, conversationID, userID, agentContextHistoryLimit)
+		contextLimit := h.resolveAgentContextLimit(ctx, botID)
+		contextText, ctxErr := h.buildAgentConversationContext(ctx, conversationID, userID, contextLimit)
 		if ctxErr != nil {
 			response.Error(c, ctxErr.Error())
 			return
@@ -590,6 +610,16 @@ func (h *AgentHandler) agentTask(ctx context.Context, c *app.RequestContext, tas
 		return
 	}
 	response.Success(c, resp)
+}
+
+// resolveAgentContextLimit 从 Agent 配置中读取上下文消息数量。
+// 读取失败时退回默认值，避免“总结会话”因为配置接口临时异常完全不可用。
+func (h *AgentHandler) resolveAgentContextLimit(ctx context.Context, botID int64) int64 {
+	resp, err := client.AgentClient.GetBot(ctx, client.NewGetAgentReq(botID))
+	if err != nil || resp == nil || !resp.Success || resp.Bot == nil || resp.Bot.ContextMessageLimit <= 0 {
+		return defaultAgentContextHistoryLimit
+	}
+	return resp.Bot.ContextMessageLimit
 }
 
 // buildAgentConversationContext 从 msg-core-service 读取当前用户可见的会话历史，并格式化为 Agent 上下文。

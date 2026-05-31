@@ -17,14 +17,14 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
-// 下面这组常量定义当前包使用的固定取值，集中声明可以避免业务代码中散落魔法字符串或魔法数字。
+// 日志目录和时间格式集中在这里，保证控制台、INFO.log 和 ERR.log 的时间展示一致。
 const (
 	defaultLogDir = "logs"
 	timeLayout    = "2006-01-02 15:04:05.000"
 	dateLayout    = "2006-01-02"
 )
 
-// 下面这组变量保存当前包需要复用的运行时状态或配置入口，调用方应通过公开函数间接使用。
+// 全局 logger 状态受 mu 保护，允许各服务启动时重新 InitService，同时避免日志文件句柄并发切换。
 var (
 	mu      sync.Mutex
 	service = "app"
@@ -33,7 +33,7 @@ var (
 	sink    *dailySink
 )
 
-// init 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// init 先提供一个兜底 logger，防止服务在显式 InitService 前发生 panic 或早期日志丢失。
 func init() {
 	initLocked("app", resolveLogDir())
 }
@@ -343,7 +343,7 @@ type stdLogWriter struct{}
 // logTarget 标识 levelWriter 的目标文件类型。
 type logTarget int
 
-// 下面这组常量定义当前包使用的固定取值，集中声明可以避免业务代码中散落魔法字符串或魔法数字。
+// logTarget 只在 levelWriter 内部使用，用来决定一条已编码日志写入 INFO 文件还是统一 ERR 文件。
 const (
 	logTargetInfo logTarget = iota
 	logTargetError

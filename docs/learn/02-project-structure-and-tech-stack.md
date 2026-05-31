@@ -69,7 +69,7 @@ learn/                       学习资料，已加入 .gitignore
 - JWT 鉴权。
 - 用户/IP 限流。
 - 参数绑定和统一响应。
-- 调用 Kitex RPC 或内部 HTTP client。
+- 调用 Kitex RPC；浏览器入口和少量外部协议回调才保留 HTTP。
 - 文件上传时直接写本地/MinIO，然后调用 file-service 存元数据。
 
 当前重要路由：
@@ -265,9 +265,8 @@ learn/                       学习资料，已加入 .gitignore
 - `pkg/eventbus`：Kafka 发布/消费抽象。
 - `pkg/outbox`：事务 Outbox。
 - `pkg/governance`：Kitex 治理。
-- `pkg/settingsclient`：settings-service 内部 HTTP client。
-- `pkg/memoryclient`：memory-service 内部 HTTP client。
-- `pkg/messageclient`：msg-core 内部 HTTP client。
+- `pkg/settingsclient`：settings-service 的 Kitex RPC 适配器，向调用方暴露稳定 Service 接口。
+- `pkg/memoryclient`：memory-service 的 Kitex RPC 适配器，向调用方暴露稳定 Service 接口。
 - `pkg/idgen`：雪花 ID、10 位 UID/群号。
 
 ## docs 文档
@@ -279,4 +278,3 @@ learn/                       学习资料，已加入 .gitignore
 - `docs/plan.md`
 - `docs/ReliabilityAndEventConsistency.md`
 - `docs/consideration.md`
-

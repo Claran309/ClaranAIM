@@ -237,7 +237,8 @@ func (r *messageRepositoryImpl) CreateEditRecord(ctx context.Context, record *mo
 	return r.db.WithContext(ctx).Create(record).Error
 }
 
-// GetTranslation 是当前包对外暴露的方法，负责承接对应的业务流程、参数校验或适配逻辑。
+// GetTranslation 查询指定用户对某条消息、目标语言和源文本 hash 的翻译缓存。
+// sourceHash 参与条件，确保消息被编辑后不会误用旧译文。
 func (r *messageRepositoryImpl) GetTranslation(ctx context.Context, messageID, userID int64, targetLanguage, sourceHash string) (*model.MessageTranslation, error) {
 	var translation model.MessageTranslation
 	err := r.db.WithContext(ctx).
@@ -249,7 +250,8 @@ func (r *messageRepositoryImpl) GetTranslation(ctx context.Context, messageID, u
 	return &translation, err
 }
 
-// SaveTranslation 是当前包对外暴露的方法，负责承接对应的业务流程、参数校验或适配逻辑。
+// SaveTranslation 保存或更新翻译缓存记录。
+// 唯一键由 message_id、user_id、target_language 和 source_hash 共同约束。
 func (r *messageRepositoryImpl) SaveTranslation(ctx context.Context, translation *model.MessageTranslation) error {
 	return r.db.WithContext(ctx).Create(translation).Error
 }

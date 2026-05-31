@@ -9,13 +9,13 @@ import (
 	"ClaranAIM/pkg/jwt"
 	"ClaranAIM/pkg/logger"
 	"ClaranAIM/pkg/memoryclient"
-	"ClaranAIM/pkg/messageclient"
 	"ClaranAIM/pkg/settingsclient"
 
 	"github.com/cloudwego/hertz/pkg/app/server"
 )
 
-// main 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// main 启动浏览器唯一入口 api-gateway。
+// 它负责加载配置、初始化 JWT/RPC/内部 HTTP 客户端，并把所有 /api/v1 路由挂到 Hertz。
 func main() {
 	logger.InitService("api-gateway")
 
@@ -32,11 +32,10 @@ func main() {
 
 	handler.InitFileStorage(cfg)
 	handler.InitDTMConfig(cfg.DTM)
-	handler.InitMemoryService(memoryclient.NewHTTPClient(cfg.Internal.MemoryServiceURL))
-	settingsService := settingsclient.NewHTTPClient(cfg.Internal.SettingsServiceURL)
+	handler.InitMemoryService(memoryclient.NewRPCClient(client.MemoryClient))
+	settingsService := settingsclient.NewRPCClient(client.SettingsClient)
 	handler.InitSettingsService(settingsService)
 	handler.InitAgentSettingsService(settingsService)
-	handler.InitMessageDomainService(messageclient.NewHTTPClient(cfg.Internal.MsgCoreServiceURL))
 	if cfg.DTM.Enabled {
 		logger.Info("DTM分布式事务配置已启用", "server", cfg.DTM.Server)
 	} else {

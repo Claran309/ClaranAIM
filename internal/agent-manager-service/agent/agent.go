@@ -80,19 +80,6 @@ func NewDeepAgent(ctx context.Context, model *openai.ChatModel, agentRoot string
 	// 获取文件系统操作说明
 	extInstruction := FileSystemInstruction(agentRoot)
 
-	// 创建ChatModelAgent类型的Agent实例
-	// agentConfig := &adk.ChatModelAgentConfig{
-	// 	Name: agent.AmiyaName,
-	// 	Description: agent.AmiyaDescription,
-	// 	Instruction: agent.AmiyaInstruction,
-	// 	Model: chatModel,
-	// }
-	// agent,err := adk.NewChatModelAgent(ctx,agentConfig)
-	// if err != nil {
-	// 	log.Fatal("创建 ChatModelAgent 实例失败:", err)
-	// }
-	// log.Println("ChatModelAgent 实例创建成功")
-
 	// 加载中间件，如果没有Skill文件就不加载相关中间件
 	var handlers []adk.ChatModelAgentMiddleware
 	skillsDir, found := resolveSkillsDir(skillDir)
@@ -120,16 +107,16 @@ func NewDeepAgent(ctx context.Context, model *openai.ChatModel, agentRoot string
 	// 创建DeepAgent类型的Agent实例
 	effectiveName := agentName
 	if effectiveName == "" {
-		effectiveName = AmiyaName
+		effectiveName = DefaultAgentName
 	}
 	effectiveDesc := agentDescription
 	if effectiveDesc == "" {
-		effectiveDesc = AmiyaDescription
+		effectiveDesc = DefaultAgentDescription
 	}
 
 	instruction := systemPrompt
 	if instruction == "" {
-		instruction = AmiyaInstruction
+		instruction = DefaultAgentInstruction
 	}
 	instruction = instruction + "\n\n" + extInstruction
 
@@ -162,7 +149,9 @@ func NewDeepAgent(ctx context.Context, model *openai.ChatModel, agentRoot string
 	return agent, nil
 }
 
-// resolveSkillsDir 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// resolveSkillsDir 只接受已经存在的本地目录。
+// settings-service 保存用户上传的 Skill 后会返回目录路径；目录不存在时跳过 Skill 中间件，
+// 避免因为单个 Agent 的 Skill 配置损坏而让整个 runtime 初始化失败。
 func resolveSkillsDir(skillsDir string) (string, bool) {
 	if skillsDir == "" {
 		return "", false

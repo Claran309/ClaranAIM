@@ -18,7 +18,8 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-// 下面这组常量定义当前包使用的固定取值，集中声明可以避免业务代码中散落魔法字符串或魔法数字。
+// Outbox 发布状态机。
+// pending/retrying 会被 Worker 扫描并投递到 Kafka，published 表示事件已经成功发布，不能再被普通轮询取走。
 const (
 	// StatusPending 表示事件还没有发布到 Kafka。
 	StatusPending = "pending"

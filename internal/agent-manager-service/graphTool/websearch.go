@@ -40,7 +40,8 @@ type SearchResult struct {
 	Snippet string `json:"snippet"`
 }
 
-// fetchTask 定义当前包使用的数据结构或接口，用于在业务层、持久化层和传输层之间传递明确语义。
+// fetchTask 是抓取阶段的单页任务。
+// Query 会在 select_urls 之后补充，用于后续评分时知道“为什么抓这个页面”。
 type fetchTask struct {
 	URL     string
 	Title   string
@@ -48,7 +49,8 @@ type fetchTask struct {
 	Query   string
 }
 
-// fetchedPage 定义当前包使用的数据结构或接口，用于在业务层、持久化层和传输层之间传递明确语义。
+// fetchedPage 保存网页抓取和粗清洗后的内容。
+// Truncated 标记内容是否被截断，便于后续排查模型摘要遗漏是否来自抓取长度限制。
 type fetchedPage struct {
 	URL       string
 	Title     string
@@ -57,13 +59,15 @@ type fetchedPage struct {
 	Truncated bool
 }
 
-// cleanIn 定义当前包使用的数据结构或接口，用于在业务层、持久化层和传输层之间传递明确语义。
+// cleanIn 把抓取结果和原始问题一起传给清洗/评分节点。
+// Eino workflow 的节点输入只能来自上游映射，这个结构用于恢复强类型语义。
 type cleanIn struct {
 	Pages []fetchedPage
 	Query string
 }
 
-// scoredPage 定义当前包使用的数据结构或接口，用于在业务层、持久化层和传输层之间传递明确语义。
+// scoredPage 是通过模型相关性评分后的网页。
+// 只有分数达到阈值的页面会进入最终答案合成，低分页面默认被过滤以减少幻觉来源。
 type scoredPage struct {
 	fetchedPage
 	Score int
@@ -83,7 +87,8 @@ func BuildWebSearchTool(ctx context.Context, cm model.BaseChatModel) (tool.BaseT
 	)
 }
 
-// buildWebSearchWorkflow 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// buildWebSearchWorkflow 组装联网搜索工具的 Eino 图。
+// 图中显式分成 search、fetch、clean、summarize 四段，便于后续把搜索源、抓取策略或 RAG 入库替换成独立节点。
 func buildWebSearchWorkflow(cm model.BaseChatModel) *compose.Workflow[WebSearchInput, WebSearchOutput] {
 	fetchWF := newFetchWorkflow()
 	fetcher := batch.NewBatchNode(&batch.NodeConfig[fetchTask, fetchedPage]{
@@ -177,7 +182,8 @@ func buildWebSearchWorkflow(cm model.BaseChatModel) *compose.Workflow[WebSearchI
 	return wf
 }
 
-// newFetchWorkflow 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// newFetchWorkflow 是 batch 节点内部复用的单页抓取子图。
+// 外层限制 MaxConcurrency=3，避免一次 Agent 调用同时打开过多外部 HTTP 连接。
 func newFetchWorkflow() *compose.Workflow[fetchTask, fetchedPage] {
 	wf := compose.NewWorkflow[fetchTask, fetchedPage]()
 	wf.AddLambdaNode("fetch_page", compose.InvokableLambda(
@@ -189,7 +195,8 @@ func newFetchWorkflow() *compose.Workflow[fetchTask, fetchedPage] {
 	return wf
 }
 
-// performSearch 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// performSearch 按可用性从通用搜索源逐级降级。
+// DuckDuckGo HTML 优先提供通用网页结果，SearxNG 作为备用元搜索，最后用 Wikipedia 覆盖百科类问题。
 func performSearch(ctx context.Context, query string) ([]SearchResult, error) {
 	log.Printf("[web_search] 开始搜索: %s", query)
 
@@ -221,7 +228,8 @@ func performSearch(ctx context.Context, query string) ([]SearchResult, error) {
 	return nil, fmt.Errorf("未找到相关搜索结果")
 }
 
-// searchWikipedia 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// searchWikipedia 调用中文 Wikipedia OpenSearch API。
+// 返回值只有标题、摘要和 URL，后续仍会走统一网页抓取与模型摘要流程。
 func searchWikipedia(ctx context.Context, query string) ([]SearchResult, error) {
 	log.Printf("[web_search] 开始 Wikipedia 搜索: %s", query)
 	encodedQuery := url.QueryEscape(query)
@@ -294,7 +302,8 @@ func searchWikipedia(ctx context.Context, query string) ([]SearchResult, error) 
 	return results, nil
 }
 
-// searchDuckDuckGoHTML 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// searchDuckDuckGoHTML 抓取 DuckDuckGo 的无 JS HTML 页面。
+// 这里主动禁用压缩并设置浏览器 UA，降低本地解析响应体和被搜索页拒绝的概率。
 func searchDuckDuckGoHTML(ctx context.Context, query string) ([]SearchResult, error) {
 	encodedQuery := url.QueryEscape(query)
 	searchURL := fmt.Sprintf("https://html.duckduckgo.com/html/?q=%s", encodedQuery)
@@ -337,7 +346,8 @@ func searchDuckDuckGoHTML(ctx context.Context, query string) ([]SearchResult, er
 	return results, nil
 }
 
-// parseDuckDuckGoHTML 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// parseDuckDuckGoHTML 从 DuckDuckGo HTML 中解析标题、跳转链接和摘要。
+// DuckDuckGo 会把真实目标 URL 包在 uddg 参数中，因此这里会解码出最终网页地址。
 func parseDuckDuckGoHTML(html string) []SearchResult {
 	var results []SearchResult
 
@@ -402,7 +412,7 @@ func parseDuckDuckGoHTML(html string) []SearchResult {
 	return results
 }
 
-// getSnippet 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// getSnippet 读取与搜索结果同序号的摘要，缺失时返回空字符串而不是中断整批结果。
 func getSnippet(snippetMatches [][]string, index int) string {
 	if index < len(snippetMatches) && len(snippetMatches[index]) >= 2 {
 		return cleanHTMLTags(snippetMatches[index][1])
@@ -410,7 +420,8 @@ func getSnippet(snippetMatches [][]string, index int) string {
 	return ""
 }
 
-// searchSearxNG 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// searchSearxNG 调用公开 SearxNG 实例的 JSON 搜索接口。
+// 该实例可用性受公网环境影响，所以只作为 DuckDuckGo 失败后的备用搜索源。
 func searchSearxNG(ctx context.Context, query string) ([]SearchResult, error) {
 	encodedQuery := url.QueryEscape(query)
 	searchURL := fmt.Sprintf("https://searx.be/search?q=%s&format=json", encodedQuery)
@@ -465,7 +476,8 @@ func searchSearxNG(ctx context.Context, query string) ([]SearchResult, error) {
 	return results, nil
 }
 
-// cleanHTMLTags 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// cleanHTMLTags 清理搜索结果标题/摘要里的少量 HTML 标签和常见实体。
+// 它只处理片段级文本，整页内容清洗使用 stripHTMLTags。
 func cleanHTMLTags(s string) string {
 	tagRegex := regexp.MustCompile(`<[^>]+>`)
 	s = tagRegex.ReplaceAllString(s, "")
@@ -489,7 +501,8 @@ func cleanHTMLTags(s string) string {
 	return strings.TrimSpace(s)
 }
 
-// fetchWebPage 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// fetchWebPage 抓取候选网页正文并做粗清洗。
+// 单页失败不会返回错误中断整个搜索流程，而是返回空内容，让后续 cleanAndScorePages 自动跳过。
 func fetchWebPage(ctx context.Context, t fetchTask) (fetchedPage, error) {
 	client := &http.Client{Timeout: 20 * time.Second}
 	req, err := http.NewRequestWithContext(ctx, "GET", t.URL, nil)
@@ -536,7 +549,8 @@ func fetchWebPage(ctx context.Context, t fetchTask) (fetchedPage, error) {
 	}, nil
 }
 
-// stripHTMLTags 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// stripHTMLTags 移除 script/style 和 HTML 标签，把网页转成可给模型阅读的纯文本草稿。
+// 这里不做复杂 DOM 抽取，后续由 cleanText 和模型摘要继续压缩噪声。
 func stripHTMLTags(html string) string {
 	scriptRegex := regexp.MustCompile(`(?i)<script[^>]*>.*?</script>`)
 	styleRegex := regexp.MustCompile(`(?i)<style[^>]*>.*?</style>`)
@@ -552,7 +566,7 @@ func stripHTMLTags(html string) string {
 	return text
 }
 
-// cleanText 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// cleanText 归一化空白字符，减少网页导航、换行和缩进噪声对 token 消耗的影响。
 func cleanText(text string) string {
 	text = strings.ReplaceAll(text, "\t", " ")
 	text = strings.ReplaceAll(text, "\r", "")
@@ -566,7 +580,8 @@ func cleanText(text string) string {
 	return strings.TrimSpace(text)
 }
 
-// cleanAndScorePages 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// cleanAndScorePages 用模型给抓取页面打相关性分，并只保留可用来源。
+// 如果所有页面都低于阈值，会退回保留前三个有正文的页面，避免搜索工具在信息很少时完全无输出。
 func cleanAndScorePages(ctx context.Context, cm model.BaseChatModel, in cleanIn) ([]scoredPage, error) {
 	var scored []scoredPage
 
@@ -613,7 +628,8 @@ func cleanAndScorePages(ctx context.Context, cm model.BaseChatModel, in cleanIn)
 	return scored, nil
 }
 
-// scorePageRelevance 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// scorePageRelevance 让模型只返回 0-10 的整数相关性评分。
+// 评分解析失败按错误返回，上层会把该页视为 0 分，避免不可解析输出进入最终答案。
 func scorePageRelevance(ctx context.Context, cm model.BaseChatModel, page fetchedPage, query string) (int, error) {
 	content := page.Content
 	if len(content) > 2000 {
@@ -658,7 +674,8 @@ func scorePageRelevance(ctx context.Context, cm model.BaseChatModel, page fetche
 	return score, nil
 }
 
-// summarizePage 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// summarizePage 从单页正文中提取与问题直接相关的信息。
+// 输入最多截取 4000 字符，避免长网页把一次工具调用的上下文窗口吃满。
 func summarizePage(ctx context.Context, cm model.BaseChatModel, page fetchedPage, query string) (string, error) {
 	content := page.Content
 	if len(content) > 4000 {
@@ -691,7 +708,8 @@ func summarizePage(ctx context.Context, cm model.BaseChatModel, page fetchedPage
 	return strings.TrimSpace(resp.Content), nil
 }
 
-// synthesizeWebAnswer 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// synthesizeWebAnswer 把多页摘要合成为最终回答，并要求模型用 [1]/[2] 标注来源。
+// 返回 Sources 列表供前端或审计层展示，也方便后续把搜索结果沉淀到 RAG。
 func synthesizeWebAnswer(ctx context.Context, cm model.BaseChatModel, pages []scoredPage, query string) (WebSearchOutput, error) {
 	if len(pages) == 0 {
 		return WebSearchOutput{

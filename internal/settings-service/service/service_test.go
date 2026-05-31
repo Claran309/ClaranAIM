@@ -4,6 +4,9 @@ import (
 	"ClaranAIM/internal/settings-service/dao"
 	"ClaranAIM/internal/settings-service/model"
 	"context"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -99,14 +102,84 @@ func TestResolveTranslationConfigFallsBackToSystemDefault(t *testing.T) {
 	}
 }
 
+func TestSaveGlobalSkillWritesSkillMarkdownUnderGlobalRoot(t *testing.T) {
+	root := t.TempDir()
+	repo := newFakeSettingsRepo()
+	svc := NewSettingsService(repo, DefaultLLMConfig{}, WithSkillStorageRoot(root))
+
+	skill, err := svc.SaveSkill(context.Background(), 1001, SaveSkillInput{
+		Name:      "阅读助手",
+		Scope:     model.SkillScopeGlobal,
+		FileName:  "SKILL.md",
+		Content:   []byte("# 阅读助手\n\n用于总结资料。"),
+		IsDefault: true,
+	})
+	if err != nil {
+		t.Fatalf("SaveSkill returned error: %v", err)
+	}
+	if skill.Scope != model.SkillScopeGlobal || skill.AgentID != 0 {
+		t.Fatalf("skill scope = %q agent = %d", skill.Scope, skill.AgentID)
+	}
+	if !strings.HasPrefix(skill.SkillsDir, filepath.Join(root, "global")) {
+		t.Fatalf("skills dir = %q, want under global root %q", skill.SkillsDir, filepath.Join(root, "global"))
+	}
+	if _, err := os.Stat(filepath.Join(skill.SkillsDir, "SKILL.md")); err != nil {
+		t.Fatalf("SKILL.md was not written: %v", err)
+	}
+}
+
+func TestSaveAgentSkillWritesUnderAgentRoot(t *testing.T) {
+	root := t.TempDir()
+	repo := newFakeSettingsRepo()
+	svc := NewSettingsService(repo, DefaultLLMConfig{}, WithSkillStorageRoot(root))
+
+	skill, err := svc.SaveSkill(context.Background(), 1001, SaveSkillInput{
+		Name:     "代码审查",
+		Scope:    model.SkillScopeAgent,
+		AgentID:  9988,
+		FileName: "SKILL.md",
+		Content:  []byte("# 代码审查\n\n检查潜在 bug。"),
+	})
+	if err != nil {
+		t.Fatalf("SaveSkill returned error: %v", err)
+	}
+	wantPrefix := filepath.Join(root, "agents", "9988")
+	if skill.AgentID != 9988 || !strings.HasPrefix(skill.SkillsDir, wantPrefix) {
+		t.Fatalf("skill dir = %q agent = %d, want under %q", skill.SkillsDir, skill.AgentID, wantPrefix)
+	}
+}
+
+func TestSaveSkillRejectsTraversalAndMissingSkillMarkdown(t *testing.T) {
+	svc := NewSettingsService(newFakeSettingsRepo(), DefaultLLMConfig{}, WithSkillStorageRoot(t.TempDir()))
+
+	if _, err := svc.SaveSkill(context.Background(), 1001, SaveSkillInput{
+		Name:     "坏路径",
+		Scope:    model.SkillScopeGlobal,
+		FileName: "../SKILL.md",
+		Content:  []byte("# bad"),
+	}); err == nil {
+		t.Fatal("SaveSkill should reject traversal file name")
+	}
+
+	if _, err := svc.SaveSkill(context.Background(), 1001, SaveSkillInput{
+		Name:     "非Skill",
+		Scope:    model.SkillScopeGlobal,
+		FileName: "README.md",
+		Content:  []byte("# readme"),
+	}); err == nil {
+		t.Fatal("SaveSkill should reject upload without SKILL.md")
+	}
+}
+
 type fakeSettingsRepo struct {
 	nextID  int64
 	llms    map[int64]*model.LLMProfile
 	prompts map[int64]*model.PromptTemplate
+	skills  map[int64]*model.AgentSkill
 }
 
 func newFakeSettingsRepo() *fakeSettingsRepo {
-	return &fakeSettingsRepo{nextID: 1, llms: map[int64]*model.LLMProfile{}, prompts: map[int64]*model.PromptTemplate{}}
+	return &fakeSettingsRepo{nextID: 1, llms: map[int64]*model.LLMProfile{}, prompts: map[int64]*model.PromptTemplate{}, skills: map[int64]*model.AgentSkill{}}
 }
 
 func (r *fakeSettingsRepo) SaveLLMProfile(ctx context.Context, profile *model.LLMProfile) error {
@@ -184,6 +257,49 @@ func (r *fakeSettingsRepo) GetPromptByType(ctx context.Context, scope string, ow
 
 func (r *fakeSettingsRepo) ListPrompts(ctx context.Context, filter dao.PromptFilter) ([]model.PromptTemplate, error) {
 	return nil, nil
+}
+
+func (r *fakeSettingsRepo) SaveSkill(ctx context.Context, skill *model.AgentSkill) error {
+	if skill.ID == 0 {
+		skill.ID = r.nextID
+		r.nextID++
+	}
+	cp := *skill
+	r.skills[skill.ID] = &cp
+	return nil
+}
+
+func (r *fakeSettingsRepo) GetSkill(ctx context.Context, id int64) (*model.AgentSkill, error) {
+	if s := r.skills[id]; s != nil {
+		cp := *s
+		return &cp, nil
+	}
+	return nil, nil
+}
+
+func (r *fakeSettingsRepo) ListSkills(ctx context.Context, filter dao.SkillFilter) ([]model.AgentSkill, error) {
+	var out []model.AgentSkill
+	for _, s := range r.skills {
+		if filter.OwnerID >= 0 && s.OwnerID != filter.OwnerID {
+			continue
+		}
+		if filter.Scope != "" && s.Scope != filter.Scope {
+			continue
+		}
+		if filter.AgentID >= 0 && s.AgentID != filter.AgentID {
+			continue
+		}
+		if filter.Enabled != nil && s.Enabled != *filter.Enabled {
+			continue
+		}
+		out = append(out, *s)
+	}
+	return out, nil
+}
+
+func (r *fakeSettingsRepo) DeleteSkill(ctx context.Context, id int64) error {
+	delete(r.skills, id)
+	return nil
 }
 
 func boolPtr(v bool) *bool { return &v }

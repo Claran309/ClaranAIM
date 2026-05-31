@@ -11,7 +11,8 @@ import (
 	"time"
 )
 
-// 下面这组常量定义当前包使用的固定取值，集中声明可以避免业务代码中散落魔法字符串或魔法数字。
+// 雪花 ID 位分配与用户 10 位 UID 的取值范围。
+// twepoch 固定后不能随意修改，否则同一 worker 在不同版本间生成的 ID 会失去时间有序性。
 const (
 	// twepoch 采用项目自定义纪元，减少生成 ID 的高位浪费。
 	// 2026-01-01 00:00:00 UTC = 1767225600000ms。
@@ -123,7 +124,8 @@ func FallbackWorkerID() int64 {
 	return int64(h.Sum32()) & maxWorkerID
 }
 
-// 下面这组变量保存当前包需要复用的运行时状态或配置入口，调用方应通过公开函数间接使用。
+// defaultSnowflake 是进程级兜底生成器，主要供 GORM hook 和轻量业务路径使用。
+// 多实例生产环境应优先在服务启动时接入 Redis/配置中心分配 workerID，再替换成显式生成器。
 var defaultSnowflake = mustDefaultSnowflake()
 
 // mustDefaultSnowflake 创建进程级默认雪花生成器；初始化失败说明 workerID 逻辑异常，应直接暴露问题。

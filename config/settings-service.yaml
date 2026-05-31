@@ -10,6 +10,9 @@ llm:
   default_base_url: ""
   default_model: ""
 
+skills:
+  dir: "storage/agent/skills"
+
 governance:
   rpc:
     timeout_ms: 5000

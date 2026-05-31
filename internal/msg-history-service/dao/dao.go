@@ -52,7 +52,8 @@ type HistoryRepository interface {
 	GetUnreadCount(ctx context.Context, userID int64) (int64, error)
 }
 
-// historyRepositoryImpl 定义当前包使用的数据结构或接口，用于在业务层、持久化层和传输层之间传递明确语义。
+// historyRepositoryImpl 是消息历史库的 GORM 实现。
+// 它只操作归档和离线消息表，不反向依赖 msg-core-service 的业务表，保持服务数据边界。
 type historyRepositoryImpl struct {
 	db *gorm.DB
 }

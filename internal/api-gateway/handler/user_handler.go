@@ -28,14 +28,16 @@ func NewUserHandler() *UserHandler {
 	return &UserHandler{}
 }
 
-// bindUserJSONUseNumber 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// bindUserJSONUseNumber 使用 UseNumber 解析用户相关请求体。
+// 好友 ID、分组 ID 都可能是雪花/十位数字 ID，不能让 JSON 解码走 float64。
 func bindUserJSONUseNumber(c *app.RequestContext, dest interface{}) error {
 	decoder := json.NewDecoder(bytes.NewReader(c.Request.Body()))
 	decoder.UseNumber()
 	return decoder.Decode(dest)
 }
 
-// parseOptionalJSONNumber 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// parseOptionalJSONNumber 解析可选 ID 字段。
+// 空值表示用户没有传该字段；负数和非数字会返回带字段名的业务错误。
 func parseOptionalJSONNumber(value json.Number, name string) (int64, error) {
 	if value.String() == "" {
 		return 0, nil
@@ -474,7 +476,8 @@ func splitIDs(s string) []string {
 	return result
 }
 
-// splitByComma 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// splitByComma 用于解析 /user/batch?ids=1,2,3 这类查询参数。
+// 这里手写拆分是为了避免额外分配正则，并保留空片段给上层过滤。
 func splitByComma(s string) []string {
 	var result []string
 	start := 0
@@ -488,7 +491,7 @@ func splitByComma(s string) []string {
 	return result
 }
 
-// trimSpace 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// trimSpace 只裁剪查询参数里常见的空格和 tab。
 func trimSpace(s string) string {
 	start, end := 0, len(s)
 	for start < end && (s[start] == ' ' || s[start] == '\t') {
@@ -500,7 +503,7 @@ func trimSpace(s string) string {
 	return s[start:end]
 }
 
-// firstNonEmpty 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// firstNonEmpty 返回第一个非空字符串，常用于昵称、备注和用户名的展示兜底。
 func firstNonEmpty(values ...string) string {
 	for _, value := range values {
 		if value != "" {

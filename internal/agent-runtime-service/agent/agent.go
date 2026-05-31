@@ -104,16 +104,16 @@ func NewDeepAgent(ctx context.Context, model *openai.ChatModel, agentRoot string
 	// 创建DeepAgent类型的Agent实例
 	effectiveName := agentName
 	if effectiveName == "" {
-		effectiveName = AmiyaName
+		effectiveName = DefaultAgentName
 	}
 	effectiveDesc := agentDescription
 	if effectiveDesc == "" {
-		effectiveDesc = AmiyaDescription
+		effectiveDesc = DefaultAgentDescription
 	}
 
 	instruction := systemPrompt
 	if instruction == "" {
-		instruction = AmiyaInstruction
+		instruction = DefaultAgentInstruction
 	}
 	instruction = instruction + "\n\n" + ToolPolicyInstruction(toolPolicy) + "\n\n" + extInstruction
 

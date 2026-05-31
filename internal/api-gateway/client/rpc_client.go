@@ -11,9 +11,11 @@ import (
 	"ClaranAIM/kitex_gen/file/fileservice"
 	"ClaranAIM/kitex_gen/group"
 	"ClaranAIM/kitex_gen/group/groupservice"
+	"ClaranAIM/kitex_gen/memory/memoryservice"
 	"ClaranAIM/kitex_gen/message"
 	"ClaranAIM/kitex_gen/message/historyservice"
 	"ClaranAIM/kitex_gen/message/messageservice"
+	"ClaranAIM/kitex_gen/settings/settingsservice"
 	"ClaranAIM/kitex_gen/user"
 	"ClaranAIM/kitex_gen/user/userservice"
 	"ClaranAIM/pkg/config"
@@ -25,7 +27,8 @@ import (
 	etcd "github.com/kitex-contrib/registry-etcd"
 )
 
-// 下面这组变量保存当前包需要复用的运行时状态或配置入口，调用方应通过公开函数间接使用。
+// 这些 Kitex 客户端在网关启动时初始化一次，并被各 HTTP handler 复用。
+// 网关不持有下游数据库连接，所有业务读写都必须通过这些服务客户端完成。
 var (
 	once sync.Once
 
@@ -49,6 +52,10 @@ var (
 	AgentLongTaskClient botservice.Client
 	// AgentRuntimeClient 调用 agent-runtime-service，读取运行时拥有的数据，例如长会话元信息。
 	AgentRuntimeClient botruntimeservice.Client
+	// MemoryClient 调用 memory-service，负责用户/群/会话记忆事实的治理和召回。
+	MemoryClient memoryservice.Client
+	// SettingsClient 调用 settings-service，负责 LLM 预设、Prompt 和 Agent Skill 配置。
+	SettingsClient settingsservice.Client
 )
 
 // InitClients 初始化 api-gateway 到各内部 Kitex 服务的客户端。
@@ -128,6 +135,20 @@ func InitClients(etcdEndpoints []string, rpcCfg ...config.RPCGovernanceConfig) {
 		)
 		if err != nil {
 			log.Fatal("创建agent-runtime-service客户端失败:", err)
+		}
+
+		MemoryClient, err = memoryservice.NewClient("memory-service",
+			baseOptions...,
+		)
+		if err != nil {
+			log.Fatal("创建memory-service客户端失败:", err)
+		}
+
+		SettingsClient, err = settingsservice.NewClient("settings-service",
+			baseOptions...,
+		)
+		if err != nil {
+			log.Fatal("创建settings-service客户端失败:", err)
 		}
 
 		log.Println("RPC客户端初始化成功")
@@ -357,14 +378,14 @@ func NewListFilesReq(uploaderID int64, fileType string, limit, offset int64) *fi
 }
 
 // NewCreateAgentReq 构造 Agent 创建请求，包含创建者和模型配置。
-func NewCreateAgentReq(name, botType, description, modelName, apiKey, baseURL, systemPrompt, skillsDir, agentRoot, avatar, signature, workspaceRoot, toolPolicy string, ownerID int64) *bot.CreateBotReq {
-	return &bot.CreateBotReq{Name: name, Type: botType, Description: description, ModelName: modelName, ApiKey: apiKey, BaseUrl: baseURL, SystemPrompt: systemPrompt, SkillsDir: skillsDir, AgentRoot: agentRoot, Avatar: avatar, Signature: signature, WorkspaceRoot: workspaceRoot, ToolPolicy: toolPolicy, OwnerId: ownerID}
+func NewCreateAgentReq(name, botType, description, modelName, apiKey, baseURL, systemPrompt, skillsDir, agentRoot, avatar, signature, workspaceRoot, toolPolicy string, ownerID, contextMessageLimit, memoryRecallLimit, maxOutputTokens int64, temperature float64, groupTriggerMode string, autoReplyEnabled bool) *bot.CreateBotReq {
+	return &bot.CreateBotReq{Name: name, Type: botType, Description: description, ModelName: modelName, ApiKey: apiKey, BaseUrl: baseURL, SystemPrompt: systemPrompt, SkillsDir: skillsDir, AgentRoot: agentRoot, Avatar: avatar, Signature: signature, WorkspaceRoot: workspaceRoot, ToolPolicy: toolPolicy, OwnerId: ownerID, ContextMessageLimit: contextMessageLimit, MemoryRecallLimit: memoryRecallLimit, MaxOutputTokens: maxOutputTokens, Temperature: temperature, GroupTriggerMode: groupTriggerMode, AutoReplyEnabled: autoReplyEnabled}
 }
 
 // NewUpdateAgentReq 构造 Agent 更新请求。
 // 空密钥字段由 agent-manager-service 判断含义，网关不擅自决定保留或清空。
-func NewUpdateAgentReq(botID, operatorID int64, name, description, modelName, apiKey, baseURL, systemPrompt, skillsDir, agentRoot, avatar, signature, workspaceRoot, toolPolicy string, isActive bool, isActiveSet bool) *bot.UpdateBotReq {
-	return &bot.UpdateBotReq{BotId: botID, OperatorId: operatorID, Name: name, Description: description, ModelName: modelName, ApiKey: apiKey, BaseUrl: baseURL, SystemPrompt: systemPrompt, SkillsDir: skillsDir, AgentRoot: agentRoot, Avatar: avatar, Signature: signature, WorkspaceRoot: workspaceRoot, ToolPolicy: toolPolicy, IsActive: isActive, IsActiveSet: isActiveSet}
+func NewUpdateAgentReq(botID, operatorID int64, name, description, modelName, apiKey, baseURL, systemPrompt, skillsDir, agentRoot, avatar, signature, workspaceRoot, toolPolicy string, isActive bool, isActiveSet bool, contextMessageLimit, memoryRecallLimit, maxOutputTokens int64, temperature float64, groupTriggerMode string, autoReplyEnabled bool) *bot.UpdateBotReq {
+	return &bot.UpdateBotReq{BotId: botID, OperatorId: operatorID, Name: name, Description: description, ModelName: modelName, ApiKey: apiKey, BaseUrl: baseURL, SystemPrompt: systemPrompt, SkillsDir: skillsDir, AgentRoot: agentRoot, Avatar: avatar, Signature: signature, WorkspaceRoot: workspaceRoot, ToolPolicy: toolPolicy, IsActive: isActive, IsActiveSet: isActiveSet, ContextMessageLimit: contextMessageLimit, MemoryRecallLimit: memoryRecallLimit, MaxOutputTokens: maxOutputTokens, Temperature: temperature, GroupTriggerMode: groupTriggerMode, AutoReplyEnabled: autoReplyEnabled}
 }
 
 // NewGetAgentReq 构造 Agent 元数据查询请求。

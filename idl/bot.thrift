@@ -15,6 +15,12 @@ struct CreateBotReq {
     12: string signature
     13: string workspace_root
     14: string tool_policy
+    15: i64 context_message_limit
+    16: i64 memory_recall_limit
+    17: i64 max_output_tokens
+    18: double temperature
+    19: string group_trigger_mode
+    20: bool auto_reply_enabled
 }
 
 struct CreateBotResp {
@@ -40,6 +46,12 @@ struct UpdateBotReq {
     14: string workspace_root
     15: string tool_policy
     16: bool is_active_set
+    17: i64 context_message_limit
+    18: i64 memory_recall_limit
+    19: i64 max_output_tokens
+    20: double temperature
+    21: string group_trigger_mode
+    22: bool auto_reply_enabled
 }
 
 struct UpdateBotResp {
@@ -70,6 +82,12 @@ struct BotInfo {
     16: string signature
     17: string workspace_root
     18: string tool_policy
+    19: i64 context_message_limit
+    20: i64 memory_recall_limit
+    21: i64 max_output_tokens
+    22: double temperature
+    23: string group_trigger_mode
+    24: bool auto_reply_enabled
 }
 
 struct BotPermission {

@@ -16,7 +16,8 @@ import (
 	etcd "github.com/kitex-contrib/registry-etcd"
 )
 
-// main 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// main 启动 Agent 运行时服务。
+// runtime 负责 Eino DeepAgent、长会话 JSONL、工作目录和工具/Skill 执行，不直接管理 Agent 权限。
 func main() {
 	logger.InitService("agent-runtime-service")
 

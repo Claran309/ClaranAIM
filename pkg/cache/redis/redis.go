@@ -13,10 +13,12 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// 下面这组常量定义当前包使用的固定取值，集中声明可以避免业务代码中散落魔法字符串或魔法数字。
+// cacheNullValue 是项目约定的“数据库确认不存在”标记。
+// 它和空字符串不同：空字符串表示缓存未命中，cacheNullValue 表示命中空值缓存，用于抵挡缓存穿透。
 const cacheNullValue = "__CLARAN_CACHE_NULL__"
 
-// 下面这组变量保存当前包需要复用的运行时状态或配置入口，调用方应通过公开函数间接使用。
+// releaseLockScript 用 Lua 保证“判断锁持有者”和“删除锁”在 Redis 内原子执行，
+// 避免请求 A 的锁过期后误删请求 B 刚拿到的新锁。
 var releaseLockScript = redis.NewScript(`
 if redis.call("GET", KEYS[1]) == ARGV[1] then
 	return redis.call("DEL", KEYS[1])

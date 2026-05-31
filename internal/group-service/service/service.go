@@ -36,7 +36,8 @@ type GroupService interface {
 	PinGroup(ctx context.Context, groupID, operatorID int64, isPinned bool) error
 }
 
-// groupServiceImpl 定义当前包使用的数据结构或接口，用于在业务层、持久化层和传输层之间传递明确语义。
+// groupServiceImpl 串联群组仓储和可选 Redis。
+// 群资料、成员快照和用户群列表都采用 cache-aside + 写后删除，群事件通过事务 Outbox 交给 Kafka。
 type groupServiceImpl struct {
 	repo  dao.GroupRepository
 	redis *redis.RedisClient
@@ -64,7 +65,8 @@ func (s *groupServiceImpl) CreateGroupWithID(ctx context.Context, groupID int64,
 	return s.createGroup(ctx, groupID, name, ownerID, memberIDs)
 }
 
-// createGroup 是当前包内部使用的方法，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// createGroup 封装普通创建和 DTM 预分配 ID 创建两条路径。
+// 它要求三人及以上才建群，群资料、成员关系和 group.created Outbox 事件必须在同一事务提交。
 func (s *groupServiceImpl) createGroup(ctx context.Context, groupID int64, name string, ownerID int64, memberIDs []int64) (*model.Group, error) {
 	if name == "" {
 		return nil, errors.New("群名不能为空")
@@ -589,7 +591,7 @@ func (s *groupServiceImpl) PinGroup(ctx context.Context, groupID, operatorID int
 	return nil
 }
 
-// invalidateGroupCache 是当前包内部使用的方法，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// invalidateGroupCache 删除群资料缓存，下一次读取会从数据库回源。
 func (s *groupServiceImpl) invalidateGroupCache(ctx context.Context, groupID int64) {
 	if s.redis == nil {
 		return
@@ -597,7 +599,7 @@ func (s *groupServiceImpl) invalidateGroupCache(ctx context.Context, groupID int
 	s.redis.Del(ctx, fmt.Sprintf("group:info:%d", groupID))
 }
 
-// invalidateGroupMembersCache 是当前包内部使用的方法，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// invalidateGroupMembersCache 删除群成员缓存；邀请、踢人、禁言、角色变化后都必须调用。
 func (s *groupServiceImpl) invalidateGroupMembersCache(ctx context.Context, groupID int64) {
 	if s.redis == nil {
 		return
@@ -605,7 +607,7 @@ func (s *groupServiceImpl) invalidateGroupMembersCache(ctx context.Context, grou
 	s.redis.Del(ctx, fmt.Sprintf("group:members:%d", groupID))
 }
 
-// invalidateUserGroupsCache 是当前包内部使用的方法，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// invalidateUserGroupsCache 删除用户所在群列表缓存，确保侧边栏能看到最新入群/退群结果。
 func (s *groupServiceImpl) invalidateUserGroupsCache(ctx context.Context, userID int64) {
 	if s.redis == nil {
 		return
@@ -613,7 +615,8 @@ func (s *groupServiceImpl) invalidateUserGroupsCache(ctx context.Context, userID
 	s.redis.Del(ctx, fmt.Sprintf("user:groups:%d", userID))
 }
 
-// saveGroupEvent 是当前包内部使用的方法，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// saveGroupEvent 将群领域事件写入事务 Outbox。
+// 调用方应在群资料/成员变更的同一个数据库事务里调用，保证业务事实提交后事件最终一定会发布。
 func (s *groupServiceImpl) saveGroupEvent(ctx context.Context, repo dao.GroupRepository, eventType string, groupID int64, payload interface{}) error {
 	envelope, err := events.NewEnvelope(eventType, strconv.FormatInt(groupID, 10), payload)
 	if err != nil {
@@ -626,7 +629,8 @@ func (s *groupServiceImpl) saveGroupEvent(ctx context.Context, repo dao.GroupRep
 	return repo.SaveOutboxEvent(ctx, record)
 }
 
-// newUniqueGroupID 是当前包内部使用的方法，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// newUniqueGroupID 生成面向用户展示的 10 位群号，并用数据库查询兜底随机碰撞。
+// 碰撞概率很低，但这里仍重试 5 次，避免用户看到创建失败。
 func (s *groupServiceImpl) newUniqueGroupID(ctx context.Context) (int64, error) {
 	for i := 0; i < 5; i++ {
 		id, err := idgen.NewUID10()
@@ -644,7 +648,7 @@ func (s *groupServiceImpl) newUniqueGroupID(ctx context.Context) (int64, error) 
 	return 0, errors.New("生成群号失败，请重试")
 }
 
-// memberIDsFromMembers 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// memberIDsFromMembers 从成员快照中提取去重后的用户 ID，供 Outbox 事件和缓存失效使用。
 func memberIDsFromMembers(members []model.GroupMember) []int64 {
 	ids := make([]int64, 0, len(members))
 	for _, member := range members {
@@ -653,7 +657,7 @@ func memberIDsFromMembers(members []model.GroupMember) []int64 {
 	return dedupeInt64(ids)
 }
 
-// dedupeInt64 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// dedupeInt64 去掉空 ID 和重复 ID，保持输入顺序，避免重复写成员或重复推送事件。
 func dedupeInt64(ids []int64) []int64 {
 	seen := make(map[int64]struct{}, len(ids))
 	result := make([]int64, 0, len(ids))

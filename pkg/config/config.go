@@ -24,10 +24,10 @@ type Config struct {
 	Storage    StorageConfig    `yaml:"storage"`
 	LLM        LLMConfig        `yaml:"llm"`
 	Agent      AgentConfig      `yaml:"agent"`
+	Skills     SkillsConfig     `yaml:"skills"`
 	Kafka      KafkaConfig      `yaml:"kafka"`
 	DTM        DTMConfig        `yaml:"dtm"`
 	Governance GovernanceConfig `yaml:"governance"`
-	Internal   InternalConfig   `yaml:"internal"`
 }
 
 // MySQLConfig MySQL数据库配置
@@ -68,14 +68,6 @@ type ServiceConfig struct {
 	Address string `yaml:"address"` // 服务监听地址（如 127.0.0.1:9001）
 }
 
-// InternalConfig 保存少数暂未生成 Kitex IDL 的内部 HTTP 服务地址。
-// 这些地址只应由服务客户端包使用，避免 api-gateway 或其他微服务直接 import 对方内部实现。
-type InternalConfig struct {
-	MemoryServiceURL   string `yaml:"memory_service_url"`
-	SettingsServiceURL string `yaml:"settings_service_url"`
-	MsgCoreServiceURL  string `yaml:"msg_core_service_url"`
-}
-
 // MinioConfig MinIO对象存储配置
 type MinioConfig struct {
 	Endpoint  string `yaml:"endpoint"`   // MinIO服务地址（如 localhost:9000）
@@ -104,6 +96,11 @@ type AgentConfig struct {
 	CozeloopToken string `yaml:"cozeloop_api_token"`
 	CozeloopWSID  string `yaml:"cozeloop_workspace_id"`
 	SkillsDir     string `yaml:"skills_dir"`
+}
+
+// SkillsConfig 控制 settings-service 保存用户上传 Agent Skill 包的位置。
+type SkillsConfig struct {
+	Dir string `yaml:"dir"`
 }
 
 // KafkaConfig 控制服务是否启用 Kafka 事件总线。
@@ -175,10 +172,6 @@ func Load(configPath string) (*Config, error) {
 	v.SetDefault("governance.agent_rpc.circuit_breaker", true)
 	v.SetDefault("governance.agent_rpc.max_connections", 1000)
 	v.SetDefault("governance.agent_rpc.max_qps", 500)
-	v.SetDefault("internal.memory_service_url", "http://127.0.0.1:9008")
-	v.SetDefault("internal.settings_service_url", "http://127.0.0.1:9009")
-	v.SetDefault("internal.msg_core_service_url", "http://127.0.0.1:9104")
-
 	// 读取 YAML 配置文件
 	v.SetConfigFile(configPath)
 	v.SetConfigType("yaml")
@@ -331,6 +324,7 @@ func applyEnvOverrides(cfg *Config) {
 	}
 	if skillsDir := os.Getenv("SKILLS_DIR"); skillsDir != "" {
 		cfg.Agent.SkillsDir = skillsDir
+		cfg.Skills.Dir = skillsDir
 	}
 
 	if enabled := os.Getenv("KAFKA_ENABLED"); enabled != "" {
@@ -425,15 +419,6 @@ func applyEnvOverrides(cfg *Config) {
 		}
 	}
 
-	if url := os.Getenv("MEMORY_SERVICE_URL"); url != "" {
-		cfg.Internal.MemoryServiceURL = url
-	}
-	if url := os.Getenv("SETTINGS_SERVICE_URL"); url != "" {
-		cfg.Internal.SettingsServiceURL = url
-	}
-	if url := os.Getenv("MSG_CORE_INTERNAL_URL"); url != "" {
-		cfg.Internal.MsgCoreServiceURL = url
-	}
 }
 
 // splitAndTrim 将逗号分隔的环境变量拆成非空字符串切片，常用于 Kafka/Etcd 地址列表。

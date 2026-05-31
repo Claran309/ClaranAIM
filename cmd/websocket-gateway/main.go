@@ -19,7 +19,8 @@ import (
 	"time"
 )
 
-// main 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// main 启动 WebSocket 网关。
+// 它负责维护在线连接、消费 Kafka 消息事件并向在线用户推送，同时把在线状态周期性写入 Redis。
 func main() {
 	logger.InitService("websocket-gateway")
 
@@ -145,7 +146,8 @@ func main() {
 	}
 }
 
-// syncOnlineStatusToRedis 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// syncOnlineStatusToRedis 周期性刷新在线用户 TTL。
+// 这里使用短 TTL + 抖动，服务异常退出后在线状态会自然过期，不需要额外清理任务。
 func syncOnlineStatusToRedis(redisClient *redis.RedisClient, h *hub.Hub) {
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()

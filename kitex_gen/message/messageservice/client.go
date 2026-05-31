@@ -22,6 +22,7 @@ type Client interface {
 	GetHistory(ctx context.Context, req *message.GetHistoryReq, callOptions ...callopt.Option) (r *message.GetHistoryResp, err error)
 	SearchMessages(ctx context.Context, req *message.SearchMessagesReq, callOptions ...callopt.Option) (r *message.SearchMessagesResp, err error)
 	GetConversationParticipants(ctx context.Context, req *message.GetConversationParticipantsReq, callOptions ...callopt.Option) (r *message.GetConversationParticipantsResp, err error)
+	TranslateMessage(ctx context.Context, req *message.TranslateMessageReq, callOptions ...callopt.Option) (r *message.TranslateMessageResp, err error)
 }
 
 // NewClient creates a client for the service defined in IDL.
@@ -106,4 +107,9 @@ func (p *kMessageServiceClient) SearchMessages(ctx context.Context, req *message
 func (p *kMessageServiceClient) GetConversationParticipants(ctx context.Context, req *message.GetConversationParticipantsReq, callOptions ...callopt.Option) (r *message.GetConversationParticipantsResp, err error) {
 	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
 	return p.kClient.GetConversationParticipants(ctx, req)
+}
+
+func (p *kMessageServiceClient) TranslateMessage(ctx context.Context, req *message.TranslateMessageReq, callOptions ...callopt.Option) (r *message.TranslateMessageResp, err error) {
+	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
+	return p.kClient.TranslateMessage(ctx, req)
 }

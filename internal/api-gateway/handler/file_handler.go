@@ -21,19 +21,20 @@ import (
 	"github.com/minio/minio-go/v7/pkg/credentials"
 )
 
-// 下面这组变量保存当前包需要复用的运行时状态或配置入口，调用方应通过公开函数间接使用。
+// minioClient 是网关上传/下载二进制对象时使用的 MinIO 客户端。
+// 元数据仍由 file-service 管理，因此这里不保存文件归属信息。
 var minioClient *minio.Client
 
-// 下面这组变量保存当前包需要复用的运行时状态或配置入口，调用方应通过公开函数间接使用。
+// minioBucket 保存对象所在桶名。
 var minioBucket string
 
-// 下面这组变量保存当前包需要复用的运行时状态或配置入口，调用方应通过公开函数间接使用。
+// useMinio 控制当前进程走 MinIO 还是本地 storageDir。
 var useMinio bool
 
-// 下面这组变量保存当前包需要复用的运行时状态或配置入口，调用方应通过公开函数间接使用。
+// minioEndpoint 用于把 MinIO 文件 URL 反解回 objectName。
 var minioEndpoint string
 
-// 下面这组变量保存当前包需要复用的运行时状态或配置入口，调用方应通过公开函数间接使用。
+// storageDir 是本地文件存储根目录，所有本地读取都必须限制在该目录下。
 var storageDir string
 
 // InitFileStorage 初始化 API 网关使用的二进制对象存储。
@@ -225,7 +226,8 @@ func (h *FileHandler) PreviewFile(ctx context.Context, c *app.RequestContext) {
 	h.serveFileByID(ctx, c, false)
 }
 
-// serveFileByID 是当前包内部使用的方法，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// serveFileByID 根据 file-service 元数据读取对象并写回浏览器。
+// attachment=true 时走下载附件；false 时以内联方式服务图片、语音等预览。
 func (h *FileHandler) serveFileByID(ctx context.Context, c *app.RequestContext, attachment bool) {
 	fileID := c.Param("id")
 	resp, err := client.FileClient.GetFile(ctx, client.NewGetFileReq(fileID))
@@ -297,7 +299,8 @@ func (h *FileHandler) serveFileByID(ctx context.Context, c *app.RequestContext, 
 	c.File(fullPath)
 }
 
-// minioObjectNameFromURL 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// minioObjectNameFromURL 将保存的 MinIO HTTP URL 反解为桶内 objectName。
+// 只接受当前配置 endpoint/bucket 下的 URL，避免通过外部 URL 读取任意对象。
 func minioObjectNameFromURL(fileURL string) (string, error) {
 	prefixes := []string{
 		fmt.Sprintf("http://%s/%s/", minioEndpoint, minioBucket),
@@ -317,7 +320,8 @@ func minioObjectNameFromURL(fileURL string) (string, error) {
 	return "", errors.New("不支持的MinIO文件地址")
 }
 
-// buildUploadObjectName 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// buildUploadObjectName 生成对象存储路径，格式为 <file_type>/<uuid><ext>。
+// file_type 支持简单分层，但拒绝绝对路径、空路径和 ..，防止路径穿越。
 func buildUploadObjectName(fileType, fileID, ext string) (string, error) {
 	if fileType == "" {
 		fileType = "file"
@@ -344,7 +348,8 @@ func buildUploadObjectName(fileType, fileID, ext string) (string, error) {
 	return path.Join(cleanType, fileID+ext), nil
 }
 
-// cleanupUploadedObject 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// cleanupUploadedObject 在元数据写入失败时清理已上传的孤儿对象。
+// 清理失败只记录告警，不覆盖原始业务错误。
 func cleanupUploadedObject(ctx context.Context, objectName string) {
 	if objectName == "" {
 		return

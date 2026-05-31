@@ -58,17 +58,17 @@ func NewMemoryRepo(db *gorm.DB) MemoryRepository {
 	return &memoryRepositoryImpl{db: db}
 }
 
-// Create 是当前包对外暴露的方法，负责承接对应的业务流程、参数校验或适配逻辑。
+// Create 写入一条记忆事实；ID 由模型 hook 生成，DAO 不覆盖调用方传入的可见性和范围字段。
 func (r *memoryRepositoryImpl) Create(ctx context.Context, fact *model.MemoryFact) error {
 	return r.db.WithContext(ctx).Create(fact).Error
 }
 
-// Update 是当前包对外暴露的方法，负责承接对应的业务流程、参数校验或适配逻辑。
+// Update 保存完整记忆对象，适合 service 层先做权限校验和字段归一化后整体落库。
 func (r *memoryRepositoryImpl) Update(ctx context.Context, fact *model.MemoryFact) error {
 	return r.db.WithContext(ctx).Save(fact).Error
 }
 
-// GetByID 是当前包对外暴露的方法，负责承接对应的业务流程、参数校验或适配逻辑。
+// GetByID 按主键读取记忆；不存在时返回 nil,nil，让 service 层决定是 404 还是忽略。
 func (r *memoryRepositoryImpl) GetByID(ctx context.Context, id int64) (*model.MemoryFact, error) {
 	var fact model.MemoryFact
 	err := r.db.WithContext(ctx).Where("id = ?", id).First(&fact).Error
@@ -78,7 +78,8 @@ func (r *memoryRepositoryImpl) GetByID(ctx context.Context, id int64) (*model.Me
 	return &fact, err
 }
 
-// List 是当前包对外暴露的方法，负责承接对应的业务流程、参数校验或适配逻辑。
+// List 根据范围、类型和可用状态过滤记忆，并返回分页总数。
+// 默认分页上限控制在 100 条以内，避免 Agent 召回时一次性把长期记忆全部注入 prompt。
 func (r *memoryRepositoryImpl) List(ctx context.Context, filter MemoryFilter) ([]model.MemoryFact, int64, error) {
 	query := r.db.WithContext(ctx).Model(&model.MemoryFact{})
 	query = applyFilter(query, filter)
@@ -99,12 +100,12 @@ func (r *memoryRepositoryImpl) List(ctx context.Context, filter MemoryFilter) ([
 	return facts, total, err
 }
 
-// Delete 是当前包对外暴露的方法，负责承接对应的业务流程、参数校验或适配逻辑。
+// Delete 使用 GORM 软删除记忆，保留审计和未来恢复空间。
 func (r *memoryRepositoryImpl) Delete(ctx context.Context, id int64) error {
 	return r.db.WithContext(ctx).Delete(&model.MemoryFact{}, id).Error
 }
 
-// Touch 是当前包对外暴露的方法，负责承接对应的业务流程、参数校验或适配逻辑。
+// Touch 批量更新最后使用时间，用于记录哪些记忆被 Agent 召回过。
 func (r *memoryRepositoryImpl) Touch(ctx context.Context, ids []int64, at time.Time) error {
 	if len(ids) == 0 {
 		return nil
@@ -112,7 +113,8 @@ func (r *memoryRepositoryImpl) Touch(ctx context.Context, ids []int64, at time.T
 	return r.db.WithContext(ctx).Model(&model.MemoryFact{}).Where("id IN ?", ids).Update("last_used_at", at).Error
 }
 
-// applyFilter 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// applyFilter 把跨服务 DTO 转成 GORM 条件。
+// IncludeDisabled=false 是默认安全行为，避免已被用户关闭的记忆继续参与 Agent 个性化。
 func applyFilter(query *gorm.DB, filter MemoryFilter) *gorm.DB {
 	if filter.BotID > 0 {
 		query = query.Where("bot_id = ?", filter.BotID)

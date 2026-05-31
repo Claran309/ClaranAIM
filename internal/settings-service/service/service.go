@@ -7,10 +7,13 @@ import (
 	"ClaranAIM/pkg/settingsclient"
 	"context"
 	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 )
 
-// 下面这组常量定义当前包使用的固定取值，集中声明可以避免业务代码中散落魔法字符串或魔法数字。
+// APIKeyAction* 复用 pkg/settingsclient 的协议值，避免 service 层和 HTTP 客户端对密钥操作语义不一致。
 const (
 	APIKeyActionKeep  = settingsclient.APIKeyActionKeep
 	APIKeyActionSet   = settingsclient.APIKeyActionSet
@@ -33,6 +36,9 @@ type SettingsService interface {
 	ListPrompts(ctx context.Context, ownerID int64) ([]settingsclient.PromptTemplate, error)
 	ResolveTranslationConfig(ctx context.Context, ownerID int64) (ResolvedLLMConfig, error)
 	ResolveLLMProfile(ctx context.Context, ownerID, profileID int64) (ResolvedLLMConfig, error)
+	SaveSkill(ctx context.Context, ownerID int64, input SaveSkillInput) (*settingsclient.AgentSkill, error)
+	ListSkills(ctx context.Context, ownerID int64, scope string, agentID int64) ([]settingsclient.AgentSkill, error)
+	DeleteSkill(ctx context.Context, ownerID, skillID int64) error
 }
 
 // SaveLLMProfileInput 描述一份可复用模型供应商配置。
@@ -41,18 +47,38 @@ type SaveLLMProfileInput = settingsclient.SaveLLMProfileInput
 // SavePromptInput 描述一次 prompt 模板保存请求。
 type SavePromptInput = settingsclient.SavePromptInput
 
+// SaveSkillInput 描述一次 Skill 包上传保存请求。
+type SaveSkillInput = settingsclient.SaveSkillInput
+
 // ResolvedLLMConfig 是为某个任务解析出的模型供应商和 prompt 配置。
 type ResolvedLLMConfig = settingsclient.ResolvedLLMConfig
 
 // settingsServiceImpl 是 SettingsService 的默认实现，负责密钥治理、默认配置回退和 DTO 脱敏。
 type settingsServiceImpl struct {
-	repo       dao.SettingsRepository
-	defaultLLM DefaultLLMConfig
+	repo             dao.SettingsRepository
+	defaultLLM       DefaultLLMConfig
+	skillStorageRoot string
+}
+
+// Option 调整 settings-service 的可选运行配置。
+type Option func(*settingsServiceImpl)
+
+// WithSkillStorageRoot 配置 Skill 包安全落盘根目录。
+func WithSkillStorageRoot(root string) Option {
+	return func(s *settingsServiceImpl) {
+		s.skillStorageRoot = root
+	}
 }
 
 // NewSettingsService 创建设置业务服务。
-func NewSettingsService(repo dao.SettingsRepository, defaultLLM DefaultLLMConfig) SettingsService {
-	return &settingsServiceImpl{repo: repo, defaultLLM: defaultLLM}
+func NewSettingsService(repo dao.SettingsRepository, defaultLLM DefaultLLMConfig, opts ...Option) SettingsService {
+	svc := &settingsServiceImpl{repo: repo, defaultLLM: defaultLLM, skillStorageRoot: "storage/agent/skills"}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(svc)
+		}
+	}
+	return svc
 }
 
 // SaveLLMProfile 保存一份可复用 LLM 供应商配置。
@@ -274,6 +300,108 @@ func (s *settingsServiceImpl) ResolveLLMProfile(ctx context.Context, ownerID, pr
 	}, nil
 }
 
+// SaveSkill 保存用户上传的 Skill 包并写入元数据。
+//
+// 浏览器不能直接指定 runtime 使用的目录；settings-service 会把单个 SKILL.md、
+// zip 或文件夹展开后的文件写入受控根目录，然后返回安全的 SkillsDir。
+func (s *settingsServiceImpl) SaveSkill(ctx context.Context, ownerID int64, input SaveSkillInput) (*settingsclient.AgentSkill, error) {
+	if ownerID <= 0 {
+		return nil, errors.New("用户未登录")
+	}
+	name := strings.TrimSpace(input.Name)
+	if name == "" {
+		return nil, errors.New("Skill名称不能为空")
+	}
+	scope := defaultString(input.Scope, model.SkillScopeGlobal)
+	if scope != model.SkillScopeGlobal && scope != model.SkillScopeAgent {
+		return nil, errors.New("无效的Skill作用域")
+	}
+	if scope == model.SkillScopeAgent && input.AgentID <= 0 {
+		return nil, errors.New("Agent专属Skill必须指定Agent ID")
+	}
+	files, sourceType, err := normalizeSkillFiles(input)
+	if err != nil {
+		return nil, err
+	}
+	if !containsSkillMarkdown(files) {
+		return nil, errors.New("Skill包必须包含SKILL.md")
+	}
+	enabled := true
+	if input.Enabled != nil {
+		enabled = *input.Enabled
+	}
+	skill := &model.AgentSkill{
+		OwnerID:     ownerID,
+		AgentID:     input.AgentID,
+		Scope:       scope,
+		Name:        name,
+		Description: strings.TrimSpace(input.Description),
+		EntryFile:   "SKILL.md",
+		SourceType:  sourceType,
+		IsDefault:   input.IsDefault,
+		Enabled:     enabled,
+	}
+	if input.ID > 0 {
+		existing, err := s.repo.GetSkill(ctx, input.ID)
+		if err != nil {
+			return nil, err
+		}
+		if existing == nil || existing.OwnerID != ownerID {
+			return nil, errors.New("Skill不存在或无权修改")
+		}
+		skill.ID = existing.ID
+	}
+	dir, err := s.writeSkillFiles(ownerID, skill.AgentID, scope, name, files)
+	if err != nil {
+		return nil, err
+	}
+	skill.SkillsDir = dir
+	if err := s.repo.SaveSkill(ctx, skill); err != nil {
+		return nil, err
+	}
+	return skillToDTO(skill), nil
+}
+
+// ListSkills 返回当前用户可用的 Skill 列表。
+func (s *settingsServiceImpl) ListSkills(ctx context.Context, ownerID int64, scope string, agentID int64) ([]settingsclient.AgentSkill, error) {
+	if ownerID <= 0 {
+		return nil, errors.New("用户未登录")
+	}
+	enabled := true
+	skills, err := s.repo.ListSkills(ctx, dao.SkillFilter{
+		OwnerID: ownerID,
+		Scope:   strings.TrimSpace(scope),
+		AgentID: agentID,
+		Enabled: &enabled,
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]settingsclient.AgentSkill, 0, len(skills))
+	for i := range skills {
+		out = append(out, *skillToDTO(&skills[i]))
+	}
+	return out, nil
+}
+
+// DeleteSkill 删除当前用户拥有的 Skill 元数据；已落盘文件保留，避免误删正在运行中的目录。
+func (s *settingsServiceImpl) DeleteSkill(ctx context.Context, ownerID, skillID int64) error {
+	if ownerID <= 0 || skillID <= 0 {
+		return errors.New("用户和Skill不能为空")
+	}
+	skill, err := s.repo.GetSkill(ctx, skillID)
+	if err != nil {
+		return err
+	}
+	if skill == nil {
+		return nil
+	}
+	if skill.OwnerID != ownerID {
+		return errors.New("只能删除自己的Skill")
+	}
+	return s.repo.DeleteSkill(ctx, skillID)
+}
+
 // sanitizeLLMProfile 将数据库模型转换为脱敏 DTO。
 func sanitizeLLMProfile(profile *model.LLMProfile) *settingsclient.LLMProfile {
 	if profile == nil {
@@ -305,6 +433,158 @@ func promptToDTO(prompt *model.PromptTemplate) *settingsclient.PromptTemplate {
 		IsDefault: prompt.IsDefault,
 		Enabled:   prompt.Enabled,
 	}
+}
+
+// skillToDTO 将数据库模型转换为跨服务 DTO。
+func skillToDTO(skill *model.AgentSkill) *settingsclient.AgentSkill {
+	if skill == nil {
+		return nil
+	}
+	return &settingsclient.AgentSkill{
+		ID:          skill.ID,
+		OwnerID:     skill.OwnerID,
+		AgentID:     skill.AgentID,
+		Scope:       skill.Scope,
+		Name:        skill.Name,
+		Description: skill.Description,
+		SkillsDir:   skill.SkillsDir,
+		EntryFile:   skill.EntryFile,
+		SourceType:  skill.SourceType,
+		IsDefault:   skill.IsDefault,
+		Enabled:     skill.Enabled,
+	}
+}
+
+// normalizeSkillFiles 统一单文件和多文件 Skill 包输入。
+func normalizeSkillFiles(input SaveSkillInput) ([]settingsclient.SkillFileInput, string, error) {
+	if len(input.Files) > 0 {
+		files := make([]settingsclient.SkillFileInput, 0, len(input.Files))
+		for _, f := range input.Files {
+			clean, err := cleanSkillRelativePath(f.Path)
+			if err != nil {
+				return nil, "", err
+			}
+			files = append(files, settingsclient.SkillFileInput{Path: clean, Content: f.Content})
+		}
+		return files, "package", nil
+	}
+	if len(input.Content) == 0 {
+		return nil, "", errors.New("Skill文件不能为空")
+	}
+	clean, err := cleanSkillRelativePath(input.FileName)
+	if err != nil {
+		return nil, "", err
+	}
+	if !strings.EqualFold(clean, "SKILL.md") {
+		return nil, "", errors.New("单文件上传必须命名为SKILL.md")
+	}
+	return []settingsclient.SkillFileInput{{Path: clean, Content: input.Content}}, "markdown", nil
+}
+
+// cleanSkillRelativePath 校验 Skill 包内部路径，禁止绝对路径和路径穿越。
+func cleanSkillRelativePath(path string) (string, error) {
+	normalized := filepath.ToSlash(strings.TrimSpace(path))
+	normalized = strings.TrimPrefix(normalized, "./")
+	if normalized == "" || filepath.IsAbs(normalized) || strings.HasPrefix(normalized, "/") {
+		return "", errors.New("无效的Skill文件路径")
+	}
+	clean := filepath.Clean(normalized)
+	clean = filepath.ToSlash(clean)
+	if clean == "." || strings.HasPrefix(clean, "../") || clean == ".." || strings.Contains(clean, "/../") {
+		return "", errors.New("Skill文件路径不能包含路径穿越")
+	}
+	return clean, nil
+}
+
+// containsSkillMarkdown 判断 Skill 包根目录是否包含入口文件。
+func containsSkillMarkdown(files []settingsclient.SkillFileInput) bool {
+	for _, f := range files {
+		if strings.EqualFold(filepath.ToSlash(f.Path), "SKILL.md") {
+			return true
+		}
+	}
+	return false
+}
+
+// writeSkillFiles 将 Skill 包写入受控存储根目录。
+func (s *settingsServiceImpl) writeSkillFiles(ownerID, agentID int64, scope, name string, files []settingsclient.SkillFileInput) (string, error) {
+	root := strings.TrimSpace(s.skillStorageRoot)
+	if root == "" {
+		root = "storage/agent/skills"
+	}
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		return "", err
+	}
+	slug := safeSkillSlug(name)
+	if slug == "" {
+		slug = "skill"
+	}
+	var target string
+	if scope == model.SkillScopeAgent {
+		target = filepath.Join(absRoot, "agents", fmt.Sprintf("%d", agentID), slug)
+	} else {
+		target = filepath.Join(absRoot, "global", fmt.Sprintf("%d", ownerID), slug)
+	}
+	absTarget, err := filepath.Abs(target)
+	if err != nil {
+		return "", err
+	}
+	if !isPathInside(absRoot, absTarget) {
+		return "", errors.New("Skill目录越界")
+	}
+	if err := os.MkdirAll(absTarget, 0755); err != nil {
+		return "", err
+	}
+	for _, f := range files {
+		rel, err := cleanSkillRelativePath(f.Path)
+		if err != nil {
+			return "", err
+		}
+		dst := filepath.Join(absTarget, filepath.FromSlash(rel))
+		absDst, err := filepath.Abs(dst)
+		if err != nil {
+			return "", err
+		}
+		if !isPathInside(absTarget, absDst) {
+			return "", errors.New("Skill文件写入路径越界")
+		}
+		if err := os.MkdirAll(filepath.Dir(absDst), 0755); err != nil {
+			return "", err
+		}
+		if err := os.WriteFile(absDst, f.Content, 0644); err != nil {
+			return "", err
+		}
+	}
+	return absTarget, nil
+}
+
+// isPathInside 判断 child 是否位于 root 内部或等于 root。
+func isPathInside(root, child string) bool {
+	rel, err := filepath.Rel(root, child)
+	if err != nil {
+		return false
+	}
+	return rel == "." || (!strings.HasPrefix(rel, ".."+string(filepath.Separator)) && rel != "..")
+}
+
+// safeSkillSlug 生成适合目录名的短标识。
+func safeSkillSlug(name string) string {
+	name = strings.TrimSpace(name)
+	var b strings.Builder
+	for _, r := range name {
+		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' {
+			b.WriteRune(r)
+			continue
+		}
+		if r == '-' || r == '_' {
+			b.WriteRune(r)
+		}
+	}
+	if b.Len() == 0 {
+		return fmt.Sprintf("skill_%d", len([]rune(name)))
+	}
+	return b.String()
 }
 
 // defaultString 去除空白后在 value 为空时返回 fallback。

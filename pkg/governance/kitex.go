@@ -15,10 +15,11 @@ import (
 	"github.com/cloudwego/kitex/transport"
 )
 
-// 下面这组常量定义当前包使用的固定取值，集中声明可以避免业务代码中散落魔法字符串或魔法数字。
+// 普通 RPC 默认 5 秒超时，避免下游服务异常时请求线程无限挂起。
 const defaultRPCTimeoutMS = 5000
 
-// clientTimeout 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// clientTimeout 把配置里的毫秒值转换为 Kitex 需要的 Duration。
+// allowDisable=true 只给 Agent 长任务使用，表示 timeout_ms<=0 时不设置固定 deadline。
 func clientTimeout(cfg config.RPCGovernanceConfig, allowDisable bool) (time.Duration, bool) {
 	timeoutMS := cfg.TimeoutMS
 	if timeoutMS <= 0 {
@@ -30,7 +31,8 @@ func clientTimeout(cfg config.RPCGovernanceConfig, allowDisable bool) (time.Dura
 	return time.Duration(timeoutMS) * time.Millisecond, true
 }
 
-// clientOptions 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// clientOptions 拼装所有 Kitex 客户端的共同治理选项。
+// 它固定使用 TTHeader 以便透传元数据，并为未来多实例部署启用加权轮询负载均衡。
 func clientOptions(cfg config.RPCGovernanceConfig, allowDisableTimeout bool) []client.Option {
 	opts := []client.Option{
 		client.WithTransportProtocol(transport.TTHeader),

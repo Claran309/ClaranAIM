@@ -123,6 +123,8 @@ Agent 触发规则说明：前端“Agent 触发规则”使用 `/agent/route/*`
 
 系统设置说明：`settings-service` 负责保存用户可复用的 LLM 预设和 Prompt 模板。创建 Agent 时可以直接选择已保存的 LLM 预设，网关会解析为 BaseURL、模型和 API Key 后写入 Agent 配置。消息翻译为手动触发能力，落在 msg-core-service，不做自动翻译。
 
+Agent 运行配置说明：创建或编辑 Agent 时可以配置“会话上下文条数”“记忆召回条数”“最大输出 Token”“创造性”“群聊触发方式”和“自动回复开关”。这些配置会写入 agent-manager-service 的 Agent 配置表，并随 RPC 传给 agent-runtime-service；网关执行总结、问答、洞察等会话感知任务时，会优先按该 Agent 的 `context_message_limit` 从 msg-core-service 读取历史消息。
+
 ## 快速启动
 
 ```bash

@@ -76,7 +76,7 @@ DTM    = 低频跨服务 Saga
 - 对外 HTTP 入口。
 - JWT、限流、参数绑定。
 - 调 Kitex RPC。
-- 调 memory/settings/msg-core 内部 HTTP client。
+- 调 memory/settings/msg-core 等 Kitex RPC client。
 - 文件上传时处理 multipart 和存储。
 
 `websocket-gateway`：
@@ -210,4 +210,3 @@ memory-service
 2. 标出哪些服务写 MySQL，哪些服务只做接入。
 3. 找出所有 `/agent/*` 路由。
 4. 写一段话解释：AIM 和普通“AI 聊天按钮”有什么区别。
-

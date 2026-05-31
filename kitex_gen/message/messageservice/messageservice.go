@@ -90,6 +90,13 @@ var serviceMethods = map[string]kitex.MethodInfo{
 		false,
 		kitex.WithStreamingMode(kitex.StreamingNone),
 	),
+	"TranslateMessage": kitex.NewMethodInfo(
+		translateMessageHandler,
+		newMessageServiceTranslateMessageArgs,
+		newMessageServiceTranslateMessageResult,
+		false,
+		kitex.WithStreamingMode(kitex.StreamingNone),
+	),
 }
 
 var (
@@ -354,6 +361,24 @@ func newMessageServiceGetConversationParticipantsResult() interface{} {
 	return message.NewMessageServiceGetConversationParticipantsResult()
 }
 
+func translateMessageHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
+	realArg := arg.(*message.MessageServiceTranslateMessageArgs)
+	realResult := result.(*message.MessageServiceTranslateMessageResult)
+	success, err := handler.(message.MessageService).TranslateMessage(ctx, realArg.Req)
+	if err != nil {
+		return err
+	}
+	realResult.Success = success
+	return nil
+}
+func newMessageServiceTranslateMessageArgs() interface{} {
+	return message.NewMessageServiceTranslateMessageArgs()
+}
+
+func newMessageServiceTranslateMessageResult() interface{} {
+	return message.NewMessageServiceTranslateMessageResult()
+}
+
 type kClient struct {
 	c client.Client
 }
@@ -469,6 +494,16 @@ func (p *kClient) GetConversationParticipants(ctx context.Context, req *message.
 	_args.Req = req
 	var _result message.MessageServiceGetConversationParticipantsResult
 	if err = p.c.Call(ctx, "GetConversationParticipants", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
+
+func (p *kClient) TranslateMessage(ctx context.Context, req *message.TranslateMessageReq) (r *message.TranslateMessageResp, err error) {
+	var _args message.MessageServiceTranslateMessageArgs
+	_args.Req = req
+	var _result message.MessageServiceTranslateMessageResult
+	if err = p.c.Call(ctx, "TranslateMessage", &_args, &_result); err != nil {
 		return
 	}
 	return _result.GetSuccess(), nil

@@ -23,7 +23,8 @@ import (
 	etcd "github.com/kitex-contrib/registry-etcd"
 )
 
-// main 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// main 启动群组服务。
+// 除 Kitex RPC 外，这里还会按配置启动 Outbox->Kafka 发布器和 DTM 分支 HTTP 入口。
 func main() {
 	logger.InitService("group-service")
 

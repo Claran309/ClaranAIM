@@ -1,4 +1,4 @@
-# 第 1 课：HTTP 网关与 RPC/HTTP 内部门面
+# 第 1 课：HTTP 网关与 Kitex RPC 边界
 
 ## 学习目标
 
@@ -6,7 +6,7 @@
 
 - api-gateway 为什么是统一 HTTP 入口。
 - 它如何调用 Kitex RPC 服务。
-- 它为什么也会调用内部 HTTP 服务。
+- 它为什么不应直接调用内部 HTTP transport 或其他服务 internal 包。
 - `/agent/*`、`/memory/*`、`/settings/*` 当前如何暴露。
 - 最新分页参数校验变化。
 
@@ -25,7 +25,6 @@
 - `internal/api-gateway/client/rpc_client.go`
 - `pkg/settingsclient`
 - `pkg/memoryclient`
-- `pkg/messageclient`
 
 ## api-gateway 的职责
 
@@ -48,7 +47,7 @@ api-gateway 负责：
 - 跨服务复杂事务。
 - 长连接推送。
 
-## Kitex RPC 与内部 HTTP 并存
+## Kitex RPC 是内部业务通信边界
 
 项目主干使用 Kitex RPC，例如：
 
@@ -58,14 +57,10 @@ api-gateway 负责：
 - file-service。
 - agent-manager-service。
 - agent-runtime-service。
+- memory-service。
+- settings-service。
 
-同时也有内部 HTTP client：
-
-- `settings-service`。
-- `memory-service`。
-- `msg-core-service` 的翻译/辅助入口。
-
-原因很实际：一些服务先以内部 HTTP MVP 落地，后续可再升级为 Kitex RPC。学习时重点不是纠结协议，而是看边界：
+api-gateway 负责把浏览器 HTTP 请求转成 Kitex RPC 请求。settings、memory、msg-core 翻译能力都已经进入 IDL，不再通过 transport/http 做普通服务间调用。学习时重点是边界：
 
 ```text
 网关只做门面
@@ -193,7 +188,7 @@ parseNonNegativeQueryInt64
 你应该能回答：
 
 - api-gateway 为什么不直接写数据库？
-- Kitex RPC 和内部 HTTP client 分别服务哪些模块？
+- api-gateway 如何把浏览器 HTTP 请求转换成下游 Kitex RPC？
 - 创建 Agent 时 `llm_profile_id` 是怎么用的？
 - `/agent/approval/confirm` 为什么是 MVP？
 - 为什么分页 limit 要在网关层限制最大值？
@@ -204,4 +199,3 @@ parseNonNegativeQueryInt64
 2. 追踪 `/message/translate`。
 3. 追踪 `/file/upload`。
 4. 找出所有使用 `parsePositiveLimit` 的地方。
-

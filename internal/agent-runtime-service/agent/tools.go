@@ -11,48 +11,49 @@ import (
 	"github.com/cloudwego/eino/components/tool/utils"
 )
 
-// InitTools 初始化 bot 可调用的 Eino 工具集合。
+// InitTools 初始化 Agent 可调用的 Eino 工具集合。
 //
-// includeDomainTools 控制是否注册明日方舟领域演示工具；RAG 与联网搜索工具始终尝试
-// 注册。单个工具初始化失败不会中断整个 bot 启动，只记录日志并继续加载其他工具。
+// includeDomainTools 保留历史参数名，当前含义是是否注册 ClaranAIM 通用工作工具；
+// RAG 与联网搜索工具始终尝试注册。单个工具初始化失败不会中断整个 Agent 启动，
+// 只记录日志并继续加载其他工具。
 func InitTools(ctx context.Context, chatModel model.BaseChatModel, includeDomainTools bool) []tool.BaseTool {
 	var tools []tool.BaseTool
 
 	if includeDomainTools {
-		OperatorQueryTool, err := utils.InferTool(
-			"operator_query",
-			"根据干员名称查询其职业、特长和天赋等基本信息",
-			logic.QueryOperator,
+		conversationDigestTool, err := utils.InferTool(
+			"conversation_digest",
+			"把会话文本整理为摘要、结论、待办、风险和下一步建议",
+			logic.BuildConversationDigest,
 		)
 		if err != nil {
 			log.Print("初始化工具失败:", err)
 		} else {
-			log.Println("工具 operator_query 初始化成功")
-			tools = append(tools, OperatorQueryTool)
+			log.Println("工具 conversation_digest 初始化成功")
+			tools = append(tools, conversationDigestTool)
 		}
 
-		ResourceQueryTool, err := utils.InferTool(
-			"resource_query",
-			"查询当前的资源状况，包括龙门币、合成玉、理智、源石等",
-			logic.QueryResources,
+		taskBreakdownTool, err := utils.InferTool(
+			"task_breakdown",
+			"把用户目标拆解为执行步骤、验收标准、风险和需要补充的信息",
+			logic.BreakDownTask,
 		)
 		if err != nil {
 			log.Print("初始化工具失败:", err)
 		} else {
-			log.Println("工具 resource_query 初始化成功")
-			tools = append(tools, ResourceQueryTool)
+			log.Println("工具 task_breakdown 初始化成功")
+			tools = append(tools, taskBreakdownTool)
 		}
 
-		BattlePlanTool, err := utils.InferTool(
-			"battle_plan",
-			"根据关卡名称和难度偏好制定作战计划，推荐编队和作战要点",
-			logic.MakeBattlePlan,
+		textPolishTool, err := utils.InferTool(
+			"text_polish",
+			"按指定语气和格式润色、改写或结构化一段文本",
+			logic.PolishText,
 		)
 		if err != nil {
 			log.Print("初始化工具失败:", err)
 		} else {
-			log.Println("工具 battle_plan 初始化成功")
-			tools = append(tools, BattlePlanTool)
+			log.Println("工具 text_polish 初始化成功")
+			tools = append(tools, textPolishTool)
 		}
 	}
 

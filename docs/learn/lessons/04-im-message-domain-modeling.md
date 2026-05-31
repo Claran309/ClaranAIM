@@ -19,7 +19,8 @@
 - `internal/msg-core-service/service/service.go`
 - `internal/msg-core-service/service/translation.go`
 - `internal/msg-core-service/service/translator_llm.go`
-- `internal/msg-core-service/transport/http.go`
+- `idl/message.thrift`
+- `kitex_gen/message/messageservice`
 - `pkg/events/events.go`
 
 ## 核心模型
@@ -175,4 +176,3 @@ claran.im.events
 2. 追踪一次文件消息发送。
 3. 追踪 `/message/translate`。
 4. 画出编辑消息时写哪些表、发哪些事件。
-

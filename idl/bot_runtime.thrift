@@ -13,6 +13,12 @@ struct RuntimeBotConfig {
     10: string workspace_root
     11: string tool_policy
     12: bool include_domain_tools
+    13: i64 context_message_limit
+    14: i64 memory_recall_limit
+    15: i64 max_output_tokens
+    16: double temperature
+    17: string group_trigger_mode
+    18: bool auto_reply_enabled
 }
 
 struct ContextOptions {

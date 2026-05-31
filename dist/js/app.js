@@ -3278,6 +3278,7 @@ async function showSystemSettings() {
         <div class="settings-tabs">
             <button class="btn-small active" onclick="renderLLMSettings()">LLM 预设</button>
             <button class="btn-small" onclick="renderPromptSettings()">Prompt</button>
+            <button class="btn-small" onclick="renderSkillSettings()">Agent Skill</button>
         </div>
         <div id="settings-content" class="settings-content">加载中...</div>
     `);
@@ -3430,6 +3431,108 @@ async function saveTranslationPrompt() {
     }
 }
 
+async function renderSkillSettings() {
+    const area = document.getElementById('settings-content');
+    if (!area) return;
+    area.innerHTML = '<div class="empty-tip">加载中...</div>';
+    const resp = await settingsAPI.listSkills('global', 0);
+    const skills = resp?.data?.skills || [];
+    area.innerHTML = `
+        <div class="agent-help-box">
+            <strong>全局 Agent Skill</strong>
+            <p>这里上传的 Skill 会作为你的全局能力包，在创建 Agent 时可选择注入。支持单个 SKILL.md、zip 包或文件夹。</p>
+        </div>
+        <div class="settings-list" id="global-skill-list">
+            ${skills.length ? skills.map(renderSkillCard).join('') : '<div class="empty-tip">暂无全局 Skill</div>'}
+        </div>
+        <div class="settings-editor">
+            <h4>上传全局 Skill</h4>
+            <div class="profile-form-grid">
+                <div class="form-group">
+                    <label>Skill 名称</label>
+                    <input id="setting-skill-name" type="text" placeholder="例如：代码审查 / 资料总结">
+                </div>
+                <div class="form-group">
+                    <label>说明</label>
+                    <input id="setting-skill-desc" type="text" placeholder="这个 Skill 会给 Agent 增加什么能力">
+                </div>
+            </div>
+            <div class="form-group">
+                <label>上传 SKILL.md 或 zip</label>
+                <input id="setting-skill-file" type="file" accept=".md,.zip">
+            </div>
+            <div class="form-group">
+                <label>或上传 Skill 文件夹</label>
+                <input id="setting-skill-folder" type="file" webkitdirectory directory multiple>
+            </div>
+            <label class="checkbox-row"><input id="setting-skill-default" type="checkbox"><span>设为默认全局 Skill</span></label>
+            <button class="btn-primary" onclick="uploadGlobalSkill()">上传 Skill</button>
+        </div>
+    `;
+}
+
+function renderSkillCard(skill) {
+    return `
+        <div class="memory-card">
+            <div class="memory-card-head">
+                <strong>${escapeHTML(skill.name || '未命名Skill')}</strong>
+                <span>${skill.scope === 'agent' ? 'Agent 专属' : '全局'}${skill.is_default ? ' · 默认' : ''}</span>
+            </div>
+            <div class="memory-card-content">${escapeHTML(skill.description || '暂无说明')}</div>
+            <div class="memory-card-meta">
+                <span>${escapeHTML(skill.entry_file || 'SKILL.md')}</span>
+                <span>${escapeHTML(skill.skills_dir || '')}</span>
+            </div>
+            <div class="memory-card-actions">
+                <button class="btn-small" onclick="copyText(${jsStringArg(skill.skills_dir || '')})">复制目录</button>
+                <button class="btn-small danger-soft" onclick="deleteSkillSetting(${jsArg(skill.id)}, ${jsStringArg(skill.scope || 'global')}, ${jsArg(skill.agent_id || 0)})">删除</button>
+            </div>
+        </div>
+    `;
+}
+
+function selectedSkillFiles(fileInputID, folderInputID) {
+    const fileInput = document.getElementById(fileInputID);
+    const folderInput = document.getElementById(folderInputID);
+    if (folderInput?.files?.length) return folderInput.files;
+    if (fileInput?.files?.length) return fileInput.files;
+    return [];
+}
+
+async function uploadGlobalSkill() {
+    const files = selectedSkillFiles('setting-skill-file', 'setting-skill-folder');
+    if (!files.length) {
+        showToast('请上传 SKILL.md、zip 或 Skill 文件夹', 'warning');
+        return;
+    }
+    const resp = await settingsAPI.uploadSkill({
+        fileList: files,
+        name: document.getElementById('setting-skill-name')?.value?.trim() || '',
+        description: document.getElementById('setting-skill-desc')?.value?.trim() || '',
+        scope: 'global',
+        isDefault: document.getElementById('setting-skill-default')?.checked || false,
+    });
+    if (resp && resp.code === 0 && resp.data?.success) {
+        showToast('全局 Skill 已上传', 'success');
+        await renderSkillSettings();
+    }
+}
+
+async function deleteSkillSetting(id, scope = 'global', agentID = 0) {
+    if (!confirm('确定删除这个 Skill 配置？已落盘文件会保留，避免影响正在运行的 Agent。')) return;
+    const resp = await settingsAPI.deleteSkill(id);
+    if (resp && resp.code === 0 && resp.data?.success) {
+        showToast('Skill 已删除', 'success');
+        if (scope === 'agent' && agentID) {
+            await loadAgentSkillPanel(agentID);
+        } else {
+            await renderSkillSettings();
+        }
+    } else {
+        showToast(resp?.message || resp?.data?.msg || '删除失败', 'error');
+    }
+}
+
 async function loadBotSidebar() {
     const list = document.getElementById('bot-list');
     const resp = await agentAPI.list();
@@ -3540,6 +3643,13 @@ function showCreateBotForm() {
             <small class="form-hint">相对路径会放在 Agent 文件根目录下；生产环境可以为每个 Agent 配置独立工作目录。</small>
         </div>
         <div class="form-group">
+            <label>注入全局 Skill</label>
+            <select id="bot-skill-dir" class="form-select">
+                <option value="">不注入 Skill</option>
+            </select>
+            <small class="form-hint">全局 Skill 在系统设置中上传；创建后也可以给单个 Agent 上传专属 Skill。</small>
+        </div>
+        <div class="form-group">
             <label>工具策略</label>
             <select id="bot-tool-policy" class="form-select">
                 <option value="safe">常规模式</option>
@@ -3548,9 +3658,50 @@ function showCreateBotForm() {
                 <option value="disabled">禁用工具</option>
             </select>
         </div>
+        <div class="profile-form-grid">
+            <div class="form-group">
+                <label>会话上下文条数</label>
+                <input type="number" id="bot-context-limit" min="10" max="500" value="80">
+                <small class="form-hint">总结、问答、洞察会读取最近多少条会话消息。</small>
+            </div>
+            <div class="form-group">
+                <label>记忆召回条数</label>
+                <input type="number" id="bot-memory-limit" min="1" max="50" value="12">
+                <small class="form-hint">每轮对话最多注入多少条长期记忆。</small>
+            </div>
+        </div>
+        <div class="profile-form-grid">
+            <div class="form-group">
+                <label>最大输出 Token</label>
+                <input type="number" id="bot-max-output-tokens" min="0" max="32768" value="0">
+                <small class="form-hint">0 表示使用模型默认值。</small>
+            </div>
+            <div class="form-group">
+                <label>创造性</label>
+                <input type="number" id="bot-temperature" min="0" max="2" step="0.1" value="0.7">
+                <small class="form-hint">越低越稳定，越高越发散。</small>
+            </div>
+        </div>
+        <div class="profile-form-grid">
+            <div class="form-group">
+                <label>群聊触发方式</label>
+                <select id="bot-group-trigger-mode" class="form-select">
+                    <option value="mention">仅 @ 或命令</option>
+                    <option value="keyword">关键词触发</option>
+                    <option value="command">命令触发</option>
+                    <option value="all">全部消息判断</option>
+                    <option value="silent">只记录不主动回复</option>
+                </select>
+            </div>
+            <label class="form-check-row">
+                <input type="checkbox" id="bot-auto-reply-enabled" checked>
+                <span>允许按规则自动回复</span>
+            </label>
+        </div>
         <button id="create-bot-submit" class="btn-primary" onclick="createBot()">创建智能助手</button>
     `);
     loadLLMProfilesForAgentCreate();
+    loadGlobalSkillsForAgentCreate();
 }
 
 function onBotTypeChange() {
@@ -3575,6 +3726,21 @@ async function loadLLMProfilesForAgentCreate() {
     }
 }
 
+async function loadGlobalSkillsForAgentCreate() {
+    const select = document.getElementById('bot-skill-dir');
+    if (!select) return;
+    try {
+        const resp = await settingsAPI.listSkills('global', 0);
+        const skills = resp?.data?.skills || [];
+        select.innerHTML = '<option value="">不注入 Skill</option>' + skills.map(skill => {
+            const label = `${skill.name || '未命名Skill'}${skill.is_default ? ' · 默认' : ''}`;
+            return `<option value="${escapeHTML(skill.skills_dir || '')}" ${skill.is_default ? 'selected' : ''}>${escapeHTML(label)}</option>`;
+        }).join('');
+    } catch (err) {
+        select.innerHTML = '<option value="">Skill加载失败</option>';
+    }
+}
+
 function onAgentLLMProfileChange() {
     const profileID = document.getElementById('bot-llm-profile')?.value || '';
     const typeSelect = document.getElementById('bot-type');
@@ -3590,6 +3756,58 @@ function onAgentLLMProfileChange() {
     if (customFields) customFields.style.display = 'none';
     if (modelInput && profile?.model_name) modelInput.value = profile.model_name;
     if (baseURLInput && profile?.base_url) baseURLInput.value = profile.base_url;
+}
+
+async function loadGlobalSkillsForAgentEdit(currentSkillsDir = '') {
+    const select = document.getElementById('edit-agent-global-skill');
+    if (!select) return;
+    try {
+        const resp = await settingsAPI.listSkills('global', 0);
+        const skills = resp?.data?.skills || [];
+        select.innerHTML = '<option value="">不切换</option>' + skills.map(skill => {
+            const selected = currentSkillsDir && skill.skills_dir === currentSkillsDir ? 'selected' : '';
+            return `<option value="${escapeHTML(skill.skills_dir || '')}" ${selected}>${escapeHTML(skill.name || '未命名Skill')}</option>`;
+        }).join('');
+    } catch (err) {
+        select.innerHTML = '<option value="">Skill加载失败</option>';
+    }
+}
+
+function applySelectedGlobalSkillToAgent() {
+    const value = document.getElementById('edit-agent-global-skill')?.value || '';
+    if (value) {
+        document.getElementById('edit-agent-skills-dir').value = value;
+    }
+}
+
+async function loadAgentSkillPanel(botID) {
+    const panel = document.getElementById('edit-agent-skill-panel');
+    if (!panel) return;
+    panel.innerHTML = '<div class="empty-tip">加载 Skill...</div>';
+    const resp = await settingsAPI.listSkills('agent', botID);
+    const skills = resp?.data?.skills || [];
+    panel.innerHTML = skills.length ? skills.map(renderSkillCard).join('') : '<div class="empty-tip">该 Agent 暂无专属 Skill</div>';
+}
+
+async function uploadAgentSkill(botID) {
+    const files = selectedSkillFiles('edit-agent-skill-file', 'edit-agent-skill-folder');
+    if (!files.length) {
+        showToast('请上传 SKILL.md、zip 或 Skill 文件夹', 'warning');
+        return;
+    }
+    const resp = await settingsAPI.uploadSkill({
+        fileList: files,
+        name: document.getElementById('edit-agent-skill-name')?.value?.trim() || '',
+        description: document.getElementById('edit-agent-skill-desc')?.value?.trim() || '',
+        scope: 'agent',
+        agentID: botID,
+        isDefault: true,
+    });
+    if (resp && resp.code === 0 && resp.data?.success && resp.data.skill) {
+        document.getElementById('edit-agent-skills-dir').value = resp.data.skill.skills_dir || '';
+        showToast('专属 Skill 已上传并填入配置，保存后生效', 'success');
+        await loadAgentSkillPanel(botID);
+    }
 }
 
 function closeAgentItemMenus(exceptID = '') {
@@ -3898,8 +4116,15 @@ async function createBot() {
     const avatar = document.getElementById('bot-avatar')?.value?.trim() || '';
     const signature = document.getElementById('bot-signature')?.value?.trim() || '';
     const workspaceRoot = document.getElementById('bot-workspace')?.value?.trim() || '';
+    const skillsDir = document.getElementById('bot-skill-dir')?.value?.trim() || '';
     const toolPolicy = document.getElementById('bot-tool-policy')?.value || 'safe';
     const llmProfileID = document.getElementById('bot-llm-profile')?.value || '';
+    const contextMessageLimit = Number(document.getElementById('bot-context-limit')?.value || 80);
+    const memoryRecallLimit = Number(document.getElementById('bot-memory-limit')?.value || 12);
+    const maxOutputTokens = Number(document.getElementById('bot-max-output-tokens')?.value || 0);
+    const temperature = Number(document.getElementById('bot-temperature')?.value || 0.7);
+    const groupTriggerMode = document.getElementById('bot-group-trigger-mode')?.value || 'mention';
+    const autoReplyEnabled = !!document.getElementById('bot-auto-reply-enabled')?.checked;
     if (!name) { showToast('请填写助手名称', 'warning'); return; }
     if (!llmProfileID && type === 'custom' && !apiKey) { showToast('自定义模型必须填写模型密钥', 'warning'); return; }
     if (!llmProfileID && type === 'custom' && !baseURL) { showToast('自定义模型必须填写模型服务地址', 'warning'); return; }
@@ -3910,12 +4135,18 @@ async function createBot() {
         submitBtn.textContent = '创建中...';
     }
     try {
-        const resp = await agentAPI.create(name, type, description, modelName, apiKey, baseURL, systemPrompt, '', '', {
+        const resp = await agentAPI.create(name, type, description, modelName, apiKey, baseURL, systemPrompt, skillsDir, '', {
             avatar,
             signature,
             workspace_root: workspaceRoot,
             tool_policy: toolPolicy,
             llm_profile_id: llmProfileID ? Number(llmProfileID) : 0,
+            context_message_limit: contextMessageLimit,
+            memory_recall_limit: memoryRecallLimit,
+            max_output_tokens: maxOutputTokens,
+            temperature,
+            group_trigger_mode: groupTriggerMode,
+            auto_reply_enabled: autoReplyEnabled,
         });
         if (resp && resp.code === 0 && resp.data && resp.data.success) {
             showToast('智能助手创建成功', 'success');
@@ -3987,16 +4218,92 @@ async function showEditAgentForm(botID) {
             <small class="form-hint">留空时使用默认 Agent 文件目录；修改后新的工具调用会在该目录内执行。</small>
         </div>
         <div class="form-group">
+            <label>当前 Skill 目录</label>
+            <input type="text" id="edit-agent-skills-dir" value="${escapeHTML(b.skills_dir || '')}" placeholder="可选择全局 Skill 或上传专属 Skill">
+            <small class="form-hint">该目录由 settings-service 上传校验后生成；不建议手动填写项目外路径。</small>
+        </div>
+        <div class="form-group">
+            <label>选择全局 Skill</label>
+            <select id="edit-agent-global-skill" class="form-select" onchange="applySelectedGlobalSkillToAgent()">
+                <option value="">不切换</option>
+            </select>
+        </div>
+        <div id="edit-agent-skill-panel" class="settings-list">加载 Skill...</div>
+        <div class="settings-editor">
+            <h4>上传该 Agent 专属 Skill</h4>
+            <div class="profile-form-grid">
+                <div class="form-group">
+                    <label>Skill 名称</label>
+                    <input id="edit-agent-skill-name" type="text" placeholder="例如：项目工作流">
+                </div>
+                <div class="form-group">
+                    <label>说明</label>
+                    <input id="edit-agent-skill-desc" type="text" placeholder="这个 Skill 会给该 Agent 增加什么能力">
+                </div>
+            </div>
+            <div class="form-group">
+                <label>上传 SKILL.md 或 zip</label>
+                <input id="edit-agent-skill-file" type="file" accept=".md,.zip">
+            </div>
+            <div class="form-group">
+                <label>或上传 Skill 文件夹</label>
+                <input id="edit-agent-skill-folder" type="file" webkitdirectory directory multiple>
+            </div>
+            <button class="btn-inline" onclick="uploadAgentSkill(${jsArg(botID)})">上传并注入该 Agent</button>
+        </div>
+        <div class="form-group">
             <label>工具策略</label>
             <select id="edit-agent-tool-policy" class="form-select">
                 ${['safe', 'approval_required', 'readonly', 'disabled'].map(v => `<option value="${v}" ${b.tool_policy === v ? 'selected' : ''}>${toolPolicyLabel(v)}</option>`).join('')}
             </select>
+        </div>
+        <div class="profile-form-grid">
+            <div class="form-group">
+                <label>会话上下文条数</label>
+                <input type="number" id="edit-agent-context-limit" min="10" max="500" value="${escapeHTML(String(b.context_message_limit || 80))}">
+                <small class="form-hint">总结、问答和洞察读取的最近消息数量。</small>
+            </div>
+            <div class="form-group">
+                <label>记忆召回条数</label>
+                <input type="number" id="edit-agent-memory-limit" min="1" max="50" value="${escapeHTML(String(b.memory_recall_limit || 12))}">
+                <small class="form-hint">每轮 Agent 对话最多注入的长期记忆数量。</small>
+            </div>
+        </div>
+        <div class="profile-form-grid">
+            <div class="form-group">
+                <label>最大输出 Token</label>
+                <input type="number" id="edit-agent-max-output-tokens" min="0" max="32768" value="${escapeHTML(String(b.max_output_tokens || 0))}">
+            </div>
+            <div class="form-group">
+                <label>创造性</label>
+                <input type="number" id="edit-agent-temperature" min="0" max="2" step="0.1" value="${escapeHTML(String(b.temperature || 0.7))}">
+            </div>
+        </div>
+        <div class="profile-form-grid">
+            <div class="form-group">
+                <label>群聊触发方式</label>
+                <select id="edit-agent-group-trigger-mode" class="form-select">
+                    ${[
+                        ['mention', '仅 @ 或命令'],
+                        ['keyword', '关键词触发'],
+                        ['command', '命令触发'],
+                        ['all', '全部消息判断'],
+                        ['silent', '只记录不主动回复'],
+                    ].map(([value, label]) => `<option value="${value}" ${(b.group_trigger_mode || 'mention') === value ? 'selected' : ''}>${label}</option>`).join('')}
+                </select>
+            </div>
+            <label class="form-check-row">
+                <input type="checkbox" id="edit-agent-auto-reply-enabled" ${b.auto_reply_enabled === false ? '' : 'checked'}>
+                <span>允许按规则自动回复</span>
+            </label>
         </div>
         <div class="btn-row">
             <button class="btn-inline btn-primary" onclick="saveAgentConfig(${jsArg(botID)})">保存</button>
             <button class="btn-inline" onclick="showAgentPermissions(${jsArg(botID)}, ${jsStringArg(getBotDisplayName(b))})">权限管理</button>
         </div>
     `);
+    loadGlobalSkillsForAgentEdit(b.skills_dir || '');
+    loadAgentSkillPanel(botID);
 }
 
 async function saveAgentConfig(botID) {
@@ -4008,8 +4315,15 @@ async function saveAgentConfig(botID) {
         base_url: document.getElementById('edit-agent-baseurl').value.trim(),
         api_key: document.getElementById('edit-agent-apikey').value.trim(),
         system_prompt: document.getElementById('edit-agent-prompt').value.trim(),
+        skills_dir: document.getElementById('edit-agent-skills-dir').value.trim(),
         workspace_root: document.getElementById('edit-agent-workspace').value.trim(),
         tool_policy: document.getElementById('edit-agent-tool-policy').value,
+        context_message_limit: Number(document.getElementById('edit-agent-context-limit')?.value || 80),
+        memory_recall_limit: Number(document.getElementById('edit-agent-memory-limit')?.value || 12),
+        max_output_tokens: Number(document.getElementById('edit-agent-max-output-tokens')?.value || 0),
+        temperature: Number(document.getElementById('edit-agent-temperature')?.value || 0.7),
+        group_trigger_mode: document.getElementById('edit-agent-group-trigger-mode')?.value || 'mention',
+        auto_reply_enabled: !!document.getElementById('edit-agent-auto-reply-enabled')?.checked,
     };
     if (!data.name) {
         showToast('助手昵称不能为空', 'warning');

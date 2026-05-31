@@ -125,6 +125,8 @@ Phase 3 MVP 说明：当前已经落地统一 `IMEventPayload`、`claran.im.even
 
 补充进展：Agent 触发规则管理已统一使用 `/agent/route/*`，旧 `/bot/route/*` HTTP 兼容入口已移除。`agent_keyword`、`agent_command`、`agent_record` 会自动镜像到 `agent_subscription_rules`；删除 route 会同步删除镜像规则。前端“路由规则”已改为“Agent 触发规则”，面向用户展示关键词触发、命令触发和静默记录。
 
+补充进展：Agent 管理页已支持运行参数配置，包括会话上下文条数、长期记忆召回条数、最大输出 Token、创造性、群聊触发方式和自动回复开关。后端会对上下文条数与记忆召回条数做范围裁剪；总结、问答、洞察等上下文任务不再使用固定 80 条历史，而是读取当前 Agent 的 `context_message_limit`。
+
 ### Phase 4：Agent 记忆与用户/群画像
 
 - [x] 实现基础长会话记忆：runtime 使用 session key 与 JSONL 持久化，支持跨重启恢复基本上下文。
@@ -150,7 +152,7 @@ Phase 4 MVP 已落地：`memory_facts` 保存可编辑事实记忆，范围覆�
 - [x] 翻译功能放入 msg-core-service，用户手动点击翻译时触发。
 - [x] 翻译按用户、消息、目标语言和源内容 hash 缓存，避免重复 LLM 调用。
 - [x] 翻译 Prompt 可在系统设置中配置；默认目标是其他语言转中文。
-- [x] settings-service 从 api-gateway 本地门面改为独立内部 HTTP 服务；后续可再升级为 Kitex RPC。
+- [x] settings-service/memory-service/msg-core 翻译能力已从内部 HTTP 门面升级为 Kitex RPC，普通服务间业务调用不再走 transport/http。
 - [ ] 后续对 API Key 做加密存储或接入密钥管理服务。
 
 边界说明：本阶段不做自动翻译。自动翻译会让每条消息都进入 LLM 调用路径，成本、隐私、延迟和限流影响都更大；当前先做用户显式触发的手动翻译。

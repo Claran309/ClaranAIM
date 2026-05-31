@@ -16,7 +16,7 @@ func InitDB(dsn string) (*gorm.DB, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := db.AutoMigrate(&model.LLMProfile{}, &model.PromptTemplate{}); err != nil {
+	if err := db.AutoMigrate(&model.LLMProfile{}, &model.PromptTemplate{}, &model.AgentSkill{}); err != nil {
 		return nil, err
 	}
 	return db, nil
@@ -38,6 +38,14 @@ type PromptFilter struct {
 	Enabled *bool
 }
 
+// SkillFilter 限定 Agent Skill 查询条件。
+type SkillFilter struct {
+	OwnerID int64
+	Scope   string
+	AgentID int64
+	Enabled *bool
+}
+
 // SettingsRepository 定义 settings-service 使用的存储操作。
 type SettingsRepository interface {
 	SaveLLMProfile(ctx context.Context, profile *model.LLMProfile) error
@@ -48,6 +56,10 @@ type SettingsRepository interface {
 	SavePrompt(ctx context.Context, prompt *model.PromptTemplate) error
 	GetPromptByType(ctx context.Context, scope string, ownerID int64, promptType string) (*model.PromptTemplate, error)
 	ListPrompts(ctx context.Context, filter PromptFilter) ([]model.PromptTemplate, error)
+	SaveSkill(ctx context.Context, skill *model.AgentSkill) error
+	GetSkill(ctx context.Context, id int64) (*model.AgentSkill, error)
+	ListSkills(ctx context.Context, filter SkillFilter) ([]model.AgentSkill, error)
+	DeleteSkill(ctx context.Context, id int64) error
 }
 
 // settingsRepositoryImpl 是基于 GORM 的系统设置仓储实现。
@@ -60,12 +72,13 @@ func NewSettingsRepo(db *gorm.DB) SettingsRepository {
 	return &settingsRepositoryImpl{db: db}
 }
 
-// SaveLLMProfile 是当前包对外暴露的方法，负责承接对应的业务流程、参数校验或适配逻辑。
+// SaveLLMProfile 使用 GORM Save 实现创建或覆盖更新。
+// service 层会先做所有权和 API Key 行为校验，dao 层只负责持久化。
 func (r *settingsRepositoryImpl) SaveLLMProfile(ctx context.Context, profile *model.LLMProfile) error {
 	return r.db.WithContext(ctx).Save(profile).Error
 }
 
-// GetLLMProfile 是当前包对外暴露的方法，负责承接对应的业务流程、参数校验或适配逻辑。
+// GetLLMProfile 按主键读取 LLM 预设，不存在时返回 nil 而不是 gorm.ErrRecordNotFound。
 func (r *settingsRepositoryImpl) GetLLMProfile(ctx context.Context, id int64) (*model.LLMProfile, error) {
 	var profile model.LLMProfile
 	err := r.db.WithContext(ctx).Where("id = ?", id).First(&profile).Error
@@ -75,7 +88,7 @@ func (r *settingsRepositoryImpl) GetLLMProfile(ctx context.Context, id int64) (*
 	return &profile, err
 }
 
-// GetLLMProfileByName 是当前包对外暴露的方法，负责承接对应的业务流程、参数校验或适配逻辑。
+// GetLLMProfileByName 用于“同一用户同名预设覆盖更新”的查重逻辑。
 func (r *settingsRepositoryImpl) GetLLMProfileByName(ctx context.Context, scope string, ownerID int64, name string) (*model.LLMProfile, error) {
 	var profile model.LLMProfile
 	err := r.db.WithContext(ctx).Where("scope = ? AND owner_id = ? AND name = ?", scope, ownerID, name).First(&profile).Error
@@ -85,7 +98,8 @@ func (r *settingsRepositoryImpl) GetLLMProfileByName(ctx context.Context, scope 
 	return &profile, err
 }
 
-// ListLLMProfiles 是当前包对外暴露的方法，负责承接对应的业务流程、参数校验或适配逻辑。
+// ListLLMProfiles 根据 filter 逐项拼接查询条件。
+// 结果优先返回默认预设，再按最近更新时间排列，方便前端下拉框直接展示。
 func (r *settingsRepositoryImpl) ListLLMProfiles(ctx context.Context, filter LLMProfileFilter) ([]model.LLMProfile, error) {
 	query := r.db.WithContext(ctx).Model(&model.LLMProfile{})
 	if filter.Scope != "" {
@@ -105,17 +119,17 @@ func (r *settingsRepositoryImpl) ListLLMProfiles(ctx context.Context, filter LLM
 	return profiles, err
 }
 
-// DeleteLLMProfile 是当前包对外暴露的方法，负责承接对应的业务流程、参数校验或适配逻辑。
+// DeleteLLMProfile 按主键删除 LLM 预设；所有权判断在 service 层完成。
 func (r *settingsRepositoryImpl) DeleteLLMProfile(ctx context.Context, id int64) error {
 	return r.db.WithContext(ctx).Delete(&model.LLMProfile{}, id).Error
 }
 
-// SavePrompt 是当前包对外暴露的方法，负责承接对应的业务流程、参数校验或适配逻辑。
+// SavePrompt 创建或覆盖更新 Prompt 模板。
 func (r *settingsRepositoryImpl) SavePrompt(ctx context.Context, prompt *model.PromptTemplate) error {
 	return r.db.WithContext(ctx).Save(prompt).Error
 }
 
-// GetPromptByType 是当前包对外暴露的方法，负责承接对应的业务流程、参数校验或适配逻辑。
+// GetPromptByType 按 scope、owner 和类型读取唯一 Prompt，用于保存前覆盖更新。
 func (r *settingsRepositoryImpl) GetPromptByType(ctx context.Context, scope string, ownerID int64, promptType string) (*model.PromptTemplate, error) {
 	var prompt model.PromptTemplate
 	err := r.db.WithContext(ctx).Where("scope = ? AND owner_id = ? AND type = ?", scope, ownerID, promptType).First(&prompt).Error
@@ -125,7 +139,7 @@ func (r *settingsRepositoryImpl) GetPromptByType(ctx context.Context, scope stri
 	return &prompt, err
 }
 
-// ListPrompts 是当前包对外暴露的方法，负责承接对应的业务流程、参数校验或适配逻辑。
+// ListPrompts 查询当前用户可用 Prompt，默认模板排在前面。
 func (r *settingsRepositoryImpl) ListPrompts(ctx context.Context, filter PromptFilter) ([]model.PromptTemplate, error) {
 	query := r.db.WithContext(ctx).Model(&model.PromptTemplate{})
 	if filter.Scope != "" {
@@ -143,4 +157,44 @@ func (r *settingsRepositoryImpl) ListPrompts(ctx context.Context, filter PromptF
 	var prompts []model.PromptTemplate
 	err := query.Order("is_default DESC, updated_at DESC, id DESC").Find(&prompts).Error
 	return prompts, err
+}
+
+// SaveSkill 保存 Agent Skill 元数据。
+func (r *settingsRepositoryImpl) SaveSkill(ctx context.Context, skill *model.AgentSkill) error {
+	return r.db.WithContext(ctx).Save(skill).Error
+}
+
+// GetSkill 按 ID 读取 Agent Skill 元数据，不存在时返回 nil。
+func (r *settingsRepositoryImpl) GetSkill(ctx context.Context, id int64) (*model.AgentSkill, error) {
+	var skill model.AgentSkill
+	err := r.db.WithContext(ctx).Where("id = ?", id).First(&skill).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	return &skill, err
+}
+
+// ListSkills 按用户、作用域、Agent 和启用状态查询 Agent Skill。
+func (r *settingsRepositoryImpl) ListSkills(ctx context.Context, filter SkillFilter) ([]model.AgentSkill, error) {
+	query := r.db.WithContext(ctx).Model(&model.AgentSkill{})
+	if filter.OwnerID >= 0 {
+		query = query.Where("owner_id = ?", filter.OwnerID)
+	}
+	if filter.Scope != "" {
+		query = query.Where("scope = ?", filter.Scope)
+	}
+	if filter.AgentID >= 0 {
+		query = query.Where("agent_id = ?", filter.AgentID)
+	}
+	if filter.Enabled != nil {
+		query = query.Where("enabled = ?", *filter.Enabled)
+	}
+	var skills []model.AgentSkill
+	err := query.Order("is_default DESC, updated_at DESC, id DESC").Find(&skills).Error
+	return skills, err
+}
+
+// DeleteSkill 删除一条 Agent Skill 元数据。
+func (r *settingsRepositoryImpl) DeleteSkill(ctx context.Context, id int64) error {
+	return r.db.WithContext(ctx).Delete(&model.AgentSkill{}, id).Error
 }

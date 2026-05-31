@@ -9,18 +9,24 @@ import (
 )
 
 type RuntimeBotConfig struct {
-	BotId              int64  `thrift:"bot_id,1" frugal:"1,default,i64" json:"bot_id"`
-	AgentUserId        int64  `thrift:"agent_user_id,2" frugal:"2,default,i64" json:"agent_user_id"`
-	Name               string `thrift:"name,3" frugal:"3,default,string" json:"name"`
-	Description        string `thrift:"description,4" frugal:"4,default,string" json:"description"`
-	ModelName          string `thrift:"model_name,5" frugal:"5,default,string" json:"model_name"`
-	ApiKey             string `thrift:"api_key,6" frugal:"6,default,string" json:"api_key"`
-	BaseUrl            string `thrift:"base_url,7" frugal:"7,default,string" json:"base_url"`
-	SystemPrompt       string `thrift:"system_prompt,8" frugal:"8,default,string" json:"system_prompt"`
-	SkillsDir          string `thrift:"skills_dir,9" frugal:"9,default,string" json:"skills_dir"`
-	WorkspaceRoot      string `thrift:"workspace_root,10" frugal:"10,default,string" json:"workspace_root"`
-	ToolPolicy         string `thrift:"tool_policy,11" frugal:"11,default,string" json:"tool_policy"`
-	IncludeDomainTools bool   `thrift:"include_domain_tools,12" frugal:"12,default,bool" json:"include_domain_tools"`
+	BotId               int64   `thrift:"bot_id,1" frugal:"1,default,i64" json:"bot_id"`
+	AgentUserId         int64   `thrift:"agent_user_id,2" frugal:"2,default,i64" json:"agent_user_id"`
+	Name                string  `thrift:"name,3" frugal:"3,default,string" json:"name"`
+	Description         string  `thrift:"description,4" frugal:"4,default,string" json:"description"`
+	ModelName           string  `thrift:"model_name,5" frugal:"5,default,string" json:"model_name"`
+	ApiKey              string  `thrift:"api_key,6" frugal:"6,default,string" json:"api_key"`
+	BaseUrl             string  `thrift:"base_url,7" frugal:"7,default,string" json:"base_url"`
+	SystemPrompt        string  `thrift:"system_prompt,8" frugal:"8,default,string" json:"system_prompt"`
+	SkillsDir           string  `thrift:"skills_dir,9" frugal:"9,default,string" json:"skills_dir"`
+	WorkspaceRoot       string  `thrift:"workspace_root,10" frugal:"10,default,string" json:"workspace_root"`
+	ToolPolicy          string  `thrift:"tool_policy,11" frugal:"11,default,string" json:"tool_policy"`
+	IncludeDomainTools  bool    `thrift:"include_domain_tools,12" frugal:"12,default,bool" json:"include_domain_tools"`
+	ContextMessageLimit int64   `thrift:"context_message_limit,13" frugal:"13,default,i64" json:"context_message_limit"`
+	MemoryRecallLimit   int64   `thrift:"memory_recall_limit,14" frugal:"14,default,i64" json:"memory_recall_limit"`
+	MaxOutputTokens     int64   `thrift:"max_output_tokens,15" frugal:"15,default,i64" json:"max_output_tokens"`
+	Temperature         float64 `thrift:"temperature,16" frugal:"16,default,double" json:"temperature"`
+	GroupTriggerMode    string  `thrift:"group_trigger_mode,17" frugal:"17,default,string" json:"group_trigger_mode"`
+	AutoReplyEnabled    bool    `thrift:"auto_reply_enabled,18" frugal:"18,default,bool" json:"auto_reply_enabled"`
 }
 
 func NewRuntimeBotConfig() *RuntimeBotConfig {
@@ -77,6 +83,12 @@ func (p *RuntimeBotConfig) GetToolPolicy() (v string) {
 func (p *RuntimeBotConfig) GetIncludeDomainTools() (v bool) {
 	return p.IncludeDomainTools
 }
+func (p *RuntimeBotConfig) GetContextMessageLimit() (v int64) { return p.ContextMessageLimit }
+func (p *RuntimeBotConfig) GetMemoryRecallLimit() (v int64)   { return p.MemoryRecallLimit }
+func (p *RuntimeBotConfig) GetMaxOutputTokens() (v int64)     { return p.MaxOutputTokens }
+func (p *RuntimeBotConfig) GetTemperature() (v float64)       { return p.Temperature }
+func (p *RuntimeBotConfig) GetGroupTriggerMode() (v string)   { return p.GroupTriggerMode }
+func (p *RuntimeBotConfig) GetAutoReplyEnabled() (v bool)     { return p.AutoReplyEnabled }
 func (p *RuntimeBotConfig) SetBotId(val int64) {
 	p.BotId = val
 }
@@ -113,6 +125,12 @@ func (p *RuntimeBotConfig) SetToolPolicy(val string) {
 func (p *RuntimeBotConfig) SetIncludeDomainTools(val bool) {
 	p.IncludeDomainTools = val
 }
+func (p *RuntimeBotConfig) SetContextMessageLimit(val int64) { p.ContextMessageLimit = val }
+func (p *RuntimeBotConfig) SetMemoryRecallLimit(val int64)   { p.MemoryRecallLimit = val }
+func (p *RuntimeBotConfig) SetMaxOutputTokens(val int64)     { p.MaxOutputTokens = val }
+func (p *RuntimeBotConfig) SetTemperature(val float64)       { p.Temperature = val }
+func (p *RuntimeBotConfig) SetGroupTriggerMode(val string)   { p.GroupTriggerMode = val }
+func (p *RuntimeBotConfig) SetAutoReplyEnabled(val bool)     { p.AutoReplyEnabled = val }
 
 func (p *RuntimeBotConfig) String() string {
 	if p == nil {
@@ -161,6 +179,9 @@ func (p *RuntimeBotConfig) DeepEqual(ano *RuntimeBotConfig) bool {
 		return false
 	}
 	if !p.Field12DeepEqual(ano.IncludeDomainTools) {
+		return false
+	}
+	if p.ContextMessageLimit != ano.ContextMessageLimit || p.MemoryRecallLimit != ano.MemoryRecallLimit || p.MaxOutputTokens != ano.MaxOutputTokens || p.Temperature != ano.Temperature || p.GroupTriggerMode != ano.GroupTriggerMode || p.AutoReplyEnabled != ano.AutoReplyEnabled {
 		return false
 	}
 	return true
@@ -264,6 +285,12 @@ var fieldIDToName_RuntimeBotConfig = map[int16]string{
 	10: "workspace_root",
 	11: "tool_policy",
 	12: "include_domain_tools",
+	13: "context_message_limit",
+	14: "memory_recall_limit",
+	15: "max_output_tokens",
+	16: "temperature",
+	17: "group_trigger_mode",
+	18: "auto_reply_enabled",
 }
 
 type ContextOptions struct {

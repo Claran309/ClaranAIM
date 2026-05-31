@@ -18,7 +18,7 @@ import (
 	etcd "github.com/kitex-contrib/registry-etcd"
 )
 
-// main 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// main 启动用户服务：初始化用户/好友数据表、Redis 缓存、JWT 签发配置，并把 Kitex 服务注册到 Etcd。
 func main() {
 	logger.InitService("user-service")
 

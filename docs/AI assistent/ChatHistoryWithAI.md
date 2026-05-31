@@ -592,3 +592,12 @@ Phase 4：Agent 记忆与用户/群画像
 - 现在agent为我生成的代码文件仍然在根目录，我需要在/agent/files中
 - 支持配置agent工作目录
 - 我希望好友界面的分组也能像会话界面一样有分类下拉列表
+
+## 4.5
+我需要可以让用户上传skill.md或文件夹来配置skill的功能，并且写到settingservice里，注意可以注入为全局skill或者单个agent的skill
+
+我注意到很多注释都比较水，例如很多包内部使用的方法，用于拆分主流程中的局部业务步骤，都是没有描述实现细节的注释
+
+在配置的地方，应该还要有更多的可配置项，例如agent读取的会话上下文数量
+
+重写D:\CodeStudy\GoProjects\src\ClaranAIM\internal\agent-manager-service\agent\prompt.go的相关Prompt，目前的prompt是阿米娅，因为agent的核心代码是我从另一个项目里复制过来的。现在你要全面重写相关提示词，让agent的人设编委ClaranAIM中的会话助手和工具人，并重写相关tool，之前的tool全是明日方舟相关的东西，现在写成一个标准的会话助手和工具人适配的tool。另外，其他与明日方舟相关的特色功能都要改成通用功能。好，还有在配置的地方，应该还要有更多的可配置项，例如agent读取的会话上下文数量

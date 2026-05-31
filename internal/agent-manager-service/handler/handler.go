@@ -28,7 +28,7 @@ func (h *agentServiceImpl) defaultLLM() (apiKey, baseURL, model string) {
 // CreateBot 处理生成代码中的 Agent 创建 RPC，并注入默认 LLM 配置。
 func (h *agentServiceImpl) CreateBot(ctx context.Context, req *bot.CreateBotReq) (resp *bot.CreateBotResp, err error) {
 	apiKey, baseURL, model := h.defaultLLM()
-	b, err := h.svc.CreateBot(ctx, req.Name, req.Type, req.Description, req.ModelName, req.ApiKey, req.BaseUrl, req.SystemPrompt, req.SkillsDir, req.AgentRoot, req.Avatar, req.Signature, req.WorkspaceRoot, req.ToolPolicy, req.OwnerId, apiKey, baseURL, model)
+	b, err := h.svc.CreateBot(ctx, req.Name, req.Type, req.Description, req.ModelName, req.ApiKey, req.BaseUrl, req.SystemPrompt, req.SkillsDir, req.AgentRoot, req.Avatar, req.Signature, req.WorkspaceRoot, req.ToolPolicy, req.OwnerId, req.ContextMessageLimit, req.MemoryRecallLimit, req.MaxOutputTokens, req.Temperature, req.GroupTriggerMode, req.AutoReplyEnabled, apiKey, baseURL, model)
 	if err != nil {
 		return &bot.CreateBotResp{Success: false, Msg: err.Error()}, nil
 	}
@@ -38,7 +38,7 @@ func (h *agentServiceImpl) CreateBot(ctx context.Context, req *bot.CreateBotReq)
 // UpdateBot 处理 Agent 更新 RPC，权限检查由 service 层完成。
 func (h *agentServiceImpl) UpdateBot(ctx context.Context, req *bot.UpdateBotReq) (resp *bot.UpdateBotResp, err error) {
 	apiKey, baseURL, model := h.defaultLLM()
-	err = h.svc.UpdateBot(ctx, req.BotId, req.OperatorId, req.Name, req.Description, req.ModelName, req.ApiKey, req.BaseUrl, req.SystemPrompt, req.SkillsDir, req.AgentRoot, req.Avatar, req.Signature, req.WorkspaceRoot, req.ToolPolicy, req.IsActive, req.IsActiveSet, apiKey, baseURL, model)
+	err = h.svc.UpdateBot(ctx, req.BotId, req.OperatorId, req.Name, req.Description, req.ModelName, req.ApiKey, req.BaseUrl, req.SystemPrompt, req.SkillsDir, req.AgentRoot, req.Avatar, req.Signature, req.WorkspaceRoot, req.ToolPolicy, req.IsActive, req.IsActiveSet, req.ContextMessageLimit, req.MemoryRecallLimit, req.MaxOutputTokens, req.Temperature, req.GroupTriggerMode, req.AutoReplyEnabled, apiKey, baseURL, model)
 	if err != nil {
 		return &bot.UpdateBotResp{Success: false, Msg: err.Error()}, nil
 	}
@@ -66,24 +66,30 @@ func (h *agentServiceImpl) GetBot(ctx context.Context, req *bot.GetBotReq) (resp
 // botConfigFromModel 将数据库模型转换为 Thrift 返回结构。
 func botConfigFromModel(b *model.Bot) *bot.BotInfo {
 	return &bot.BotInfo{
-		Id:            b.ID,
-		Name:          b.Name,
-		Type:          b.Type,
-		Description:   b.Description,
-		ModelName:     b.ModelName,
-		BaseUrl:       b.BaseURL,
-		SystemPrompt:  b.SystemPrompt,
-		SkillsDir:     b.SkillsDir,
-		AgentRoot:     b.AgentRoot,
-		IsActive:      b.IsActive,
-		OwnerId:       b.OwnerID,
-		CreatedAt:     b.CreatedAt.Format("2006-01-02 15:04:05"),
-		UpdatedAt:     b.UpdatedAt.Format("2006-01-02 15:04:05"),
-		AgentUserId:   b.AgentUserID,
-		Avatar:        b.Avatar,
-		Signature:     b.Signature,
-		WorkspaceRoot: b.WorkspaceRoot,
-		ToolPolicy:    b.ToolPolicy,
+		Id:                  b.ID,
+		Name:                b.Name,
+		Type:                b.Type,
+		Description:         b.Description,
+		ModelName:           b.ModelName,
+		BaseUrl:             b.BaseURL,
+		SystemPrompt:        b.SystemPrompt,
+		SkillsDir:           b.SkillsDir,
+		AgentRoot:           b.AgentRoot,
+		IsActive:            b.IsActive,
+		OwnerId:             b.OwnerID,
+		CreatedAt:           b.CreatedAt.Format("2006-01-02 15:04:05"),
+		UpdatedAt:           b.UpdatedAt.Format("2006-01-02 15:04:05"),
+		AgentUserId:         b.AgentUserID,
+		Avatar:              b.Avatar,
+		Signature:           b.Signature,
+		WorkspaceRoot:       b.WorkspaceRoot,
+		ToolPolicy:          b.ToolPolicy,
+		ContextMessageLimit: b.ContextMessageLimit,
+		MemoryRecallLimit:   b.MemoryRecallLimit,
+		MaxOutputTokens:     b.MaxOutputTokens,
+		Temperature:         b.Temperature,
+		GroupTriggerMode:    b.GroupTriggerMode,
+		AutoReplyEnabled:    b.AutoReplyEnabled,
 	}
 }
 

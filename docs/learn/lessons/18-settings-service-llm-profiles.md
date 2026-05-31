@@ -16,7 +16,8 @@
 - `internal/settings-service/model/model.go`
 - `internal/settings-service/dao/dao.go`
 - `internal/settings-service/service/service.go`
-- `internal/settings-service/transport/http.go`
+- `idl/settings.thrift`
+- `kitex_gen/settings/settingsservice`
 - `pkg/settingsclient`
 - `internal/api-gateway/handler/settings_handler.go`
 - `internal/api-gateway/handler/agent_handler.go`
@@ -103,4 +104,3 @@ msg-core-service 翻译链路依赖 settings-service：
 2. 设计一个总结 Prompt template。
 3. 追踪 `/settings/llm-profiles`。
 4. 追踪创建 Agent 时 profile 解析。
-

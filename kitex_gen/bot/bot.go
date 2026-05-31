@@ -9,20 +9,26 @@ import (
 )
 
 type CreateBotReq struct {
-	Name          string `thrift:"name,1" frugal:"1,default,string" json:"name"`
-	Type          string `thrift:"type,2" frugal:"2,default,string" json:"type"`
-	Description   string `thrift:"description,3" frugal:"3,default,string" json:"description"`
-	ModelName     string `thrift:"model_name,4" frugal:"4,default,string" json:"model_name"`
-	ApiKey        string `thrift:"api_key,5" frugal:"5,default,string" json:"api_key"`
-	BaseUrl       string `thrift:"base_url,6" frugal:"6,default,string" json:"base_url"`
-	SystemPrompt  string `thrift:"system_prompt,7" frugal:"7,default,string" json:"system_prompt"`
-	SkillsDir     string `thrift:"skills_dir,8" frugal:"8,default,string" json:"skills_dir"`
-	AgentRoot     string `thrift:"agent_root,9" frugal:"9,default,string" json:"agent_root"`
-	OwnerId       int64  `thrift:"owner_id,10" frugal:"10,default,i64" json:"owner_id"`
-	Avatar        string `thrift:"avatar,11" frugal:"11,default,string" json:"avatar"`
-	Signature     string `thrift:"signature,12" frugal:"12,default,string" json:"signature"`
-	WorkspaceRoot string `thrift:"workspace_root,13" frugal:"13,default,string" json:"workspace_root"`
-	ToolPolicy    string `thrift:"tool_policy,14" frugal:"14,default,string" json:"tool_policy"`
+	Name                string  `thrift:"name,1" frugal:"1,default,string" json:"name"`
+	Type                string  `thrift:"type,2" frugal:"2,default,string" json:"type"`
+	Description         string  `thrift:"description,3" frugal:"3,default,string" json:"description"`
+	ModelName           string  `thrift:"model_name,4" frugal:"4,default,string" json:"model_name"`
+	ApiKey              string  `thrift:"api_key,5" frugal:"5,default,string" json:"api_key"`
+	BaseUrl             string  `thrift:"base_url,6" frugal:"6,default,string" json:"base_url"`
+	SystemPrompt        string  `thrift:"system_prompt,7" frugal:"7,default,string" json:"system_prompt"`
+	SkillsDir           string  `thrift:"skills_dir,8" frugal:"8,default,string" json:"skills_dir"`
+	AgentRoot           string  `thrift:"agent_root,9" frugal:"9,default,string" json:"agent_root"`
+	OwnerId             int64   `thrift:"owner_id,10" frugal:"10,default,i64" json:"owner_id"`
+	Avatar              string  `thrift:"avatar,11" frugal:"11,default,string" json:"avatar"`
+	Signature           string  `thrift:"signature,12" frugal:"12,default,string" json:"signature"`
+	WorkspaceRoot       string  `thrift:"workspace_root,13" frugal:"13,default,string" json:"workspace_root"`
+	ToolPolicy          string  `thrift:"tool_policy,14" frugal:"14,default,string" json:"tool_policy"`
+	ContextMessageLimit int64   `thrift:"context_message_limit,15" frugal:"15,default,i64" json:"context_message_limit"`
+	MemoryRecallLimit   int64   `thrift:"memory_recall_limit,16" frugal:"16,default,i64" json:"memory_recall_limit"`
+	MaxOutputTokens     int64   `thrift:"max_output_tokens,17" frugal:"17,default,i64" json:"max_output_tokens"`
+	Temperature         float64 `thrift:"temperature,18" frugal:"18,default,double" json:"temperature"`
+	GroupTriggerMode    string  `thrift:"group_trigger_mode,19" frugal:"19,default,string" json:"group_trigger_mode"`
+	AutoReplyEnabled    bool    `thrift:"auto_reply_enabled,20" frugal:"20,default,bool" json:"auto_reply_enabled"`
 }
 
 func NewCreateBotReq() *CreateBotReq {
@@ -87,6 +93,24 @@ func (p *CreateBotReq) GetWorkspaceRoot() (v string) {
 func (p *CreateBotReq) GetToolPolicy() (v string) {
 	return p.ToolPolicy
 }
+func (p *CreateBotReq) GetContextMessageLimit() (v int64) {
+	return p.ContextMessageLimit
+}
+func (p *CreateBotReq) GetMemoryRecallLimit() (v int64) {
+	return p.MemoryRecallLimit
+}
+func (p *CreateBotReq) GetMaxOutputTokens() (v int64) {
+	return p.MaxOutputTokens
+}
+func (p *CreateBotReq) GetTemperature() (v float64) {
+	return p.Temperature
+}
+func (p *CreateBotReq) GetGroupTriggerMode() (v string) {
+	return p.GroupTriggerMode
+}
+func (p *CreateBotReq) GetAutoReplyEnabled() (v bool) {
+	return p.AutoReplyEnabled
+}
 func (p *CreateBotReq) SetName(val string) {
 	p.Name = val
 }
@@ -128,6 +152,24 @@ func (p *CreateBotReq) SetWorkspaceRoot(val string) {
 }
 func (p *CreateBotReq) SetToolPolicy(val string) {
 	p.ToolPolicy = val
+}
+func (p *CreateBotReq) SetContextMessageLimit(val int64) {
+	p.ContextMessageLimit = val
+}
+func (p *CreateBotReq) SetMemoryRecallLimit(val int64) {
+	p.MemoryRecallLimit = val
+}
+func (p *CreateBotReq) SetMaxOutputTokens(val int64) {
+	p.MaxOutputTokens = val
+}
+func (p *CreateBotReq) SetTemperature(val float64) {
+	p.Temperature = val
+}
+func (p *CreateBotReq) SetGroupTriggerMode(val string) {
+	p.GroupTriggerMode = val
+}
+func (p *CreateBotReq) SetAutoReplyEnabled(val bool) {
+	p.AutoReplyEnabled = val
 }
 
 func (p *CreateBotReq) String() string {
@@ -183,6 +225,9 @@ func (p *CreateBotReq) DeepEqual(ano *CreateBotReq) bool {
 		return false
 	}
 	if !p.Field14DeepEqual(ano.ToolPolicy) {
+		return false
+	}
+	if p.ContextMessageLimit != ano.ContextMessageLimit || p.MemoryRecallLimit != ano.MemoryRecallLimit || p.MaxOutputTokens != ano.MaxOutputTokens || p.Temperature != ano.Temperature || p.GroupTriggerMode != ano.GroupTriggerMode || p.AutoReplyEnabled != ano.AutoReplyEnabled {
 		return false
 	}
 	return true
@@ -302,6 +347,12 @@ var fieldIDToName_CreateBotReq = map[int16]string{
 	12: "signature",
 	13: "workspace_root",
 	14: "tool_policy",
+	15: "context_message_limit",
+	16: "memory_recall_limit",
+	17: "max_output_tokens",
+	18: "temperature",
+	19: "group_trigger_mode",
+	20: "auto_reply_enabled",
 }
 
 type CreateBotResp struct {
@@ -392,22 +443,28 @@ var fieldIDToName_CreateBotResp = map[int16]string{
 }
 
 type UpdateBotReq struct {
-	BotId         int64  `thrift:"bot_id,1" frugal:"1,default,i64" json:"bot_id"`
-	OperatorId    int64  `thrift:"operator_id,2" frugal:"2,default,i64" json:"operator_id"`
-	Name          string `thrift:"name,3" frugal:"3,default,string" json:"name"`
-	Description   string `thrift:"description,4" frugal:"4,default,string" json:"description"`
-	ModelName     string `thrift:"model_name,5" frugal:"5,default,string" json:"model_name"`
-	ApiKey        string `thrift:"api_key,6" frugal:"6,default,string" json:"api_key"`
-	BaseUrl       string `thrift:"base_url,7" frugal:"7,default,string" json:"base_url"`
-	SystemPrompt  string `thrift:"system_prompt,8" frugal:"8,default,string" json:"system_prompt"`
-	SkillsDir     string `thrift:"skills_dir,9" frugal:"9,default,string" json:"skills_dir"`
-	AgentRoot     string `thrift:"agent_root,10" frugal:"10,default,string" json:"agent_root"`
-	IsActive      bool   `thrift:"is_active,11" frugal:"11,default,bool" json:"is_active"`
-	Avatar        string `thrift:"avatar,12" frugal:"12,default,string" json:"avatar"`
-	Signature     string `thrift:"signature,13" frugal:"13,default,string" json:"signature"`
-	WorkspaceRoot string `thrift:"workspace_root,14" frugal:"14,default,string" json:"workspace_root"`
-	ToolPolicy    string `thrift:"tool_policy,15" frugal:"15,default,string" json:"tool_policy"`
-	IsActiveSet   bool   `thrift:"is_active_set,16" frugal:"16,default,bool" json:"is_active_set"`
+	BotId               int64   `thrift:"bot_id,1" frugal:"1,default,i64" json:"bot_id"`
+	OperatorId          int64   `thrift:"operator_id,2" frugal:"2,default,i64" json:"operator_id"`
+	Name                string  `thrift:"name,3" frugal:"3,default,string" json:"name"`
+	Description         string  `thrift:"description,4" frugal:"4,default,string" json:"description"`
+	ModelName           string  `thrift:"model_name,5" frugal:"5,default,string" json:"model_name"`
+	ApiKey              string  `thrift:"api_key,6" frugal:"6,default,string" json:"api_key"`
+	BaseUrl             string  `thrift:"base_url,7" frugal:"7,default,string" json:"base_url"`
+	SystemPrompt        string  `thrift:"system_prompt,8" frugal:"8,default,string" json:"system_prompt"`
+	SkillsDir           string  `thrift:"skills_dir,9" frugal:"9,default,string" json:"skills_dir"`
+	AgentRoot           string  `thrift:"agent_root,10" frugal:"10,default,string" json:"agent_root"`
+	IsActive            bool    `thrift:"is_active,11" frugal:"11,default,bool" json:"is_active"`
+	Avatar              string  `thrift:"avatar,12" frugal:"12,default,string" json:"avatar"`
+	Signature           string  `thrift:"signature,13" frugal:"13,default,string" json:"signature"`
+	WorkspaceRoot       string  `thrift:"workspace_root,14" frugal:"14,default,string" json:"workspace_root"`
+	ToolPolicy          string  `thrift:"tool_policy,15" frugal:"15,default,string" json:"tool_policy"`
+	IsActiveSet         bool    `thrift:"is_active_set,16" frugal:"16,default,bool" json:"is_active_set"`
+	ContextMessageLimit int64   `thrift:"context_message_limit,17" frugal:"17,default,i64" json:"context_message_limit"`
+	MemoryRecallLimit   int64   `thrift:"memory_recall_limit,18" frugal:"18,default,i64" json:"memory_recall_limit"`
+	MaxOutputTokens     int64   `thrift:"max_output_tokens,19" frugal:"19,default,i64" json:"max_output_tokens"`
+	Temperature         float64 `thrift:"temperature,20" frugal:"20,default,double" json:"temperature"`
+	GroupTriggerMode    string  `thrift:"group_trigger_mode,21" frugal:"21,default,string" json:"group_trigger_mode"`
+	AutoReplyEnabled    bool    `thrift:"auto_reply_enabled,22" frugal:"22,default,bool" json:"auto_reply_enabled"`
 }
 
 func NewUpdateBotReq() *UpdateBotReq {
@@ -480,6 +537,12 @@ func (p *UpdateBotReq) GetToolPolicy() (v string) {
 func (p *UpdateBotReq) GetIsActiveSet() (v bool) {
 	return p.IsActiveSet
 }
+func (p *UpdateBotReq) GetContextMessageLimit() (v int64) { return p.ContextMessageLimit }
+func (p *UpdateBotReq) GetMemoryRecallLimit() (v int64)   { return p.MemoryRecallLimit }
+func (p *UpdateBotReq) GetMaxOutputTokens() (v int64)     { return p.MaxOutputTokens }
+func (p *UpdateBotReq) GetTemperature() (v float64)       { return p.Temperature }
+func (p *UpdateBotReq) GetGroupTriggerMode() (v string)   { return p.GroupTriggerMode }
+func (p *UpdateBotReq) GetAutoReplyEnabled() (v bool)     { return p.AutoReplyEnabled }
 func (p *UpdateBotReq) SetBotId(val int64) {
 	p.BotId = val
 }
@@ -528,6 +591,12 @@ func (p *UpdateBotReq) SetToolPolicy(val string) {
 func (p *UpdateBotReq) SetIsActiveSet(val bool) {
 	p.IsActiveSet = val
 }
+func (p *UpdateBotReq) SetContextMessageLimit(val int64) { p.ContextMessageLimit = val }
+func (p *UpdateBotReq) SetMemoryRecallLimit(val int64)   { p.MemoryRecallLimit = val }
+func (p *UpdateBotReq) SetMaxOutputTokens(val int64)     { p.MaxOutputTokens = val }
+func (p *UpdateBotReq) SetTemperature(val float64)       { p.Temperature = val }
+func (p *UpdateBotReq) SetGroupTriggerMode(val string)   { p.GroupTriggerMode = val }
+func (p *UpdateBotReq) SetAutoReplyEnabled(val bool)     { p.AutoReplyEnabled = val }
 
 func (p *UpdateBotReq) String() string {
 	if p == nil {
@@ -588,6 +657,9 @@ func (p *UpdateBotReq) DeepEqual(ano *UpdateBotReq) bool {
 		return false
 	}
 	if !p.Field16DeepEqual(ano.IsActiveSet) {
+		return false
+	}
+	if p.ContextMessageLimit != ano.ContextMessageLimit || p.MemoryRecallLimit != ano.MemoryRecallLimit || p.MaxOutputTokens != ano.MaxOutputTokens || p.Temperature != ano.Temperature || p.GroupTriggerMode != ano.GroupTriggerMode || p.AutoReplyEnabled != ano.AutoReplyEnabled {
 		return false
 	}
 	return true
@@ -723,6 +795,12 @@ var fieldIDToName_UpdateBotReq = map[int16]string{
 	14: "workspace_root",
 	15: "tool_policy",
 	16: "is_active_set",
+	17: "context_message_limit",
+	18: "memory_recall_limit",
+	19: "max_output_tokens",
+	20: "temperature",
+	21: "group_trigger_mode",
+	22: "auto_reply_enabled",
 }
 
 type UpdateBotResp struct {
@@ -843,24 +921,30 @@ var fieldIDToName_GetBotReq = map[int16]string{
 }
 
 type BotInfo struct {
-	Id            int64  `thrift:"id,1" frugal:"1,default,i64" json:"id"`
-	Name          string `thrift:"name,2" frugal:"2,default,string" json:"name"`
-	Type          string `thrift:"type,3" frugal:"3,default,string" json:"type"`
-	Description   string `thrift:"description,4" frugal:"4,default,string" json:"description"`
-	ModelName     string `thrift:"model_name,5" frugal:"5,default,string" json:"model_name"`
-	BaseUrl       string `thrift:"base_url,6" frugal:"6,default,string" json:"base_url"`
-	SystemPrompt  string `thrift:"system_prompt,7" frugal:"7,default,string" json:"system_prompt"`
-	SkillsDir     string `thrift:"skills_dir,8" frugal:"8,default,string" json:"skills_dir"`
-	AgentRoot     string `thrift:"agent_root,9" frugal:"9,default,string" json:"agent_root"`
-	OwnerId       int64  `thrift:"owner_id,10" frugal:"10,default,i64" json:"owner_id"`
-	IsActive      bool   `thrift:"is_active,11" frugal:"11,default,bool" json:"is_active"`
-	CreatedAt     string `thrift:"created_at,12" frugal:"12,default,string" json:"created_at"`
-	UpdatedAt     string `thrift:"updated_at,13" frugal:"13,default,string" json:"updated_at"`
-	AgentUserId   int64  `thrift:"agent_user_id,14" frugal:"14,default,i64" json:"agent_user_id"`
-	Avatar        string `thrift:"avatar,15" frugal:"15,default,string" json:"avatar"`
-	Signature     string `thrift:"signature,16" frugal:"16,default,string" json:"signature"`
-	WorkspaceRoot string `thrift:"workspace_root,17" frugal:"17,default,string" json:"workspace_root"`
-	ToolPolicy    string `thrift:"tool_policy,18" frugal:"18,default,string" json:"tool_policy"`
+	Id                  int64   `thrift:"id,1" frugal:"1,default,i64" json:"id"`
+	Name                string  `thrift:"name,2" frugal:"2,default,string" json:"name"`
+	Type                string  `thrift:"type,3" frugal:"3,default,string" json:"type"`
+	Description         string  `thrift:"description,4" frugal:"4,default,string" json:"description"`
+	ModelName           string  `thrift:"model_name,5" frugal:"5,default,string" json:"model_name"`
+	BaseUrl             string  `thrift:"base_url,6" frugal:"6,default,string" json:"base_url"`
+	SystemPrompt        string  `thrift:"system_prompt,7" frugal:"7,default,string" json:"system_prompt"`
+	SkillsDir           string  `thrift:"skills_dir,8" frugal:"8,default,string" json:"skills_dir"`
+	AgentRoot           string  `thrift:"agent_root,9" frugal:"9,default,string" json:"agent_root"`
+	OwnerId             int64   `thrift:"owner_id,10" frugal:"10,default,i64" json:"owner_id"`
+	IsActive            bool    `thrift:"is_active,11" frugal:"11,default,bool" json:"is_active"`
+	CreatedAt           string  `thrift:"created_at,12" frugal:"12,default,string" json:"created_at"`
+	UpdatedAt           string  `thrift:"updated_at,13" frugal:"13,default,string" json:"updated_at"`
+	AgentUserId         int64   `thrift:"agent_user_id,14" frugal:"14,default,i64" json:"agent_user_id"`
+	Avatar              string  `thrift:"avatar,15" frugal:"15,default,string" json:"avatar"`
+	Signature           string  `thrift:"signature,16" frugal:"16,default,string" json:"signature"`
+	WorkspaceRoot       string  `thrift:"workspace_root,17" frugal:"17,default,string" json:"workspace_root"`
+	ToolPolicy          string  `thrift:"tool_policy,18" frugal:"18,default,string" json:"tool_policy"`
+	ContextMessageLimit int64   `thrift:"context_message_limit,19" frugal:"19,default,i64" json:"context_message_limit"`
+	MemoryRecallLimit   int64   `thrift:"memory_recall_limit,20" frugal:"20,default,i64" json:"memory_recall_limit"`
+	MaxOutputTokens     int64   `thrift:"max_output_tokens,21" frugal:"21,default,i64" json:"max_output_tokens"`
+	Temperature         float64 `thrift:"temperature,22" frugal:"22,default,double" json:"temperature"`
+	GroupTriggerMode    string  `thrift:"group_trigger_mode,23" frugal:"23,default,string" json:"group_trigger_mode"`
+	AutoReplyEnabled    bool    `thrift:"auto_reply_enabled,24" frugal:"24,default,bool" json:"auto_reply_enabled"`
 }
 
 func NewBotInfo() *BotInfo {
@@ -941,6 +1025,12 @@ func (p *BotInfo) GetWorkspaceRoot() (v string) {
 func (p *BotInfo) GetToolPolicy() (v string) {
 	return p.ToolPolicy
 }
+func (p *BotInfo) GetContextMessageLimit() (v int64) { return p.ContextMessageLimit }
+func (p *BotInfo) GetMemoryRecallLimit() (v int64)   { return p.MemoryRecallLimit }
+func (p *BotInfo) GetMaxOutputTokens() (v int64)     { return p.MaxOutputTokens }
+func (p *BotInfo) GetTemperature() (v float64)       { return p.Temperature }
+func (p *BotInfo) GetGroupTriggerMode() (v string)   { return p.GroupTriggerMode }
+func (p *BotInfo) GetAutoReplyEnabled() (v bool)     { return p.AutoReplyEnabled }
 func (p *BotInfo) SetId(val int64) {
 	p.Id = val
 }
@@ -995,6 +1085,12 @@ func (p *BotInfo) SetWorkspaceRoot(val string) {
 func (p *BotInfo) SetToolPolicy(val string) {
 	p.ToolPolicy = val
 }
+func (p *BotInfo) SetContextMessageLimit(val int64) { p.ContextMessageLimit = val }
+func (p *BotInfo) SetMemoryRecallLimit(val int64)   { p.MemoryRecallLimit = val }
+func (p *BotInfo) SetMaxOutputTokens(val int64)     { p.MaxOutputTokens = val }
+func (p *BotInfo) SetTemperature(val float64)       { p.Temperature = val }
+func (p *BotInfo) SetGroupTriggerMode(val string)   { p.GroupTriggerMode = val }
+func (p *BotInfo) SetAutoReplyEnabled(val bool)     { p.AutoReplyEnabled = val }
 
 func (p *BotInfo) String() string {
 	if p == nil {
@@ -1061,6 +1157,9 @@ func (p *BotInfo) DeepEqual(ano *BotInfo) bool {
 		return false
 	}
 	if !p.Field18DeepEqual(ano.ToolPolicy) {
+		return false
+	}
+	if p.ContextMessageLimit != ano.ContextMessageLimit || p.MemoryRecallLimit != ano.MemoryRecallLimit || p.MaxOutputTokens != ano.MaxOutputTokens || p.Temperature != ano.Temperature || p.GroupTriggerMode != ano.GroupTriggerMode || p.AutoReplyEnabled != ano.AutoReplyEnabled {
 		return false
 	}
 	return true
@@ -1212,6 +1311,12 @@ var fieldIDToName_BotInfo = map[int16]string{
 	16: "signature",
 	17: "workspace_root",
 	18: "tool_policy",
+	19: "context_message_limit",
+	20: "memory_recall_limit",
+	21: "max_output_tokens",
+	22: "temperature",
+	23: "group_trigger_mode",
+	24: "auto_reply_enabled",
 }
 
 type BotPermission struct {

@@ -7,7 +7,8 @@ import (
 	"github.com/cloudwego/hertz/pkg/app"
 )
 
-// currentUserID 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// currentUserID 从 JWT 中间件写入的 Hertz 上下文读取登录用户 ID。
+// 这里不解析 token，只信任已通过 middleware.JWTAuthMiddleware 校验后的 userID。
 func currentUserID(c *app.RequestContext) (int64, bool) {
 	value, ok := c.Get("userID")
 	if !ok {
@@ -20,7 +21,8 @@ func currentUserID(c *app.RequestContext) (int64, bool) {
 	return id, true
 }
 
-// requireCurrentUserID 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// requireCurrentUserID 是 handler 的认证门闩。
+// 读取失败时直接写 401 响应，并用 bool 告诉调用方停止后续业务处理。
 func requireCurrentUserID(c *app.RequestContext) (int64, bool) {
 	id, ok := currentUserID(c)
 	if !ok {
@@ -29,7 +31,8 @@ func requireCurrentUserID(c *app.RequestContext) (int64, bool) {
 	return id, ok
 }
 
-// userInfoLookupOK 是当前包内部使用的函数，用于拆分主流程中的局部业务步骤，避免调用方直接依赖实现细节。
+// userInfoLookupOK 统一判断 user-service 查询是否拿到了可用用户资料。
+// 网关批量补充昵称、头像时用它区分“未找到/下游失败”和正常响应。
 func userInfoLookupOK(resp *user.GetUserInfoResp, err error) bool {
 	return err == nil && resp != nil && resp.Success
 }

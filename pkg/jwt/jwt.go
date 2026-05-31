@@ -8,7 +8,8 @@ import (
 	"github.com/golang-jwt/jwt"
 )
 
-// 下面这组常量定义当前包使用的固定取值，集中声明可以避免业务代码中散落魔法字符串或魔法数字。
+// JWT 中写入的协议枚举。
+// Role 用于网关鉴权，TokenType 用于避免 refresh token 被误当成 access token 调接口。
 const (
 	// RoleUser 是普通应用用户的默认系统角色。
 	RoleUser = "user"
@@ -132,7 +133,8 @@ func parseToken(tokenString string) (*Claims, error) {
 // 在服务启动时通过 SetSecretKey 设置
 var jwtSecretKey string
 
-// 下面这组变量保存当前包需要复用的运行时状态或配置入口，调用方应通过公开函数间接使用。
+// token 默认有效期由各服务启动配置覆盖；未配置时使用保守默认值。
+// 当前项目只有 user-service 负责签发 token，其他服务只读取签名密钥做校验。
 var (
 	accessExpirationHours  = defaultAccessExpirationHours
 	refreshExpirationHours = defaultRefreshExpirationHours
