@@ -5,10 +5,13 @@ import (
 	"ClaranAIM/internal/api-gateway/handler"
 	"ClaranAIM/internal/api-gateway/router"
 	"ClaranAIM/pkg/config"
+	"ClaranAIM/pkg/documentparser"
 	"ClaranAIM/pkg/health"
 	"ClaranAIM/pkg/jwt"
+	"ClaranAIM/pkg/knowledgeclient"
 	"ClaranAIM/pkg/logger"
 	"ClaranAIM/pkg/memoryclient"
+	"ClaranAIM/pkg/ragclient"
 	"ClaranAIM/pkg/settingsclient"
 
 	"github.com/cloudwego/hertz/pkg/app/server"
@@ -33,6 +36,15 @@ func main() {
 	handler.InitFileStorage(cfg)
 	handler.InitDTMConfig(cfg.DTM)
 	handler.InitMemoryService(memoryclient.NewRPCClient(client.MemoryClient))
+	ragService := ragclient.NewRPCClient(client.RAGClient)
+	handler.InitRAGService(ragService)
+	handler.InitKnowledgeService(knowledgeclient.NewRPCClient(client.KnowledgeClient))
+	if cfg.Document.OCRProvider == "glm" && cfg.Document.OCRURL != "" && cfg.Document.OCRAPIKey != "" {
+		handler.InitDocumentOCR(documentparser.NewGLMLayoutOCRProvider(cfg.Document.OCRURL, cfg.Document.OCRAPIKey, cfg.Document.OCRModel))
+		logger.Info("文档OCR解析已启用", "provider", cfg.Document.OCRProvider, "model", cfg.Document.OCRModel)
+	} else {
+		logger.Info("文档OCR解析未启用，扫描件PDF和图片上传将无法自动抽取文本")
+	}
 	settingsService := settingsclient.NewRPCClient(client.SettingsClient)
 	handler.InitSettingsService(settingsService)
 	handler.InitAgentSettingsService(settingsService)

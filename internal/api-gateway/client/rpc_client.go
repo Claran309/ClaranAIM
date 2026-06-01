@@ -11,10 +11,12 @@ import (
 	"ClaranAIM/kitex_gen/file/fileservice"
 	"ClaranAIM/kitex_gen/group"
 	"ClaranAIM/kitex_gen/group/groupservice"
+	"ClaranAIM/kitex_gen/knowledge/knowledgeservice"
 	"ClaranAIM/kitex_gen/memory/memoryservice"
 	"ClaranAIM/kitex_gen/message"
 	"ClaranAIM/kitex_gen/message/historyservice"
 	"ClaranAIM/kitex_gen/message/messageservice"
+	"ClaranAIM/kitex_gen/rag/ragservice"
 	"ClaranAIM/kitex_gen/settings/settingsservice"
 	"ClaranAIM/kitex_gen/user"
 	"ClaranAIM/kitex_gen/user/userservice"
@@ -54,6 +56,10 @@ var (
 	AgentRuntimeClient botruntimeservice.Client
 	// MemoryClient 调用 memory-service，负责用户/群/会话记忆事实的治理和召回。
 	MemoryClient memoryservice.Client
+	// RAGClient 调用 rag-service，负责知识库入库、RAG 检索和 GraphRAG 子图读取。
+	RAGClient ragservice.Client
+	// KnowledgeClient 调用 knowledge-service，负责知识图谱查询、过滤和可视化视图。
+	KnowledgeClient knowledgeservice.Client
 	// SettingsClient 调用 settings-service，负责 LLM 预设、Prompt 和 Agent Skill 配置。
 	SettingsClient settingsservice.Client
 )
@@ -142,6 +148,20 @@ func InitClients(etcdEndpoints []string, rpcCfg ...config.RPCGovernanceConfig) {
 		)
 		if err != nil {
 			log.Fatal("创建memory-service客户端失败:", err)
+		}
+
+		RAGClient, err = ragservice.NewClient("rag-service",
+			baseOptions...,
+		)
+		if err != nil {
+			log.Fatal("创建rag-service客户端失败:", err)
+		}
+
+		KnowledgeClient, err = knowledgeservice.NewClient("knowledge-service",
+			baseOptions...,
+		)
+		if err != nil {
+			log.Fatal("创建knowledge-service客户端失败:", err)
 		}
 
 		SettingsClient, err = settingsservice.NewClient("settings-service",

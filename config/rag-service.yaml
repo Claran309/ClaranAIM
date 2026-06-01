@@ -1,0 +1,35 @@
+service:
+  name: "rag-service"
+  address: "127.0.0.1:9012"
+
+mysql:
+  dsn: ""
+
+rag:
+  embedding_dim: 256
+  default_mode: "adaptive"
+  embedding_provider: "glm"
+  embedding_url: "https://open.bigmodel.cn/api/paas/v4/embeddings"
+  embedding_api_key: ""
+  embedding_model: "embedding-3"
+  embedding_dimension: 0
+  router_provider: "llm"
+  router_base_url: ""
+  router_api_key: ""
+  router_model: "glm-4-flash"
+  rerank_provider: "glm"
+  rerank_url: "https://open.bigmodel.cn/api/paas/v4/rerank"
+  rerank_api_key: ""
+  rerank_model: "rerank"
+
+milvus:
+  enabled: false
+  address: "127.0.0.1:19530"
+  collection: "claran_rag_chunks"
+
+governance:
+  rpc:
+    timeout_ms: 10000
+    circuit_breaker: true
+    max_connections: 1000
+    max_qps: 1000

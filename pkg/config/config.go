@@ -27,6 +27,9 @@ type Config struct {
 	Skills     SkillsConfig     `yaml:"skills"`
 	Kafka      KafkaConfig      `yaml:"kafka"`
 	DTM        DTMConfig        `yaml:"dtm"`
+	RAG        RAGConfig        `yaml:"rag"`
+	Document   DocumentConfig   `yaml:"document"`
+	Milvus     MilvusConfig     `yaml:"milvus"`
 	Governance GovernanceConfig `yaml:"governance"`
 }
 
@@ -103,6 +106,41 @@ type SkillsConfig struct {
 	Dir string `yaml:"dir"`
 }
 
+// RAGConfig 控制 rag-service 的检索策略默认值。
+type RAGConfig struct {
+	EmbeddingDim       int    `yaml:"embedding_dim"`
+	DefaultMode        string `yaml:"default_mode"`
+	EmbeddingProvider  string `yaml:"embedding_provider"`
+	EmbeddingURL       string `yaml:"embedding_url"`
+	EmbeddingAPIKey    string `yaml:"embedding_api_key"`
+	EmbeddingModel     string `yaml:"embedding_model"`
+	EmbeddingDimension int    `yaml:"embedding_dimension"`
+	RouterProvider     string `yaml:"router_provider"`
+	RouterBaseURL      string `yaml:"router_base_url"`
+	RouterAPIKey       string `yaml:"router_api_key"`
+	RouterModel        string `yaml:"router_model"`
+	RerankProvider     string `yaml:"rerank_provider"`
+	RerankURL          string `yaml:"rerank_url"`
+	RerankAPIKey       string `yaml:"rerank_api_key"`
+	RerankModel        string `yaml:"rerank_model"`
+}
+
+// DocumentConfig 控制上传文档解析时可选的 OCR / 版面解析能力。
+type DocumentConfig struct {
+	OCRProvider string `yaml:"ocr_provider"`
+	OCRURL      string `yaml:"ocr_url"`
+	OCRAPIKey   string `yaml:"ocr_api_key"`
+	OCRModel    string `yaml:"ocr_model"`
+}
+
+// MilvusConfig 保存 Milvus 向量后端连接参数。
+// 当前 rag-service 将向量后端抽象为接口，Milvus 不可用时会降级到本地 hash embedding。
+type MilvusConfig struct {
+	Enabled    bool   `yaml:"enabled"`
+	Address    string `yaml:"address"`
+	Collection string `yaml:"collection"`
+}
+
 // KafkaConfig 控制服务是否启用 Kafka 事件总线。
 // Enabled=false 时服务仍按同步 RPC/HTTP fallback 工作，便于本地开发渐进接入。
 type KafkaConfig struct {
@@ -172,6 +210,17 @@ func Load(configPath string) (*Config, error) {
 	v.SetDefault("governance.agent_rpc.circuit_breaker", true)
 	v.SetDefault("governance.agent_rpc.max_connections", 1000)
 	v.SetDefault("governance.agent_rpc.max_qps", 500)
+	v.SetDefault("rag.embedding_dim", 256)
+	v.SetDefault("rag.default_mode", "adaptive")
+	v.SetDefault("rag.embedding_provider", "hash")
+	v.SetDefault("rag.embedding_url", "https://open.bigmodel.cn/api/paas/v4/embeddings")
+	v.SetDefault("rag.embedding_model", "embedding-3")
+	v.SetDefault("rag.embedding_dimension", 0)
+	v.SetDefault("rag.router_provider", "rule")
+	v.SetDefault("rag.router_model", "glm-4-flash")
+	v.SetDefault("milvus.enabled", false)
+	v.SetDefault("milvus.address", "127.0.0.1:19530")
+	v.SetDefault("milvus.collection", "claran_rag_chunks")
 	// 读取 YAML 配置文件
 	v.SetConfigFile(configPath)
 	v.SetConfigType("yaml")
@@ -325,6 +374,79 @@ func applyEnvOverrides(cfg *Config) {
 	if skillsDir := os.Getenv("SKILLS_DIR"); skillsDir != "" {
 		cfg.Agent.SkillsDir = skillsDir
 		cfg.Skills.Dir = skillsDir
+	}
+
+	if dim := os.Getenv("RAG_EMBEDDING_DIM"); dim != "" {
+		if v, err := strconv.Atoi(dim); err == nil {
+			cfg.RAG.EmbeddingDim = v
+		}
+	}
+	if mode := os.Getenv("RAG_DEFAULT_MODE"); mode != "" {
+		cfg.RAG.DefaultMode = mode
+	}
+	if provider := os.Getenv("RAG_EMBEDDING_PROVIDER"); provider != "" {
+		cfg.RAG.EmbeddingProvider = provider
+	}
+	if url := os.Getenv("RAG_EMBEDDING_URL"); url != "" {
+		cfg.RAG.EmbeddingURL = url
+	}
+	if apiKey := os.Getenv("RAG_EMBEDDING_API_KEY"); apiKey != "" {
+		cfg.RAG.EmbeddingAPIKey = apiKey
+	}
+	if model := os.Getenv("RAG_EMBEDDING_MODEL"); model != "" {
+		cfg.RAG.EmbeddingModel = model
+	}
+	if dim := os.Getenv("RAG_EMBEDDING_DIMENSION"); dim != "" {
+		if v, err := strconv.Atoi(dim); err == nil {
+			cfg.RAG.EmbeddingDimension = v
+		}
+	}
+	if provider := os.Getenv("RAG_ROUTER_PROVIDER"); provider != "" {
+		cfg.RAG.RouterProvider = provider
+	}
+	if baseURL := os.Getenv("RAG_ROUTER_BASE_URL"); baseURL != "" {
+		cfg.RAG.RouterBaseURL = baseURL
+	}
+	if apiKey := os.Getenv("RAG_ROUTER_API_KEY"); apiKey != "" {
+		cfg.RAG.RouterAPIKey = apiKey
+	}
+	if model := os.Getenv("RAG_ROUTER_MODEL"); model != "" {
+		cfg.RAG.RouterModel = model
+	}
+	if provider := os.Getenv("RAG_RERANK_PROVIDER"); provider != "" {
+		cfg.RAG.RerankProvider = provider
+	}
+	if url := os.Getenv("RAG_RERANK_URL"); url != "" {
+		cfg.RAG.RerankURL = url
+	}
+	if apiKey := os.Getenv("RAG_RERANK_API_KEY"); apiKey != "" {
+		cfg.RAG.RerankAPIKey = apiKey
+	}
+	if model := os.Getenv("RAG_RERANK_MODEL"); model != "" {
+		cfg.RAG.RerankModel = model
+	}
+	if provider := os.Getenv("DOCUMENT_OCR_PROVIDER"); provider != "" {
+		cfg.Document.OCRProvider = provider
+	}
+	if url := os.Getenv("DOCUMENT_OCR_URL"); url != "" {
+		cfg.Document.OCRURL = url
+	}
+	if apiKey := os.Getenv("DOCUMENT_OCR_API_KEY"); apiKey != "" {
+		cfg.Document.OCRAPIKey = apiKey
+	}
+	if model := os.Getenv("DOCUMENT_OCR_MODEL"); model != "" {
+		cfg.Document.OCRModel = model
+	}
+	if enabled := os.Getenv("MILVUS_ENABLED"); enabled != "" {
+		if v, err := strconv.ParseBool(enabled); err == nil {
+			cfg.Milvus.Enabled = v
+		}
+	}
+	if address := os.Getenv("MILVUS_ADDRESS"); address != "" {
+		cfg.Milvus.Address = address
+	}
+	if collection := os.Getenv("MILVUS_COLLECTION"); collection != "" {
+		cfg.Milvus.Collection = collection
 	}
 
 	if enabled := os.Getenv("KAFKA_ENABLED"); enabled != "" {

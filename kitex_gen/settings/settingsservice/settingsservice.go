@@ -76,6 +76,20 @@ var serviceMethods = map[string]kitex.MethodInfo{
 		false,
 		kitex.WithStreamingMode(kitex.StreamingNone),
 	),
+	"GetSkill": kitex.NewMethodInfo(
+		getSkillHandler,
+		newSettingsServiceGetSkillArgs,
+		newSettingsServiceGetSkillResult,
+		false,
+		kitex.WithStreamingMode(kitex.StreamingNone),
+	),
+	"UpdateSkillContent": kitex.NewMethodInfo(
+		updateSkillContentHandler,
+		newSettingsServiceUpdateSkillContentArgs,
+		newSettingsServiceUpdateSkillContentResult,
+		false,
+		kitex.WithStreamingMode(kitex.StreamingNone),
+	),
 	"DeleteSkill": kitex.NewMethodInfo(
 		deleteSkillHandler,
 		newSettingsServiceDeleteSkillArgs,
@@ -311,6 +325,42 @@ func newSettingsServiceListSkillsResult() interface{} {
 	return settings.NewSettingsServiceListSkillsResult()
 }
 
+func getSkillHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
+	realArg := arg.(*settings.SettingsServiceGetSkillArgs)
+	realResult := result.(*settings.SettingsServiceGetSkillResult)
+	success, err := handler.(settings.SettingsService).GetSkill(ctx, realArg.Req)
+	if err != nil {
+		return err
+	}
+	realResult.Success = success
+	return nil
+}
+func newSettingsServiceGetSkillArgs() interface{} {
+	return settings.NewSettingsServiceGetSkillArgs()
+}
+
+func newSettingsServiceGetSkillResult() interface{} {
+	return settings.NewSettingsServiceGetSkillResult()
+}
+
+func updateSkillContentHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
+	realArg := arg.(*settings.SettingsServiceUpdateSkillContentArgs)
+	realResult := result.(*settings.SettingsServiceUpdateSkillContentResult)
+	success, err := handler.(settings.SettingsService).UpdateSkillContent(ctx, realArg.Req)
+	if err != nil {
+		return err
+	}
+	realResult.Success = success
+	return nil
+}
+func newSettingsServiceUpdateSkillContentArgs() interface{} {
+	return settings.NewSettingsServiceUpdateSkillContentArgs()
+}
+
+func newSettingsServiceUpdateSkillContentResult() interface{} {
+	return settings.NewSettingsServiceUpdateSkillContentResult()
+}
+
 func deleteSkillHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
 	realArg := arg.(*settings.SettingsServiceDeleteSkillArgs)
 	realResult := result.(*settings.SettingsServiceDeleteSkillResult)
@@ -424,6 +474,26 @@ func (p *kClient) ListSkills(ctx context.Context, req *settings.ListSkillsReq) (
 	_args.Req = req
 	var _result settings.SettingsServiceListSkillsResult
 	if err = p.c.Call(ctx, "ListSkills", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
+
+func (p *kClient) GetSkill(ctx context.Context, req *settings.GetSkillReq) (r *settings.GetSkillResp, err error) {
+	var _args settings.SettingsServiceGetSkillArgs
+	_args.Req = req
+	var _result settings.SettingsServiceGetSkillResult
+	if err = p.c.Call(ctx, "GetSkill", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
+
+func (p *kClient) UpdateSkillContent(ctx context.Context, req *settings.UpdateSkillContentReq) (r *settings.UpdateSkillContentResp, err error) {
+	var _args settings.SettingsServiceUpdateSkillContentArgs
+	_args.Req = req
+	var _result settings.SettingsServiceUpdateSkillContentResult
+	if err = p.c.Call(ctx, "UpdateSkillContent", &_args, &_result); err != nil {
 		return
 	}
 	return _result.GetSuccess(), nil

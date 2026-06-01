@@ -172,6 +172,36 @@ func (c *RPCClient) ListSkills(ctx context.Context, ownerID int64, scope string,
 	return fromRPCAgentSkills(resp.GetSkills()), nil
 }
 
+// GetSkill 按需读取 Skill 的入口 Markdown 正文。
+func (c *RPCClient) GetSkill(ctx context.Context, ownerID, skillID int64) (*AgentSkill, error) {
+	resp, err := c.client.GetSkill(ctx, &settings.GetSkillReq{UserId: ownerID, SkillId: skillID})
+	if err != nil {
+		return nil, err
+	}
+	if err := rpcStatus(resp.GetSuccess(), resp.GetMsg()); err != nil {
+		return nil, err
+	}
+	return fromRPCAgentSkill(resp.GetSkill()), nil
+}
+
+// UpdateSkillContent 覆盖 Skill 的 SKILL.md 正文并同步基础展示信息。
+func (c *RPCClient) UpdateSkillContent(ctx context.Context, ownerID, skillID int64, name, description string, content []byte) (*AgentSkill, error) {
+	resp, err := c.client.UpdateSkillContent(ctx, &settings.UpdateSkillContentReq{
+		UserId:      ownerID,
+		SkillId:     skillID,
+		Name:        name,
+		Description: description,
+		Content:     content,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if err := rpcStatus(resp.GetSuccess(), resp.GetMsg()); err != nil {
+		return nil, err
+	}
+	return fromRPCAgentSkill(resp.GetSkill()), nil
+}
+
 // DeleteSkill 删除当前用户拥有的 Skill。
 func (c *RPCClient) DeleteSkill(ctx context.Context, ownerID, skillID int64) error {
 	resp, err := c.client.DeleteSkill(ctx, &settings.DeleteSkillReq{UserId: ownerID, SkillId: skillID})
@@ -258,6 +288,8 @@ func fromRPCAgentSkill(skill *settings.AgentSkill) *AgentSkill {
 		SourceType:  skill.GetSourceType(),
 		IsDefault:   skill.GetIsDefault(),
 		Enabled:     skill.GetEnabled(),
+		Summary:     skill.GetSummary(),
+		Content:     skill.GetContent(),
 	}
 }
 

@@ -3,6 +3,7 @@ package service
 import (
 	"ClaranAIM/internal/user-service/dao"
 	"ClaranAIM/internal/user-service/model"
+	"ClaranAIM/pkg/cache"
 	"ClaranAIM/pkg/cache/redis"
 	"ClaranAIM/pkg/idgen"
 	"ClaranAIM/pkg/jwt"
@@ -11,7 +12,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 )
 
 // UserService 用户业务逻辑接口
@@ -203,11 +203,12 @@ func (s *userServiceImpl) Login(ctx context.Context, username, pwd, jwtSecret st
 
 	s.cacheUserInfo(ctx, user)
 	if s.redis != nil {
-		s.redis.SetWithJitter(ctx, "online:user:"+fmt.Sprintf("%d", user.ID), "1", 30*time.Minute, 2*time.Minute)
+		onlinePolicy := cache.OnlineUserPolicy(user.ID)
+		s.redis.SetWithJitter(ctx, onlinePolicy.Key, "1", onlinePolicy.TTL, onlinePolicy.Jitter)
 
 		friends, _ := s.repo.GetFriendList(ctx, user.ID)
 		for _, f := range friends {
-			s.redis.Del(ctx, fmt.Sprintf("user:friends:%d", f.FriendID))
+			s.redis.Del(ctx, cache.UserFriendsPolicy(f.FriendID).Key)
 		}
 	}
 
@@ -219,8 +220,8 @@ func (s *userServiceImpl) Login(ctx context.Context, username, pwd, jwtSecret st
 func (s *userServiceImpl) GetUserInfo(ctx context.Context, userID int64) (*model.User, error) {
 	if s.redis != nil {
 		user := &model.User{}
-		cacheKey := fmt.Sprintf("user:info:%d", userID)
-		found, err := s.redis.CacheAsideJSON(ctx, cacheKey, user, 15*time.Minute, func(ctx context.Context) (interface{}, bool, error) {
+		policy := cache.UserInfoPolicy(userID)
+		found, err := s.redis.CacheAsideJSON(ctx, policy.Key, user, policy.TTL, func(ctx context.Context) (interface{}, bool, error) {
 			dbUser, err := s.repo.GetUserByID(ctx, userID)
 			if err != nil {
 				return nil, false, err
@@ -355,14 +356,15 @@ func (s *userServiceImpl) UpdateStatus(ctx context.Context, userID int64, status
 
 	if s.redis != nil {
 		if status == "online" {
-			s.redis.SetWithJitter(ctx, "online:user:"+fmt.Sprintf("%d", userID), "1", 30*time.Minute, 2*time.Minute)
+			onlinePolicy := cache.OnlineUserPolicy(userID)
+			s.redis.SetWithJitter(ctx, onlinePolicy.Key, "1", onlinePolicy.TTL, onlinePolicy.Jitter)
 		} else {
-			s.redis.Del(ctx, "online:user:"+fmt.Sprintf("%d", userID))
+			s.redis.Del(ctx, cache.OnlineUserPolicy(userID).Key)
 		}
 
 		friends, _ := s.repo.GetFriendList(ctx, userID)
 		for _, f := range friends {
-			s.redis.Del(ctx, fmt.Sprintf("user:friends:%d", f.FriendID))
+			s.redis.Del(ctx, cache.UserFriendsPolicy(f.FriendID).Key)
 		}
 	}
 
@@ -442,9 +444,9 @@ func (s *userServiceImpl) DeleteFriend(ctx context.Context, userID, friendID int
 // 返回好友信息、备注、分组、在线状态等完整信息，支持Redis缓存
 func (s *userServiceImpl) GetFriendList(ctx context.Context, userID int64) ([]FriendInfo, error) {
 	if s.redis != nil {
-		cacheKey := fmt.Sprintf("user:friends:%d", userID)
+		policy := cache.UserFriendsPolicy(userID)
 		var cached []FriendInfo
-		hit, err := s.redis.GetJSON(ctx, cacheKey, &cached)
+		hit, err := s.redis.GetJSON(ctx, policy.Key, &cached)
 		if err == nil && hit != "" {
 			if s.redis.IsNullHit(hit) {
 				return nil, nil
@@ -490,11 +492,11 @@ func (s *userServiceImpl) GetFriendList(ctx context.Context, userID int64) ([]Fr
 	}
 
 	if s.redis != nil {
-		cacheKey := fmt.Sprintf("user:friends:%d", userID)
+		policy := cache.UserFriendsPolicy(userID)
 		if len(result) == 0 {
-			s.redis.SetNull(ctx, cacheKey, time.Minute, 30*time.Second)
+			s.redis.SetNull(ctx, policy.Key, policy.NullTTL, policy.NullJitter)
 		} else {
-			s.redis.SetJSONWithJitter(ctx, cacheKey, result, 5*time.Minute, 30*time.Second)
+			s.redis.SetJSONWithJitter(ctx, policy.Key, result, policy.TTL, policy.Jitter)
 		}
 	}
 
@@ -536,8 +538,7 @@ func (s *userServiceImpl) CreateFriendGroup(ctx context.Context, userID int64, n
 	}
 
 	if s.redis != nil {
-		cacheKey := fmt.Sprintf("user:friend_groups:%d", userID)
-		s.redis.Del(ctx, cacheKey)
+		s.redis.Del(ctx, cache.FriendGroupsPolicy(userID).Key)
 	}
 
 	return group, nil
@@ -547,9 +548,9 @@ func (s *userServiceImpl) CreateFriendGroup(ctx context.Context, userID int64, n
 // 支持Redis缓存，缓存10分钟
 func (s *userServiceImpl) GetFriendGroups(ctx context.Context, userID int64) ([]model.FriendGroup, error) {
 	if s.redis != nil {
-		cacheKey := fmt.Sprintf("user:friend_groups:%d", userID)
+		policy := cache.FriendGroupsPolicy(userID)
 		var cached []model.FriendGroup
-		hit, err := s.redis.GetJSON(ctx, cacheKey, &cached)
+		hit, err := s.redis.GetJSON(ctx, policy.Key, &cached)
 		if err == nil && hit != "" {
 			if s.redis.IsNullHit(hit) {
 				return nil, nil
@@ -564,11 +565,11 @@ func (s *userServiceImpl) GetFriendGroups(ctx context.Context, userID int64) ([]
 	}
 
 	if s.redis != nil {
-		cacheKey := fmt.Sprintf("user:friend_groups:%d", userID)
+		policy := cache.FriendGroupsPolicy(userID)
 		if len(groups) == 0 {
-			s.redis.SetNull(ctx, cacheKey, time.Minute, 30*time.Second)
+			s.redis.SetNull(ctx, policy.Key, policy.NullTTL, policy.NullJitter)
 		} else {
-			s.redis.SetJSONWithJitter(ctx, cacheKey, groups, 10*time.Minute, time.Minute)
+			s.redis.SetJSONWithJitter(ctx, policy.Key, groups, policy.TTL, policy.Jitter)
 		}
 	}
 
@@ -599,8 +600,8 @@ func (s *userServiceImpl) BatchGetUserInfo(ctx context.Context, ids []int64) ([]
 
 		for _, id := range ids {
 			user := &model.User{}
-			cacheKey := fmt.Sprintf("user:info:%d", id)
-			hit, err := s.redis.GetJSON(ctx, cacheKey, user)
+			policy := cache.UserInfoPolicy(id)
+			hit, err := s.redis.GetJSON(ctx, policy.Key, user)
 			if err == nil && hit != "" {
 				if s.redis.IsNullHit(hit) {
 					continue
@@ -637,8 +638,8 @@ func (s *userServiceImpl) cacheUserInfo(ctx context.Context, user *model.User) {
 	if s.redis == nil {
 		return
 	}
-	cacheKey := fmt.Sprintf("user:info:%d", user.ID)
-	s.redis.SetJSONWithJitter(ctx, cacheKey, user, 15*time.Minute, time.Minute)
+	policy := cache.UserInfoPolicy(user.ID)
+	s.redis.SetJSONWithJitter(ctx, policy.Key, user, policy.TTL, policy.Jitter)
 }
 
 // invalidateUserInfoCache 执行用户资料的写后删除策略。
@@ -647,7 +648,7 @@ func (s *userServiceImpl) invalidateUserInfoCache(ctx context.Context, userID in
 	if s.redis == nil {
 		return
 	}
-	s.redis.Del(ctx, fmt.Sprintf("user:info:%d", userID))
+	s.redis.Del(ctx, cache.UserInfoPolicy(userID).Key)
 }
 
 // invalidateFriendCache 清除好友列表缓存
@@ -656,5 +657,5 @@ func (s *userServiceImpl) invalidateFriendCache(ctx context.Context, userID int6
 	if s.redis == nil {
 		return
 	}
-	s.redis.Del(ctx, fmt.Sprintf("user:friends:%d", userID))
+	s.redis.Del(ctx, cache.UserFriendsPolicy(userID).Key)
 }

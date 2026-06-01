@@ -223,10 +223,11 @@ func (s *agentServiceImpl) UpdateBot(ctx context.Context, botID, operatorID int6
 	if modelName != "" {
 		bot.ModelName = modelName
 	}
+	customProviderRequested := apiKey != "" || (baseURL != "" && baseURL != defaultBaseURL)
+	if bot.Type == "internal" && customProviderRequested {
+		bot.Type = "custom"
+	}
 	if bot.Type == "internal" {
-		if apiKey != "" || baseURL != "" {
-			return errors.New("内部Bot不允许修改API Key和Base URL")
-		}
 		bot.APIKey = defaultAPIKey
 		bot.BaseURL = defaultBaseURL
 		if modelName == "" && defaultModel != "" {
@@ -238,6 +239,9 @@ func (s *agentServiceImpl) UpdateBot(ctx context.Context, botID, operatorID int6
 		}
 		if baseURL != "" {
 			bot.BaseURL = baseURL
+		}
+		if bot.APIKey == "" || bot.BaseURL == "" {
+			return errors.New("自定义Agent必须配置API Key和Base URL")
 		}
 	}
 	if systemPrompt != "" {

@@ -76,11 +76,13 @@ func NewDeepAgent(ctx context.Context, model *openai.ChatModel, agentRoot string
 
 	// 获取文件系统操作说明，并把受控工作目录注入系统提示词。
 	extInstruction := FileSystemInstruction(agentRoot)
+	skillInstruction := ""
 
 	// 加载中间件，如果没有Skill文件就不加载相关中间件
 	var handlers []adk.ChatModelAgentMiddleware
 	skillsDir, found := resolveSkillsDir(skillDir)
 	if found {
+		skillInstruction = SkillInstruction(skillsDir)
 		skillBackend, sbErr := skill.NewBackendFromFilesystem(ctx, &skill.BackendFromFilesystemConfig{
 			Backend: backend,
 			BaseDir: skillsDir,
@@ -115,7 +117,7 @@ func NewDeepAgent(ctx context.Context, model *openai.ChatModel, agentRoot string
 	if instruction == "" {
 		instruction = DefaultAgentInstruction
 	}
-	instruction = instruction + "\n\n" + ToolPolicyInstruction(toolPolicy) + "\n\n" + extInstruction
+	instruction = instruction + "\n\n" + ToolPolicyInstruction(toolPolicy) + "\n\n" + extInstruction + "\n\n" + skillInstruction
 
 	agentConfig := &deep.Config{
 		Name:           effectiveName,
@@ -183,4 +185,23 @@ func resolveSkillsDir(skillsDir string) (string, bool) {
 		return "", false
 	}
 	return skillsDir, true
+}
+
+// SkillInstruction 将已加载的 SKILL.md 注入系统提示词。
+// Eino Skill 中间件负责运行时能力发现；这里额外注入一个有界片段，解决模型在早期回合“不知道自己加载了哪些 Skill”的问题。
+func SkillInstruction(skillsDir string) string {
+	entry := filepath.Join(skillsDir, "SKILL.md")
+	data, err := os.ReadFile(entry)
+	if err != nil {
+		return ""
+	}
+	content := strings.TrimSpace(string(data))
+	if content == "" {
+		return ""
+	}
+	runes := []rune(content)
+	if len(runes) > 12000 {
+		content = string(runes[:12000]) + "\n\n...（Skill 内容过长，已截断）"
+	}
+	return "## 已加载 Skill\n以下是当前 Agent 已加载的 Skill 指令。你必须优先遵循它来选择工作方式、输出格式和注意事项；如果用户询问当前 Skill，应根据此内容回答。\n\n" + content
 }

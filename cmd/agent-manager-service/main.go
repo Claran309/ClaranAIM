@@ -51,6 +51,11 @@ func main() {
 	dispatchRepo := dao.NewAgentDispatchRepo(db)
 	subscriptionRepo := dao.NewAgentSubscriptionRepo(db)
 	auditRepo := dao.NewAgentAuditRepo(db)
+	taskRepo := dao.NewAgentTaskRepo(db)
+	if err := eventbus.AutoMigrateReliabilityStore(db); err != nil {
+		logger.Fatal("初始化事件消费可靠性表失败", "error", err)
+	}
+	reliabilityStore := eventbus.NewGormReliabilityStore(db)
 
 	resolver, err := etcd.NewEtcdResolver(cfg.Etcd.Endpoints)
 	if err != nil {
@@ -91,10 +96,10 @@ func main() {
 	if cfg.Kafka.Enabled && len(cfg.Kafka.Brokers) > 0 {
 		messageConsumer := eventbus.NewKafkaConsumer(cfg.Kafka.Brokers, events.TopicMessageEvents, "agent-manager-dispatcher")
 		defer messageConsumer.Close()
-		eventconsumer.StartAgentEventDispatcherConsumer(context.Background(), messageConsumer, agentService, dispatchRepo, subscriptionRepo, auditRepo, messageClient)
+		eventconsumer.StartAgentEventDispatcherConsumerWithOptions(context.Background(), messageConsumer, agentService, dispatchRepo, subscriptionRepo, auditRepo, taskRepo, messageClient, reliabilityStore)
 		imConsumer := eventbus.NewKafkaConsumer(cfg.Kafka.Brokers, events.TopicIMEvents, "agent-manager-im-dispatcher")
 		defer imConsumer.Close()
-		eventconsumer.StartAgentEventDispatcherConsumer(context.Background(), imConsumer, agentService, dispatchRepo, subscriptionRepo, auditRepo, messageClient)
+		eventconsumer.StartAgentEventDispatcherConsumerWithOptions(context.Background(), imConsumer, agentService, dispatchRepo, subscriptionRepo, auditRepo, taskRepo, messageClient, reliabilityStore)
 		logger.Info("Agent原生事件消费已启用", "message_topic", events.TopicMessageEvents, "im_topic", events.TopicIMEvents)
 	}
 

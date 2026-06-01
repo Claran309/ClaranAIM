@@ -183,10 +183,13 @@ Phase 4 MVP 已落地：`memory_facts` 保存可编辑事实记忆，范围覆�
 - [ ] 抽取关系：提及、讨论、负责、依赖、确认、反对、来源于、属于群、由 Agent 生成。
 - [ ] 将 Agent 总结、insights、RAG 知识卡片转成可审核的图谱候选。
 - [ ] 为每条图谱事实保留来源消息、创建者、可信度、可见范围和更新时间。
-- [ ] 前端提供“关系视图”基础展示：某个话题相关人员、结论、文件、任务和风险。
+- [x] 新增 knowledge-service 查询视图边界：面向前端提供图谱视图、节点详情、关系详情和可视化属性计算。
+- [x] 前端提供知识图谱可视化 MVP：搜索节点、类型过滤、关系过滤、社区过滤、一跳/二跳、拖拽缩放、节点/边详情和证据展示。
 - [ ] 后续按规模评估 Neo4j、NebulaGraph 或 TuGraph；在关系复杂度没有压垮 MySQL 前不强行引入图数据库。
 
 合理性评估：知识图谱很适合 AIM，因为 IM 天然产生人、群、消息、文件、任务、结论之间的关系。它不应该替代 RAG，而是补足“谁和谁、什么依赖什么、结论从哪里来”的结构化关系。影响模块主要包括 agent-runtime-service 的结构化抽取、rag/memory 服务的数据沉淀、msg-core-service 的消息来源引用、api-gateway 的查询接口和前端的关系展示。建议先做轻量 MySQL MVP，再根据查询复杂度迁移专用图数据库。
+
+MVP 边界说明：GraphRAG indexing、实体抽取、关系抽取、社区摘要和证据回源仍属于 rag-service；knowledge-service 负责图谱查询与可视化视图层。当前已新增 `idl/knowledge.thrift`、`kitex_gen/knowledge`、`config/knowledge-service.yaml`、`cmd/knowledge-service`、`internal/knowledge-service/service`、`internal/knowledge-service/handler` 和 `pkg/knowledgeclient`，HTTP 入口为 `/api/v1/knowledge/*`。api-gateway 通过 `pkg/knowledgeclient.RPCClient` 调用独立 Kitex knowledge-service；knowledge-service 再通过 rag-service RPC 读取 GraphRAG 子图，不直接绕过服务边界读取其他微服务内部实现。
 
 ### Phase 5.6：结构化卡片协议
 

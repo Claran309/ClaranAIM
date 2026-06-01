@@ -27,6 +27,8 @@ const (
 	StatusPublished = "published"
 	// StatusRetrying 表示上次发布失败，等待下一次退避重试。
 	StatusRetrying = "retrying"
+	// StatusDead 表示事件连续发布失败超过上限，需要人工排查或显式重放。
+	StatusDead = "dead"
 )
 
 // Publisher 是 Worker 依赖的事件发布接口，通常由 KafkaPublisher 实现。
@@ -126,6 +128,8 @@ type Store interface {
 	FetchDue(ctx context.Context, limit int, lockFor time.Duration) ([]Event, error)
 	MarkPublished(ctx context.Context, id int64) error
 	MarkRetry(ctx context.Context, id int64, publishErr error) error
+	MarkDead(ctx context.Context, id int64, publishErr error) error
+	Requeue(ctx context.Context, id int64) error
 }
 
 // GormStore 是基于 MySQL/GORM 的 Outbox 存储实现。
@@ -222,6 +226,31 @@ func (s *GormStore) MarkRetry(ctx context.Context, id int64, publishErr error) e
 	})
 }
 
+// MarkDead 将事件移入死信状态。dead 事件不会再被普通 Worker 扫描，避免长期故障事件无限占用发布循环。
+func (s *GormStore) MarkDead(ctx context.Context, id int64, publishErr error) error {
+	now := time.Now()
+	return s.db.WithContext(ctx).Model(&Event{}).Where("id = ?", id).Updates(map[string]interface{}{
+		"status":       StatusDead,
+		"locked_until": nil,
+		"last_error":   publishErr.Error(),
+		"updated_at":   now,
+	}).Error
+}
+
+// Requeue 将 dead/published/retrying 事件显式放回 pending 队列，用于人工修复配置或 Kafka 后重放。
+func (s *GormStore) Requeue(ctx context.Context, id int64) error {
+	now := time.Now()
+	return s.db.WithContext(ctx).Model(&Event{}).Where("id = ?", id).Updates(map[string]interface{}{
+		"status":        StatusPending,
+		"retry_count":   0,
+		"next_retry_at": now,
+		"locked_until":  nil,
+		"last_error":    "",
+		"published_at":  nil,
+		"updated_at":    now,
+	}).Error
+}
+
 // backoff 根据重试次数计算指数退避时间，上限控制在 60 秒，避免故障时过度打爆 Kafka 或网络。
 func backoff(retryCount int) time.Duration {
 	if retryCount < 1 {
@@ -234,21 +263,30 @@ func backoff(retryCount int) time.Duration {
 // Worker 轮询 Outbox 表并把到期事件发布到配置的 Publisher。
 // 它可以在各业务服务内启动，也可以日后拆成独立发布进程。
 type Worker struct {
-	store     Store
-	publisher Publisher
-	limit     int
-	lockFor   time.Duration
-	interval  time.Duration
+	store      Store
+	publisher  Publisher
+	limit      int
+	lockFor    time.Duration
+	interval   time.Duration
+	maxRetries int
 }
 
 // NewWorker 创建带保守默认参数的 Outbox Worker。
 func NewWorker(store Store, publisher Publisher) *Worker {
 	return &Worker{
-		store:     store,
-		publisher: publisher,
-		limit:     50,
-		lockFor:   30 * time.Second,
-		interval:  time.Second,
+		store:      store,
+		publisher:  publisher,
+		limit:      50,
+		lockFor:    30 * time.Second,
+		interval:   time.Second,
+		maxRetries: 10,
+	}
+}
+
+// SetMaxRetries 设置单条事件进入 dead 状态前允许的最大发布尝试次数。
+func (w *Worker) SetMaxRetries(maxRetries int) {
+	if maxRetries > 0 {
+		w.maxRetries = maxRetries
 	}
 }
 
@@ -284,10 +322,19 @@ func (w *Worker) ProcessOnce(ctx context.Context) error {
 	for _, record := range records {
 		envelope, err := record.Envelope()
 		if err != nil {
-			_ = w.store.MarkRetry(ctx, record.ID, fmt.Errorf("decode envelope: %w", err))
+			decodeErr := fmt.Errorf("decode envelope: %w", err)
+			if record.RetryCount+1 >= w.maxRetries {
+				_ = w.store.MarkDead(ctx, record.ID, decodeErr)
+				continue
+			}
+			_ = w.store.MarkRetry(ctx, record.ID, decodeErr)
 			continue
 		}
 		if err := w.publisher.Publish(ctx, envelope); err != nil {
+			if record.RetryCount+1 >= w.maxRetries {
+				_ = w.store.MarkDead(ctx, record.ID, err)
+				continue
+			}
 			_ = w.store.MarkRetry(ctx, record.ID, err)
 			continue
 		}

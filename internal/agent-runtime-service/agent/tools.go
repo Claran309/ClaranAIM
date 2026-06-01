@@ -55,6 +55,30 @@ func InitTools(ctx context.Context, chatModel model.BaseChatModel, includeDomain
 			log.Println("工具 text_polish 初始化成功")
 			tools = append(tools, textPolishTool)
 		}
+
+		skillCreatorTool, err := utils.InferTool(
+			"skill_creator",
+			"根据用户目标生成标准 SKILL.md 模板，便于上传到 ClaranAIM 的 Skill 管理页",
+			logic.CreateSkillMarkdown,
+		)
+		if err != nil {
+			log.Print("初始化工具失败:", err)
+		} else {
+			log.Println("工具 skill_creator 初始化成功")
+			tools = append(tools, skillCreatorTool)
+		}
+
+		knowledgeSearchTool, err := utils.InferTool(
+			"search_knowledge_base",
+			"检索 ClaranAIM 知识库，支持 Adaptive RAG、Hybrid Search、GraphRAG、CRAG 和来源返回",
+			logic.SearchKnowledgeBase,
+		)
+		if err != nil {
+			log.Print("初始化工具失败:", err)
+		} else {
+			log.Println("工具 search_knowledge_base 初始化成功")
+			tools = append(tools, knowledgeSearchTool)
+		}
 	}
 
 	ragTool, err := graphTool.BuildTool(ctx, chatModel)

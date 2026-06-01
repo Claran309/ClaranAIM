@@ -5,6 +5,7 @@ import (
 	"ClaranAIM/internal/agent-manager-service/model"
 	"context"
 	"strings"
+	"time"
 
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
@@ -23,6 +24,7 @@ func InitDB(dsn string) (*gorm.DB, error) {
 		&model.AgentDispatchRecord{},
 		&model.AgentSubscriptionRule{},
 		&model.AgentAuditRecord{},
+		&model.AgentTask{},
 		&model.BotRoute{},
 		&model.BillingRecord{},
 	}
@@ -186,6 +188,64 @@ func NewAgentAuditRepo(db *gorm.DB) AgentAuditRepository {
 // Create 插入一条 Agent 审计记录。
 func (r *agentAuditRepositoryImpl) Create(ctx context.Context, record *model.AgentAuditRecord) error {
 	return r.db.WithContext(ctx).Create(record).Error
+}
+
+// AgentTaskRepository 保存 Agent 工作任务状态。
+type AgentTaskRepository interface {
+	UpsertQueued(ctx context.Context, task *model.AgentTask) error
+	MarkRunning(ctx context.Context, sourceEventID string) error
+	MarkCompleted(ctx context.Context, sourceEventID string) error
+	MarkFailed(ctx context.Context, sourceEventID string, message string) error
+}
+
+type agentTaskRepositoryImpl struct {
+	db *gorm.DB
+}
+
+func NewAgentTaskRepo(db *gorm.DB) AgentTaskRepository {
+	return &agentTaskRepositoryImpl{db: db}
+}
+
+func (r *agentTaskRepositoryImpl) UpsertQueued(ctx context.Context, task *model.AgentTask) error {
+	if task == nil {
+		return nil
+	}
+	return r.db.WithContext(ctx).
+		Where("source_event_id = ?", task.SourceEventID).
+		Assign(map[string]interface{}{
+			"bot_id":          task.BotID,
+			"agent_user_id":   task.AgentUserID,
+			"conversation_id": task.ConversationID,
+			"trigger_user_id": task.TriggerUserID,
+			"trace_id":        task.TraceID,
+			"event_type":      task.EventType,
+			"status":          "queued",
+			"error_message":   "",
+		}).
+		FirstOrCreate(task).Error
+}
+
+func (r *agentTaskRepositoryImpl) MarkRunning(ctx context.Context, sourceEventID string) error {
+	now := time.Now()
+	return r.db.WithContext(ctx).Model(&model.AgentTask{}).Where("source_event_id = ?", sourceEventID).Updates(map[string]interface{}{
+		"status":       "running",
+		"heartbeat_at": &now,
+	}).Error
+}
+
+func (r *agentTaskRepositoryImpl) MarkCompleted(ctx context.Context, sourceEventID string) error {
+	now := time.Now()
+	return r.db.WithContext(ctx).Model(&model.AgentTask{}).Where("source_event_id = ?", sourceEventID).Updates(map[string]interface{}{
+		"status":       "completed",
+		"completed_at": &now,
+	}).Error
+}
+
+func (r *agentTaskRepositoryImpl) MarkFailed(ctx context.Context, sourceEventID string, message string) error {
+	return r.db.WithContext(ctx).Model(&model.AgentTask{}).Where("source_event_id = ?", sourceEventID).Updates(map[string]interface{}{
+		"status":        "failed",
+		"error_message": message,
+	}).Error
 }
 
 // BotRepository 保存 Agent 配置。

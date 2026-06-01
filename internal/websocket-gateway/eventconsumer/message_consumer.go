@@ -13,10 +13,15 @@ import (
 // msg-core-service 将新消息、编辑、撤回、已读等事件发布到 Kafka；websocket-gateway
 // 消费后转换为前端协议并广播给目标用户，从而解耦消息写库与实时推送。
 func StartMessageEventConsumer(ctx context.Context, consumer *eventbus.KafkaConsumer, h *hub.Hub) {
+	StartMessageEventConsumerWithReliability(ctx, consumer, h, nil)
+}
+
+// StartMessageEventConsumerWithReliability 启动带幂等/DLQ保护的消息事件消费者。
+func StartMessageEventConsumerWithReliability(ctx context.Context, consumer *eventbus.KafkaConsumer, h *hub.Hub, reliability eventbus.ReliabilityStore) {
 	if consumer == nil || h == nil {
 		return
 	}
-	go consumer.Run(ctx, func(ctx context.Context, envelope events.Envelope) error {
+	handler := eventbus.NewReliableHandler(reliability, "websocket-gateway", 5, func(ctx context.Context, envelope events.Envelope) error {
 		payload, err := events.DecodePayload[events.MessagePayload](envelope)
 		if err != nil {
 			return err
@@ -32,4 +37,5 @@ func StartMessageEventConsumer(ctx context.Context, consumer *eventbus.KafkaCons
 		h.Broadcast(payload.TargetUserIDs, data)
 		return nil
 	})
+	go consumer.Run(ctx, handler)
 }

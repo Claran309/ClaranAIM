@@ -33,6 +33,14 @@ func (s *fakeStore) MarkRetry(ctx context.Context, id int64, publishErr error) e
 	return nil
 }
 
+func (s *fakeStore) MarkDead(ctx context.Context, id int64, publishErr error) error {
+	return nil
+}
+
+func (s *fakeStore) Requeue(ctx context.Context, id int64) error {
+	return nil
+}
+
 type fakePublisher struct {
 	err       error
 	published []events.Envelope

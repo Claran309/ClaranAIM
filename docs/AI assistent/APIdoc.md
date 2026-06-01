@@ -2031,7 +2031,7 @@ settings-service 保存用户级系统设置。本阶段已落地 LLM 预设、P
 
 | 参数       | 类型   | 必填 | 说明 |
 | ---------- | ------ | ---- | ---- |
-| usage_type | string | 否   | 过滤用途：`agent`、`translation`、`general` |
+| usage_type | string | 否   | 过滤用途：`agent`、`translation`、`rag_router`、`general` |
 
 响应中的 `api_key` 会被隐藏，只返回 `has_api_key`。
 
@@ -2046,7 +2046,7 @@ settings-service 保存用户级系统设置。本阶段已落地 LLM 预设、P
 | id             | int64  | 否   | 传入则更新，不传则创建 |
 | name           | string | 是   | 预设名称 |
 | provider       | string | 否   | 供应商标识，如 `openai-compatible` |
-| usage_type     | string | 否   | 用途：`agent`、`translation`、`general` |
+| usage_type     | string | 否   | 用途：`agent`、`translation`、`rag_router`、`general`。`rag_router` 表示 RAG 检索前判断是否需要知识库的小模型 |
 | base_url       | string | 是   | API Base URL |
 | api_key        | string | 否   | API Key |
 | api_key_action | string | 否   | `set`、`keep`、`clear`，更新时默认 `keep` |
@@ -2059,6 +2059,12 @@ settings-service 保存用户级系统设置。本阶段已落地 LLM 预设、P
 **DELETE** `/settings/llm-profiles/:id`
 
 需要认证。只能删除当前用户自己的预设。
+
+说明：
+
+- 用户保存用途为 `rag_router` 的 LLM 预设并设为默认后，`rag-service` 会在该用户执行 RAG 检索时优先使用它作为 RAG Router 小模型。
+- 若用户没有配置 `rag_router`，或该预设不可用，RAG 会回退项目内置小模型。
+- 项目内置小模型默认读取 `.env` 的 `RAG_ROUTER_*`；如果 `RAG_ROUTER_API_KEY` / `RAG_ROUTER_BASE_URL` 为空，则使用当前项目默认 LLM 的 `LLM_DEFAULT_API_KEY` / `LLM_DEFAULT_BASE_URL`。
 
 ### 6.4 获取 Prompt 模板
 
@@ -2154,9 +2160,283 @@ settings-service 保存用户级系统设置。本阶段已落地 LLM 预设、P
 
 ***
 
-## 七、WebSocket 网关 (websocket-gateway)
+## 七、RAG 知识库模块 (rag-service)
 
-### 7.1 建立 WebSocket 连接
+rag-service 负责知识库文档入库、分层切片、embedding、Hybrid Search、GraphRAG indexing 和原始子图查询。浏览器只访问 api-gateway；api-gateway 通过 Kitex RPC 调用 rag-service。当前索引使用 parent/child 两层 chunk：检索只搜索 child 小块，命中后按 `parent_chunk_id` 聚合，回答上下文返回 parent 摘要、parent 正文或命中的 child 摘录。Hybrid Search 使用 Dense 向量召回 + BM25 稀疏召回，并通过 RRF（Reciprocal Rank Fusion）融合排名；RRF top30 会进入模型 reranker，由模型读取 query + chunk 后重新给相关性分数，再输出最终 topK。reranker 未配置或调用失败时降级本地轻量 rerank。
+
+### 7.1 写入知识文本
+
+**POST** `/rag/ingest`
+
+需要认证。
+
+| 参数 | 类型 | 必填 | 说明 |
+| ---- | ---- | ---- | ---- |
+| title | string | 否 | 文档标题，缺省时取正文第一行 |
+| content | string | 是 | 知识正文 |
+| source | string | 否 | 来源说明，如 manual、url、file |
+| source_type | string | 否 | 来源类型，如 `text`、`markdown`、`conversation`、`go` |
+| visibility | string | 否 | `private` / `group` / `public`，默认 private |
+| group_id | int64 | 否 | 群知识范围 |
+| conversation_id | int64 | 否 | 会话知识范围 |
+
+核心逻辑：
+
+- 只允许当前登录用户作为 owner 写入知识。
+- rag-service 将正文切成 parent/child 分层 chunk，只为 child 小块生成 embedding 并写入向量索引；parent 大块留作上下文、摘要和来源展示。
+- 已配置 GLM embedding 时优先调用 GLM `embedding-3`；未配置或调用失败时降级为本地 hash embedding，保证入库不中断。
+
+### 7.2 上传知识库文件
+
+**POST** `/rag/upload`
+
+需要认证，请求类型为 `multipart/form-data`。
+
+| 字段 | 类型 | 必填 | 说明 |
+| ---- | ---- | ---- | ---- |
+| file | file 或 file[] | 是 | 支持 `txt`、`md`、`markdown`、`pdf`、`docx`、图片、常见代码和配置文件，单个文件最大 20MB |
+| title | string | 否 | 文档标题；多文件上传时为空更合理，会自动使用文件名 |
+| visibility | string | 否 | `private` / `group` / `public`，默认 private |
+| group_id | int64 | 否 | 群知识范围 |
+| conversation_id | int64 | 否 | 会话知识范围 |
+
+响应示例：
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "success": true,
+    "files": [
+      {
+        "success": true,
+        "file_name": "project.md",
+        "chunk_count": 3,
+        "entity_count": 8,
+        "relation_count": 7,
+        "msg": "写入成功"
+      }
+    ]
+  }
+}
+```
+
+文件解析边界：
+
+- `txt/md/markdown` 要求 UTF-8 编码；Markdown 会按 `#` 文档标题、`##` parent chunk、`###`/段落 child chunk 分层。
+- `go/js/ts/py/java/c/cpp/rs/sql/json/yaml` 等代码或配置文件要求 UTF-8 编码；Go 代码会按声明结构切分，函数前注释会随函数进入同一 parent chunk。其他语言代码当前可上传入库，但先走通用文本分片。
+- `pdf` 优先使用本地轻量文本抽取；扫描件 PDF 在 api-gateway 配置 OCR provider 后会调用 GLM-OCR 兜底解析。
+- `png/jpg/jpeg/webp/bmp/gif/tif/tiff` 图片文件在 api-gateway 配置 OCR provider 后可直接上传入库。
+- `docx` 当前读取正文 XML 文本；复杂表格、批注、页眉页脚和图片 OCR 不在本阶段范围。
+- 多文件上传按文件返回结果，单个文件失败不会阻断其他文件。
+
+### 7.3 RAG 检索
+
+**POST** `/rag/search`
+
+需要认证。
+
+| 参数 | 类型 | 必填 | 说明 |
+| ---- | ---- | ---- | ---- |
+| query | string | 是 | 用户问题 |
+| mode | string | 否 | `adaptive` / `hybrid` / `graphrag` / `text_to_sql`，默认 adaptive |
+| limit | int | 否 | 返回来源数量，默认 8，最大 20 |
+| group_id | int64 | 否 | 群知识范围 |
+| conversation_id | int64 | 否 | 会话知识范围 |
+
+返回包含 `answer`、`sources`、`graph_nodes`、`graph_edges`、`route`、`crag_action`、`self_check`。
+
+`crag_action` 说明：
+
+- `correct`：CRAG evaluator 判断内部资料相关、覆盖充分、足够具体且无明显冲突，可直接使用内部资料回答。
+- `incorrect`：内部资料明显不相关或覆盖不足，应 Web/询问用户搜索兜底。
+- `ambiguous`：内部资料部分可用，但覆盖不足、过于泛化或存在冲突，应内部 + 外部合并。
+
+CRAG evaluator 会评估 `Relevance`、`Coverage`、`Specificity`、`Conflict` 四项；当前结果会写入 `self_check.note`，例如：
+
+```json
+{
+  "label": "ambiguous",
+  "score": 0.56,
+  "relevance": 0.72,
+  "coverage": 0.45,
+  "specificity": 0.62,
+  "conflict": 0.10,
+  "reason": "资料提到了 Agent 调度，但没有解释 event_id 和 agent_user_id 的业务含义"
+}
+```
+
+`sources` 说明：
+
+- `chunk_id` 默认是 parent chunk ID，而不是实际被向量/BM25 命中的 child chunk ID。
+- `content` 优先返回 parent summary + parent 正文；当 parent 正文过长时，返回 parent summary + 命中 child 摘录，避免把超长上下文塞进 prompt。
+- `reason` 会包含 `child_chunk_id=` 和 `parent_chunk_id=`，用于追踪“小块命中、大块返回”的链路；模型精排生效时还会包含 `model_rerank=`。
+
+Adaptive RAG Router 说明：
+
+- `mode=adaptive` 时，服务先执行 Router / Classifier，再决定是否检索以及走哪条路线。
+- Router 采用规则 + LLM 混合：明显问候、实时最新、当前项目/代码、私有记忆、动作请求、高风险问题优先走规则；规则不确定时才调用 LLM Router。
+- Router 输出 `route`、`complexity`、`need_retrieve`、`sources`、`strategy`、`retrieval_source` 和改写后的 `query`。这些信息目前写入 `self_check.note`。
+- 支持路线：`direct`、`project_rag`、`strict_rag`、`web_rag`、`memory_rag`、`tool_action`。
+- LLM 只做结构化判断，不执行 Milvus/Web/数据库/工具调用；真正检索由 rag-service 按当前用户权限上下文执行。
+
+### 7.4 查询知识图谱
+
+**GET** `/rag/graph?query=&limit=80`
+
+需要认证。
+
+返回当前用户可见的 GraphRAG 原始子图，包括节点、关系和社区摘要。该接口面向 RAG/GraphRAG 能力调试和内部数据读取；前端知识图谱可视化页面统一使用 `/knowledge/*`，由 knowledge-service 在原始子图之上补充过滤、详情聚合和展示属性。
+
+### 7.5 文档列表
+
+**GET** `/rag/documents?limit=20&offset=0`
+
+需要认证。
+
+返回当前用户可见的知识文档列表。
+
+### 7.6 Embedding 环境变量
+
+| 环境变量 | 说明 |
+| ---- | ---- |
+| `RAG_EMBEDDING_PROVIDER` | `glm` 表示调用 GLM embedding；其他值走本地 hash embedding |
+| `RAG_EMBEDDING_URL` | GLM embedding 接口地址 |
+| `RAG_EMBEDDING_API_KEY` | GLM API Key，只放本地 `.env`，不要提交仓库 |
+| `RAG_EMBEDDING_MODEL` | 模型名，当前为 `embedding-3` |
+| `RAG_EMBEDDING_DIMENSION` | 传给 GLM 的 dimensions；0 表示不传，使用模型默认维度 |
+| `RAG_EMBEDDING_DIM` | 项目内部向量索引维度，默认 256 |
+| `RAG_ROUTER_PROVIDER` | `rule` 使用本地规则；`llm` 使用小模型判断是否需要 RAG |
+| `RAG_ROUTER_BASE_URL` | 项目内置 Router 的 OpenAI-compatible BaseURL；为空时回退 `LLM_DEFAULT_BASE_URL` |
+| `RAG_ROUTER_API_KEY` | 项目内置 Router 的 API Key，只放本地 `.env`；为空时回退 `LLM_DEFAULT_API_KEY` |
+| `RAG_ROUTER_MODEL` | Router 小模型名，例如 `glm-4-flash`；为空时回退 `LLM_DEFAULT_MODEL` |
+| `RAG_RERANK_PROVIDER` | `glm` 表示启用 GLM rerank；未配置时使用本地轻量 rerank |
+| `RAG_RERANK_URL` | GLM rerank 接口地址 |
+| `RAG_RERANK_API_KEY` | GLM rerank API Key，只放本地 `.env`，不要提交仓库 |
+| `RAG_RERANK_MODEL` | rerank 模型名，当前为 `rerank` |
+| `DOCUMENT_OCR_PROVIDER` | `glm` 表示启用 GLM-OCR 文档解析 |
+| `DOCUMENT_OCR_URL` | GLM-OCR layout_parsing 接口地址 |
+| `DOCUMENT_OCR_API_KEY` | GLM-OCR API Key，只放本地 `.env`，不要提交仓库 |
+| `DOCUMENT_OCR_MODEL` | OCR 模型名，当前为 `glm-ocr` |
+
+Self-RAG 说明：
+
+- `Retrieve` 现在由 Self-RAG Retrieve 判断器输出结构化 JSON；配置 LLM router 后，小模型会先决定是否需要检索、检索源和改写后的检索 query。
+- LLM 只做判断，不执行 Milvus/Web/数据库工具；真正检索由 rag-service 代码按当前用户权限上下文执行。
+- `IsRel`、`IsSup`、`IsUse` 由 Self-RAG judge 在 rerank、CRAG 和 answer synthesis 后判断；小模型不可用时降级规则判断。
+- 用户级 `rag_router` 默认预设优先级高于项目内置 Router，便于用户用自己的 API Key、BaseURL 和小模型控制 RAG 成本。
+- 如果判断为无需检索，接口返回 `route=direct`、`crag_action=skip_vector`，不会访问向量库。
+- Router 调用失败时自动降级为本地规则，不阻断检索。
+
+***
+
+## 八、知识图谱可视化模块 (knowledge-service)
+
+knowledge-service 负责知识图谱后端查询和前端可视化视图模型。它不负责文档入库、embedding、GraphRAG 实体抽取或关系抽取；这些仍归 rag-service。knowledge-service 会读取 rag-service 的 GraphRAG 子图，整理成前端画布需要的节点、边、社区、统计信息、颜色、大小、度数、详情和邻居列表。
+
+当前状态说明：
+
+- HTTP 入口已接入 api-gateway：`/api/v1/knowledge/*`。
+- `idl/knowledge.thrift` 已生成 `kitex_gen/knowledge`，并落地独立 `cmd/knowledge-service` Kitex RPC 进程。
+- api-gateway 通过 `pkg/knowledgeclient.RPCClient` 调用 knowledge-service；knowledge-service 再通过 rag-service RPC 读取 GraphRAG 子图，避免网关直接 import 其他服务的 `internal` 包。
+
+### 8.1 查询可视化图谱
+
+**GET** `/knowledge/graph?query=&types=&relations=&community_id=0&hops=1&limit=160`
+
+需要认证。
+
+| 参数 | 类型 | 必填 | 说明 |
+| ---- | ---- | ---- | ---- |
+| query | string | 否 | 搜索关键词，传给底层 GraphRAG 子图查询 |
+| types | string | 否 | 实体类型过滤，逗号分隔，如 `Service,DatabaseTable` |
+| relations | string | 否 | 关系类型过滤，逗号分隔，如 `WRITES,CALLS` |
+| community_id | int64 | 否 | 社区过滤，0 表示不过滤 |
+| hops | int | 否 | 邻居扩展层数，支持 1 或 2，默认 1 |
+| limit | int | 否 | 最大节点/子图规模，默认 160 |
+
+响应示例：
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "success": true,
+    "nodes": [
+      {
+        "id": 1,
+        "name": "msg-core-service",
+        "type": "Service",
+        "summary": "消息核心服务，负责会话、消息写入和 Outbox",
+        "community_id": 10,
+        "score": 0.91,
+        "degree": 3,
+        "size": 56,
+        "color": "#0f766e"
+      }
+    ],
+    "edges": [
+      {
+        "id": 11,
+        "source_id": 1,
+        "target_id": 2,
+        "relation": "WRITES",
+        "description": "WRITES · 发送消息时写入 event_outbox",
+        "weight": 0.88,
+        "evidence": "发送消息时同事务写入 messages 和 event_outbox",
+        "color": "#16a34a"
+      }
+    ],
+    "communities": [
+      {
+        "id": 10,
+        "name": "IM 消息链路",
+        "summary": "描述消息写入、事件发布和在线推送流程",
+        "level": 1,
+        "color": "#0f766e"
+      }
+    ],
+    "stats": {
+      "node_count": 1,
+      "edge_count": 1,
+      "community_count": 1,
+      "types": ["Service"],
+      "relations": ["WRITES"]
+    }
+  }
+}
+```
+
+前端使用说明：
+
+- G6 可用时使用 AntV G6 渲染拖拽、缩放、悬浮、节点大小、社区颜色和关系连线。
+- G6 CDN 不可用时自动降级为 SVG 图谱，仍保留搜索、过滤、节点/关系点击详情。
+- 节点颜色优先使用社区颜色；没有社区时按实体类型着色。
+- 节点大小由 degree 和 score 计算，关系颜色由关系类型计算。
+
+### 8.2 查询节点详情
+
+**GET** `/knowledge/node/:id?query=&limit=160`
+
+需要认证。
+
+返回节点本身、相邻节点和所有相关关系。节点不存在、或当前用户没有权限看到该节点时，`success=false`，`msg` 说明原因。
+
+### 8.3 查询关系详情
+
+**GET** `/knowledge/edge/:id?query=&limit=160`
+
+需要认证。
+
+返回关系本身、source 节点、target 节点和 evidence 原文证据。关系不存在、或当前用户没有权限看到该关系时，`success=false`，`msg` 说明原因。
+
+***
+
+## 九、WebSocket 网关 (websocket-gateway)
+
+### 9.1 建立 WebSocket 连接
 
 **GET** `ws://localhost:8081/ws?token=<JWT_TOKEN>`
 
@@ -2199,7 +2479,7 @@ settings-service 保存用户级系统设置。本阶段已落地 LLM 预设、P
 
 ***
 
-### 7.2 消息推送接口（内部兼容接口）
+### 9.2 消息推送接口（内部兼容接口）
 
 **POST** `http://localhost:8081/push`
 
@@ -2218,7 +2498,7 @@ settings-service 保存用户级系统设置。本阶段已落地 LLM 预设、P
 
 ***
 
-### 7.3 Kafka 事件主题（内部）
+### 9.3 Kafka 事件主题（内部）
 
 Kafka 默认开启，默认 broker 为 `127.0.0.1:9092`。本地如暂时不启动 Kafka，可设置 `KAFKA_ENABLED=false`；业务请求仍会把待发布事件写入 `event_outbox`，等 Kafka 恢复并启用 worker 后继续投递。
 
@@ -2248,7 +2528,7 @@ Kafka 默认开启，默认 broker 为 `127.0.0.1:9092`。本地如暂时不启�
 }
 ```
 
-### 7.4 查询在线用户
+### 9.4 查询在线用户
 
 **GET** `http://localhost:8081/online`
 
@@ -2262,7 +2542,7 @@ Kafka 默认开启，默认 broker 为 `127.0.0.1:9092`。本地如暂时不启�
 
 ***
 
-### 7.5 查询用户是否在线
+### 9.5 查询用户是否在线
 
 **GET** `http://localhost:8081/is_online?user_id=1`
 
@@ -2277,7 +2557,7 @@ Kafka 默认开启，默认 broker 为 `127.0.0.1:9092`。本地如暂时不启�
 
 ***
 
-## 八、数据库表结构
+## 十、数据库表结构
 
 ### ID 生成规则
 
@@ -2506,7 +2786,7 @@ Kafka 默认开启，默认 broker 为 `127.0.0.1:9092`。本地如暂时不启�
 
 ***
 
-## 九、Redis 缓存 Key 规范
+## 十一、Redis 缓存 Key 规范
 
 | Key 模式                      | 服务                        | TTL         | 说明        |
 | --------------------------- | ------------------------- | ----------- | --------- |
@@ -2524,7 +2804,7 @@ Kafka 默认开启，默认 broker 为 `127.0.0.1:9092`。本地如暂时不启�
 
 ***
 
-## 十、前端页面功能映射
+## 十二、前端页面功能映射
 
 | 页面/按钮            | 对应接口                                                    | 说明                |
 | ---------------- | ------------------------------------------------------- | ----------------- |
@@ -2551,11 +2831,12 @@ Kafka 默认开启，默认 broker 为 `127.0.0.1:9092`。本地如暂时不启�
 | AI助手管理面板          | POST /agent/create → GET /agent/list → POST /agent/chat      | 创建/管理/对话AI助手      |
 | AI助手路由管理          | POST /agent/route/create → GET /agent/:id/routes            | 配置消息路由规则          |
 | AI助手计费查询          | GET /agent/:id/billing                                    | 查看Token用量和费用      |
+| 知识图谱页面            | GET /knowledge/graph → GET /knowledge/node/:id → GET /knowledge/edge/:id | 搜索、过滤、拖拽查看知识图谱和证据来源 |
 | WebSocket 连接     | ws://localhost:8081/ws?token=xxx                        | 登录后自动建立，接收实时消息    |
 
 ***
 
-## 十一、多媒体消息格式规范
+## 十三、多媒体消息格式规范
 
 ### 消息类型
 
@@ -2575,7 +2856,7 @@ Kafka 默认开启，默认 broker 为 `127.0.0.1:9092`。本地如暂时不启�
 
 ***
 
-## 十二、服务端口一览
+## 十四、服务端口一览
 
 | 服务                  | 端口   | 协议       | 说明         |
 | ------------------- | ---- | -------- | ---------- |
@@ -2585,6 +2866,11 @@ Kafka 默认开启，默认 broker 为 `127.0.0.1:9092`。本地如暂时不启�
 | msg-history-service | 9004 | Thrift RPC | 消息历史服务     |
 | file-service        | 9005 | Thrift RPC | 文件服务       |
 | agent-manager-service | 9006 | Thrift RPC | AI助手管理服务   |
+| agent-runtime-service | 9007 | Thrift RPC | Agent 长会话、工具调用、事件执行 |
+| memory-service      | 9008 | Thrift RPC | 用户/群/会话长期记忆 |
+| settings-service    | 9009 | Thrift RPC | LLM 预设、Prompt 模板、Agent Skill 配置 |
+| rag-service         | 9012 | Thrift RPC | 知识库、Hybrid RAG、GraphRAG 子图 |
+| knowledge-service   | 9013 | Thrift RPC | 知识图谱查询、过滤、详情和可视化视图 |
 | api-gateway         | 8080 | HTTP      | API 网关     |
 | websocket-gateway   | 8081 | HTTP/WS   | WebSocket 网关 |
 | Kafka               | 9092 | TCP       | 事件总线       |
@@ -2592,7 +2878,7 @@ Kafka 默认开启，默认 broker 为 `127.0.0.1:9092`。本地如暂时不启�
 | DTM HTTP            | 36789 | HTTP      | 分布式事务协调器 |
 | DTM gRPC            | 36790 | gRPC      | 分布式事务协调器 |
 | MinIO               | 9000 | HTTP      | 对象存储       |
-| MinIO Console       | 9009 | HTTP      | MinIO 管理界面 |
+| MinIO Console       | 9009 | HTTP      | MinIO 管理界面；若和 settings-service 本机端口冲突，可在 Docker 映射中改为 9011 |
 | MySQL               | 3306 | TCP       | 数据库        |
 | Redis               | 6379 | TCP       | 缓存         |
 | Etcd                | 2379 | gRPC      | 服务注册与发现    |

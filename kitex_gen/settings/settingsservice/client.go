@@ -20,6 +20,8 @@ type Client interface {
 	ResolveLLMProfile(ctx context.Context, req *settings.ResolveLLMProfileReq, callOptions ...callopt.Option) (r *settings.ResolveLLMProfileResp, err error)
 	SaveSkill(ctx context.Context, req *settings.SaveSkillReq, callOptions ...callopt.Option) (r *settings.SaveSkillResp, err error)
 	ListSkills(ctx context.Context, req *settings.ListSkillsReq, callOptions ...callopt.Option) (r *settings.ListSkillsResp, err error)
+	GetSkill(ctx context.Context, req *settings.GetSkillReq, callOptions ...callopt.Option) (r *settings.GetSkillResp, err error)
+	UpdateSkillContent(ctx context.Context, req *settings.UpdateSkillContentReq, callOptions ...callopt.Option) (r *settings.UpdateSkillContentResp, err error)
 	DeleteSkill(ctx context.Context, req *settings.DeleteSkillReq, callOptions ...callopt.Option) (r *settings.DeleteSkillResp, err error)
 }
 
@@ -95,6 +97,16 @@ func (p *kSettingsServiceClient) SaveSkill(ctx context.Context, req *settings.Sa
 func (p *kSettingsServiceClient) ListSkills(ctx context.Context, req *settings.ListSkillsReq, callOptions ...callopt.Option) (r *settings.ListSkillsResp, err error) {
 	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
 	return p.kClient.ListSkills(ctx, req)
+}
+
+func (p *kSettingsServiceClient) GetSkill(ctx context.Context, req *settings.GetSkillReq, callOptions ...callopt.Option) (r *settings.GetSkillResp, err error) {
+	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
+	return p.kClient.GetSkill(ctx, req)
+}
+
+func (p *kSettingsServiceClient) UpdateSkillContent(ctx context.Context, req *settings.UpdateSkillContentReq, callOptions ...callopt.Option) (r *settings.UpdateSkillContentResp, err error) {
+	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
+	return p.kClient.UpdateSkillContent(ctx, req)
 }
 
 func (p *kSettingsServiceClient) DeleteSkill(ctx context.Context, req *settings.DeleteSkillReq, callOptions ...callopt.Option) (r *settings.DeleteSkillResp, err error) {

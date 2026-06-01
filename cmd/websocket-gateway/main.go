@@ -51,7 +51,7 @@ func main() {
 	if cfg.Kafka.Enabled && len(cfg.Kafka.Brokers) > 0 {
 		consumer := eventbus.NewKafkaConsumer(cfg.Kafka.Brokers, events.TopicMessageEvents, "websocket-gateway")
 		defer consumer.Close()
-		eventconsumer.StartMessageEventConsumer(context.Background(), consumer, h)
+		eventconsumer.StartMessageEventConsumerWithReliability(context.Background(), consumer, h, eventbus.NewMemoryReliabilityStore())
 		logger.Info("Kafka消息事件消费已启用", "topic", events.TopicMessageEvents)
 	}
 

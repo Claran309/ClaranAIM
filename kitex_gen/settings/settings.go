@@ -1986,6 +1986,8 @@ type AgentSkill struct {
 	SourceType  string `thrift:"source_type,9" frugal:"9,default,string" json:"source_type"`
 	IsDefault   bool   `thrift:"is_default,10" frugal:"10,default,bool" json:"is_default"`
 	Enabled     bool   `thrift:"enabled,11" frugal:"11,default,bool" json:"enabled"`
+	Summary     string `thrift:"summary,12" frugal:"12,default,string" json:"summary"`
+	Content     string `thrift:"content,13" frugal:"13,default,string" json:"content"`
 }
 
 func NewAgentSkill() *AgentSkill {
@@ -2038,6 +2040,14 @@ func (p *AgentSkill) GetIsDefault() (v bool) {
 func (p *AgentSkill) GetEnabled() (v bool) {
 	return p.Enabled
 }
+
+func (p *AgentSkill) GetSummary() (v string) {
+	return p.Summary
+}
+
+func (p *AgentSkill) GetContent() (v string) {
+	return p.Content
+}
 func (p *AgentSkill) SetId(val int64) {
 	p.Id = val
 }
@@ -2070,6 +2080,12 @@ func (p *AgentSkill) SetIsDefault(val bool) {
 }
 func (p *AgentSkill) SetEnabled(val bool) {
 	p.Enabled = val
+}
+func (p *AgentSkill) SetSummary(val string) {
+	p.Summary = val
+}
+func (p *AgentSkill) SetContent(val string) {
+	p.Content = val
 }
 
 func (p *AgentSkill) String() string {
@@ -2116,6 +2132,12 @@ func (p *AgentSkill) DeepEqual(ano *AgentSkill) bool {
 		return false
 	}
 	if !p.Field11DeepEqual(ano.Enabled) {
+		return false
+	}
+	if !p.Field12DeepEqual(ano.Summary) {
+		return false
+	}
+	if !p.Field13DeepEqual(ano.Content) {
 		return false
 	}
 	return true
@@ -2198,6 +2220,20 @@ func (p *AgentSkill) Field11DeepEqual(src bool) bool {
 	}
 	return true
 }
+func (p *AgentSkill) Field12DeepEqual(src string) bool {
+
+	if strings.Compare(p.Summary, src) != 0 {
+		return false
+	}
+	return true
+}
+func (p *AgentSkill) Field13DeepEqual(src string) bool {
+
+	if strings.Compare(p.Content, src) != 0 {
+		return false
+	}
+	return true
+}
 
 var fieldIDToName_AgentSkill = map[int16]string{
 	1:  "id",
@@ -2211,6 +2247,8 @@ var fieldIDToName_AgentSkill = map[int16]string{
 	9:  "source_type",
 	10: "is_default",
 	11: "enabled",
+	12: "summary",
+	13: "content",
 }
 
 type SaveSkillReq struct {
@@ -2753,6 +2791,391 @@ var fieldIDToName_ListSkillsResp = map[int16]string{
 	3: "msg",
 }
 
+type GetSkillReq struct {
+	UserId  int64 `thrift:"user_id,1" frugal:"1,default,i64" json:"user_id"`
+	SkillId int64 `thrift:"skill_id,2" frugal:"2,default,i64" json:"skill_id"`
+}
+
+func NewGetSkillReq() *GetSkillReq {
+	return &GetSkillReq{}
+}
+
+func (p *GetSkillReq) InitDefault() {
+}
+
+func (p *GetSkillReq) GetUserId() (v int64) {
+	return p.UserId
+}
+
+func (p *GetSkillReq) GetSkillId() (v int64) {
+	return p.SkillId
+}
+func (p *GetSkillReq) SetUserId(val int64) {
+	p.UserId = val
+}
+func (p *GetSkillReq) SetSkillId(val int64) {
+	p.SkillId = val
+}
+
+func (p *GetSkillReq) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("GetSkillReq(%+v)", *p)
+}
+
+func (p *GetSkillReq) DeepEqual(ano *GetSkillReq) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.UserId) {
+		return false
+	}
+	if !p.Field2DeepEqual(ano.SkillId) {
+		return false
+	}
+	return true
+}
+
+func (p *GetSkillReq) Field1DeepEqual(src int64) bool {
+
+	if p.UserId != src {
+		return false
+	}
+	return true
+}
+func (p *GetSkillReq) Field2DeepEqual(src int64) bool {
+
+	if p.SkillId != src {
+		return false
+	}
+	return true
+}
+
+var fieldIDToName_GetSkillReq = map[int16]string{
+	1: "user_id",
+	2: "skill_id",
+}
+
+type GetSkillResp struct {
+	Success bool        `thrift:"success,1" frugal:"1,default,bool" json:"success"`
+	Skill   *AgentSkill `thrift:"skill,2" frugal:"2,default,AgentSkill" json:"skill"`
+	Msg     string      `thrift:"msg,3" frugal:"3,default,string" json:"msg"`
+}
+
+func NewGetSkillResp() *GetSkillResp {
+	return &GetSkillResp{}
+}
+
+func (p *GetSkillResp) InitDefault() {
+}
+
+func (p *GetSkillResp) GetSuccess() (v bool) {
+	return p.Success
+}
+
+var GetSkillResp_Skill_DEFAULT *AgentSkill
+
+func (p *GetSkillResp) GetSkill() (v *AgentSkill) {
+	if !p.IsSetSkill() {
+		return GetSkillResp_Skill_DEFAULT
+	}
+	return p.Skill
+}
+
+func (p *GetSkillResp) GetMsg() (v string) {
+	return p.Msg
+}
+func (p *GetSkillResp) SetSuccess(val bool) {
+	p.Success = val
+}
+func (p *GetSkillResp) SetSkill(val *AgentSkill) {
+	p.Skill = val
+}
+func (p *GetSkillResp) SetMsg(val string) {
+	p.Msg = val
+}
+
+func (p *GetSkillResp) IsSetSkill() bool {
+	return p.Skill != nil
+}
+
+func (p *GetSkillResp) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("GetSkillResp(%+v)", *p)
+}
+
+func (p *GetSkillResp) DeepEqual(ano *GetSkillResp) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.Success) {
+		return false
+	}
+	if !p.Field2DeepEqual(ano.Skill) {
+		return false
+	}
+	if !p.Field3DeepEqual(ano.Msg) {
+		return false
+	}
+	return true
+}
+
+func (p *GetSkillResp) Field1DeepEqual(src bool) bool {
+
+	if p.Success != src {
+		return false
+	}
+	return true
+}
+func (p *GetSkillResp) Field2DeepEqual(src *AgentSkill) bool {
+
+	if !p.Skill.DeepEqual(src) {
+		return false
+	}
+	return true
+}
+func (p *GetSkillResp) Field3DeepEqual(src string) bool {
+
+	if strings.Compare(p.Msg, src) != 0 {
+		return false
+	}
+	return true
+}
+
+var fieldIDToName_GetSkillResp = map[int16]string{
+	1: "success",
+	2: "skill",
+	3: "msg",
+}
+
+type UpdateSkillContentReq struct {
+	UserId      int64  `thrift:"user_id,1" frugal:"1,default,i64" json:"user_id"`
+	SkillId     int64  `thrift:"skill_id,2" frugal:"2,default,i64" json:"skill_id"`
+	Name        string `thrift:"name,3" frugal:"3,default,string" json:"name"`
+	Description string `thrift:"description,4" frugal:"4,default,string" json:"description"`
+	Content     []byte `thrift:"content,5" frugal:"5,default,binary" json:"content"`
+}
+
+func NewUpdateSkillContentReq() *UpdateSkillContentReq {
+	return &UpdateSkillContentReq{}
+}
+
+func (p *UpdateSkillContentReq) InitDefault() {
+}
+
+func (p *UpdateSkillContentReq) GetUserId() (v int64) {
+	return p.UserId
+}
+
+func (p *UpdateSkillContentReq) GetSkillId() (v int64) {
+	return p.SkillId
+}
+
+func (p *UpdateSkillContentReq) GetName() (v string) {
+	return p.Name
+}
+
+func (p *UpdateSkillContentReq) GetDescription() (v string) {
+	return p.Description
+}
+
+func (p *UpdateSkillContentReq) GetContent() (v []byte) {
+	return p.Content
+}
+func (p *UpdateSkillContentReq) SetUserId(val int64) {
+	p.UserId = val
+}
+func (p *UpdateSkillContentReq) SetSkillId(val int64) {
+	p.SkillId = val
+}
+func (p *UpdateSkillContentReq) SetName(val string) {
+	p.Name = val
+}
+func (p *UpdateSkillContentReq) SetDescription(val string) {
+	p.Description = val
+}
+func (p *UpdateSkillContentReq) SetContent(val []byte) {
+	p.Content = val
+}
+
+func (p *UpdateSkillContentReq) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("UpdateSkillContentReq(%+v)", *p)
+}
+
+func (p *UpdateSkillContentReq) DeepEqual(ano *UpdateSkillContentReq) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.UserId) {
+		return false
+	}
+	if !p.Field2DeepEqual(ano.SkillId) {
+		return false
+	}
+	if !p.Field3DeepEqual(ano.Name) {
+		return false
+	}
+	if !p.Field4DeepEqual(ano.Description) {
+		return false
+	}
+	if !p.Field5DeepEqual(ano.Content) {
+		return false
+	}
+	return true
+}
+
+func (p *UpdateSkillContentReq) Field1DeepEqual(src int64) bool {
+
+	if p.UserId != src {
+		return false
+	}
+	return true
+}
+func (p *UpdateSkillContentReq) Field2DeepEqual(src int64) bool {
+
+	if p.SkillId != src {
+		return false
+	}
+	return true
+}
+func (p *UpdateSkillContentReq) Field3DeepEqual(src string) bool {
+
+	if strings.Compare(p.Name, src) != 0 {
+		return false
+	}
+	return true
+}
+func (p *UpdateSkillContentReq) Field4DeepEqual(src string) bool {
+
+	if strings.Compare(p.Description, src) != 0 {
+		return false
+	}
+	return true
+}
+func (p *UpdateSkillContentReq) Field5DeepEqual(src []byte) bool {
+
+	if bytes.Compare(p.Content, src) != 0 {
+		return false
+	}
+	return true
+}
+
+var fieldIDToName_UpdateSkillContentReq = map[int16]string{
+	1: "user_id",
+	2: "skill_id",
+	3: "name",
+	4: "description",
+	5: "content",
+}
+
+type UpdateSkillContentResp struct {
+	Success bool        `thrift:"success,1" frugal:"1,default,bool" json:"success"`
+	Skill   *AgentSkill `thrift:"skill,2" frugal:"2,default,AgentSkill" json:"skill"`
+	Msg     string      `thrift:"msg,3" frugal:"3,default,string" json:"msg"`
+}
+
+func NewUpdateSkillContentResp() *UpdateSkillContentResp {
+	return &UpdateSkillContentResp{}
+}
+
+func (p *UpdateSkillContentResp) InitDefault() {
+}
+
+func (p *UpdateSkillContentResp) GetSuccess() (v bool) {
+	return p.Success
+}
+
+var UpdateSkillContentResp_Skill_DEFAULT *AgentSkill
+
+func (p *UpdateSkillContentResp) GetSkill() (v *AgentSkill) {
+	if !p.IsSetSkill() {
+		return UpdateSkillContentResp_Skill_DEFAULT
+	}
+	return p.Skill
+}
+
+func (p *UpdateSkillContentResp) GetMsg() (v string) {
+	return p.Msg
+}
+func (p *UpdateSkillContentResp) SetSuccess(val bool) {
+	p.Success = val
+}
+func (p *UpdateSkillContentResp) SetSkill(val *AgentSkill) {
+	p.Skill = val
+}
+func (p *UpdateSkillContentResp) SetMsg(val string) {
+	p.Msg = val
+}
+
+func (p *UpdateSkillContentResp) IsSetSkill() bool {
+	return p.Skill != nil
+}
+
+func (p *UpdateSkillContentResp) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("UpdateSkillContentResp(%+v)", *p)
+}
+
+func (p *UpdateSkillContentResp) DeepEqual(ano *UpdateSkillContentResp) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.Success) {
+		return false
+	}
+	if !p.Field2DeepEqual(ano.Skill) {
+		return false
+	}
+	if !p.Field3DeepEqual(ano.Msg) {
+		return false
+	}
+	return true
+}
+
+func (p *UpdateSkillContentResp) Field1DeepEqual(src bool) bool {
+
+	if p.Success != src {
+		return false
+	}
+	return true
+}
+func (p *UpdateSkillContentResp) Field2DeepEqual(src *AgentSkill) bool {
+
+	if !p.Skill.DeepEqual(src) {
+		return false
+	}
+	return true
+}
+func (p *UpdateSkillContentResp) Field3DeepEqual(src string) bool {
+
+	if strings.Compare(p.Msg, src) != 0 {
+		return false
+	}
+	return true
+}
+
+var fieldIDToName_UpdateSkillContentResp = map[int16]string{
+	1: "success",
+	2: "skill",
+	3: "msg",
+}
+
 type DeleteSkillReq struct {
 	UserId  int64 `thrift:"user_id,1" frugal:"1,default,i64" json:"user_id"`
 	SkillId int64 `thrift:"skill_id,2" frugal:"2,default,i64" json:"skill_id"`
@@ -2907,6 +3330,10 @@ type SettingsService interface {
 	SaveSkill(ctx context.Context, req *SaveSkillReq) (r *SaveSkillResp, err error)
 
 	ListSkills(ctx context.Context, req *ListSkillsReq) (r *ListSkillsResp, err error)
+
+	GetSkill(ctx context.Context, req *GetSkillReq) (r *GetSkillResp, err error)
+
+	UpdateSkillContent(ctx context.Context, req *UpdateSkillContentReq) (r *UpdateSkillContentResp, err error)
 
 	DeleteSkill(ctx context.Context, req *DeleteSkillReq) (r *DeleteSkillResp, err error)
 }
@@ -3952,6 +4379,238 @@ func (p *SettingsServiceListSkillsResult) Field0DeepEqual(src *ListSkillsResp) b
 }
 
 var fieldIDToName_SettingsServiceListSkillsResult = map[int16]string{
+	0: "success",
+}
+
+type SettingsServiceGetSkillArgs struct {
+	Req *GetSkillReq `thrift:"req,1" frugal:"1,default,GetSkillReq" json:"req"`
+}
+
+func NewSettingsServiceGetSkillArgs() *SettingsServiceGetSkillArgs {
+	return &SettingsServiceGetSkillArgs{}
+}
+
+func (p *SettingsServiceGetSkillArgs) InitDefault() {
+}
+
+var SettingsServiceGetSkillArgs_Req_DEFAULT *GetSkillReq
+
+func (p *SettingsServiceGetSkillArgs) GetReq() (v *GetSkillReq) {
+	if !p.IsSetReq() {
+		return SettingsServiceGetSkillArgs_Req_DEFAULT
+	}
+	return p.Req
+}
+func (p *SettingsServiceGetSkillArgs) SetReq(val *GetSkillReq) {
+	p.Req = val
+}
+
+func (p *SettingsServiceGetSkillArgs) IsSetReq() bool {
+	return p.Req != nil
+}
+
+func (p *SettingsServiceGetSkillArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("SettingsServiceGetSkillArgs(%+v)", *p)
+}
+
+func (p *SettingsServiceGetSkillArgs) DeepEqual(ano *SettingsServiceGetSkillArgs) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.Req) {
+		return false
+	}
+	return true
+}
+
+func (p *SettingsServiceGetSkillArgs) Field1DeepEqual(src *GetSkillReq) bool {
+
+	if !p.Req.DeepEqual(src) {
+		return false
+	}
+	return true
+}
+
+var fieldIDToName_SettingsServiceGetSkillArgs = map[int16]string{
+	1: "req",
+}
+
+type SettingsServiceGetSkillResult struct {
+	Success *GetSkillResp `thrift:"success,0,optional" frugal:"0,optional,GetSkillResp" json:"success,omitempty"`
+}
+
+func NewSettingsServiceGetSkillResult() *SettingsServiceGetSkillResult {
+	return &SettingsServiceGetSkillResult{}
+}
+
+func (p *SettingsServiceGetSkillResult) InitDefault() {
+}
+
+var SettingsServiceGetSkillResult_Success_DEFAULT *GetSkillResp
+
+func (p *SettingsServiceGetSkillResult) GetSuccess() (v *GetSkillResp) {
+	if !p.IsSetSuccess() {
+		return SettingsServiceGetSkillResult_Success_DEFAULT
+	}
+	return p.Success
+}
+func (p *SettingsServiceGetSkillResult) SetSuccess(x interface{}) {
+	p.Success = x.(*GetSkillResp)
+}
+
+func (p *SettingsServiceGetSkillResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *SettingsServiceGetSkillResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("SettingsServiceGetSkillResult(%+v)", *p)
+}
+
+func (p *SettingsServiceGetSkillResult) DeepEqual(ano *SettingsServiceGetSkillResult) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field0DeepEqual(ano.Success) {
+		return false
+	}
+	return true
+}
+
+func (p *SettingsServiceGetSkillResult) Field0DeepEqual(src *GetSkillResp) bool {
+
+	if !p.Success.DeepEqual(src) {
+		return false
+	}
+	return true
+}
+
+var fieldIDToName_SettingsServiceGetSkillResult = map[int16]string{
+	0: "success",
+}
+
+type SettingsServiceUpdateSkillContentArgs struct {
+	Req *UpdateSkillContentReq `thrift:"req,1" frugal:"1,default,UpdateSkillContentReq" json:"req"`
+}
+
+func NewSettingsServiceUpdateSkillContentArgs() *SettingsServiceUpdateSkillContentArgs {
+	return &SettingsServiceUpdateSkillContentArgs{}
+}
+
+func (p *SettingsServiceUpdateSkillContentArgs) InitDefault() {
+}
+
+var SettingsServiceUpdateSkillContentArgs_Req_DEFAULT *UpdateSkillContentReq
+
+func (p *SettingsServiceUpdateSkillContentArgs) GetReq() (v *UpdateSkillContentReq) {
+	if !p.IsSetReq() {
+		return SettingsServiceUpdateSkillContentArgs_Req_DEFAULT
+	}
+	return p.Req
+}
+func (p *SettingsServiceUpdateSkillContentArgs) SetReq(val *UpdateSkillContentReq) {
+	p.Req = val
+}
+
+func (p *SettingsServiceUpdateSkillContentArgs) IsSetReq() bool {
+	return p.Req != nil
+}
+
+func (p *SettingsServiceUpdateSkillContentArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("SettingsServiceUpdateSkillContentArgs(%+v)", *p)
+}
+
+func (p *SettingsServiceUpdateSkillContentArgs) DeepEqual(ano *SettingsServiceUpdateSkillContentArgs) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field1DeepEqual(ano.Req) {
+		return false
+	}
+	return true
+}
+
+func (p *SettingsServiceUpdateSkillContentArgs) Field1DeepEqual(src *UpdateSkillContentReq) bool {
+
+	if !p.Req.DeepEqual(src) {
+		return false
+	}
+	return true
+}
+
+var fieldIDToName_SettingsServiceUpdateSkillContentArgs = map[int16]string{
+	1: "req",
+}
+
+type SettingsServiceUpdateSkillContentResult struct {
+	Success *UpdateSkillContentResp `thrift:"success,0,optional" frugal:"0,optional,UpdateSkillContentResp" json:"success,omitempty"`
+}
+
+func NewSettingsServiceUpdateSkillContentResult() *SettingsServiceUpdateSkillContentResult {
+	return &SettingsServiceUpdateSkillContentResult{}
+}
+
+func (p *SettingsServiceUpdateSkillContentResult) InitDefault() {
+}
+
+var SettingsServiceUpdateSkillContentResult_Success_DEFAULT *UpdateSkillContentResp
+
+func (p *SettingsServiceUpdateSkillContentResult) GetSuccess() (v *UpdateSkillContentResp) {
+	if !p.IsSetSuccess() {
+		return SettingsServiceUpdateSkillContentResult_Success_DEFAULT
+	}
+	return p.Success
+}
+func (p *SettingsServiceUpdateSkillContentResult) SetSuccess(x interface{}) {
+	p.Success = x.(*UpdateSkillContentResp)
+}
+
+func (p *SettingsServiceUpdateSkillContentResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *SettingsServiceUpdateSkillContentResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("SettingsServiceUpdateSkillContentResult(%+v)", *p)
+}
+
+func (p *SettingsServiceUpdateSkillContentResult) DeepEqual(ano *SettingsServiceUpdateSkillContentResult) bool {
+	if p == ano {
+		return true
+	} else if p == nil || ano == nil {
+		return false
+	}
+	if !p.Field0DeepEqual(ano.Success) {
+		return false
+	}
+	return true
+}
+
+func (p *SettingsServiceUpdateSkillContentResult) Field0DeepEqual(src *UpdateSkillContentResp) bool {
+
+	if !p.Success.DeepEqual(src) {
+		return false
+	}
+	return true
+}
+
+var fieldIDToName_SettingsServiceUpdateSkillContentResult = map[int16]string{
 	0: "success",
 }
 

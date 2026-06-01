@@ -25,7 +25,8 @@ ClaranAIM/
 │   ├── agent-runtime-service/             # Agent 运行时、长会话、工具调用服务
 │   ├── memory-service/                    # 记忆服务启动入口，负责 memory_facts 迁移/健康检查
 │   ├── settings-service/                  # 用户系统设置、LLM 预设、Prompt 模板服务
-│   ├── rag-service/                       # RAG 服务预留入口
+│   ├── rag-service/                       # RAG 入库、检索、GraphRAG indexing 服务
+│   ├── knowledge-service/                 # 知识图谱查询、过滤、详情和可视化 RPC 服务
 │   └── msg-filter-service/                # 消息审核/过滤服务预留入口
 ├── internal/                              # 各服务内部实现，外部包不应直接依赖
 │   ├── api-gateway/                       # HTTP handler、RPC client、中间件、路由
@@ -50,7 +51,8 @@ ClaranAIM/
 │   │   └── service/                       # RunAgent、总结、问答、insights、sessions
 │   ├── memory-service/                    # Agent 记忆模型、DAO、召回隔离和用户治理逻辑
 │   ├── settings-service/                  # LLM 配置预设、翻译 Prompt 等用户可控设置
-│   ├── rag-service/                       # RAG 服务预留实现
+│   ├── rag-service/                       # 文档解析、chunk、embedding、Hybrid RAG、GraphRAG 数据构建
+│   ├── knowledge-service/                 # 知识图谱查询、过滤、详情聚合和可视化视图模型
 │   ├── msg-filter-service/                # 消息过滤/审核预留实现
 ├── pkg/                                   # 跨服务公共包
 │   ├── cache/redis/                       # Redis 客户端与缓存辅助
@@ -62,6 +64,7 @@ ClaranAIM/
 │   ├── health/                            # 服务启动健康检查日志
 │   ├── idgen/                             # 雪花 ID、10 位用户 UID 与 10 位群号生成
 │   ├── jwt/                               # access token / refresh token
+│   ├── knowledgeclient/                   # knowledge-service RPC 客户端、稳定契约和视图模型
 │   ├── logger/                            # Zap 日志，本地 INFO/ERR 文件输出
 │   ├── outbox/                            # 事务 Outbox 事实表与事件发布
 │   ├── password/                          # bcrypt 密码哈希
@@ -73,6 +76,8 @@ ClaranAIM/
 │   ├── file.thrift
 │   ├── bot.thrift
 │   ├── bot_runtime.thrift
+│   ├── knowledge.thrift                   # 知识图谱可视化查询 RPC 契约
+│   ├── rag.thrift
 │   └── settings.thrift
 ├── kitex_gen/                             # Kitex 根据 IDL 生成的 Go 代码
 │   ├── user/
@@ -80,7 +85,9 @@ ClaranAIM/
 │   ├── message/
 │   ├── file/
 │   ├── bot/                               # 历史 Kitex 生成包名，业务语义已迁移为 Agent
-│   └── bot_runtime/
+│   ├── bot_runtime/
+│   ├── knowledge/
+│   └── rag/
 ├── config/                                # 各服务 YAML 配置
 │   ├── config.yaml                        # 默认/示例公共配置
 │   ├── api-gateway.yaml
@@ -93,7 +100,9 @@ ClaranAIM/
 │   ├── msg-history-service.yaml
 │   ├── file-service.yaml
 │   ├── agent-manager-service.yaml
-│   └── agent-runtime-service.yaml
+│   ├── agent-runtime-service.yaml
+│   ├── rag-service.yaml
+│   └── knowledge-service.yaml
 ├── dist/                                  # 前端静态页面
 │   ├── index.html
 │   ├── css/
@@ -125,6 +134,8 @@ Agent 触发规则说明：前端“Agent 触发规则”使用 `/agent/route/*`
 
 Agent 运行配置说明：创建或编辑 Agent 时可以配置“会话上下文条数”“记忆召回条数”“最大输出 Token”“创造性”“群聊触发方式”和“自动回复开关”。这些配置会写入 agent-manager-service 的 Agent 配置表，并随 RPC 传给 agent-runtime-service；网关执行总结、问答、洞察等会话感知任务时，会优先按该 Agent 的 `context_message_limit` 从 msg-core-service 读取历史消息。
 
+知识图谱服务说明：`rag-service` 负责文档解析、父子 chunk、embedding、Hybrid Search、GraphRAG 实体/关系/社区数据构建；`knowledge-service` 负责面向前端的图谱查询、筛选、节点详情、关系详情和可视化属性计算。当前浏览器访问 `/api/v1/knowledge/*`，api-gateway 通过 `pkg/knowledgeclient.RPCClient` 调用独立 Kitex `knowledge-service`；knowledge-service 再通过 RPC 调用 rag-service 读取当前用户可见的 GraphRAG 子图。
+
 ## 快速启动
 
 ```bash
@@ -142,13 +153,40 @@ scripts\start.bat
 # 浏览器打开 dist/index.html
 ```
 
+## Adaptive RAG
+现在支持的路线：
+
+- direct：简单问题，不检索。
+- project_rag：普通项目/知识库问题，走项目文档和代码 chunk。
+- strict_rag：复杂/高风险问题，走 Hybrid + Rerank + CRAG + Self-RAG。
+- web_rag：实时/最新问题。当前返回 Web RAG 路由提示，真正 Web Search 由 agent-runtime 工具链执行。
+- memory_rag：私有记忆问题。当前 memory-service 还没接 RAG/Milvus，所以返回 memory 路由提示。
+- tool_action：执行动作，不走 RAG，交给 Agent 工具审批/执行链路。 
+
+LLM Router 输出类似：
+
+```json
+{
+  "route": "project_rag",
+  "complexity": "medium",
+  "need_retrieve": true,
+  "sources": ["project_docs", "code_chunks"],
+  "strategy": "hybrid_rerank",
+  "mode": "hybrid",
+  "retrieval_source": "project_docs",
+  "query": "agent_dispatch_records event_id agent_user_id",
+  "reason": "问题依赖当前项目内部实现"
+}
+```
+
+## Knowledge Graph 可视化
+
+知识图谱页面面向“看懂项目和知识关系”设计，不替代 RAG 检索。它复用 GraphRAG 的实体、关系、社区摘要和证据来源，提供一个可拖拽、可缩放、可筛选的关系画布。
+
+- 查询入口：`/api/v1/knowledge/graph`
+- 节点详情：`/api/v1/knowledge/node/:id`
+- 关系详情：`/api/v1/knowledge/edge/:id`
+- 前端能力：搜索节点、按实体类型过滤、按关系类型过滤、按社区过滤、显示一跳/二跳关系、点击节点/边查看说明与证据、重置视图、适配 G6 不可用时的 SVG 降级。
+- 数据边界：GraphRAG indexing、实体抽取、关系抽取和社区摘要仍属于 rag-service；knowledge-service 只做查询视图与可视化 DTO，避免把索引和展示耦合在一起。
+
 ## to fix list
-- agent说话时会连续输出两次内容
-- agent聊天框无法渲染md的表格
-- 最小 Action Card 渲染协议疑似未能生效，我刚刚并没有看见
-- 现在agent为我生成的代码文件仍然在根目录，我需要在/agent/files中
-- 支持配置agent工作目录
-- 我希望好友界面的分组也能像会话界面一样有分类下拉列表
-
-- 现在实现的agent-im-native，会在每次发送消息或者编辑消息时都发送事件供agent拉取，可能会带来非不要的性能开销，后续需要考虑优化。但同时为了保持项目特色，也可以考虑每次或一定量的im变更触发agent的思考
-

@@ -138,6 +138,8 @@ struct AgentSkill {
     9: string source_type
     10: bool is_default
     11: bool enabled
+    12: string summary
+    13: string content
 }
 
 struct SaveSkillReq {
@@ -173,6 +175,31 @@ struct ListSkillsResp {
     3: string msg
 }
 
+struct GetSkillReq {
+    1: i64 user_id
+    2: i64 skill_id
+}
+
+struct GetSkillResp {
+    1: bool success
+    2: AgentSkill skill
+    3: string msg
+}
+
+struct UpdateSkillContentReq {
+    1: i64 user_id
+    2: i64 skill_id
+    3: string name
+    4: string description
+    5: binary content
+}
+
+struct UpdateSkillContentResp {
+    1: bool success
+    2: AgentSkill skill
+    3: string msg
+}
+
 struct DeleteSkillReq {
     1: i64 user_id
     2: i64 skill_id
@@ -193,5 +220,7 @@ service SettingsService {
     ResolveLLMProfileResp ResolveLLMProfile(1: ResolveLLMProfileReq req)
     SaveSkillResp SaveSkill(1: SaveSkillReq req)
     ListSkillsResp ListSkills(1: ListSkillsReq req)
+    GetSkillResp GetSkill(1: GetSkillReq req)
+    UpdateSkillContentResp UpdateSkillContent(1: UpdateSkillContentReq req)
     DeleteSkillResp DeleteSkill(1: DeleteSkillReq req)
 }

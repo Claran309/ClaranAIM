@@ -49,6 +49,10 @@ func main() {
 	health.CheckMySQL(sqlDB, "msg-core-service")
 
 	msgRepo := dao.NewMessageRepo(db)
+	if err := eventbus.AutoMigrateReliabilityStore(db); err != nil {
+		logger.Fatal("初始化事件消费可靠性表失败", "error", err)
+	}
+	reliabilityStore := eventbus.NewGormReliabilityStore(db)
 
 	var redisClient *redis.RedisClient
 	if cfg.Redis.Addr != "" {
@@ -101,7 +105,7 @@ func main() {
 	if cfg.Kafka.Enabled && len(cfg.Kafka.Brokers) > 0 {
 		consumer := eventbus.NewKafkaConsumer(cfg.Kafka.Brokers, events.TopicGroupEvents, "msg-core-service")
 		defer consumer.Close()
-		eventconsumer.StartGroupEventConsumer(context.Background(), consumer, msgService)
+		eventconsumer.StartGroupEventConsumerWithReliability(context.Background(), consumer, msgService, reliabilityStore)
 		logger.Info("Kafka群组事件消费已启用", "topic", events.TopicGroupEvents)
 	}
 

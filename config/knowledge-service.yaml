@@ -1,0 +1,14 @@
+service:
+  name: "knowledge-service"
+  address: "127.0.0.1:9013"
+
+etcd:
+  endpoints: []
+
+governance:
+  rpc:
+    timeout_ms: 10000
+    circuit_breaker: true
+    max_connections: 1000
+    max_qps: 1000
+

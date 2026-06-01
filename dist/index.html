@@ -66,6 +66,7 @@
                     <button class="sidebar-tab" onclick="switchSidebar('friends', this)">好友</button>
                     <button class="sidebar-tab" onclick="switchSidebar('groups', this)">群组</button>
                     <button class="sidebar-tab" onclick="switchSidebar('bots', this)">助手</button>
+                    <button class="sidebar-tab" onclick="switchSidebar('knowledge', this)">知识</button>
                 </div>
                 <div id="conversations-panel" class="sidebar-panel active">
                     <div class="panel-header">
@@ -97,8 +98,20 @@
                     </div>
                     <div class="panel-subactions">
                         <button class="btn-small ghost" onclick="showMemoryManager()">记忆管理</button>
+                        <button class="btn-small ghost" onclick="showSkillManager()">Skill 管理</button>
                     </div>
                     <div id="bot-list" class="list-container"></div>
+                </div>
+                <div id="knowledge-panel" class="sidebar-panel">
+                    <div class="panel-header">
+                        <span>知识库</span>
+                        <button class="btn-small" onclick="showRAGWorkspace()">打开</button>
+                    </div>
+                    <div class="panel-subactions">
+                        <button class="btn-small ghost" onclick="showRAGWorkspace('ingest')">录入知识</button>
+                        <button class="btn-small ghost" onclick="showKnowledgeGraphWorkspace()">知识图谱</button>
+                    </div>
+                    <div id="knowledge-list" class="list-container"></div>
                 </div>
             </div>
 
@@ -189,6 +202,7 @@
 
     <div id="toast-container" class="toast-container"></div>
 
+    <script src="https://unpkg.com/@antv/g6@4.8.24/dist/g6.min.js"></script>
     <script src="js/api.js"></script>
     <script src="js/app.js"></script>
 </body>

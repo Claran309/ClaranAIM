@@ -2,14 +2,18 @@ package main
 
 import (
 	"ClaranAIM/internal/agent-runtime-service/handler"
+	"ClaranAIM/internal/agent-runtime-service/logic"
 	"ClaranAIM/internal/agent-runtime-service/service"
 	"ClaranAIM/kitex_gen/bot_runtime/botruntimeservice"
+	"ClaranAIM/kitex_gen/rag/ragservice"
 	"ClaranAIM/pkg/config"
 	"ClaranAIM/pkg/governance"
 	"ClaranAIM/pkg/health"
 	"ClaranAIM/pkg/logger"
+	"ClaranAIM/pkg/ragclient"
 	"net"
 
+	"github.com/cloudwego/kitex/client"
 	"github.com/cloudwego/kitex/pkg/rpcinfo"
 	"github.com/cloudwego/kitex/pkg/transmeta"
 	"github.com/cloudwego/kitex/server"
@@ -39,6 +43,20 @@ func main() {
 		logger.Fatal("创建etcd注册中心失败", "error", err)
 	}
 	health.CheckEtcd(cfg.Etcd.Endpoints, "agent-runtime-service")
+	if resolver, err := etcd.NewEtcdResolver(cfg.Etcd.Endpoints); err == nil {
+		ragRPCClient, cliErr := ragservice.NewClient(
+			"rag-service",
+			append([]client.Option{client.WithResolver(resolver)}, governance.ClientOptions(cfg.Governance.RPC)...)...,
+		)
+		if cliErr != nil {
+			logger.Warn("创建rag-service客户端失败，Agent知识库工具将不可用", "error", cliErr)
+		} else {
+			logic.SetRAGService(ragclient.NewRPCClient(ragRPCClient))
+			logger.Info("Agent知识库工具已连接rag-service")
+		}
+	} else {
+		logger.Warn("创建etcd resolver失败，Agent知识库工具将不可用", "error", err)
+	}
 
 	addr, err := net.ResolveTCPAddr("tcp", cfg.Service.Address)
 	if err != nil {

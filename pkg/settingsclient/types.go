@@ -6,6 +6,7 @@ import "context"
 // 其中 APIKeyAction* 不能随意改名，前端和网关依赖它区分“保留原密钥、覆盖密钥、清空密钥”三种敏感操作。
 const (
 	ProviderTranslate      = "translation"
+	ProviderRAGRouter      = "rag_router"
 	DefaultTranslatePrompt = "请将下面内容翻译成中文。只输出译文，保留代码、链接、数字、专有名词和 Markdown 结构。"
 
 	SkillScopeGlobal = "global"
@@ -54,6 +55,8 @@ type AgentSkill struct {
 	SourceType  string `json:"source_type"`
 	IsDefault   bool   `json:"is_default"`
 	Enabled     bool   `json:"enabled"`
+	Summary     string `json:"summary,omitempty"`
+	Content     string `json:"content,omitempty"`
 }
 
 // SaveLLMProfileInput 表示保存 LLM profile 的入参。
@@ -123,6 +126,8 @@ type Service interface {
 	ResolveTranslationConfig(ctx context.Context, ownerID int64) (ResolvedLLMConfig, error)
 	ResolveLLMProfile(ctx context.Context, ownerID, profileID int64) (ResolvedLLMConfig, error)
 	SaveSkill(ctx context.Context, ownerID int64, input SaveSkillInput) (*AgentSkill, error)
+	GetSkill(ctx context.Context, ownerID, skillID int64) (*AgentSkill, error)
+	UpdateSkillContent(ctx context.Context, ownerID, skillID int64, name, description string, content []byte) (*AgentSkill, error)
 	ListSkills(ctx context.Context, ownerID int64, scope string, agentID int64) ([]AgentSkill, error)
 	DeleteSkill(ctx context.Context, ownerID, skillID int64) error
 }

@@ -157,6 +157,33 @@ func (AgentAuditRecord) TableName() string {
 	return "agent_audit_records"
 }
 
+// AgentTask 记录一次 Agent 工作任务的生命周期。
+// 当前事件 consumer 仍同步调用 runtime，但会先写 task 状态；后续可平滑改成 runtime 异步领取任务。
+type AgentTask struct {
+	ID             int64      `json:"id" gorm:"primaryKey;autoIncrement:false"`
+	BotID          int64      `json:"bot_id" gorm:"index;not null"`
+	AgentUserID    int64      `json:"agent_user_id" gorm:"index;not null"`
+	ConversationID int64      `json:"conversation_id" gorm:"index;not null"`
+	TriggerUserID  int64      `json:"trigger_user_id" gorm:"index;not null"`
+	SourceEventID  string     `json:"source_event_id" gorm:"size:100;uniqueIndex;not null"`
+	TraceID        string     `json:"trace_id" gorm:"size:100;index"`
+	EventType      string     `json:"event_type" gorm:"size:80;index"`
+	Status         string     `json:"status" gorm:"size:30;index;not null;default:queued"`
+	ErrorMessage   string     `json:"error_message" gorm:"type:text"`
+	HeartbeatAt    *time.Time `json:"heartbeat_at"`
+	CompletedAt    *time.Time `json:"completed_at"`
+	CreatedAt      time.Time  `json:"created_at" gorm:"autoCreateTime"`
+	UpdatedAt      time.Time  `json:"updated_at" gorm:"autoUpdateTime"`
+}
+
+func (t *AgentTask) BeforeCreate(tx *gorm.DB) error {
+	return fillSnowflakeID(&t.ID)
+}
+
+func (AgentTask) TableName() string {
+	return "agent_tasks"
+}
+
 // BeforeCreate 在插入权限记录前补充分布式雪花 ID。
 func (p *BotPermission) BeforeCreate(tx *gorm.DB) error {
 	return fillSnowflakeID(&p.ID)

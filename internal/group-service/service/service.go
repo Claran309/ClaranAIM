@@ -5,13 +5,13 @@ package service
 import (
 	"ClaranAIM/internal/group-service/dao"
 	"ClaranAIM/internal/group-service/model"
+	"ClaranAIM/pkg/cache"
 	"ClaranAIM/pkg/cache/redis"
 	"ClaranAIM/pkg/events"
 	"ClaranAIM/pkg/idgen"
 	"ClaranAIM/pkg/outbox"
 	"context"
 	"errors"
-	"fmt"
 	"strconv"
 	"time"
 )
@@ -223,9 +223,9 @@ func (s *groupServiceImpl) GetGroup(ctx context.Context, groupID int64) (*model.
 	if s.redis != nil {
 		// CacheAsideJSON 对未命中写空值标记，并给 TTL 加随机抖动。
 		// 这样不存在的群号不会反复穿透到数据库，也能降低同批缓存同时过期的风险。
-		cacheKey := fmt.Sprintf("group:info:%d", groupID)
+		policy := cache.GroupInfoPolicy(groupID)
 		var cached model.Group
-		found, err := s.redis.CacheAsideJSON(ctx, cacheKey, &cached, 15*time.Minute, func(ctx context.Context) (interface{}, bool, error) {
+		found, err := s.redis.CacheAsideJSON(ctx, policy.Key, &cached, policy.TTL, func(ctx context.Context) (interface{}, bool, error) {
 			group, err := s.repo.GetGroupByID(ctx, groupID)
 			if err != nil {
 				return nil, false, err
@@ -257,9 +257,9 @@ func (s *groupServiceImpl) GetGroup(ctx context.Context, groupID int64) (*model.
 // GetUserGroups 获取用户所在的所有群组
 func (s *groupServiceImpl) GetUserGroups(ctx context.Context, userID int64) ([]model.Group, error) {
 	if s.redis != nil {
-		cacheKey := fmt.Sprintf("user:groups:%d", userID)
+		policy := cache.UserGroupsPolicy(userID)
 		var cached []model.Group
-		hit, err := s.redis.GetJSON(ctx, cacheKey, &cached)
+		hit, err := s.redis.GetJSON(ctx, policy.Key, &cached)
 		if err == nil && hit != "" {
 			if s.redis.IsNullHit(hit) {
 				return nil, nil
@@ -274,11 +274,11 @@ func (s *groupServiceImpl) GetUserGroups(ctx context.Context, userID int64) ([]m
 	}
 
 	if s.redis != nil {
-		cacheKey := fmt.Sprintf("user:groups:%d", userID)
+		policy := cache.UserGroupsPolicy(userID)
 		if len(groups) == 0 {
-			s.redis.SetNull(ctx, cacheKey, time.Minute, 30*time.Second)
+			s.redis.SetNull(ctx, policy.Key, policy.NullTTL, policy.NullJitter)
 		} else {
-			s.redis.SetJSONWithJitter(ctx, cacheKey, groups, 5*time.Minute, 30*time.Second)
+			s.redis.SetJSONWithJitter(ctx, policy.Key, groups, policy.TTL, policy.Jitter)
 		}
 	}
 
@@ -456,9 +456,9 @@ func (s *groupServiceImpl) GetGroupMembers(ctx context.Context, groupID int64) (
 	}
 
 	if s.redis != nil {
-		cacheKey := fmt.Sprintf("group:members:%d", groupID)
+		policy := cache.GroupMembersPolicy(groupID)
 		var cached []model.GroupMember
-		hit, err := s.redis.GetJSON(ctx, cacheKey, &cached)
+		hit, err := s.redis.GetJSON(ctx, policy.Key, &cached)
 		if err == nil && hit != "" {
 			if s.redis.IsNullHit(hit) {
 				return nil, nil
@@ -473,11 +473,11 @@ func (s *groupServiceImpl) GetGroupMembers(ctx context.Context, groupID int64) (
 	}
 
 	if s.redis != nil {
-		cacheKey := fmt.Sprintf("group:members:%d", groupID)
+		policy := cache.GroupMembersPolicy(groupID)
 		if len(members) == 0 {
-			s.redis.SetNull(ctx, cacheKey, time.Minute, 30*time.Second)
+			s.redis.SetNull(ctx, policy.Key, policy.NullTTL, policy.NullJitter)
 		} else {
-			s.redis.SetJSONWithJitter(ctx, cacheKey, members, 10*time.Minute, time.Minute)
+			s.redis.SetJSONWithJitter(ctx, policy.Key, members, policy.TTL, policy.Jitter)
 		}
 	}
 
@@ -596,7 +596,7 @@ func (s *groupServiceImpl) invalidateGroupCache(ctx context.Context, groupID int
 	if s.redis == nil {
 		return
 	}
-	s.redis.Del(ctx, fmt.Sprintf("group:info:%d", groupID))
+	s.redis.Del(ctx, cache.GroupInfoPolicy(groupID).Key)
 }
 
 // invalidateGroupMembersCache 删除群成员缓存；邀请、踢人、禁言、角色变化后都必须调用。
@@ -604,7 +604,7 @@ func (s *groupServiceImpl) invalidateGroupMembersCache(ctx context.Context, grou
 	if s.redis == nil {
 		return
 	}
-	s.redis.Del(ctx, fmt.Sprintf("group:members:%d", groupID))
+	s.redis.Del(ctx, cache.GroupMembersPolicy(groupID).Key)
 }
 
 // invalidateUserGroupsCache 删除用户所在群列表缓存，确保侧边栏能看到最新入群/退群结果。
@@ -612,7 +612,7 @@ func (s *groupServiceImpl) invalidateUserGroupsCache(ctx context.Context, userID
 	if s.redis == nil {
 		return
 	}
-	s.redis.Del(ctx, fmt.Sprintf("user:groups:%d", userID))
+	s.redis.Del(ctx, cache.UserGroupsPolicy(userID).Key)
 }
 
 // saveGroupEvent 将群领域事件写入事务 Outbox。

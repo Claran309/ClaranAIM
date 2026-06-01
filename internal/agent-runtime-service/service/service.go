@@ -4,6 +4,7 @@ package service
 import (
 	"ClaranAIM/internal/agent-runtime-service/agent"
 	"ClaranAIM/internal/agent-runtime-service/component"
+	"ClaranAIM/internal/agent-runtime-service/logic"
 	"ClaranAIM/kitex_gen/bot_runtime"
 	"context"
 	"crypto/sha256"
@@ -106,7 +107,8 @@ func (s *runtimeServiceImpl) runAgent(ctx context.Context, req *bot_runtime.RunA
 	}
 	inputMsgs = append(inputMsgs, userMsg)
 
-	iter := ag.Run(ctx, &adk.AgentInput{Messages: inputMsgs})
+	runCtx := logic.WithRAGRuntimeContext(ctx, req.UserId, req.ConversationId)
+	iter := ag.Run(runCtx, &adk.AgentInput{Messages: inputMsgs})
 	var collector replyCollector
 	var usage tokenUsage
 	for {

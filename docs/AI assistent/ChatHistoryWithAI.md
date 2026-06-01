@@ -601,3 +601,702 @@ Phase 4：Agent 记忆与用户/群画像
 在配置的地方，应该还要有更多的可配置项，例如agent读取的会话上下文数量
 
 重写D:\CodeStudy\GoProjects\src\ClaranAIM\internal\agent-manager-service\agent\prompt.go的相关Prompt，目前的prompt是阿米娅，因为agent的核心代码是我从另一个项目里复制过来的。现在你要全面重写相关提示词，让agent的人设编委ClaranAIM中的会话助手和工具人，并重写相关tool，之前的tool全是明日方舟相关的东西，现在写成一个标准的会话助手和工具人适配的tool。另外，其他与明日方舟相关的特色功能都要改成通用功能。好，还有在配置的地方，应该还要有更多的可配置项，例如agent读取的会话上下文数量
+
+## 4.6
+- 记忆管理的前端页面不好看，可以不做成卡片
+- 触发规则设置界面同理
+- 当用户多次向同一agent触发（且agent正在思考），agent会等待且正常工作，但前端不显示思考中的消息气泡。
+- skill应该有单独的配置界面，不要和其他配置在一个界面，并且skill上传后应该能提取并显示该skill摘要，并且可以直接在前端修改skill内容
+- 给agent写skill-creator Tool
+- agent无法正常识别skill
+- agent完成任务的横幅条会错误地显示在其他页面
+- 添加LLM预设也应该可以选择内置的agent
+- 请检查用户能否自己配置agent，也就是自己用自己的apikey和baseurl
+
+# Phase 5 RAG
+## 5.1
+现在我想集成milvus做完整的RAG功能，做到rag-service，要包含以下内容：
+- 完整的rag基础功能
+- Hybrid Search 替代纯向量搜索
+- 层级索引（大范围召回-精确搜索-根据质量决胜）
+- Reranking ，做法是在检索和生成之间加一个精排步骤：用 Reranker 模型给每对 (query, doc) 重新打分
+- Corrective RAG（CRAG）CRAG 就是 把搜到的资料过滤一遍
+在检索和生成之间插一个质检员，逐个审查检索到的文档是否和问题相关，然后根据审查结果走不同的分支
+打分高的，说明资料靠谱，直接喂给大模型生成答案
+打分低的，说明内部知识库里压根没找着相关内容，干脆回退到 Web 搜索兜底
+打分模糊的，就两边的结果合一起送进去
+- Self-RAG 的思路是在整个流程中设置四个检查点，每一步都让模型自我审视：
+
+这个问题需要检索吗（Retrieve）？
+检索到的文档相关吗（IsRel）？
+我的回答有文档支撑吗（IsSup）？
+这个答案对用户有用吗（IsUse）？
+- CRAG 和 Self-RAG 都在给 RAG 加流程来解决问题，但这样多了好几次 LLM 调用，增加了成本，Adaptive RAG 在最前面加了一个路由器（分类器），先判断问题的复杂度，然后决定走哪条路线
+- 最重要的：GraphRAG，知识图谱：先把文档变成知识图谱，再基于图谱来检索和推理：用 LLM 逐篇读文档，抽取里面的实体（人、部门、产品等）和关系，构建成一张图谱
+用 Leiden 算法对图谱做社区划分，把关联紧密的实体聚成一团，然后让 LLM 为每个社区生成一段摘要
+提问时先定位到相关实体，沿着关系拿到子图
+- Text-to-SQL RAG
+如果我们的数据本身就是结构化的表格，比如销售数据、用户行为日志、财务报表这些，就不合适传统的 RAG 了，因为对表格数据做 embedding 是非常低效的。
+
+用户问：“上个月销售额最高的产品是哪个？”
+
+这本质上就是一条 SQL，向量搜索对这种聚合、排序、筛选类的需求完全没招。
+
+Text-to-SQL RAG 的做法是让 LLM 直接把自然语言翻译成 SQL，执行查询，再把查询结果作为上下文来回答
+- 前面每种方法都有自己擅长的场景：Hybrid Search 擅长术语密集的文档，GraphRAG 擅长多跳推理，Text-to-SQL 擅长结构化数据。
+
+但在一个真实的系统中，这些场景可能同时存在.Agentic RAG 的做法是让一个 AI Agent 来自动调度，根据问题自主决定每一步该怎么做。给这个 Agent 配备一组检索工具，它会先搜搜看 → 看看结果够不够 → 不够就换个方式 / 换个关键词再搜 → 结果够了就生成回答
+
+请选择合适的rag方法完善rag功能，但是必须要有graphrag
+
+另外，既然要做graphrag，那也要做用户可视化的知识图谱功能，前端要展示rag的知识图谱
+
+我的milvus镜像由本地目录的./deployment/docker/milvus构成，你可以在这里查询milvus镜像数据
+
+做完所有内容后记得为我生成工作文档，在update下
+
+## 5.2
+再此检查当前rag功能，用户可以上传txt，pdf等文件构建知识库或者知识图谱，要确保后端能正确解析切片这些不同类型的文档。另外，我新建了一个apikey用来当embedding模型，(apikey省略)，记得放到env里，这个apikey对应的是我买的glm embedding3 的资源包，如图所示，url是https://open.bigmodel.cn/api/paas/v4/embeddings，curl示例为**********
+
+有关Milvus 部分，你说版本不对，那么你可以降低Milvus SDK本地缓存的版本，不用我规定的版本。另外，在self-rag部分怎么做的？我希望用llm-router小模型来判断是否需要rag
+
+小模型用.env里面现在正在用的llm的apikey，并在配置部分做用户可自由配置小模型/默认使用项目内置小模型，并再此检查rag部分是否可用
+
+## 5.3
+当前的hybrid search是怎么做的？我期望的是dense+BM25，并用RRF，Reciprocal Rank Fusion方式合并二者结果
+
+我现在的分层索引和大小chunk是怎么做的？我期望的是大小chunk分层，检索时用小 chunk，精准回答时用大 chunk，完整 这比直接用大 chunk 检索更好。只检索小 chunk，返回父 chunk
+
+这是最常见、最推荐的。
+
+检索单位：小 chunk
+返回上下文：父 chunk 或相邻小 chunk
+流程：
+
+query
+  -> search level=child
+  -> top child chunks
+  -> group by parent_chunk_id
+  -> 取 parent summery 内容 
+  -> 放进 prompt
+
+在大chunk分出是，生成对应的 summary（用小模型）。比如 parent chunk 很长，不适合直接塞 prompt，你可以提前生成parent_summary
+
+另外，针对不同的文档，我期望的分片方式是：
+Markdown 文档
+
+按标题切：
+
+ 一级标题 -> document
+ 二级标题 -> parent chunk
+ 三级标题/段落 -> child chunk
+PDF / Word
+
+先解析成结构化文本，再按标题/段落切。标题识别不准时，按段落 + token 长度切。
+
+代码文件
+
+不要按固定字数切。按结构切：
+
+package/import 简要
+type struct
+interface
+function
+method
+关键注释
+例如 Go：
+
+func SendMessageExt(...)
+应该作为一个 chunk，别从函数中间切开。
+
+如果函数太长：
+
+按逻辑块切：校验、事务写入、缓存失效、事件发布
+聊天记录
+
+按时间窗口和话题切：
+
+连续 10-30 条消息一个 parent
+单条/少量消息或摘要一个 child
+聊天记录更适合先做摘要，再向量化摘要。
+
+## 5.4
+当前的rerank是怎么做的？我期望的是Model rerank: 用模型读 query + chunk 后重新打相关性分数。Hybrid Search + RRF
+  -> 得到 top 30
+  -> Model Reranker
+  -> 得到 top 5
+我会给你rerank模型的url：https://open.bigmodel.cn/api/paas/v4/rerank，密钥就用f28---------------u就行，"model": "rerank"，记得放到env里
+
+整合文档解析功能，我会给你GLM-OCR
+
+curl --request POST \ 
+  --url https://open.bigmodel.cn/api/paas/v4/layout_parsing \
+  --header 'Authorization: Bearer <token>' \
+  --header 'Content-Type: application/json' \
+  --data '
+{
+  "model": "glm-ocr",
+  "file": "https://cdn.bigmodel.cn/static/logo/introduction.png"
+}
+'
+
+apikey：d3--------------------------------------
+
+## 5.5
+现在项目里的CRAG是怎么实现的？我期望的是
+一个好的 CRAG evaluator 不只问“相关吗”，而是问四个东西：
+
+1. Relevance：资料是否和问题相关？
+2. Coverage：资料是否覆盖了问题需要的关键点？
+3. Specificity：资料是否足够具体，而不是泛泛相关？
+4. Conflict：资料之间是否互相矛盾？
+
+用户问题
+  -> Router 判断需要 RAG
+  -> Milvus Hybrid Search
+  -> Rerank
+  -> CRAG Evaluator
+       ├─ correct   -> 内部资料回答
+       ├─ incorrect -> Web/询问用户搜索兜底
+       └─ ambiguous -> 内部 + 外部合并
+  -> LLM 生成
+
+在CRAG中，llm可以用来：判断检索结果是否相关evaluator
+{
+  "label": "ambiguous",
+  "score": 0.56,
+  "reason": "资料提到了 Agent 调度，但没有解释 event_id 和 agent_user_id 的业务含义"
+}
+
+CRAG的LLM用复用小模型即可
+
+## 5.6
+当前的self-rag是怎么实现的？我期望的是
+Self-RAG 的四个典型检查点
+
+你之前提到的四个点很关键：
+
+Retrieve：这个问题需要检索吗？
+IsRel：检索到的文档相关吗？
+IsSup：我的回答有文档支撑吗？
+IsUse：这个答案对用户有用吗？
+
+Self-RAG 不是让 LLM 自己随便跑工具
+
+这点很重要。
+
+不要让 LLM 自己无限决定：
+
+我要查 Milvus
+我要查 Web
+我要查数据库
+我要跳过权限
+正确做法是：
+
+LLM 输出结构化判断
+应用代码执行工具调用
+例如：
+
+{
+  "need_retrieve": true,
+  "retrieval_source": "project_docs",
+  "query": "agent_dispatch_records event_id agent_user_id"
+}
+然后你的代码决定：
+
+if decision.NeedRetrieve {
+    chunks := ragService.Search(ctx, decision.Query, userScope)
+}
+LLM 是“判断器”，不是“权限执行者”。
+## 5.7
+当前的GraphRAG是怎么实现的？我期望的是：
+图里有两种核心东西：
+
+实体 Entity
+关系 Relationship
+
+GraphRAG 一般分两条链路：
+
+离线构建 indexing
+在线查询 query
+
+对每个 chunk 调 LLM，让它抽取实体。
+
+Prompt 大概是：
+
+请从下面文本中抽取实体。
+实体类型包括：
+- Service
+- DatabaseTable
+- EventTopic
+- API
+- Module
+- Concept
+- Person
+- Organization
+- Product
+
+返回 JSON：
+{
+  "entities": [
+    {
+      "name": "...",
+      "type": "...",
+      "description": "...",
+      "aliases": []
+    }
+  ]
+}
+示例输出：
+
+{
+  "entities": [
+    {
+      "name": "msg-core-service",
+      "type": "Service",
+      "description": "消息核心服务，负责会话、消息写入、已读游标和 Outbox",
+      "aliases": ["消息核心服务"]
+    },
+    {
+      "name": "event_outbox",
+      "type": "DatabaseTable",
+      "description": "事务 Outbox 表，用于保存待发布事件",
+      "aliases": []
+    }
+  ]
+}
+
+关系抽取
+
+继续让 LLM 抽关系。
+
+Prompt 类似：
+
+基于文本和已抽取实体，抽取实体之间的关系。
+关系类型包括：
+- CALLS
+- PUBLISHES
+- CONSUMES
+- STORES
+- OWNS
+- DEPENDS_ON
+- CONFIGURES
+- TRIGGERS
+- READS
+- WRITES
+
+返回 JSON：
+{
+  "relationships": [
+    {
+      "source": "...",
+      "target": "...",
+      "type": "...",
+      "description": "...",
+      "evidence": "原文证据"
+    }
+  ]
+}
+示例：
+
+{
+  "relationships": [
+    {
+      "source": "msg-core-service",
+      "target": "event_outbox",
+      "type": "WRITES",
+      "description": "msg-core-service 在消息事务中写入 event_outbox",
+      "evidence": "发送消息时同事务写入 messages、message_user_states 和 event_outbox"
+    },
+    {
+      "source": "websocket-gateway",
+      "target": "claran.message.events",
+      "type": "CONSUMES",
+      "description": "websocket-gateway 消费消息事件并推送在线用户",
+      "evidence": "websocket-gateway 消费 claran.message.events"
+    }
+  ]
+}
+实体归一化
+
+这是很重要的一步。
+
+不同 chunk 可能抽出这些名字：
+
+msg-core-service
+消息核心服务
+msg core service
+MessageService
+它们可能指同一个实体。
+
+所以要做 entity resolution：
+
+判断这些实体是不是同一个
+合并 aliases
+保留 canonical name
+可以用：
+
+规则：小写、去符号、别名表
+embedding 相似度
+LLM 判断
+人工审核
+最终得到：
+
+canonical entity:
+  name: msg-core-service
+  aliases:
+    - 消息核心服务
+    - MessageService
+如果不做这步，图谱会碎成一堆重复节点。
+Claran.: 06-01 23:54:00
+构建图
+
+图数据库里保存：
+
+Node: Entity
+Edge: Relationship
+可以用：
+
+Neo4j
+NebulaGraph
+ArangoDB
+PostgreSQL + AGE
+MySQL 表 MVP
+NetworkX 离线图
+MVP 用 MySQL 也可以：
+
+knowledge_entities
+- id
+- name
+- type
+- description
+- aliases_json
+
+knowledge_relationships
+- id
+- source_entity_id
+- target_entity_id
+- relation_type
+- description
+- evidence_chunk_id
+- confidence
+如果你想做图查询更方便，后期再上 Neo4j/NebulaGraph。
+
+Claran.: 06-01 23:54:24
+ Leiden 社区划分是什么
+
+图构建出来后，节点和边会很多。直接拿全图回答问题不现实。
+
+Leiden 算法的作用是：
+
+把图里关联紧密的节点聚成社区 community
+比如项目图谱里可能自动聚出：
+
+社区 1：IM 消息链路
+- msg-core-service
+- messages
+- message_user_states
+- event_outbox
+- claran.message.events
+- websocket-gateway
+
+社区 2：Agent 事件链路
+- agent-manager-service
+- agent-runtime-service
+- agent_subscription_rules
+- agent_dispatch_records
+- claran.im.events
+
+社区 3：Memory/RAG
+- memory-service
+- memory_facts
+- Milvus
+- embedding
+- vector_status
+
+社区 4：文件服务
+- file-service
+- MinIO
+- file metadata
+- OCR
+Leiden 比 Louvain 更稳定一些，常用于社区发现。
+
+你可以理解成：
+
+图谱自动分章节
+
+Claran.: 06-01 23:54:35
+社区摘要是什么
+
+社区划分后，每个社区可能有几十个实体和上百条关系。
+
+不能每次查询都把整个社区塞给 LLM，所以要提前生成摘要：
+
+community_id: 1
+title: IM 消息链路
+summary:
+  本社区描述 ClaranAIM 的消息写入、事件发布和在线推送流程。
+  msg-core-service 是消息事实源，负责写 messages、message_user_states 和 event_outbox。
+  Outbox worker 将 message.created 发布到 claran.message.events。
+  websocket-gateway 消费该 topic 并推送在线连接。
+社区摘要可以分层：
+
+低层社区：具体模块
+中层社区：服务链路
+高层社区：系统域
+这就形成了：
+
+实体
+关系
+社区
+社区摘要
+
+Claran.: 06-01 23:54:46
+查询时怎么用图谱
+
+在线查询大概是：
+
+用户问题
+  -> 实体识别
+  -> 找相关实体
+  -> 扩展子图
+  -> 找相关社区摘要
+  -> 找原文证据 chunks
+  -> LLM 回答
+
+Claran.: 06-01 23:54:58
+步骤一：从问题中识别实体
+
+用户问：
+
+agent_dispatch_records(event_id, agent_user_id) 到底负责什么业务？
+系统识别实体：
+
+agent_dispatch_records
+event_id
+agent_user_id
+Agent
+Kafka
+可以通过：
+
+关键词匹配
+BM25
+实体别名表
+LLM entity linker
+embedding search
+定位到图谱节点：
+
+Entity: agent_dispatch_records
+
+Claran.: 06-01 23:55:20
+沿关系扩展子图
+
+找到实体后，不只是拿这个节点，而是向外走 1-2 跳：
+
+agent_dispatch_records
+  --owned_by-->
+agent-manager-service
+
+agent_dispatch_records
+  --deduplicates-->
+Agent Event Dispatcher
+
+Agent Event Dispatcher
+  --consumes-->
+claran.message.events
+
+Agent Event Dispatcher
+  --calls-->
+agent-runtime-service
+
+Agent Event Dispatcher
+  --writes_reply_to-->
+msg-core-service
+得到一个小子图。
+
+这个子图比普通 chunk 更结构化。
+
+Claran.: 06-01 23:55:31
+步骤三：找社区摘要
+
+这个实体属于某个社区：
+
+社区：Agent 事件调度链路
+取社区摘要：
+
+该社区描述 Agent 如何订阅 IM 事件、判断规则、记录调度幂等、调用 runtime 并写回消息。步骤四：找原文证据
+
+图谱里的关系应该带 evidence：
+
+relationship.evidence_chunk_id
+所以还可以回源拿原文 chunk。
+
+最终上下文可能是：
+
+[社区摘要]
+Agent 事件调度链路...
+
+[子图关系]
+agent-manager-service -> consumes -> claran.message.events
+agent-manager-service -> writes -> agent_dispatch_records
+agent_dispatch_records -> prevents_duplicate_dispatch -> Agent 回复
+
+[原文证据]
+internal/agent-manager-service/eventconsumer/agent_consumer.go ...
+然后 LLM 回答。
+
+Claran.: 06-01 23:55:42
+GraphRAG 和普通 RAG 怎么结合
+
+GraphRAG 不一定替代向量 RAG。更好的方式是混合：
+
+Vector RAG:
+  找语义相近片段
+
+GraphRAG:
+  找实体关系和社区摘要
+
+Hybrid Search:
+  找关键词/字段名
+
+Rerank:
+  重新排序
+
+LLM:
+  综合回答
+查询时可以并行：
+
+query
+  -> vector search topK
+  -> graph search subgraph
+  -> community summary search
+  -> merge context
+  -> rerank / context selection
+  -> answer
+比如用户问：
+
+为什么 memory-service 也要接入向量数据库？
+Vector RAG 找到：
+
+memory-service、vector_status、embedding_ref 相关 chunk
+GraphRAG 找到：
+
+memory-service
+  -> stores -> memory_facts
+  -> indexed_by -> Milvus
+  -> used_by -> agent-manager-service
+  -> injects_context_to -> agent-runtime-service
+两者结合后，答案会更完整。
+
+Claran.: 06-01 23:56:37
+离线社区划分
+
+可以用 Python 跑 NetworkX / igraph / graspologic 做 Leiden。
+
+流程：
+
+从 MySQL 读 entities + relationships
+  -> 构建图
+  -> Leiden 社区划分
+  -> 写 knowledge_communities
+  -> LLM 生成社区摘要
+社区摘要写表：
+
+knowledge_community_summaries
+- community_id
+- level
+- title
+- summary
+- key_entities_json
+
+注意，GraphRAG不应该取代当前的主流RAG，只是作为附属功能或增强功能
+
+## Phase 6: knowledge graph
+## 6.1
+我要做知识图谱可视化：这部分可以单独划分一个微服务：knowledge-service
+本质上与rag-service有关联
+
+最终效果应该是什么
+
+你想做的东西大概长这样：
+
+节点：
+- msg-core-service
+- agent-manager-service
+- event_outbox
+- claran.message.events
+- websocket-gateway
+- Milvus
+- memory-service
+
+边：
+- msg-core-service WRITES event_outbox
+- msg-core-service PUBLISHES claran.message.events
+- websocket-gateway CONSUMES claran.message.events
+- agent-manager-service CALLS agent-runtime-service
+- memory-service INDEXES Milvus
+前端展示：
+
+一个可拖拽、可缩放、可搜索的图
+点击节点 -> 显示实体说明、类型、相关文档、相邻节点
+点击边 -> 显示关系说明、证据来源
+按类型过滤 -> 只看 Service / Table / Topic / Concept
+按社区过滤 -> 只看 Agent 社区 / 消息社区 / RAG 社区
+
+前端图可视化库我建议AntV G6
+如果你前端只是 dist/js/app.js 这种原生 JS 页面，也可以用 CDN 引 G6 或 Cytoscape，先做一个独立页面 图谱可视化交互应该有哪些
+
+MVP 至少做：
+
+搜索节点
+按类型过滤
+拖拽节点
+缩放画布
+点击节点看详情
+点击边看关系说明
+只显示一跳/二跳邻居
+重置视图
+稍微进阶：
+
+社区颜色
+路径高亮
+按关系类型过滤
+节点重要度大小
+证据来源跳转
+例如你点：
+
+agent_dispatch_records
+右侧详情显示：
+
+类型：table
+说明：Agent 调度幂等表
+相关关系：
+- agent-manager-service WRITES agent_dispatch_records
+- agent_dispatch_records DEDUPLICATES Agent dispatch
+- agent_dispatch_records LINKS_TO client_msg_id
+证据：
+- internal/agent-manager-service/eventconsumer/agent_consumer.go
+这对学习项目很有帮助。
+
+和 GraphRAG 怎么衔接
+
+可视化图谱和 GraphRAG 共用同一套底层数据：
+
+knowledge_entities
+knowledge_relationships
+knowledge_communities
+可视化用：
+
+nodes + edges
+GraphRAG 用：
+
+entity linking
+subgraph retrieval
+community summary
+evidence chunks
+所以你现在做可视化，不是额外功能，而是在给 GraphRAG 打底。
+
+注意，我需要精美的前端页面，有足够动效，例如鼠标悬浮在实例上的反馈，或者示例的随机漂浮
+
+## Phase 7: memory&websearch rag
+

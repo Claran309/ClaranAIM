@@ -30,6 +30,11 @@ let agentContextSidebarVisible = false;
 let agentNativeStateByConversation = {};
 let llmProfilesCache = [];
 let messageTranslations = {};
+let ragDocumentsCache = [];
+let ragGraphCache = { nodes: [], edges: [], communities: [] };
+let knowledgeGraphCache = { nodes: [], edges: [], communities: [], stats: {} };
+let knowledgeGraphInstance = null;
+let knowledgeGraphSelected = null;
 const LOCAL_LOG_KEY = 'claran_frontend_logs';
 const LOCAL_LOG_LIMIT = 500;
 
@@ -159,6 +164,16 @@ function toolPolicyLabel(policy) {
 
 function agentSourceLabel(type) {
     return type === 'custom' ? '自定义模型' : '系统模型';
+}
+
+function llmUsageLabel(type) {
+    const labels = {
+        translation: '翻译',
+        rag_router: 'RAG 路由小模型',
+        agent: 'Agent',
+        general: '通用',
+    };
+    return labels[type] || type || '通用';
 }
 
 function routeTypeLabel(type) {
@@ -618,6 +633,11 @@ function agentNativeStatusLabel(status) {
 function renderAgentNativeStatus() {
     const bar = document.getElementById('agent-native-status');
     if (!bar) return;
+    if (currentBotID !== null || !currentConversationID || document.getElementById('chat-area')?.style.display === 'none') {
+        bar.style.display = 'none';
+        bar.innerHTML = '';
+        return;
+    }
     const state = agentNativeStateByConversation[String(currentConversationID || '')];
     const agents = getCurrentConversationAgents();
     if (!state && agents.length === 0) {
@@ -941,6 +961,7 @@ function switchSidebar(panel, btn) {
     if (panel === 'friends') loadFriends();
     if (panel === 'groups') loadGroups();
     if (panel === 'bots') loadBotSidebar();
+    if (panel === 'knowledge') loadKnowledgeSidebar();
 }
 
 function showToast(msg, type = 'info') {
@@ -1188,6 +1209,770 @@ async function loadConversations() {
     } else {
         list.innerHTML = '<div class="empty-tip">暂无会话</div>';
     }
+}
+
+async function loadKnowledgeSidebar() {
+    const list = document.getElementById('knowledge-list');
+    if (!list) return;
+    list.innerHTML = '<div class="empty-tip">加载知识库...</div>';
+    const resp = await ragAPI.documents(10, 0);
+    if (!(resp && resp.code === 0 && resp.data && resp.data.success)) {
+        list.innerHTML = `<div class="empty-tip">知识库不可用<br><small>${escapeHTML(resp?.message || resp?.data?.msg || '请确认 rag-service 已启动')}</small></div>`;
+        return;
+    }
+    ragDocumentsCache = resp.data.documents || [];
+    if (!ragDocumentsCache.length) {
+        list.innerHTML = '<div class="empty-tip">暂无知识<br><small>录入文档后可以做 Hybrid Search 和 GraphRAG。</small></div>';
+        return;
+    }
+    list.innerHTML = ragDocumentsCache.map(doc => `
+        <div class="list-item knowledge-item" onclick="showRAGWorkspace('search', ${jsStringArg(doc.title || '')})">
+            <div class="avatar knowledge-avatar">K</div>
+            <div class="list-item-info">
+                <div class="list-item-top">
+                    <span class="list-item-name">${escapeHTML(doc.title || '未命名知识')}</span>
+                    <span class="list-item-type">${escapeHTML(ragVisibilityLabel(doc.visibility))}</span>
+                </div>
+                <div class="list-item-msg">${escapeHTML(doc.source || doc.source_type || '文本知识')}</div>
+            </div>
+        </div>
+    `).join('');
+}
+
+function ragVisibilityLabel(value) {
+    return {
+        private: '仅自己',
+        public: '公共',
+        shared: '共享',
+    }[value] || value || '仅自己';
+}
+
+function ragRouteLabel(value) {
+    return {
+        adaptive: '自适应',
+        hybrid: '混合检索',
+        graphrag: '知识图谱',
+        text_to_sql: 'Text-to-SQL',
+        direct: '直接回答',
+    }[value] || value || '自适应';
+}
+
+function cragLabel(value) {
+    return {
+        use_internal: '内部知识可用',
+        web_fallback: '建议 Web 兜底',
+        merge_internal_and_web: '内部 + Web 合并',
+        correct: '内部资料充分',
+        incorrect: '需要外部兜底',
+        ambiguous: '内部 + 外部合并',
+        skip_vector: '跳过向量检索',
+    }[value] || value || '未判断';
+}
+
+async function showRAGWorkspace(defaultTab = 'search', seedQuery = '') {
+    currentConversationID = null;
+    currentConversationType = '';
+    document.getElementById('chat-area').style.display = 'none';
+    const welcome = document.getElementById('welcome-area');
+    welcome.style.display = 'flex';
+    welcome.innerHTML = `
+        <div class="rag-workspace">
+            <header class="rag-header">
+                <div>
+                    <h2>知识库与 GraphRAG</h2>
+                    <p>把知识写入 RAG 服务，使用 Hybrid Search、CRAG、自检和知识图谱辅助 Agent 工作。</p>
+                </div>
+                <div class="rag-tabs">
+                    <button id="rag-tab-search" onclick="switchRAGTab('search')">检索问答</button>
+                    <button id="rag-tab-ingest" onclick="switchRAGTab('ingest')">录入知识</button>
+                    <button id="rag-tab-graph" onclick="showKnowledgeGraphWorkspace()">知识图谱</button>
+                </div>
+            </header>
+            <section id="rag-panel-search" class="rag-panel">
+                <div class="rag-query-row">
+                    <input id="rag-query" type="text" placeholder="输入问题，例如：这个项目中 Agent 与 RAG 的关系是什么？" value="${escapeHTML(seedQuery)}">
+                    <select id="rag-mode" class="form-select">
+                        <option value="adaptive">自适应</option>
+                        <option value="hybrid">混合检索</option>
+                        <option value="graphrag">知识图谱</option>
+                        <option value="text_to_sql">Text-to-SQL</option>
+                    </select>
+                    <button class="btn-primary rag-run-btn" onclick="runRAGSearch()">检索</button>
+                </div>
+                <div id="rag-search-result" class="rag-result empty-tip">输入问题后查看答案、来源、CRAG 决策和 Self-RAG 检查点。</div>
+            </section>
+            <section id="rag-panel-ingest" class="rag-panel" style="display:none;">
+                <div class="rag-editor-grid">
+                    <div class="form-group">
+                        <label>标题</label>
+                        <input id="rag-title" type="text" placeholder="例如：项目 RAG 架构说明">
+                    </div>
+                    <div class="form-group">
+                        <label>来源</label>
+                        <input id="rag-source" type="text" placeholder="文件名、URL、会议或群聊来源">
+                    </div>
+                    <div class="form-group">
+                        <label>可见性</label>
+                        <select id="rag-visibility" class="form-select">
+                            <option value="private">仅自己可见</option>
+                            <option value="public">公共知识</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>类型</label>
+                        <select id="rag-source-type" class="form-select">
+                            <option value="text">文本</option>
+                            <option value="markdown">Markdown</option>
+                            <option value="conversation">会话摘要</option>
+                            <option value="file">文件</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>内容</label>
+                    <textarea id="rag-content" rows="12" placeholder="粘贴知识正文。系统会自动分块、抽取实体关系，并写入图谱。"></textarea>
+                </div>
+                <div class="rag-upload-zone">
+                    <input id="rag-file-input" type="file" multiple accept=".txt,.md,.markdown,.mdx,.pdf,.docx,.png,.jpg,.jpeg,.webp,.bmp,.gif,.tif,.tiff,.go,.js,.ts,.tsx,.jsx,.py,.java,.c,.cpp,.cc,.cxx,.h,.hpp,.rs,.sql,.json,.yaml,.yml,.toml,.xml,.html,.css,.scss,.sh,.bat,.ps1,text/plain,text/markdown,text/x-go,application/json,application/pdf,image/png,image/jpeg,image/webp,application/vnd.openxmlformats-officedocument.wordprocessingml.document">
+                    <div>
+                        <strong>上传文件构建知识库</strong>
+                        <p>支持 UTF-8 txt / Markdown / 代码文件 / PDF / docx / 图片。扫描件会尝试使用 GLM-OCR。</p>
+                    </div>
+                    <button class="btn-secondary" onclick="uploadRAGFiles()">上传并入库</button>
+                </div>
+                <div class="modal-actions">
+                    <button class="btn-secondary" onclick="clearRAGIngestForm()">清空</button>
+                    <button class="btn-primary" onclick="ingestRAGDocument()">写入知识库</button>
+                </div>
+                <div id="rag-ingest-result" class="rag-result"></div>
+            </section>
+            <section id="rag-panel-graph" class="rag-panel" style="display:none;">
+                <div class="rag-query-row">
+                    <input id="rag-graph-query" type="text" placeholder="按实体、项目、服务名过滤图谱">
+                    <button class="btn-primary rag-run-btn" onclick="loadRAGGraph()">刷新图谱</button>
+                </div>
+                <div id="rag-graph-summary" class="rag-graph-summary"></div>
+                <div id="rag-graph-view" class="rag-graph-view">加载知识图谱...</div>
+            </section>
+        </div>
+    `;
+    switchRAGTab(defaultTab || 'search');
+    await loadKnowledgeSidebar();
+    if (defaultTab === 'graph') {
+        await loadRAGGraph();
+    }
+}
+
+function switchRAGTab(tab) {
+    ['search', 'ingest', 'graph'].forEach(name => {
+        const panel = document.getElementById(`rag-panel-${name}`);
+        const btn = document.getElementById(`rag-tab-${name}`);
+        if (panel) panel.style.display = name === tab ? 'block' : 'none';
+        if (btn) btn.classList.toggle('active', name === tab);
+    });
+    if (tab === 'graph') loadRAGGraph();
+}
+
+async function ingestRAGDocument() {
+    const data = {
+        title: document.getElementById('rag-title').value.trim(),
+        source: document.getElementById('rag-source').value.trim(),
+        source_type: document.getElementById('rag-source-type').value,
+        visibility: document.getElementById('rag-visibility').value,
+        content: document.getElementById('rag-content').value.trim(),
+    };
+    if (!data.content) {
+        showToast('知识内容不能为空', 'warning');
+        return;
+    }
+    const resultEl = document.getElementById('rag-ingest-result');
+    resultEl.innerHTML = '<div class="empty-tip">正在写入并构建图谱...</div>';
+    const resp = await ragAPI.ingest(data);
+    if (resp && resp.code === 0 && resp.data?.success) {
+        resultEl.innerHTML = `
+            <div class="rag-status-line success">
+                已写入：${escapeHTML(resp.data.document?.title || data.title || '未命名知识')}，
+                分块 ${resp.data.chunk_count || 0}，
+                实体 ${resp.data.entity_count || 0}，
+                关系 ${resp.data.relation_count || 0}
+            </div>
+        `;
+        showToast('知识已写入', 'success');
+        await loadKnowledgeSidebar();
+    } else {
+        resultEl.innerHTML = `<div class="rag-status-line error">${escapeHTML(resp?.message || resp?.data?.msg || '写入失败')}</div>`;
+    }
+}
+
+async function uploadRAGFiles() {
+    const input = document.getElementById('rag-file-input');
+    const files = input?.files || [];
+    if (!files.length) {
+        showToast('请选择 txt、md、pdf 或 docx 文件', 'warning');
+        return;
+    }
+    const resultEl = document.getElementById('rag-ingest-result');
+    resultEl.innerHTML = '<div class="empty-tip">正在解析文件、切片并构建图谱...</div>';
+    const resp = await ragAPI.upload({
+        fileList: files,
+        title: document.getElementById('rag-title')?.value.trim() || '',
+        visibility: document.getElementById('rag-visibility')?.value || 'private',
+        groupID: currentConversationType === 'group' ? (conversationGroupMap[currentConversationID] || '') : '',
+        conversationID: currentConversationID || '',
+    });
+    if (resp && resp.code === 0 && resp.data?.success) {
+        const rows = (resp.data.files || []).map(item => `
+            <div class="rag-status-line ${item.success ? 'success' : 'error'}">
+                ${escapeHTML(item.file_name || '')}：
+                ${item.success ? `分块 ${item.chunk_count || 0}，实体 ${item.entity_count || 0}，关系 ${item.relation_count || 0}` : escapeHTML(item.msg || '解析失败')}
+            </div>
+        `).join('');
+        resultEl.innerHTML = rows || '<div class="empty-tip">没有处理任何文件。</div>';
+        showToast('文件处理完成', 'success');
+        await loadKnowledgeSidebar();
+    } else {
+        resultEl.innerHTML = `<div class="rag-status-line error">${escapeHTML(resp?.message || resp?.data?.msg || '上传失败')}</div>`;
+    }
+}
+
+function clearRAGIngestForm() {
+    ['rag-title', 'rag-source', 'rag-content'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.value = '';
+    });
+}
+
+async function runRAGSearch() {
+    const query = document.getElementById('rag-query').value.trim();
+    if (!query) {
+        showToast('请输入问题', 'warning');
+        return;
+    }
+    const resultEl = document.getElementById('rag-search-result');
+    resultEl.innerHTML = '<div class="empty-tip">正在执行 Adaptive RAG...</div>';
+    const resp = await ragAPI.search({
+        query,
+        mode: document.getElementById('rag-mode').value,
+        limit: 8,
+    });
+    if (!(resp && resp.code === 0 && resp.data?.success)) {
+        resultEl.innerHTML = `<div class="rag-status-line error">${escapeHTML(resp?.message || resp?.data?.msg || '检索失败')}</div>`;
+        return;
+    }
+    const data = resp.data;
+    const check = data.self_check || {};
+    resultEl.innerHTML = `
+        <div class="rag-answer">
+            <div class="rag-meta-strip">
+                <span>路线：${escapeHTML(ragRouteLabel(data.route))}</span>
+                <span>CRAG：${escapeHTML(cragLabel(data.crag_action))}</span>
+                <span>Retrieve：${check.retrieve ? '是' : '否'}</span>
+                <span>IsRel：${check.is_rel ? '通过' : '未通过'}</span>
+                <span>IsSup：${check.is_sup ? '通过' : '不足'}</span>
+                <span>IsUse：${check.is_use ? '有用' : '不足'}</span>
+            </div>
+            <div class="rag-answer-text">${renderMarkdownText(data.answer || '')}</div>
+            ${check.note ? `<p class="rag-note">${escapeHTML(check.note)}</p>` : ''}
+        </div>
+        <div class="rag-sources">
+            <h3>来源</h3>
+            ${(data.sources || []).length ? data.sources.map(src => `
+                <div class="data-row">
+                    <div class="data-row-main">
+                        <strong>${escapeHTML(src.title || '未知文档')}</strong>
+                        <span>${renderMarkdownText(src.content || '')}</span>
+                    </div>
+                    <div class="data-row-meta">
+                        <span>score ${Number(src.score || 0).toFixed(3)}</span>
+                        <span>${escapeHTML(src.reason || '')}</span>
+                        <span>${escapeHTML(src.source || '')}</span>
+                    </div>
+                </div>
+            `).join('') : '<div class="empty-tip">没有命中内部来源。</div>'}
+        </div>
+    `;
+    ragGraphCache = { nodes: data.graph_nodes || [], edges: data.graph_edges || [], communities: [] };
+}
+
+async function loadRAGGraph() {
+    const view = document.getElementById('rag-graph-view');
+    if (!view) return;
+    view.innerHTML = '加载知识图谱...';
+    const query = document.getElementById('rag-graph-query')?.value || '';
+    const resp = await ragAPI.graph(query, 120);
+    if (!(resp && resp.code === 0 && resp.data?.success)) {
+        view.innerHTML = `<div class="empty-tip">图谱加载失败<br><small>${escapeHTML(resp?.message || resp?.data?.msg || '')}</small></div>`;
+        return;
+    }
+    ragGraphCache = {
+        nodes: resp.data.nodes || [],
+        edges: resp.data.edges || [],
+        communities: resp.data.communities || [],
+    };
+    renderRAGGraph();
+}
+
+function renderRAGGraph() {
+    const view = document.getElementById('rag-graph-view');
+    const summary = document.getElementById('rag-graph-summary');
+    if (!view) return;
+    const nodes = ragGraphCache.nodes || [];
+    const edges = ragGraphCache.edges || [];
+    const communities = ragGraphCache.communities || [];
+    if (summary) {
+        summary.innerHTML = `
+            <span>实体 ${nodes.length}</span>
+            <span>关系 ${edges.length}</span>
+            <span>社区 ${communities.length}</span>
+            ${communities.slice(0, 4).map(c => `<span>${escapeHTML(c.name || '社区')}：${escapeHTML(c.summary || '')}</span>`).join('')}
+        `;
+    }
+    if (!nodes.length) {
+        view.innerHTML = '<div class="empty-tip">暂无图谱节点<br><small>先录入知识，系统会抽取实体和关系。</small></div>';
+        return;
+    }
+    const width = 920;
+    const height = 560;
+    const centerX = width / 2;
+    const centerY = height / 2;
+    const radius = Math.min(width, height) * 0.36;
+    const positioned = nodes.map((node, idx) => {
+        const angle = (Math.PI * 2 * idx) / Math.max(nodes.length, 1);
+        const scoreOffset = Math.min(44, Math.max(0, Number(node.score || 0) * 12));
+        return {
+            ...node,
+            x: centerX + Math.cos(angle) * (radius - scoreOffset),
+            y: centerY + Math.sin(angle) * (radius - scoreOffset),
+        };
+    });
+    const nodeMap = {};
+    positioned.forEach(n => { nodeMap[String(n.id)] = n; });
+    const edgeHTML = edges.map(edge => {
+        const s = nodeMap[String(edge.source_id)];
+        const t = nodeMap[String(edge.target_id)];
+        if (!s || !t) return '';
+        return `<line x1="${s.x}" y1="${s.y}" x2="${t.x}" y2="${t.y}" class="rag-edge"><title>${escapeHTML(edge.relation || '')}：${escapeHTML(edge.evidence || '')}</title></line>`;
+    }).join('');
+    const nodeHTML = positioned.map(node => `
+        <g class="rag-node" onclick="focusRAGNode(${jsStringArg(node.id)})">
+            <circle cx="${node.x}" cy="${node.y}" r="${Math.max(18, Math.min(34, 18 + Number(node.score || 0) * 5))}" class="rag-node-circle"></circle>
+            <text x="${node.x}" y="${node.y + 4}" text-anchor="middle">${escapeHTML(String(node.name || '').slice(0, 8))}</text>
+            <title>${escapeHTML(node.name || '')} · ${escapeHTML(node.type || 'entity')}\n${escapeHTML(node.summary || '')}</title>
+        </g>
+    `).join('');
+    view.innerHTML = `
+        <svg class="rag-graph-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="知识图谱">
+            <g>${edgeHTML}</g>
+            <g>${nodeHTML}</g>
+        </svg>
+        <div id="rag-node-detail" class="rag-node-detail">点击节点查看实体摘要。</div>
+    `;
+}
+
+function focusRAGNode(nodeID) {
+    const node = (ragGraphCache.nodes || []).find(n => sameID(n.id, nodeID));
+    const detail = document.getElementById('rag-node-detail');
+    if (!node || !detail) return;
+    const related = (ragGraphCache.edges || []).filter(e => sameID(e.source_id, nodeID) || sameID(e.target_id, nodeID));
+    detail.innerHTML = `
+        <strong>${escapeHTML(node.name || '实体')}</strong>
+        <span>${escapeHTML(node.type || 'entity')} · score ${Number(node.score || 0).toFixed(2)}</span>
+        <p>${escapeHTML(node.summary || '暂无摘要')}</p>
+        <small>相关关系：${related.length ? related.map(e => escapeHTML(e.relation || '关联')).join('、') : '暂无'}</small>
+    `;
+}
+
+const knowledgeTypeOptions = ['Service', 'DatabaseTable', 'EventTopic', 'API', 'Module', 'Concept', 'Person', 'Organization', 'Product'];
+const knowledgeRelationOptions = ['CALLS', 'PUBLISHES', 'CONSUMES', 'STORES', 'OWNS', 'DEPENDS_ON', 'CONFIGURES', 'TRIGGERS', 'READS', 'WRITES', 'RELATED_TO'];
+
+async function showKnowledgeGraphWorkspace(seedQuery = '') {
+    currentConversationID = null;
+    currentConversationType = '';
+    document.getElementById('chat-area').style.display = 'none';
+    const welcome = document.getElementById('welcome-area');
+    welcome.style.display = 'flex';
+    welcome.innerHTML = `
+        <div class="knowledge-graph-shell">
+            <section class="knowledge-hero">
+                <div class="knowledge-hero-main">
+                    <span class="knowledge-kicker">Knowledge Graph</span>
+                    <h2>知识图谱实验室</h2>
+                    <p>从 GraphRAG 的实体、关系和社区摘要中观察项目结构。搜索服务、表、Topic 或概念，查看它们如何互相调用、写入、发布和消费。</p>
+                </div>
+                <div class="knowledge-hero-stats" id="knowledge-hero-stats">
+                    <span>实体 0</span><span>关系 0</span><span>社区 0</span>
+                </div>
+            </section>
+            <section class="knowledge-toolbar">
+                <div class="knowledge-search">
+                    <input id="knowledge-query" type="text" placeholder="搜索节点，例如 agent_dispatch_records / msg-core-service" value="${escapeHTML(seedQuery)}" onkeydown="if(event.key==='Enter')loadKnowledgeGraph()">
+                    <button class="btn-primary" onclick="loadKnowledgeGraph()">搜索图谱</button>
+                    <button class="btn-secondary" onclick="resetKnowledgeGraphView()">重置视图</button>
+                </div>
+                <div class="knowledge-filter-row">
+                    <label>实体类型</label>
+                    <div id="knowledge-type-filters" class="knowledge-chip-group">
+                        ${knowledgeTypeOptions.map(type => `<button class="knowledge-chip" data-value="${escapeHTML(type)}" onclick="toggleKnowledgeFilter(this)">${escapeHTML(type)}</button>`).join('')}
+                    </div>
+                </div>
+                <div class="knowledge-filter-row">
+                    <label>关系类型</label>
+                    <div id="knowledge-relation-filters" class="knowledge-chip-group compact">
+                        ${knowledgeRelationOptions.map(type => `<button class="knowledge-chip relation" data-value="${escapeHTML(type)}" onclick="toggleKnowledgeFilter(this)">${escapeHTML(type)}</button>`).join('')}
+                    </div>
+                </div>
+                <div class="knowledge-filter-row split">
+                    <label>邻居深度</label>
+                    <select id="knowledge-hop-select" class="form-select" onchange="loadKnowledgeGraph()">
+                        <option value="1">一跳邻居</option>
+                        <option value="2">二跳邻居</option>
+                    </select>
+                    <label>社区</label>
+                    <select id="knowledge-community-select" class="form-select" onchange="loadKnowledgeGraph()">
+                        <option value="0">全部社区</option>
+                    </select>
+                </div>
+            </section>
+            <section class="knowledge-stage">
+                <div class="knowledge-canvas-card">
+                    <div class="knowledge-canvas-head">
+                        <div id="knowledge-graph-summary" class="knowledge-summary-strip"></div>
+                        <div class="knowledge-layout-actions">
+                            <button class="btn-small ghost" onclick="fitKnowledgeGraph()">适配画布</button>
+                            <button class="btn-small ghost" onclick="highlightKnowledgePath()">高亮路径</button>
+                        </div>
+                    </div>
+                    <div id="knowledge-graph-canvas" class="knowledge-graph-canvas">
+                        <div class="empty-tip">正在加载知识图谱...</div>
+                    </div>
+                </div>
+                <aside id="knowledge-detail-panel" class="knowledge-detail-panel">
+                    <div class="knowledge-detail-empty">
+                        <strong>选择节点或关系</strong>
+                        <span>点击图中的实体可查看说明、相邻节点、相关关系和证据来源。</span>
+                    </div>
+                </aside>
+            </section>
+        </div>
+    `;
+    await loadKnowledgeSidebar();
+    await loadKnowledgeGraph();
+}
+
+function toggleKnowledgeFilter(button) {
+    button.classList.toggle('active');
+    loadKnowledgeGraph();
+}
+
+function selectedKnowledgeFilters(id) {
+    return Array.from(document.querySelectorAll(`#${id} .knowledge-chip.active`)).map(btn => btn.dataset.value).filter(Boolean);
+}
+
+function currentKnowledgeQueryOptions() {
+    return {
+        query: document.getElementById('knowledge-query')?.value.trim() || '',
+        types: selectedKnowledgeFilters('knowledge-type-filters'),
+        relations: selectedKnowledgeFilters('knowledge-relation-filters'),
+        communityID: document.getElementById('knowledge-community-select')?.value || 0,
+        hops: Number(document.getElementById('knowledge-hop-select')?.value || 1),
+        limit: 180,
+    };
+}
+
+async function loadKnowledgeGraph() {
+    const canvas = document.getElementById('knowledge-graph-canvas');
+    if (!canvas) return;
+    canvas.innerHTML = '<div class="empty-tip">正在向 knowledge-service 查询图谱视图...</div>';
+    const resp = await knowledgeAPI.graph(currentKnowledgeQueryOptions());
+    if (!(resp && resp.code === 0 && resp.data?.success)) {
+        canvas.innerHTML = `<div class="empty-tip">图谱加载失败<br><small>${escapeHTML(resp?.message || resp?.data?.msg || '请确认 knowledge-service / rag-service 已启动')}</small></div>`;
+        return;
+    }
+    knowledgeGraphCache = resp.data;
+    syncKnowledgeCommunityOptions(resp.data.communities || []);
+    renderKnowledgeGraph();
+}
+
+function syncKnowledgeCommunityOptions(communities) {
+    const select = document.getElementById('knowledge-community-select');
+    if (!select) return;
+    const current = select.value || '0';
+    select.innerHTML = `<option value="0">全部社区</option>` + communities.map(c => `<option value="${escapeHTML(c.id)}">${escapeHTML(c.name || '未命名社区')}</option>`).join('');
+    select.value = Array.from(select.options).some(opt => opt.value === current) ? current : '0';
+}
+
+function renderKnowledgeGraph() {
+    const data = knowledgeGraphCache || {};
+    const nodes = data.nodes || [];
+    const edges = data.edges || [];
+    const communities = data.communities || [];
+    const stats = data.stats || {};
+    const canvas = document.getElementById('knowledge-graph-canvas');
+    const summary = document.getElementById('knowledge-graph-summary');
+    const heroStats = document.getElementById('knowledge-hero-stats');
+    if (!canvas) return;
+    if (heroStats) {
+        heroStats.innerHTML = `<span>实体 ${stats.node_count ?? nodes.length}</span><span>关系 ${stats.edge_count ?? edges.length}</span><span>社区 ${stats.community_count ?? communities.length}</span>`;
+    }
+    if (summary) {
+        summary.innerHTML = `
+            <span>类型：${(stats.types || []).map(escapeHTML).join(' / ') || '暂无'}</span>
+            <span>关系：${(stats.relations || []).map(escapeHTML).join(' / ') || '暂无'}</span>
+            ${communities.slice(0, 3).map(c => `<span style="--community-color:${escapeHTML(c.color || '#64748b')}">${escapeHTML(c.name || '社区')}</span>`).join('')}
+        `;
+    }
+    if (!nodes.length) {
+        canvas.innerHTML = '<div class="empty-tip">暂无图谱节点<br><small>先上传文档或放宽过滤条件。</small></div>';
+        renderKnowledgeEmptyDetail();
+        return;
+    }
+    if (knowledgeGraphInstance) {
+        knowledgeGraphInstance.destroy();
+        knowledgeGraphInstance = null;
+    }
+    canvas.innerHTML = '<div id="knowledge-g6-container" class="knowledge-g6-container"></div>';
+    if (window.G6) {
+        renderKnowledgeG6(nodes, edges);
+    } else {
+        renderKnowledgeSVGFallback(canvas, nodes, edges);
+    }
+}
+
+function renderKnowledgeG6(nodes, edges) {
+    const container = document.getElementById('knowledge-g6-container');
+    if (!container) return;
+    const width = container.clientWidth || 900;
+    const height = container.clientHeight || 620;
+    const graphData = {
+        nodes: nodes.map(node => ({
+            id: String(node.id),
+            label: node.name,
+            data: node,
+            size: node.size || 34,
+            style: {
+                fill: node.color || '#0ea5e9',
+                stroke: '#ffffff',
+                lineWidth: 2,
+                shadowBlur: 18,
+                shadowColor: 'rgba(15,23,42,0.18)',
+            },
+            labelCfg: {
+                position: 'bottom',
+                style: { fill: '#21312b', fontSize: 12, fontWeight: 700 },
+            },
+        })),
+        edges: edges.map(edge => ({
+            id: String(edge.id),
+            source: String(edge.source_id),
+            target: String(edge.target_id),
+            label: edge.relation,
+            data: edge,
+            style: {
+                stroke: edge.color || '#64748b',
+                lineWidth: Math.max(1.2, Math.min(4, Number(edge.weight || 1) * 2.2)),
+                endArrow: true,
+                opacity: 0.72,
+            },
+            labelCfg: {
+                autoRotate: true,
+                style: { fill: '#52615b', fontSize: 10, background: { fill: '#ffffff', padding: [2, 4, 2, 4], radius: 3 } },
+            },
+        })),
+    };
+    knowledgeGraphInstance = new G6.Graph({
+        container: 'knowledge-g6-container',
+        width,
+        height,
+        fitView: true,
+        fitViewPadding: 42,
+        animate: true,
+        layout: {
+            type: 'force',
+            preventOverlap: true,
+            nodeStrength: -360,
+            edgeStrength: 0.18,
+            linkDistance: 160,
+        },
+        modes: {
+            default: ['drag-canvas', 'zoom-canvas', 'drag-node', 'activate-relations'],
+        },
+        defaultNode: { type: 'circle' },
+        defaultEdge: { type: 'quadratic' },
+        nodeStateStyles: {
+            hover: { lineWidth: 5, shadowBlur: 26 },
+            selected: { lineWidth: 6, stroke: '#d97706' },
+        },
+        edgeStateStyles: {
+            hover: { lineWidth: 4, opacity: 1 },
+            selected: { lineWidth: 5, stroke: '#d97706', opacity: 1 },
+        },
+    });
+    knowledgeGraphInstance.data(graphData);
+    knowledgeGraphInstance.render();
+    knowledgeGraphInstance.on('node:mouseenter', evt => {
+        knowledgeGraphInstance.setItemState(evt.item, 'hover', true);
+        container.classList.add('is-hovering');
+    });
+    knowledgeGraphInstance.on('node:mouseleave', evt => {
+        knowledgeGraphInstance.setItemState(evt.item, 'hover', false);
+        container.classList.remove('is-hovering');
+    });
+    knowledgeGraphInstance.on('edge:mouseenter', evt => knowledgeGraphInstance.setItemState(evt.item, 'hover', true));
+    knowledgeGraphInstance.on('edge:mouseleave', evt => knowledgeGraphInstance.setItemState(evt.item, 'hover', false));
+    knowledgeGraphInstance.on('node:click', evt => {
+        clearKnowledgeGraphSelection();
+        knowledgeGraphInstance.setItemState(evt.item, 'selected', true);
+        const node = evt.item.getModel().data;
+        knowledgeGraphSelected = { type: 'node', id: node.id };
+        renderKnowledgeNodeDetail(node.id);
+    });
+    knowledgeGraphInstance.on('edge:click', evt => {
+        clearKnowledgeGraphSelection();
+        knowledgeGraphInstance.setItemState(evt.item, 'selected', true);
+        const edge = evt.item.getModel().data;
+        knowledgeGraphSelected = { type: 'edge', id: edge.id };
+        renderKnowledgeEdgeDetail(edge.id);
+    });
+}
+
+function clearKnowledgeGraphSelection() {
+    if (!knowledgeGraphInstance) return;
+    knowledgeGraphInstance.getNodes().forEach(item => knowledgeGraphInstance.clearItemStates(item, ['selected']));
+    knowledgeGraphInstance.getEdges().forEach(item => knowledgeGraphInstance.clearItemStates(item, ['selected']));
+}
+
+function renderKnowledgeSVGFallback(canvas, nodes, edges) {
+    const width = 980;
+    const height = 620;
+    const radius = Math.min(width, height) * 0.36;
+    const cx = width / 2;
+    const cy = height / 2;
+    const positioned = nodes.map((node, idx) => {
+        const angle = Math.PI * 2 * idx / Math.max(nodes.length, 1);
+        return { ...node, x: cx + Math.cos(angle) * radius, y: cy + Math.sin(angle) * radius };
+    });
+    const nodeMap = Object.fromEntries(positioned.map(n => [String(n.id), n]));
+    const edgeHTML = edges.map(edge => {
+        const s = nodeMap[String(edge.source_id)];
+        const t = nodeMap[String(edge.target_id)];
+        if (!s || !t) return '';
+        return `<line x1="${s.x}" y1="${s.y}" x2="${t.x}" y2="${t.y}" class="knowledge-svg-edge" onclick="renderKnowledgeEdgeDetail(${jsStringArg(edge.id)})"><title>${escapeHTML(edge.relation || '')}：${escapeHTML(edge.evidence || '')}</title></line>`;
+    }).join('');
+    const nodeHTML = positioned.map(node => `
+        <g class="knowledge-svg-node" onclick="renderKnowledgeNodeDetail(${jsStringArg(node.id)})">
+            <circle cx="${node.x}" cy="${node.y}" r="${Math.max(18, Math.min(42, node.size || 28))}" style="fill:${escapeHTML(node.color || '#0ea5e9')}"></circle>
+            <text x="${node.x}" y="${node.y + 58}" text-anchor="middle">${escapeHTML(String(node.name || '').slice(0, 18))}</text>
+        </g>
+    `).join('');
+    canvas.innerHTML = `<svg class="knowledge-svg-fallback" viewBox="0 0 ${width} ${height}">${edgeHTML}${nodeHTML}</svg>`;
+}
+
+async function renderKnowledgeNodeDetail(nodeID) {
+    const panel = document.getElementById('knowledge-detail-panel');
+    if (!panel) return;
+    panel.innerHTML = '<div class="empty-tip">正在读取节点详情...</div>';
+    const resp = await knowledgeAPI.node(nodeID, currentKnowledgeQueryOptions());
+    if (!(resp && resp.code === 0 && resp.data?.success)) {
+        panel.innerHTML = `<div class="empty-tip">节点详情加载失败<br><small>${escapeHTML(resp?.message || resp?.data?.msg || '')}</small></div>`;
+        return;
+    }
+    const detail = resp.data;
+    const node = detail.node || {};
+    panel.innerHTML = `
+        <div class="knowledge-detail-head">
+            <span class="knowledge-node-dot" style="background:${escapeHTML(node.color || '#0ea5e9')}"></span>
+            <div>
+                <h3>${escapeHTML(node.name || '实体')}</h3>
+                <p>${escapeHTML(node.type || 'Concept')} · 度数 ${node.degree || 0} · score ${Number(node.score || 0).toFixed(2)}</p>
+            </div>
+        </div>
+        <div class="knowledge-detail-section">
+            <strong>实体说明</strong>
+            <p>${escapeHTML(node.summary || '暂无说明')}</p>
+        </div>
+        <div class="knowledge-detail-section">
+            <strong>相邻节点</strong>
+            ${(detail.neighbors || []).length ? detail.neighbors.map(n => `<button class="knowledge-neighbor" onclick="renderKnowledgeNodeDetail(${jsStringArg(n.id)})">${escapeHTML(n.name || '')}<span>${escapeHTML(n.type || '')}</span></button>`).join('') : '<p>暂无相邻节点</p>'}
+        </div>
+        <div class="knowledge-detail-section">
+            <strong>相关关系</strong>
+            ${(detail.relations || []).length ? detail.relations.map(edge => `
+                <button class="knowledge-relation-row" onclick="renderKnowledgeEdgeDetail(${jsStringArg(edge.id)})">
+                    <span>${escapeHTML(edge.relation || 'RELATED_TO')}</span>
+                    <small>${escapeHTML(edge.evidence || edge.description || '')}</small>
+                </button>
+            `).join('') : '<p>暂无关系</p>'}
+        </div>
+    `;
+}
+
+async function renderKnowledgeEdgeDetail(edgeID) {
+    const panel = document.getElementById('knowledge-detail-panel');
+    if (!panel) return;
+    panel.innerHTML = '<div class="empty-tip">正在读取关系详情...</div>';
+    const resp = await knowledgeAPI.edge(edgeID, currentKnowledgeQueryOptions());
+    if (!(resp && resp.code === 0 && resp.data?.success)) {
+        panel.innerHTML = `<div class="empty-tip">关系详情加载失败<br><small>${escapeHTML(resp?.message || resp?.data?.msg || '')}</small></div>`;
+        return;
+    }
+    const detail = resp.data;
+    const edge = detail.edge || {};
+    panel.innerHTML = `
+        <div class="knowledge-detail-head relation">
+            <span class="knowledge-node-dot" style="background:${escapeHTML(edge.color || '#64748b')}"></span>
+            <div>
+                <h3>${escapeHTML(edge.relation || 'RELATED_TO')}</h3>
+                <p>${escapeHTML(detail.source?.name || '源实体')} -> ${escapeHTML(detail.target?.name || '目标实体')}</p>
+            </div>
+        </div>
+        <div class="knowledge-detail-section">
+            <strong>关系说明</strong>
+            <p>${escapeHTML(edge.description || '暂无说明')}</p>
+        </div>
+        <div class="knowledge-detail-section">
+            <strong>证据来源</strong>
+            <pre class="knowledge-evidence">${escapeHTML(edge.evidence || '暂无证据')}</pre>
+        </div>
+        <div class="knowledge-detail-section two-cols">
+            <button class="knowledge-neighbor" onclick="renderKnowledgeNodeDetail(${jsStringArg(detail.source?.id || 0)})">${escapeHTML(detail.source?.name || '源实体')}<span>${escapeHTML(detail.source?.type || '')}</span></button>
+            <button class="knowledge-neighbor" onclick="renderKnowledgeNodeDetail(${jsStringArg(detail.target?.id || 0)})">${escapeHTML(detail.target?.name || '目标实体')}<span>${escapeHTML(detail.target?.type || '')}</span></button>
+        </div>
+    `;
+}
+
+function renderKnowledgeEmptyDetail() {
+    const panel = document.getElementById('knowledge-detail-panel');
+    if (!panel) return;
+    panel.innerHTML = `
+        <div class="knowledge-detail-empty">
+            <strong>没有可展示的实体</strong>
+            <span>可以先录入项目文档，或清空实体类型 / 关系类型过滤条件。</span>
+        </div>
+    `;
+}
+
+function resetKnowledgeGraphView() {
+    const query = document.getElementById('knowledge-query');
+    if (query) query.value = '';
+    document.querySelectorAll('.knowledge-chip.active').forEach(btn => btn.classList.remove('active'));
+    const hops = document.getElementById('knowledge-hop-select');
+    if (hops) hops.value = '1';
+    const community = document.getElementById('knowledge-community-select');
+    if (community) community.value = '0';
+    loadKnowledgeGraph();
+}
+
+function fitKnowledgeGraph() {
+    if (knowledgeGraphInstance) {
+        knowledgeGraphInstance.fitView(42);
+    }
+}
+
+function highlightKnowledgePath() {
+    if (!knowledgeGraphInstance) return;
+    knowledgeGraphInstance.getEdges().forEach((edge, idx) => {
+        knowledgeGraphInstance.setItemState(edge, 'selected', idx < 3);
+    });
 }
 
 function resetChatView(message = '已删除会话，可通过搜索历史消息继续查找内容') {
@@ -1741,10 +2526,14 @@ function shouldExpectAgentReply(conversationID, content, mentionUserIDs = []) {
 
 function addPendingAgentThinking(conversationID, label = '智能助手正在结合会话上下文思考...') {
     const key = String(conversationID || '');
-    if (!key || pendingAgentThinkingByConversation[key]) return;
+    if (!key) return;
     const startedAt = Date.now();
-    const thinkingID = `agent-thinking-${key}-${startedAt}`;
-    pendingAgentThinkingByConversation[key] = { thinkingID, startedAt };
+    const thinkingID = `agent-thinking-${key}-${startedAt}-${Math.random().toString(16).slice(2)}`;
+    const pending = { thinkingID, startedAt };
+    if (!Array.isArray(pendingAgentThinkingByConversation[key])) {
+        pendingAgentThinkingByConversation[key] = [];
+    }
+    pendingAgentThinkingByConversation[key].push(pending);
     if (sameID(currentConversationID, conversationID) && currentBotID === null) {
         appendMessage({
             sender_id: 0,
@@ -1759,10 +2548,15 @@ function addPendingAgentThinking(conversationID, label = '智能助手正在结�
 
 function finishPendingAgentThinking(conversationID, agentUserID) {
     const key = String(conversationID || '');
-    const pending = pendingAgentThinkingByConversation[key];
+    const queue = pendingAgentThinkingByConversation[key];
+    const pending = Array.isArray(queue) ? queue.shift() : queue;
     if (!pending) return 0;
     const durationMs = Date.now() - pending.startedAt;
-    delete pendingAgentThinkingByConversation[key];
+    if (Array.isArray(queue) && queue.length > 0) {
+        pendingAgentThinkingByConversation[key] = queue;
+    } else {
+        delete pendingAgentThinkingByConversation[key];
+    }
     const container = document.getElementById('message-list');
     const thinkingEl = container ? container.querySelector(`[data-thinking-id="${pending.thinkingID}"]`) : null;
     if (thinkingEl) thinkingEl.remove();
@@ -3278,7 +4072,6 @@ async function showSystemSettings() {
         <div class="settings-tabs">
             <button class="btn-small active" onclick="renderLLMSettings()">LLM 预设</button>
             <button class="btn-small" onclick="renderPromptSettings()">Prompt</button>
-            <button class="btn-small" onclick="renderSkillSettings()">Agent Skill</button>
         </div>
         <div id="settings-content" class="settings-content">加载中...</div>
     `);
@@ -3298,7 +4091,7 @@ async function renderLLMSettings() {
     area.innerHTML = `
             <div class="agent-help-box">
                 <strong>LLM 预设</strong>
-                <p>这里保存可复用的模型服务配置。创建 Agent 或翻译消息时可以直接选择这些预设，API Key 不会回显。</p>
+                <p>这里保存可复用的模型服务配置。创建 Agent、翻译消息或让 RAG 判断是否需要检索时可以直接选择这些预设，API Key 不会回显。</p>
             </div>
             <input id="setting-llm-id" type="hidden" value="">
             <div class="settings-list">
@@ -3315,9 +4108,11 @@ async function renderLLMSettings() {
                     <label>用途</label>
                     <select id="setting-llm-usage" class="form-select">
                         <option value="translation">翻译</option>
+                        <option value="rag_router">RAG 路由小模型</option>
                         <option value="agent">Agent</option>
                         <option value="general">通用</option>
                     </select>
+                    <small class="form-hint">RAG 路由小模型用于判断问题是否需要检索知识库；未配置时使用项目内置默认模型。</small>
                 </div>
                 <div class="form-group">
                     <label>BaseURL</label>
@@ -3340,17 +4135,16 @@ async function renderLLMSettings() {
 
 function renderLLMProfileCard(profile) {
     return `
-        <div class="memory-card">
-            <div class="memory-card-head">
+        <div class="data-row">
+            <div class="data-row-main">
                 <strong>${escapeHTML(profile.name || '未命名')}</strong>
-                <span>${escapeHTML(profile.usage_type || 'general')} ${profile.is_default ? '· 默认' : ''}</span>
+                <span>${escapeHTML(profile.model_name || '未配置模型')} · ${escapeHTML(profile.base_url || '未配置BaseURL')}</span>
             </div>
-            <div class="memory-card-meta">
-                <span>${escapeHTML(profile.model_name || '未配置模型')}</span>
-                <span>${escapeHTML(profile.base_url || '未配置BaseURL')}</span>
+            <div class="data-row-meta">
+                <span>${escapeHTML(llmUsageLabel(profile.usage_type))}${profile.is_default ? ' · 默认' : ''}</span>
                 <span>${profile.has_api_key ? '已保存密钥' : '未保存密钥'}</span>
             </div>
-            <div class="memory-card-actions">
+            <div class="data-row-actions">
                 <button class="btn-small" onclick="fillLLMSettingForm(${jsStringArg(JSON.stringify(profile).replace(/</g, '\\u003c'))})">填入表单</button>
                 <button class="btn-small danger-soft" onclick="deleteLLMSetting(${jsArg(profile.id)})">删除</button>
             </div>
@@ -3473,22 +4267,127 @@ async function renderSkillSettings() {
 
 function renderSkillCard(skill) {
     return `
-        <div class="memory-card">
-            <div class="memory-card-head">
+        <div class="data-row skill-row">
+            <div class="data-row-main">
                 <strong>${escapeHTML(skill.name || '未命名Skill')}</strong>
+                <span>${escapeHTML(skill.summary || skill.description || '暂无摘要')}</span>
+            </div>
+            <div class="data-row-meta">
                 <span>${skill.scope === 'agent' ? 'Agent 专属' : '全局'}${skill.is_default ? ' · 默认' : ''}</span>
-            </div>
-            <div class="memory-card-content">${escapeHTML(skill.description || '暂无说明')}</div>
-            <div class="memory-card-meta">
                 <span>${escapeHTML(skill.entry_file || 'SKILL.md')}</span>
-                <span>${escapeHTML(skill.skills_dir || '')}</span>
             </div>
-            <div class="memory-card-actions">
+            <div class="data-row-actions">
+                <button class="btn-small" onclick="editSkillContent(${jsArg(skill.id)})">编辑</button>
                 <button class="btn-small" onclick="copyText(${jsStringArg(skill.skills_dir || '')})">复制目录</button>
                 <button class="btn-small danger-soft" onclick="deleteSkillSetting(${jsArg(skill.id)}, ${jsStringArg(skill.scope || 'global')}, ${jsArg(skill.agent_id || 0)})">删除</button>
             </div>
         </div>
     `;
+}
+
+async function showSkillManager() {
+    showModal('Skill 管理', `
+        <div class="agent-help-box">
+            <strong>Agent Skill</strong>
+            <p>Skill 是给 Agent 注入的工作方法说明。上传后会提取摘要，创建或编辑 Agent 时可选择注入；也可以直接在这里修改 SKILL.md。</p>
+        </div>
+        <div class="skill-manager-layout">
+            <section class="settings-editor">
+                <h4>上传全局 Skill</h4>
+                <div class="profile-form-grid">
+                    <div class="form-group">
+                        <label>Skill 名称</label>
+                        <input id="setting-skill-name" type="text" placeholder="例如：代码审查 / 资料总结">
+                    </div>
+                    <div class="form-group">
+                        <label>说明</label>
+                        <input id="setting-skill-desc" type="text" placeholder="这个 Skill 会给 Agent 增加什么能力">
+                    </div>
+                </div>
+                <div class="profile-form-grid">
+                    <div class="form-group">
+                        <label>上传 SKILL.md 或 zip</label>
+                        <input id="setting-skill-file" type="file" accept=".md,.zip">
+                    </div>
+                    <div class="form-group">
+                        <label>或上传 Skill 文件夹</label>
+                        <input id="setting-skill-folder" type="file" webkitdirectory directory multiple>
+                    </div>
+                </div>
+                <label class="checkbox-row"><input id="setting-skill-default" type="checkbox"><span>设为默认全局 Skill</span></label>
+                <button class="btn-primary" onclick="uploadGlobalSkill()">上传 Skill</button>
+            </section>
+            <section>
+                <div class="memory-toolbar compact">
+                    <strong>全局 Skill</strong>
+                    <button class="btn-small" onclick="loadSkillManagerList()">刷新</button>
+                </div>
+                <div id="global-skill-list" class="data-list">加载中...</div>
+            </section>
+        </div>
+    `);
+    await loadSkillManagerList();
+}
+
+async function loadSkillManagerList() {
+    const list = document.getElementById('global-skill-list');
+    if (!list) return;
+    list.innerHTML = '<div class="empty-tip">加载中...</div>';
+    const resp = await settingsAPI.listSkills('global', 0);
+    const skills = resp?.data?.skills || [];
+    list.innerHTML = skills.length ? skills.map(renderSkillCard).join('') : '<div class="empty-tip">暂无全局 Skill</div>';
+}
+
+async function editSkillContent(skillID) {
+    const resp = await settingsAPI.getSkill(skillID);
+    const skill = resp?.data?.skill;
+    if (!(resp && resp.code === 0 && resp.data?.success && skill)) {
+        showToast(resp?.message || resp?.data?.msg || '读取 Skill 失败', 'error');
+        return;
+    }
+    showModal(`编辑 Skill - ${escapeHTML(skill.name || '')}`, `
+        <div class="agent-help-box">
+            <strong>${escapeHTML(skill.summary || '暂无摘要')}</strong>
+            <p>修改后会覆盖该 Skill 的 SKILL.md。已选择该目录的 Agent 下次重新初始化后会使用新内容。</p>
+        </div>
+        <div class="profile-form-grid">
+            <div class="form-group">
+                <label>Skill 名称</label>
+                <input id="skill-edit-name" type="text" value="${escapeHTML(skill.name || '')}">
+            </div>
+            <div class="form-group">
+                <label>说明</label>
+                <input id="skill-edit-desc" type="text" value="${escapeHTML(skill.description || '')}">
+            </div>
+        </div>
+        <div class="form-group">
+            <label>SKILL.md</label>
+            <textarea id="skill-edit-content" class="code-editor-textarea" rows="18">${escapeHTML(skill.content || '')}</textarea>
+        </div>
+        <div class="btn-row">
+            <button class="btn-secondary" onclick="showSkillManager()">返回 Skill 管理</button>
+            <button class="btn-primary" onclick="saveSkillContent(${jsArg(skill.id)})">保存 Skill</button>
+        </div>
+    `);
+}
+
+async function saveSkillContent(skillID) {
+    const data = {
+        name: document.getElementById('skill-edit-name')?.value?.trim() || '',
+        description: document.getElementById('skill-edit-desc')?.value?.trim() || '',
+        content: document.getElementById('skill-edit-content')?.value || '',
+    };
+    if (!data.content.trim()) {
+        showToast('SKILL.md 内容不能为空', 'warning');
+        return;
+    }
+    const resp = await settingsAPI.updateSkillContent(skillID, data);
+    if (resp && resp.code === 0 && resp.data?.success) {
+        showToast('Skill 已保存', 'success');
+        await showSkillManager();
+    } else {
+        showToast(resp?.message || resp?.data?.msg || '保存 Skill 失败', 'error');
+    }
 }
 
 function selectedSkillFiles(fileInputID, folderInputID) {
@@ -3514,7 +4413,7 @@ async function uploadGlobalSkill() {
     });
     if (resp && resp.code === 0 && resp.data?.success) {
         showToast('全局 Skill 已上传', 'success');
-        await renderSkillSettings();
+        await loadSkillManagerList();
     }
 }
 
@@ -3525,8 +4424,10 @@ async function deleteSkillSetting(id, scope = 'global', agentID = 0) {
         showToast('Skill 已删除', 'success');
         if (scope === 'agent' && agentID) {
             await loadAgentSkillPanel(agentID);
+        } else if (document.getElementById('global-skill-list')) {
+            await loadSkillManagerList();
         } else {
-            await renderSkillSettings();
+            await showSkillManager();
         }
     } else {
         showToast(resp?.message || resp?.data?.msg || '删除失败', 'error');
@@ -3780,6 +4681,33 @@ function applySelectedGlobalSkillToAgent() {
     }
 }
 
+async function loadLLMProfilesForAgentEdit() {
+    const select = document.getElementById('edit-agent-llm-profile');
+    if (!select) return;
+    try {
+        const resp = await settingsAPI.listLLMProfiles();
+        const profiles = resp?.data?.profiles || [];
+        llmProfilesCache = profiles;
+        select.innerHTML = '<option value="">不切换预设</option>' + profiles.map(profile => {
+            const label = `${profile.name || '未命名预设'} · ${llmUsageLabel(profile.usage_type)} · ${profile.model_name || '未设置模型'}`;
+            return `<option value="${escapeHTML(String(profile.id))}">${escapeHTML(label)}</option>`;
+        }).join('');
+    } catch (err) {
+        select.innerHTML = '<option value="">预设加载失败</option>';
+    }
+}
+
+function applySelectedLLMProfileToAgent() {
+    const profileID = document.getElementById('edit-agent-llm-profile')?.value || '';
+    const profile = llmProfilesCache.find(item => String(item.id) === String(profileID));
+    if (!profile) return;
+    const modelInput = document.getElementById('edit-agent-model');
+    const baseURLInput = document.getElementById('edit-agent-baseurl');
+    if (modelInput && profile.model_name) modelInput.value = profile.model_name;
+    if (baseURLInput && profile.base_url) baseURLInput.value = profile.base_url;
+    showToast('已选择 LLM 预设，保存后将通过后端注入密钥', 'info');
+}
+
 async function loadAgentSkillPanel(botID) {
     const panel = document.getElementById('edit-agent-skill-panel');
     if (!panel) return;
@@ -3909,19 +4837,18 @@ async function loadMemoryList() {
     list.innerHTML = memories.map(m => {
         const bot = botCache.find(b => sameID(b.id, m.bot_id));
         return `
-            <div class="memory-card ${m.enabled ? '' : 'disabled'}">
-                <div class="memory-card-head">
+            <div class="data-row memory-row ${m.enabled ? '' : 'disabled'}">
+                <div class="data-row-main">
                     <strong>${escapeHTML(m.title || memoryTypeLabel(m.type))}</strong>
-                    <span>${escapeHTML(memoryScopeLabel(m.scope))} · ${escapeHTML(memoryTypeLabel(m.type))}</span>
+                    <span>${renderMarkdownText(m.content || '')}</span>
                 </div>
-                <div class="memory-card-content">${renderMarkdownText(m.content || '')}</div>
-                <div class="memory-card-meta">
+                <div class="data-row-meta">
+                    <span>${escapeHTML(memoryScopeLabel(m.scope))} · ${escapeHTML(memoryTypeLabel(m.type))}</span>
                     <span>${escapeHTML(bot ? getBotDisplayName(bot) : ('Agent ' + m.bot_id))}</span>
                     <span>${m.visibility === 'shared' ? '共享' : '仅自己可见'}</span>
                     <span>${m.enabled ? '已启用' : '已关闭'}</span>
-                    <span>向量: ${escapeHTML(m.vector_status || 'pending')}</span>
                 </div>
-                <div class="memory-card-actions">
+                <div class="data-row-actions">
                     <button class="btn-small" onclick="showEditMemoryForm(${jsStringArg(JSON.stringify(m).replace(/</g, '\\u003c'))})">编辑</button>
                     <button class="btn-small" onclick="toggleMemoryEnabled(${jsArg(m.id)}, ${!m.enabled})">${m.enabled ? '关闭' : '启用'}</button>
                     <button class="btn-small danger-soft" onclick="deleteMemoryFact(${jsArg(m.id)})">删除</button>
@@ -4092,7 +5019,7 @@ function showBotRoutes(botID, botName) {
             </div>
             <button class="btn-primary" onclick="createBotRoute(${jsArg(botID)})">添加</button>
         </div>
-        <div id="route-list-area" class="bot-list-area">加载中...</div>
+        <div id="route-list-area" class="data-list">加载中...</div>
     `);
     loadBotRoutes(botID);
 }
@@ -4182,6 +5109,13 @@ async function showEditAgentForm(botID) {
     }
     const b = resp.data.bot;
     showModal(`编辑智能助手 - ${escapeHTML(getBotDisplayName(b))}`, `
+        <div class="form-group">
+            <label>使用已保存的 LLM 预设</label>
+            <select id="edit-agent-llm-profile" class="form-select" onchange="applySelectedLLMProfileToAgent()">
+                <option value="">不切换预设</option>
+            </select>
+            <small class="form-hint">选择预设后，后端会解析并注入 API Key；浏览器不会读取密钥明文。也可以在下方手动填写自己的 BaseURL/API Key。</small>
+        </div>
         <div class="profile-form-grid">
             <div class="form-group">
                 <label>昵称</label>
@@ -4302,6 +5236,7 @@ async function showEditAgentForm(botID) {
             <button class="btn-inline" onclick="showAgentPermissions(${jsArg(botID)}, ${jsStringArg(getBotDisplayName(b))})">权限管理</button>
         </div>
     `);
+    loadLLMProfilesForAgentEdit();
     loadGlobalSkillsForAgentEdit(b.skills_dir || '');
     loadAgentSkillPanel(botID);
 }
@@ -4324,6 +5259,7 @@ async function saveAgentConfig(botID) {
         temperature: Number(document.getElementById('edit-agent-temperature')?.value || 0.7),
         group_trigger_mode: document.getElementById('edit-agent-group-trigger-mode')?.value || 'mention',
         auto_reply_enabled: !!document.getElementById('edit-agent-auto-reply-enabled')?.checked,
+        llm_profile_id: Number(document.getElementById('edit-agent-llm-profile')?.value || 0),
     };
     if (!data.name) {
         showToast('助手昵称不能为空', 'warning');
@@ -5033,13 +5969,15 @@ async function loadBotRoutes(botID) {
             return;
         }
         area.innerHTML = routes.map(r => `
-            <div class="bot-item">
-                <div class="bot-info">
-                    <span class="bot-name">${escapeHTML(r.route_pattern)}</span>
-                    <span class="bot-type ${r.route_type}">${escapeHTML(routeTypeLabel(r.route_type))}</span>
-                    <span class="bot-status active">优先级: ${r.priority || 0}</span>
+            <div class="data-row route-row">
+                <div class="data-row-main">
+                    <strong>${escapeHTML(r.route_pattern)}</strong>
+                    <span>${escapeHTML(routeTypeLabel(r.route_type))}</span>
                 </div>
-                <div class="bot-actions">
+                <div class="data-row-meta">
+                    <span>优先级 ${r.priority || 0}</span>
+                </div>
+                <div class="data-row-actions">
                     <button class="btn-inline btn-danger" onclick="deleteBotRoute(${jsArg(r.id)}, ${jsArg(botID)})">删除</button>
                 </div>
             </div>

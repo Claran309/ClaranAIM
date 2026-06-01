@@ -25,6 +25,8 @@ func RegisterRoutes(r *route.Engine, cfg ...*config.Config) {
 	fileHandler := handler.NewFileHandler()
 	agentHandler := handler.NewAgentHandler()
 	memoryHandler := handler.NewMemoryHandler()
+	ragHandler := handler.NewRAGHandler()
+	knowledgeHandler := handler.NewKnowledgeHandler()
 	settingsHandler := handler.NewSettingsHandler()
 
 	r.Use(middleware.CORSMiddleware())
@@ -121,6 +123,16 @@ func RegisterRoutes(r *route.Engine, cfg ...*config.Config) {
 		auth.PUT("/memory/:id", memoryHandler.UpdateMemory)
 		auth.DELETE("/memory/:id", memoryHandler.DeleteMemory)
 
+		auth.POST("/rag/ingest", ragHandler.IngestDocument)
+		auth.POST("/rag/upload", ragHandler.UploadDocument)
+		auth.POST("/rag/search", ragHandler.Search)
+		auth.GET("/rag/graph", ragHandler.GetGraph)
+		auth.GET("/rag/documents", ragHandler.ListDocuments)
+
+		auth.GET("/knowledge/graph", knowledgeHandler.GetGraphView)
+		auth.GET("/knowledge/node/:id", knowledgeHandler.GetNodeDetail)
+		auth.GET("/knowledge/edge/:id", knowledgeHandler.GetEdgeDetail)
+
 		auth.GET("/settings/llm-profiles", settingsHandler.ListLLMProfiles)
 		auth.POST("/settings/llm-profiles", settingsHandler.SaveLLMProfile)
 		auth.DELETE("/settings/llm-profiles/:id", settingsHandler.DeleteLLMProfile)
@@ -128,6 +140,8 @@ func RegisterRoutes(r *route.Engine, cfg ...*config.Config) {
 		auth.POST("/settings/prompts", settingsHandler.SavePrompt)
 		auth.GET("/settings/skills", settingsHandler.ListSkills)
 		auth.POST("/settings/skills/upload", settingsHandler.UploadSkill)
+		auth.GET("/settings/skills/:id", settingsHandler.GetSkill)
+		auth.PUT("/settings/skills/:id", settingsHandler.UpdateSkillContent)
 		auth.DELETE("/settings/skills/:id", settingsHandler.DeleteSkill)
 	}
 

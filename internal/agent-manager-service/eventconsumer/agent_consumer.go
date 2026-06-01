@@ -29,13 +29,25 @@ func StartAgentMentionConsumer(ctx context.Context, consumer *eventbus.KafkaCons
 // 迁移期间既可以消费旧的 message.created 事件，也可以消费新的统一 IM 事件，
 // 等所有服务完成 Outbox payload 迁移后再逐步收敛到统一事件契约。
 func StartAgentEventDispatcherConsumer(ctx context.Context, consumer *eventbus.KafkaConsumer, agentService service.AgentService, dispatchRepo dao.AgentDispatchRepository, subscriptionRepo dao.AgentSubscriptionRepository, auditRepo dao.AgentAuditRepository, messageClient messageservice.Client) {
+	StartAgentEventDispatcherConsumerWithReliability(ctx, consumer, agentService, dispatchRepo, subscriptionRepo, auditRepo, messageClient, nil)
+}
+
+// StartAgentEventDispatcherConsumerWithReliability 基于一个 Kafka topic 启动带幂等/DLQ保护的 Agent 原生事件分发器。
+func StartAgentEventDispatcherConsumerWithReliability(ctx context.Context, consumer *eventbus.KafkaConsumer, agentService service.AgentService, dispatchRepo dao.AgentDispatchRepository, subscriptionRepo dao.AgentSubscriptionRepository, auditRepo dao.AgentAuditRepository, messageClient messageservice.Client, reliability eventbus.ReliabilityStore) {
+	StartAgentEventDispatcherConsumerWithOptions(ctx, consumer, agentService, dispatchRepo, subscriptionRepo, auditRepo, nil, messageClient, reliability)
+}
+
+// StartAgentEventDispatcherConsumerWithOptions 启动完整可配置的 Agent 事件消费者。
+func StartAgentEventDispatcherConsumerWithOptions(ctx context.Context, consumer *eventbus.KafkaConsumer, agentService service.AgentService, dispatchRepo dao.AgentDispatchRepository, subscriptionRepo dao.AgentSubscriptionRepository, auditRepo dao.AgentAuditRepository, taskRepo dao.AgentTaskRepository, messageClient messageservice.Client, reliability eventbus.ReliabilityStore) {
 	if consumer == nil || agentService == nil || dispatchRepo == nil || messageClient == nil {
 		return
 	}
 	dispatcher := NewAgentEventDispatcher(agentService, dispatchRepo, subscriptionRepo, auditRepo, messageClient)
-	go consumer.Run(ctx, func(ctx context.Context, envelope events.Envelope) error {
+	dispatcher.SetTaskRepository(taskRepo)
+	handler := eventbus.NewReliableHandler(reliability, "agent-manager-service", 5, func(ctx context.Context, envelope events.Envelope) error {
 		return dispatcher.Handle(ctx, envelope)
 	})
+	go consumer.Run(ctx, handler)
 }
 
 // handleAgentMentionEvent 保留给旧测试和旧 consumer 的兼容入口。
@@ -53,6 +65,7 @@ type AgentEventDispatcher struct {
 	dispatchRepo     dao.AgentDispatchRepository
 	subscriptionRepo dao.AgentSubscriptionRepository
 	auditRepo        dao.AgentAuditRepository
+	taskRepo         dao.AgentTaskRepository
 	messageClient    messageservice.Client
 }
 
@@ -67,6 +80,13 @@ func NewAgentEventDispatcher(agentService service.AgentService, dispatchRepo dao
 		subscriptionRepo: subscriptionRepo,
 		auditRepo:        auditRepo,
 		messageClient:    messageClient,
+	}
+}
+
+// SetTaskRepository 注入 Agent 任务仓储；未注入时保持旧同步执行行为。
+func (d *AgentEventDispatcher) SetTaskRepository(taskRepo dao.AgentTaskRepository) {
+	if d != nil {
+		d.taskRepo = taskRepo
 	}
 }
 
@@ -154,14 +174,18 @@ func (d *AgentEventDispatcher) Handle(ctx context.Context, envelope events.Envel
 		if !shouldRun {
 			continue
 		}
+		_ = d.queueTask(ctx, bot, *event, sourceEventID, traceID)
+		_ = d.markTaskRunning(ctx, sourceEventID)
 		agentInput, err := buildAgentDispatchInput(ctx, d.messageClient, event.toMessagePayload(), bot.AgentUserID)
 		if err != nil {
 			_ = d.dispatchRepo.MarkFailed(ctx, sourceEventID, bot.AgentUserID, err.Error())
+			_ = d.markTaskFailed(ctx, sourceEventID, err.Error())
 			return err
 		}
 		result, err := d.agentService.ChatWithBot(ctx, bot.ID, event.SenderID, event.ConversationID, agentInput)
 		if err != nil {
 			_ = d.dispatchRepo.MarkFailed(ctx, sourceEventID, bot.AgentUserID, err.Error())
+			_ = d.markTaskFailed(ctx, sourceEventID, err.Error())
 			_ = d.audit(ctx, envelope, *event, bot, "failed", err.Error(), traceID)
 			log.Printf("Agent事件响应失败 bot_id=%d msg_id=%d err=%v", bot.ID, event.MsgID, err)
 			if isPermanentAgentDispatchError(err) {
@@ -184,6 +208,7 @@ func (d *AgentEventDispatcher) Handle(ctx context.Context, envelope events.Envel
 		})
 		if err != nil {
 			_ = d.dispatchRepo.MarkFailed(ctx, sourceEventID, bot.AgentUserID, err.Error())
+			_ = d.markTaskFailed(ctx, sourceEventID, err.Error())
 			_ = d.audit(ctx, envelope, *event, bot, "failed", err.Error(), traceID)
 			return err
 		}
@@ -194,15 +219,54 @@ func (d *AgentEventDispatcher) Handle(ctx context.Context, envelope events.Envel
 			}
 			err := fmt.Errorf("Agent回复写入失败: %s", msg)
 			_ = d.dispatchRepo.MarkFailed(ctx, sourceEventID, bot.AgentUserID, err.Error())
+			_ = d.markTaskFailed(ctx, sourceEventID, err.Error())
 			_ = d.audit(ctx, envelope, *event, bot, "failed", err.Error(), traceID)
 			return err
 		}
 		if err := d.dispatchRepo.MarkCompleted(ctx, sourceEventID, bot.AgentUserID, resp.MsgId); err != nil {
 			return err
 		}
+		_ = d.markTaskCompleted(ctx, sourceEventID)
 		_ = d.audit(ctx, envelope, *event, bot, "completed", "Agent回复已写入消息事实表", traceID)
 	}
 	return nil
+}
+
+func (d *AgentEventDispatcher) queueTask(ctx context.Context, bot *model.Bot, event agentEvent, sourceEventID, traceID string) error {
+	if d.taskRepo == nil || bot == nil {
+		return nil
+	}
+	return d.taskRepo.UpsertQueued(ctx, &model.AgentTask{
+		BotID:          bot.ID,
+		AgentUserID:    bot.AgentUserID,
+		ConversationID: event.ConversationID,
+		TriggerUserID:  event.SenderID,
+		SourceEventID:  sourceEventID,
+		TraceID:        traceID,
+		EventType:      event.EventType,
+		Status:         "queued",
+	})
+}
+
+func (d *AgentEventDispatcher) markTaskRunning(ctx context.Context, sourceEventID string) error {
+	if d.taskRepo == nil {
+		return nil
+	}
+	return d.taskRepo.MarkRunning(ctx, sourceEventID)
+}
+
+func (d *AgentEventDispatcher) markTaskCompleted(ctx context.Context, sourceEventID string) error {
+	if d.taskRepo == nil {
+		return nil
+	}
+	return d.taskRepo.MarkCompleted(ctx, sourceEventID)
+}
+
+func (d *AgentEventDispatcher) markTaskFailed(ctx context.Context, sourceEventID, message string) error {
+	if d.taskRepo == nil {
+		return nil
+	}
+	return d.taskRepo.MarkFailed(ctx, sourceEventID, message)
 }
 
 // dispatchEventID 返回用于幂等去重的事件 ID。

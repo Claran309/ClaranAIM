@@ -235,6 +235,55 @@ func (h *SettingsHandler) ListSkills(ctx context.Context, c *app.RequestContext)
 	response.Success(c, map[string]interface{}{"success": true, "skills": skills})
 }
 
+// GetSkill 返回单个 Skill 的详情和可编辑的 SKILL.md 正文。
+func (h *SettingsHandler) GetSkill(ctx context.Context, c *app.RequestContext) {
+	if !h.ensureService(c) {
+		return
+	}
+	userID, ok := requireCurrentUserID(c)
+	if !ok {
+		return
+	}
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id <= 0 {
+		response.BadRequest(c, "无效的Skill ID")
+		return
+	}
+	skill, err := h.svc.GetSkill(ctx, userID, id)
+	if err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	response.Success(c, map[string]interface{}{"success": true, "skill": skill})
+}
+
+// UpdateSkillContent 保存用户在前端编辑后的 Skill 入口 Markdown。
+func (h *SettingsHandler) UpdateSkillContent(ctx context.Context, c *app.RequestContext) {
+	if !h.ensureService(c) {
+		return
+	}
+	userID, ok := requireCurrentUserID(c)
+	if !ok {
+		return
+	}
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id <= 0 {
+		response.BadRequest(c, "无效的Skill ID")
+		return
+	}
+	var req skillContentReq
+	if err := json.Unmarshal(c.Request.Body(), &req); err != nil {
+		response.BadRequest(c, "请求体格式错误")
+		return
+	}
+	skill, err := h.svc.UpdateSkillContent(ctx, userID, id, req.Name, req.Description, []byte(req.Content))
+	if err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	response.Success(c, map[string]interface{}{"success": true, "skill": skill})
+}
+
 // DeleteSkill 删除当前用户拥有的 Skill 元数据。
 func (h *SettingsHandler) DeleteSkill(ctx context.Context, c *app.RequestContext) {
 	if !h.ensureService(c) {
@@ -279,6 +328,13 @@ type promptReq struct {
 	Content   string      `json:"content"`
 	IsDefault bool        `json:"is_default"`
 	Enabled   *bool       `json:"enabled"`
+}
+
+// skillContentReq 是 Skill 编辑器保存入口 Markdown 时使用的 JSON 请求体。
+type skillContentReq struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Content     string `json:"content"`
 }
 
 // collectSkillUploadFiles 将 multipart 上传转换为 settings-service 可保存的 Skill 文件列表。

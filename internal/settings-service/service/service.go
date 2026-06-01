@@ -37,6 +37,8 @@ type SettingsService interface {
 	ResolveTranslationConfig(ctx context.Context, ownerID int64) (ResolvedLLMConfig, error)
 	ResolveLLMProfile(ctx context.Context, ownerID, profileID int64) (ResolvedLLMConfig, error)
 	SaveSkill(ctx context.Context, ownerID int64, input SaveSkillInput) (*settingsclient.AgentSkill, error)
+	GetSkill(ctx context.Context, ownerID, skillID int64) (*settingsclient.AgentSkill, error)
+	UpdateSkillContent(ctx context.Context, ownerID, skillID int64, name, description string, content []byte) (*settingsclient.AgentSkill, error)
 	ListSkills(ctx context.Context, ownerID int64, scope string, agentID int64) ([]settingsclient.AgentSkill, error)
 	DeleteSkill(ctx context.Context, ownerID, skillID int64) error
 }
@@ -384,6 +386,69 @@ func (s *settingsServiceImpl) ListSkills(ctx context.Context, ownerID int64, sco
 	return out, nil
 }
 
+// GetSkill 读取当前用户拥有的 Skill 元数据和入口 SKILL.md 内容。
+// 列表接口只返回摘要，编辑器需要用该方法按需读取正文，避免每次打开设置页都传输大文本。
+func (s *settingsServiceImpl) GetSkill(ctx context.Context, ownerID, skillID int64) (*settingsclient.AgentSkill, error) {
+	if ownerID <= 0 || skillID <= 0 {
+		return nil, errors.New("用户和Skill不能为空")
+	}
+	skill, err := s.repo.GetSkill(ctx, skillID)
+	if err != nil {
+		return nil, err
+	}
+	if skill == nil || skill.OwnerID != ownerID {
+		return nil, errors.New("Skill不存在或无权访问")
+	}
+	dto := skillToDTO(skill)
+	content, err := readSkillEntryContent(skill)
+	if err != nil {
+		return nil, err
+	}
+	dto.Content = string(content)
+	dto.Summary = extractSkillSummary(dto.Content, dto.Description)
+	return dto, nil
+}
+
+// UpdateSkillContent 覆盖当前 Skill 的入口 SKILL.md 并同步基础元数据。
+// 只允许改入口文件正文，zip 包中的其他辅助文件保留不动；这样前端可以安全编辑核心指令，同时不破坏资源目录。
+func (s *settingsServiceImpl) UpdateSkillContent(ctx context.Context, ownerID, skillID int64, name, description string, content []byte) (*settingsclient.AgentSkill, error) {
+	if ownerID <= 0 || skillID <= 0 {
+		return nil, errors.New("用户和Skill不能为空")
+	}
+	if len(content) == 0 {
+		return nil, errors.New("Skill内容不能为空")
+	}
+	if !strings.Contains(strings.ToLower(string(content)), "skill") && !strings.HasPrefix(strings.TrimSpace(string(content)), "#") {
+		return nil, errors.New("Skill内容应为有效的Markdown指令")
+	}
+	skill, err := s.repo.GetSkill(ctx, skillID)
+	if err != nil {
+		return nil, err
+	}
+	if skill == nil || skill.OwnerID != ownerID {
+		return nil, errors.New("Skill不存在或无权修改")
+	}
+	entryPath, err := safeSkillEntryPath(skill)
+	if err != nil {
+		return nil, err
+	}
+	if err := os.WriteFile(entryPath, content, 0644); err != nil {
+		return nil, err
+	}
+	if trimmedName := strings.TrimSpace(name); trimmedName != "" {
+		skill.Name = trimmedName
+	}
+	skill.Description = strings.TrimSpace(description)
+	skill.EntryFile = "SKILL.md"
+	if err := s.repo.SaveSkill(ctx, skill); err != nil {
+		return nil, err
+	}
+	dto := skillToDTO(skill)
+	dto.Content = string(content)
+	dto.Summary = extractSkillSummary(dto.Content, dto.Description)
+	return dto, nil
+}
+
 // DeleteSkill 删除当前用户拥有的 Skill 元数据；已落盘文件保留，避免误删正在运行中的目录。
 func (s *settingsServiceImpl) DeleteSkill(ctx context.Context, ownerID, skillID int64) error {
 	if ownerID <= 0 || skillID <= 0 {
@@ -440,7 +505,7 @@ func skillToDTO(skill *model.AgentSkill) *settingsclient.AgentSkill {
 	if skill == nil {
 		return nil
 	}
-	return &settingsclient.AgentSkill{
+	dto := &settingsclient.AgentSkill{
 		ID:          skill.ID,
 		OwnerID:     skill.OwnerID,
 		AgentID:     skill.AgentID,
@@ -453,6 +518,73 @@ func skillToDTO(skill *model.AgentSkill) *settingsclient.AgentSkill {
 		IsDefault:   skill.IsDefault,
 		Enabled:     skill.Enabled,
 	}
+	if content, err := readSkillEntryContent(skill); err == nil {
+		dto.Summary = extractSkillSummary(string(content), dto.Description)
+	} else {
+		dto.Summary = strings.TrimSpace(dto.Description)
+	}
+	return dto
+}
+
+// readSkillEntryContent 读取入口文件正文；入口文件固定限制在 Skill 目录内，防止元数据污染导致越界读取。
+func readSkillEntryContent(skill *model.AgentSkill) ([]byte, error) {
+	entryPath, err := safeSkillEntryPath(skill)
+	if err != nil {
+		return nil, err
+	}
+	return os.ReadFile(entryPath)
+}
+
+// safeSkillEntryPath 解析 SKILL.md 的绝对路径，并确认它仍位于 settings-service 管理的 Skill 目录中。
+func safeSkillEntryPath(skill *model.AgentSkill) (string, error) {
+	if skill == nil || strings.TrimSpace(skill.SkillsDir) == "" {
+		return "", errors.New("Skill目录为空")
+	}
+	entry := strings.TrimSpace(skill.EntryFile)
+	if entry == "" {
+		entry = "SKILL.md"
+	}
+	rel, err := cleanSkillRelativePath(entry)
+	if err != nil {
+		return "", err
+	}
+	absDir, err := filepath.Abs(skill.SkillsDir)
+	if err != nil {
+		return "", err
+	}
+	absEntry, err := filepath.Abs(filepath.Join(absDir, filepath.FromSlash(rel)))
+	if err != nil {
+		return "", err
+	}
+	if !isPathInside(absDir, absEntry) {
+		return "", errors.New("Skill入口文件越界")
+	}
+	return absEntry, nil
+}
+
+// extractSkillSummary 从 SKILL.md 中提取适合列表展示的一句话摘要。
+// 优先使用用户填写的说明；否则跳过标题、空行和列表符号，取第一段有信息量的正文。
+func extractSkillSummary(content string, fallback string) string {
+	if summary := strings.TrimSpace(fallback); summary != "" {
+		return summary
+	}
+	for _, line := range strings.Split(content, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, "---") {
+			continue
+		}
+		line = strings.TrimLeft(line, "-*0123456789.、) ")
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		runes := []rune(line)
+		if len(runes) > 90 {
+			line = string(runes[:90]) + "..."
+		}
+		return line
+	}
+	return "暂无摘要"
 }
 
 // normalizeSkillFiles 统一单文件和多文件 Skill 包输入。

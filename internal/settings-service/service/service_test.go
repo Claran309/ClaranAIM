@@ -102,6 +102,35 @@ func TestResolveTranslationConfigFallsBackToSystemDefault(t *testing.T) {
 	}
 }
 
+func TestRAGRouterLLMProfileCanBeSavedAndListedByUsage(t *testing.T) {
+	repo := newFakeSettingsRepo()
+	svc := NewSettingsService(repo, DefaultLLMConfig{})
+
+	_, err := svc.SaveLLMProfile(context.Background(), 1001, SaveLLMProfileInput{
+		Name:         "rag-router-small",
+		UsageType:    model.ProviderRAGRouter,
+		BaseURL:      "https://router.example/v1",
+		APIKey:       "router-key",
+		ModelName:    "glm-4-flash",
+		IsDefault:    true,
+		APIKeyAction: APIKeyActionSet,
+	})
+	if err != nil {
+		t.Fatalf("SaveLLMProfile returned error: %v", err)
+	}
+
+	profiles, err := svc.ListLLMProfiles(context.Background(), 1001, model.ProviderRAGRouter)
+	if err != nil {
+		t.Fatalf("ListLLMProfiles returned error: %v", err)
+	}
+	if len(profiles) != 1 {
+		t.Fatalf("profiles len = %d, want 1", len(profiles))
+	}
+	if profiles[0].UsageType != model.ProviderRAGRouter || !profiles[0].IsDefault || !profiles[0].HasAPIKey {
+		t.Fatalf("rag router profile = %#v", profiles[0])
+	}
+}
+
 func TestSaveGlobalSkillWritesSkillMarkdownUnderGlobalRoot(t *testing.T) {
 	root := t.TempDir()
 	repo := newFakeSettingsRepo()
@@ -168,6 +197,64 @@ func TestSaveSkillRejectsTraversalAndMissingSkillMarkdown(t *testing.T) {
 		Content:  []byte("# readme"),
 	}); err == nil {
 		t.Fatal("SaveSkill should reject upload without SKILL.md")
+	}
+}
+
+func TestGetSkillReturnsMarkdownContentAndSummary(t *testing.T) {
+	root := t.TempDir()
+	repo := newFakeSettingsRepo()
+	svc := NewSettingsService(repo, DefaultLLMConfig{}, WithSkillStorageRoot(root))
+
+	created, err := svc.SaveSkill(context.Background(), 1001, SaveSkillInput{
+		Name:     "会议整理",
+		Scope:    model.SkillScopeGlobal,
+		FileName: "SKILL.md",
+		Content:  []byte("# 会议整理\n\n把群聊、会议记录和待办事项整理成结论清单。\n\n## 步骤\n- 提取结论"),
+	})
+	if err != nil {
+		t.Fatalf("SaveSkill returned error: %v", err)
+	}
+
+	got, err := svc.GetSkill(context.Background(), 1001, created.ID)
+	if err != nil {
+		t.Fatalf("GetSkill returned error: %v", err)
+	}
+	if got.Content == "" || !strings.Contains(got.Content, "结论清单") {
+		t.Fatalf("content = %q, want SKILL.md content", got.Content)
+	}
+	if got.Summary != "把群聊、会议记录和待办事项整理成结论清单。" {
+		t.Fatalf("summary = %q", got.Summary)
+	}
+}
+
+func TestUpdateSkillContentRewritesSkillMarkdownInPlace(t *testing.T) {
+	root := t.TempDir()
+	repo := newFakeSettingsRepo()
+	svc := NewSettingsService(repo, DefaultLLMConfig{}, WithSkillStorageRoot(root))
+
+	created, err := svc.SaveSkill(context.Background(), 1001, SaveSkillInput{
+		Name:     "旧Skill",
+		Scope:    model.SkillScopeGlobal,
+		FileName: "SKILL.md",
+		Content:  []byte("# 旧Skill\n\n旧说明。"),
+	})
+	if err != nil {
+		t.Fatalf("SaveSkill returned error: %v", err)
+	}
+
+	updated, err := svc.UpdateSkillContent(context.Background(), 1001, created.ID, "新Skill", "新的描述", []byte("# 新Skill\n\n新的可执行步骤。"))
+	if err != nil {
+		t.Fatalf("UpdateSkillContent returned error: %v", err)
+	}
+	if updated.Name != "新Skill" || updated.Description != "新的描述" {
+		t.Fatalf("updated metadata = %#v", updated)
+	}
+	data, err := os.ReadFile(filepath.Join(created.SkillsDir, "SKILL.md"))
+	if err != nil {
+		t.Fatalf("read rewritten SKILL.md: %v", err)
+	}
+	if string(data) != "# 新Skill\n\n新的可执行步骤。" {
+		t.Fatalf("rewritten content = %q", string(data))
 	}
 }
 

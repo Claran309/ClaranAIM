@@ -117,6 +117,54 @@ func PolishText(ctx context.Context, input *TextPolishParams) (string, error) {
 - 优先让接收者知道背景、请求和下一步动作。`, tone, format, text), nil
 }
 
+// SkillCreatorParams 是 skill_creator 工具的入参。
+type SkillCreatorParams struct {
+	Name        string `json:"name" jsonschema:"description=Skill 名称，例如 代码审查助手、会议纪要整理、报错排查"`
+	Goal        string `json:"goal" jsonschema:"description=这个 Skill 要让 Agent 完成的工作目标"`
+	Steps       string `json:"steps" jsonschema:"description=推荐执行步骤，可以是多行文本；可为空"`
+	Constraints string `json:"constraints" jsonschema:"description=权限、风格、输出格式、禁止动作等约束；可为空"`
+}
+
+// CreateSkillMarkdown 生成可直接上传到 settings-service 的标准 SKILL.md 模板。
+func CreateSkillMarkdown(ctx context.Context, input *SkillCreatorParams) (string, error) {
+	_ = ctx
+	if input == nil {
+		input = &SkillCreatorParams{}
+	}
+	name := strings.TrimSpace(input.Name)
+	if name == "" {
+		name = "自定义工作流"
+	}
+	goal := normalizeText(input.Goal)
+	if goal == "" {
+		goal = "根据用户输入完成明确、可验证的工作，并在信息不足时说明缺口。"
+	}
+	steps := bulletizeLines(input.Steps, 12)
+	if strings.Contains(steps, "暂无有效内容") {
+		steps = "- 明确用户目标、输入材料和期望输出。\n- 读取必要上下文，区分事实、推断和不确定项。\n- 产出结构化结果，并列出来源、风险和下一步。"
+	}
+	constraints := bulletizeLines(input.Constraints, 12)
+	if strings.Contains(constraints, "暂无有效内容") {
+		constraints = "- 不编造来源或执行结果。\n- 涉及写文件、执行命令、外部调用等高风险动作时先请求确认。\n- 输出默认使用简洁中文和 Markdown。"
+	}
+	return fmt.Sprintf(`# %s
+
+## 目标
+%s
+
+## 工作步骤
+%s
+
+## 约束
+%s
+
+## 输出要求
+- 先给结论，再给依据。
+- 对待办、风险、负责人、时间点使用清晰列表。
+- 如果上下文不足，说明缺少什么，并给出可继续推进的最小下一步。
+`, name, goal, steps, constraints), nil
+}
+
 func normalizeText(text string) string {
 	text = strings.ReplaceAll(text, "\r\n", "\n")
 	text = strings.ReplaceAll(text, "\r", "\n")

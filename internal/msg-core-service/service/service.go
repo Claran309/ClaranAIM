@@ -5,6 +5,7 @@ import (
 	"ClaranAIM/internal/msg-core-service/model"
 	"ClaranAIM/kitex_gen/group"
 	"ClaranAIM/kitex_gen/group/groupservice"
+	"ClaranAIM/pkg/cache"
 	"ClaranAIM/pkg/cache/redis"
 	"ClaranAIM/pkg/events"
 	"ClaranAIM/pkg/outbox"
@@ -325,9 +326,9 @@ func (s *messageServiceImpl) GetConversation(ctx context.Context, conversationID
 // 降低新用户反复查询造成的缓存穿透。
 func (s *messageServiceImpl) GetUserConversations(ctx context.Context, userID int64) ([]UserConversationInfo, error) {
 	if s.redis != nil {
-		cacheKey := fmt.Sprintf("user:conversations:%d", userID)
+		policy := cache.UserConversationsPolicy(userID)
 		var cached []UserConversationInfo
-		hit, err := s.redis.GetJSON(ctx, cacheKey, &cached)
+		hit, err := s.redis.GetJSON(ctx, policy.Key, &cached)
 		if err == nil && hit != "" {
 			if s.redis.IsNullHit(hit) {
 				return nil, nil
@@ -398,11 +399,11 @@ func (s *messageServiceImpl) GetUserConversations(ctx context.Context, userID in
 	}
 
 	if s.redis != nil {
-		cacheKey := fmt.Sprintf("user:conversations:%d", userID)
+		policy := cache.UserConversationsPolicy(userID)
 		if len(result) == 0 {
-			s.redis.SetNull(ctx, cacheKey, time.Minute, 30*time.Second)
+			s.redis.SetNull(ctx, policy.Key, policy.NullTTL, policy.NullJitter)
 		} else {
-			s.redis.SetJSONWithJitter(ctx, cacheKey, result, 5*time.Minute, 30*time.Second)
+			s.redis.SetJSONWithJitter(ctx, policy.Key, result, policy.TTL, policy.Jitter)
 		}
 	}
 	return result, nil
@@ -540,7 +541,7 @@ func (s *messageServiceImpl) SendMessageExt(ctx context.Context, opts SendMessag
 		return nil, err
 	}
 	if s.redis != nil {
-		cacheKey := fmt.Sprintf("conversation:recent:%d", opts.ConversationID)
+		policy := cache.RecentConversationMessagesPolicy(opts.ConversationID)
 		recentMsg := map[string]interface{}{
 			"id":              msg.ID,
 			"conversation_id": msg.ConversationID,
@@ -549,7 +550,7 @@ func (s *messageServiceImpl) SendMessageExt(ctx context.Context, opts SendMessag
 			"msg_type":        msg.MsgType,
 			"created_at":      msg.CreatedAt.Format("2006-01-02 15:04:05"),
 		}
-		s.redis.SetJSONWithJitter(ctx, cacheKey, recentMsg, 10*time.Minute, time.Minute)
+		s.redis.SetJSONWithJitter(ctx, policy.Key, recentMsg, policy.TTL, policy.Jitter)
 		for _, p := range participants {
 			s.invalidateConversationCache(ctx, p.UserID)
 		}
@@ -926,7 +927,7 @@ func (s *messageServiceImpl) invalidateConversationCache(ctx context.Context, us
 	if s.redis == nil {
 		return
 	}
-	s.redis.Del(ctx, fmt.Sprintf("user:conversations:%d", userID))
+	s.redis.Del(ctx, cache.UserConversationsPolicy(userID).Key)
 }
 
 // createMessageUserStates 为消息参与者初始化投递/已读状态。

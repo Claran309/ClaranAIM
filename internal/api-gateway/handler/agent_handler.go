@@ -240,6 +240,7 @@ func (h *AgentHandler) UpdateAgent(ctx context.Context, c *app.RequestContext) {
 		Temperature         float64     `json:"temperature"`
 		GroupTriggerMode    string      `json:"group_trigger_mode"`
 		AutoReplyEnabled    bool        `json:"auto_reply_enabled"`
+		LLMProfileID        int64       `json:"llm_profile_id"`
 	}
 	var raw map[string]json.RawMessage
 	if err := bindAgentJSONUseNumber(c, &raw); err != nil {
@@ -267,6 +268,20 @@ func (h *AgentHandler) UpdateAgent(ctx context.Context, c *app.RequestContext) {
 	id, ok := requireCurrentUserID(c)
 	if !ok {
 		return
+	}
+	if req.LLMProfileID > 0 {
+		if gatewayAgentSettingsService == nil {
+			response.Error(c, "settings-service未初始化")
+			return
+		}
+		profile, err := gatewayAgentSettingsService.ResolveLLMProfile(ctx, id, req.LLMProfileID)
+		if err != nil {
+			response.BadRequest(c, err.Error())
+			return
+		}
+		req.APIKey = profile.APIKey
+		req.BaseURL = profile.BaseURL
+		req.ModelName = profile.ModelName
 	}
 	resp, err := client.AgentClient.UpdateBot(ctx, client.NewUpdateAgentReq(botID, id, req.Name, req.Description, req.ModelName, req.APIKey, req.BaseURL, req.SystemPrompt, req.SkillsDir, req.AgentRoot, req.Avatar, req.Signature, req.WorkspaceRoot, req.ToolPolicy, req.IsActive, isActiveSet, req.ContextMessageLimit, req.MemoryRecallLimit, req.MaxOutputTokens, req.Temperature, req.GroupTriggerMode, req.AutoReplyEnabled))
 	if err != nil {

@@ -145,6 +145,24 @@ func (h *SettingsServiceImpl) ListSkills(ctx context.Context, req *settings.List
 	return &settings.ListSkillsResp{Success: true, Skills: toRPCAgentSkills(skills)}, nil
 }
 
+// GetSkill 读取用户拥有的 Skill 详情和入口文件内容。
+func (h *SettingsServiceImpl) GetSkill(ctx context.Context, req *settings.GetSkillReq) (*settings.GetSkillResp, error) {
+	skill, err := h.svc.GetSkill(ctx, req.UserId, req.SkillId)
+	if err != nil {
+		return &settings.GetSkillResp{Success: false, Msg: err.Error()}, nil
+	}
+	return &settings.GetSkillResp{Success: true, Skill: toRPCAgentSkill(skill)}, nil
+}
+
+// UpdateSkillContent 保存用户在前端编辑后的 SKILL.md 正文。
+func (h *SettingsServiceImpl) UpdateSkillContent(ctx context.Context, req *settings.UpdateSkillContentReq) (*settings.UpdateSkillContentResp, error) {
+	skill, err := h.svc.UpdateSkillContent(ctx, req.UserId, req.SkillId, req.Name, req.Description, req.Content)
+	if err != nil {
+		return &settings.UpdateSkillContentResp{Success: false, Msg: err.Error()}, nil
+	}
+	return &settings.UpdateSkillContentResp{Success: true, Skill: toRPCAgentSkill(skill)}, nil
+}
+
 // DeleteSkill 删除当前用户拥有的 Skill 元数据。
 func (h *SettingsServiceImpl) DeleteSkill(ctx context.Context, req *settings.DeleteSkillReq) (*settings.DeleteSkillResp, error) {
 	if err := h.svc.DeleteSkill(ctx, req.UserId, req.SkillId); err != nil {
@@ -227,6 +245,8 @@ func toRPCAgentSkill(skill *settingsclient.AgentSkill) *settings.AgentSkill {
 		SourceType:  skill.SourceType,
 		IsDefault:   skill.IsDefault,
 		Enabled:     skill.Enabled,
+		Summary:     skill.Summary,
+		Content:     skill.Content,
 	}
 }
 

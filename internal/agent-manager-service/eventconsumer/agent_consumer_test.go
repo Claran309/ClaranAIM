@@ -509,3 +509,6 @@ func (c *fakeMessageClient) SearchMessages(ctx context.Context, req *message.Sea
 func (c *fakeMessageClient) GetConversationParticipants(ctx context.Context, req *message.GetConversationParticipantsReq, callOptions ...callopt.Option) (*message.GetConversationParticipantsResp, error) {
 	return nil, nil
 }
+func (c *fakeMessageClient) TranslateMessage(ctx context.Context, req *message.TranslateMessageReq, callOptions ...callopt.Option) (*message.TranslateMessageResp, error) {
+	return &message.TranslateMessageResp{Success: true}, nil
+}

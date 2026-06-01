@@ -223,6 +223,31 @@ func TestUpdateBotAppliesRuntimeSettingsWhenProvided(t *testing.T) {
 	}
 }
 
+func TestUpdateInternalBotWithUserProviderConvertsToCustom(t *testing.T) {
+	botRepo := &fakeBotRepo{byID: &model.Bot{
+		ID:        1,
+		Name:      "Agent",
+		Type:      "internal",
+		ModelName: "default-model",
+		APIKey:    "default-key",
+		BaseURL:   "https://default.example/v1",
+		OwnerID:   1001,
+		IsActive:  true,
+	}}
+	svc := NewAgentService(botRepo, &fakePermissionRepo{}, nil, &fakeBillingRepo{}, nil, nil, "storage/agent/files")
+
+	err := svc.UpdateBot(context.Background(), 1, 1001, "", "", "user-model", "user-key", "https://user.example/v1", "", "", "", "", "", "", "", false, false, 0, 0, 0, 0, "", true, "default-key", "https://default.example/v1", "default-model")
+	if err != nil {
+		t.Fatalf("UpdateBot returned error: %v", err)
+	}
+	if botRepo.byID.Type != "custom" {
+		t.Fatalf("type = %q, want custom", botRepo.byID.Type)
+	}
+	if botRepo.byID.APIKey != "user-key" || botRepo.byID.BaseURL != "https://user.example/v1" || botRepo.byID.ModelName != "user-model" {
+		t.Fatalf("provider config was not updated: %#v", botRepo.byID)
+	}
+}
+
 func TestCreateRouteMirrorsAgentKeywordRule(t *testing.T) {
 	botRepo := &fakeBotRepo{byID: &model.Bot{
 		ID:          1,

@@ -55,6 +55,18 @@ func InitTools(ctx context.Context, chatModel model.BaseChatModel, includeDomain
 			log.Println("工具 text_polish 初始化成功")
 			tools = append(tools, textPolishTool)
 		}
+
+		skillCreatorTool, err := utils.InferTool(
+			"skill_creator",
+			"根据用户目标生成标准 SKILL.md 模板，便于上传到 ClaranAIM 的 Skill 管理页",
+			logic.CreateSkillMarkdown,
+		)
+		if err != nil {
+			log.Print("初始化工具失败:", err)
+		} else {
+			log.Println("工具 skill_creator 初始化成功")
+			tools = append(tools, skillCreatorTool)
+		}
 	}
 
 	ragTool, err := graphTool.BuildTool(ctx, chatModel)

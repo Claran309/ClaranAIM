@@ -355,6 +355,91 @@ const memoryAPI = {
     delete: (id) => request('DELETE', `/memory/${apiID(id)}`),
 };
 
+const ragAPI = {
+    ingest: (data) => request('POST', '/rag/ingest', data),
+    upload: async ({ fileList, title = '', visibility = 'private', groupID = '', conversationID = '' }) => {
+        const formData = new FormData();
+        Array.from(fileList || []).forEach(file => formData.append('file', file, file.name));
+        formData.append('title', title);
+        formData.append('visibility', visibility);
+        if (groupID !== undefined && groupID !== null && String(groupID) !== '') {
+            formData.append('group_id', String(groupID));
+        }
+        if (conversationID !== undefined && conversationID !== null && String(conversationID) !== '') {
+            formData.append('conversation_id', String(conversationID));
+        }
+        const uploadOnce = () => fetch(`${API_BASE}/rag/upload`, {
+            method: 'POST',
+            headers: authHeaders(),
+            body: formData,
+        });
+        try {
+            let resp = await uploadOnce();
+            if (resp.status === 401 && await refreshAccessToken()) {
+                resp = await uploadOnce();
+            }
+            const text = await resp.text();
+            const result = text ? parseJSONSafeInt(text) : null;
+            if (!resp.ok || result?.code !== 0) {
+                showToast(result?.message || '知识文件上传失败', 'error');
+            }
+            return result;
+        } catch (err) {
+            apiLocalLog('error', 'RAG文件上传失败', { message: err.message, stack: err.stack || '' });
+            showToast('知识文件上传失败: ' + err.message, 'error');
+            return null;
+        }
+    },
+    search: (data) => request('POST', '/rag/search', data),
+    graph: (query = '', limit = 80) =>
+        request('GET', `/rag/graph?query=${encodeURIComponent(query)}&limit=${limit}`),
+    documents: (limit = 50, offset = 0) =>
+        request('GET', `/rag/documents?limit=${limit}&offset=${offset}`),
+};
+
+const knowledgeAPI = {
+    graph: ({ query = '', types = [], relations = [], communityID = 0, hops = 1, limit = 160 } = {}) => {
+        const params = new URLSearchParams();
+        if (query) params.set('query', query);
+        if (types.length) params.set('types', types.join(','));
+        if (relations.length) params.set('relations', relations.join(','));
+        if (communityID) params.set('community_id', apiID(communityID));
+        params.set('hops', String(hops || 1));
+        params.set('limit', String(limit || 160));
+        return request('GET', `/knowledge/graph?${params.toString()}`);
+    },
+    node: (id, options = '') => {
+        const params = new URLSearchParams();
+        if (typeof options === 'string') {
+            if (options) params.set('query', options);
+        } else if (options && typeof options === 'object') {
+            if (options.query) params.set('query', options.query);
+            if (options.types?.length) params.set('types', options.types.join(','));
+            if (options.relations?.length) params.set('relations', options.relations.join(','));
+            if (options.communityID) params.set('community_id', apiID(options.communityID));
+            if (options.hops) params.set('hops', String(options.hops));
+            if (options.limit) params.set('limit', String(options.limit));
+        }
+        const suffix = params.toString() ? `?${params.toString()}` : '';
+        return request('GET', `/knowledge/node/${apiID(id)}${suffix}`);
+    },
+    edge: (id, options = '') => {
+        const params = new URLSearchParams();
+        if (typeof options === 'string') {
+            if (options) params.set('query', options);
+        } else if (options && typeof options === 'object') {
+            if (options.query) params.set('query', options.query);
+            if (options.types?.length) params.set('types', options.types.join(','));
+            if (options.relations?.length) params.set('relations', options.relations.join(','));
+            if (options.communityID) params.set('community_id', apiID(options.communityID));
+            if (options.hops) params.set('hops', String(options.hops));
+            if (options.limit) params.set('limit', String(options.limit));
+        }
+        const suffix = params.toString() ? `?${params.toString()}` : '';
+        return request('GET', `/knowledge/edge/${apiID(id)}${suffix}`);
+    },
+};
+
 const settingsAPI = {
     listLLMProfiles: (usageType = '') =>
         request('GET', `/settings/llm-profiles?usage_type=${encodeURIComponent(usageType)}`),
@@ -366,6 +451,9 @@ const settingsAPI = {
     savePrompt: (prompt) => request('POST', '/settings/prompts', prompt),
     listSkills: (scope = '', agentID = -1) =>
         request('GET', `/settings/skills?scope=${encodeURIComponent(scope)}&agent_id=${apiID(agentID)}`),
+    getSkill: (id) => request('GET', `/settings/skills/${apiID(id)}`),
+    updateSkillContent: (id, data) =>
+        request('PUT', `/settings/skills/${apiID(id)}`, data),
     uploadSkill: async ({ fileList, name = '', description = '', scope = 'global', agentID = 0, isDefault = false }) => {
         const formData = new FormData();
         Array.from(fileList || []).forEach(file => {

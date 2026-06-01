@@ -29,6 +29,12 @@ minio:
 storage:
   dir: "./storage/source"
 
+document:
+  ocr_provider: "glm"
+  ocr_url: "https://open.bigmodel.cn/api/paas/v4/layout_parsing"
+  ocr_api_key: ""
+  ocr_model: "glm-ocr"
+
 dtm:
   enabled: true
   server: "http://localhost:36789"

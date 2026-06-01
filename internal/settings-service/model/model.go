@@ -14,6 +14,7 @@ const (
 	ScopeSystem       = "system"
 	ScopeUser         = "user"
 	ProviderTranslate = "translation"
+	ProviderRAGRouter = "rag_router"
 
 	SkillScopeGlobal = "global"
 	SkillScopeAgent  = "agent"
