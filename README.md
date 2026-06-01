@@ -190,3 +190,7 @@ LLM Router 输出类似：
 - 数据边界：GraphRAG indexing、实体抽取、关系抽取和社区摘要仍属于 rag-service；knowledge-service 只做查询视图与可视化 DTO，避免把索引和展示耦合在一起。
 
 ## to fix list
+<<<<<<< HEAD
+=======
+
+>>>>>>> c5187f3a799b7b602917cddd5c919c11998af655
