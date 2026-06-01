@@ -2975,6 +2975,25 @@ body {
     line-height: 1.6;
 }
 
+.knowledge-detail-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding-bottom: 14px;
+    border-bottom: 1px solid rgba(217,225,236,0.65);
+}
+
+.knowledge-path-notice {
+    margin-bottom: 12px;
+    padding: 10px 12px;
+    border: 1px solid rgba(217,119,6,0.24);
+    border-radius: 8px;
+    background: rgba(255,251,235,0.92);
+    color: #92400e;
+    font-size: 12px;
+    font-weight: 700;
+}
+
 .knowledge-neighbor,
 .knowledge-relation-row {
     width: 100%;

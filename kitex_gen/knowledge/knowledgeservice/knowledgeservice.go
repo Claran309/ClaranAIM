@@ -34,6 +34,20 @@ var serviceMethods = map[string]kitex.MethodInfo{
 		false,
 		kitex.WithStreamingMode(kitex.StreamingNone),
 	),
+	"GetNeighborhood": kitex.NewMethodInfo(
+		getNeighborhoodHandler,
+		newKnowledgeServiceGetNeighborhoodArgs,
+		newKnowledgeServiceGetNeighborhoodResult,
+		false,
+		kitex.WithStreamingMode(kitex.StreamingNone),
+	),
+	"GetPath": kitex.NewMethodInfo(
+		getPathHandler,
+		newKnowledgeServiceGetPathArgs,
+		newKnowledgeServiceGetPathResult,
+		false,
+		kitex.WithStreamingMode(kitex.StreamingNone),
+	),
 }
 
 var (
@@ -154,6 +168,42 @@ func newKnowledgeServiceGetEdgeDetailResult() interface{} {
 	return knowledge.NewKnowledgeServiceGetEdgeDetailResult()
 }
 
+func getNeighborhoodHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
+	realArg := arg.(*knowledge.KnowledgeServiceGetNeighborhoodArgs)
+	realResult := result.(*knowledge.KnowledgeServiceGetNeighborhoodResult)
+	success, err := handler.(knowledge.KnowledgeService).GetNeighborhood(ctx, realArg.Req)
+	if err != nil {
+		return err
+	}
+	realResult.Success = success
+	return nil
+}
+func newKnowledgeServiceGetNeighborhoodArgs() interface{} {
+	return knowledge.NewKnowledgeServiceGetNeighborhoodArgs()
+}
+
+func newKnowledgeServiceGetNeighborhoodResult() interface{} {
+	return knowledge.NewKnowledgeServiceGetNeighborhoodResult()
+}
+
+func getPathHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
+	realArg := arg.(*knowledge.KnowledgeServiceGetPathArgs)
+	realResult := result.(*knowledge.KnowledgeServiceGetPathResult)
+	success, err := handler.(knowledge.KnowledgeService).GetPath(ctx, realArg.Req)
+	if err != nil {
+		return err
+	}
+	realResult.Success = success
+	return nil
+}
+func newKnowledgeServiceGetPathArgs() interface{} {
+	return knowledge.NewKnowledgeServiceGetPathArgs()
+}
+
+func newKnowledgeServiceGetPathResult() interface{} {
+	return knowledge.NewKnowledgeServiceGetPathResult()
+}
+
 type kClient struct {
 	c client.Client
 }
@@ -189,6 +239,26 @@ func (p *kClient) GetEdgeDetail(ctx context.Context, req *knowledge.KnowledgeEdg
 	_args.Req = req
 	var _result knowledge.KnowledgeServiceGetEdgeDetailResult
 	if err = p.c.Call(ctx, "GetEdgeDetail", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
+
+func (p *kClient) GetNeighborhood(ctx context.Context, req *knowledge.KnowledgeNeighborhoodReq) (r *knowledge.KnowledgeGraphResp, err error) {
+	var _args knowledge.KnowledgeServiceGetNeighborhoodArgs
+	_args.Req = req
+	var _result knowledge.KnowledgeServiceGetNeighborhoodResult
+	if err = p.c.Call(ctx, "GetNeighborhood", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
+
+func (p *kClient) GetPath(ctx context.Context, req *knowledge.KnowledgePathReq) (r *knowledge.KnowledgePathResp, err error) {
+	var _args knowledge.KnowledgeServiceGetPathArgs
+	_args.Req = req
+	var _result knowledge.KnowledgeServiceGetPathResult
+	if err = p.c.Call(ctx, "GetPath", &_args, &_result); err != nil {
 		return
 	}
 	return _result.GetSuccess(), nil

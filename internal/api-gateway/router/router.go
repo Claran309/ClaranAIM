@@ -131,7 +131,9 @@ func RegisterRoutes(r *route.Engine, cfg ...*config.Config) {
 
 		auth.GET("/knowledge/graph", knowledgeHandler.GetGraphView)
 		auth.GET("/knowledge/node/:id", knowledgeHandler.GetNodeDetail)
+		auth.GET("/knowledge/node/:id/neighborhood", knowledgeHandler.GetNeighborhood)
 		auth.GET("/knowledge/edge/:id", knowledgeHandler.GetEdgeDetail)
+		auth.GET("/knowledge/path", knowledgeHandler.GetPath)
 
 		auth.GET("/settings/llm-profiles", settingsHandler.ListLLMProfiles)
 		auth.POST("/settings/llm-profiles", settingsHandler.SaveLLMProfile)

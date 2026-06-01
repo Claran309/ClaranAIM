@@ -2432,6 +2432,38 @@ knowledge-service 负责知识图谱后端查询和前端可视化视图模型�
 
 返回关系本身、source 节点、target 节点和 evidence 原文证据。关系不存在、或当前用户没有权限看到该关系时，`success=false`，`msg` 说明原因。
 
+### 8.4 查询节点邻域子图
+
+**GET** `/knowledge/node/:id/neighborhood?query=&types=&relations=&community_id=0&hops=1&limit=160`
+
+需要认证。
+
+返回以指定节点为中心的一跳或多跳邻域子图。`hops` 默认 1，最大按后端策略裁剪为 3，避免一次性展开过大的图。响应结构与 `/knowledge/graph` 相同。
+
+### 8.5 查询两节点最短路径
+
+**GET** `/knowledge/path?source_id=1&target_id=2&query=&limit=160`
+
+需要认证。
+
+返回两个实体之间的最短可见路径，用于前端路径高亮和链路解释。
+
+响应示例：
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "success": true,
+    "node_ids": [2, 1, 3],
+    "edge_ids": [101, 102],
+    "nodes": [],
+    "edges": []
+  }
+}
+```
+
 ***
 
 ## 九、WebSocket 网关 (websocket-gateway)

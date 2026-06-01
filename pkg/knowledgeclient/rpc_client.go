@@ -72,6 +72,45 @@ func (c *RPCClient) GetEdgeDetail(ctx context.Context, viewerID, edgeID int64, i
 	return fromRPCEdgeDetail(resp), nil
 }
 
+// GetNeighborhood 查询某个节点的一跳或多跳邻域子图。
+func (c *RPCClient) GetNeighborhood(ctx context.Context, viewerID, nodeID int64, input GraphQuery) (*GraphView, error) {
+	resp, err := c.client.GetNeighborhood(ctx, &knowledge.KnowledgeNeighborhoodReq{
+		ViewerId:        viewerID,
+		NodeId:          nodeID,
+		Query:           input.Query,
+		TypeFilters:     input.TypeFilters,
+		RelationFilters: input.RelationFilters,
+		CommunityId:     input.CommunityID,
+		Hops:            int64(input.Hops),
+		Limit:           int64(input.Limit),
+	})
+	if err != nil {
+		return nil, err
+	}
+	if err := rpcStatus(resp.GetSuccess(), resp.GetMsg()); err != nil {
+		return &GraphView{Success: false, Msg: err.Error()}, nil
+	}
+	return fromRPCGraphView(resp), nil
+}
+
+// GetPath 查询两个节点之间的最短可见路径。
+func (c *RPCClient) GetPath(ctx context.Context, viewerID, sourceID, targetID int64, input GraphQuery) (*PathDetail, error) {
+	resp, err := c.client.GetPath(ctx, &knowledge.KnowledgePathReq{
+		ViewerId: viewerID,
+		SourceId: sourceID,
+		TargetId: targetID,
+		Query:    input.Query,
+		Limit:    int64(input.Limit),
+	})
+	if err != nil {
+		return nil, err
+	}
+	if !resp.GetSuccess() {
+		return &PathDetail{Success: false, Msg: defaultRPCMsg(resp.GetMsg())}, nil
+	}
+	return fromRPCPath(resp), nil
+}
+
 func fromRPCGraphView(resp *knowledge.KnowledgeGraphResp) *GraphView {
 	if resp == nil {
 		return &GraphView{Success: false, Msg: "knowledge-service返回空响应"}
@@ -110,6 +149,20 @@ func fromRPCEdgeDetail(resp *knowledge.KnowledgeEdgeDetailResp) *EdgeDetail {
 		Edge:    fromRPCEdge(resp.GetEdge()),
 		Source:  &source,
 		Target:  &target,
+		Msg:     resp.GetMsg(),
+	}
+}
+
+func fromRPCPath(resp *knowledge.KnowledgePathResp) *PathDetail {
+	if resp == nil {
+		return &PathDetail{Success: false, Msg: "knowledge-service返回空路径"}
+	}
+	return &PathDetail{
+		Success: resp.GetSuccess(),
+		Nodes:   fromRPCNodes(resp.GetNodes()),
+		Edges:   fromRPCEdges(resp.GetEdges()),
+		NodeIDs: resp.GetNodeIds(),
+		EdgeIDs: resp.GetEdgeIds(),
 		Msg:     resp.GetMsg(),
 	}
 }

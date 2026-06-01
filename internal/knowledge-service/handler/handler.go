@@ -59,6 +59,34 @@ func (h *KnowledgeServiceImpl) GetEdgeDetail(ctx context.Context, req *knowledge
 	return toRPCEdgeDetail(detail), nil
 }
 
+// GetNeighborhood 返回某个实体的一跳或多跳邻域子图。
+func (h *KnowledgeServiceImpl) GetNeighborhood(ctx context.Context, req *knowledge.KnowledgeNeighborhoodReq) (*knowledge.KnowledgeGraphResp, error) {
+	view, err := h.svc.GetNeighborhood(ctx, req.GetViewerId(), req.GetNodeId(), knowledgeclient.GraphQuery{
+		Query:           req.GetQuery(),
+		TypeFilters:     req.GetTypeFilters(),
+		RelationFilters: req.GetRelationFilters(),
+		CommunityID:     req.GetCommunityId(),
+		Hops:            int(req.GetHops()),
+		Limit:           int(req.GetLimit()),
+	})
+	if err != nil {
+		return &knowledge.KnowledgeGraphResp{Success: false, Msg: err.Error()}, nil
+	}
+	return toRPCGraphView(view), nil
+}
+
+// GetPath 返回两个实体之间的最短可见路径，用于前端高亮和解释链路。
+func (h *KnowledgeServiceImpl) GetPath(ctx context.Context, req *knowledge.KnowledgePathReq) (*knowledge.KnowledgePathResp, error) {
+	path, err := h.svc.GetPath(ctx, req.GetViewerId(), req.GetSourceId(), req.GetTargetId(), knowledgeclient.GraphQuery{
+		Query: req.GetQuery(),
+		Limit: int(req.GetLimit()),
+	})
+	if err != nil {
+		return &knowledge.KnowledgePathResp{Success: false, Msg: err.Error()}, nil
+	}
+	return toRPCPath(path), nil
+}
+
 func toRPCGraphView(view *knowledgeclient.GraphView) *knowledge.KnowledgeGraphResp {
 	if view == nil {
 		return &knowledge.KnowledgeGraphResp{Success: false, Msg: "knowledge-service返回空图谱"}
@@ -96,6 +124,20 @@ func toRPCEdgeDetail(detail *knowledgeclient.EdgeDetail) *knowledge.KnowledgeEdg
 		Source:  toRPCNodePtr(detail.Source),
 		Target:  toRPCNodePtr(detail.Target),
 		Msg:     detail.Msg,
+	}
+}
+
+func toRPCPath(path *knowledgeclient.PathDetail) *knowledge.KnowledgePathResp {
+	if path == nil {
+		return &knowledge.KnowledgePathResp{Success: false, Msg: "knowledge-service返回空路径"}
+	}
+	return &knowledge.KnowledgePathResp{
+		Success: path.Success,
+		Nodes:   toRPCNodes(path.Nodes),
+		Edges:   toRPCEdges(path.Edges),
+		NodeIds: path.NodeIDs,
+		EdgeIds: path.EdgeIDs,
+		Msg:     path.Msg,
 	}
 }
 

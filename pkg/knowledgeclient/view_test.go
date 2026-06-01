@@ -87,6 +87,94 @@ func TestEdgeDetailReturnsEndpointsAndEvidence(t *testing.T) {
 	}
 }
 
+func TestNeighborhoodReturnsCenteredSubgraphByDepth(t *testing.T) {
+	svc := NewRAGBackedService(&fakeGraphSource{graph: sampleGraph()})
+
+	view, err := svc.GetNeighborhood(context.Background(), 1001, 1, GraphQuery{Hops: 1, Limit: 20})
+	if err != nil {
+		t.Fatalf("GetNeighborhood returned error: %v", err)
+	}
+	if !view.Success {
+		t.Fatalf("neighborhood success = false, msg=%s", view.Msg)
+	}
+	if len(view.Nodes) != 4 {
+		t.Fatalf("nodes len = %d, want center plus 3 one-hop neighbors: %#v", len(view.Nodes), view.Nodes)
+	}
+	if len(view.Edges) != 3 {
+		t.Fatalf("edges len = %d, want all incident one-hop edges: %#v", len(view.Edges), view.Edges)
+	}
+	if view.Nodes[0].Name != "agent-manager-service" {
+		t.Fatalf("first node = %#v, want center node kept first", view.Nodes[0])
+	}
+}
+
+func TestNeighborhoodAppliesGraphFilters(t *testing.T) {
+	svc := NewRAGBackedService(&fakeGraphSource{graph: sampleGraph()})
+
+	view, err := svc.GetNeighborhood(context.Background(), 1001, 1, GraphQuery{
+		TypeFilters:     []string{"Service"},
+		RelationFilters: []string{"CALLS"},
+		Hops:            1,
+		Limit:           20,
+	})
+	if err != nil {
+		t.Fatalf("GetNeighborhood returned error: %v", err)
+	}
+	if !view.Success {
+		t.Fatalf("neighborhood success = false, msg=%s", view.Msg)
+	}
+	if len(view.Nodes) != 2 {
+		t.Fatalf("nodes len = %d, want only service center and service neighbor: %#v", len(view.Nodes), view.Nodes)
+	}
+	if len(view.Edges) != 1 || view.Edges[0].Relation != "CALLS" {
+		t.Fatalf("edges = %#v, want only CALLS edge", view.Edges)
+	}
+	for _, node := range view.Nodes {
+		if node.Type != "Service" {
+			t.Fatalf("node = %#v, want filter to keep only Service nodes", node)
+		}
+	}
+}
+
+func TestPathFindsShortestPathAndBuildsSubgraph(t *testing.T) {
+	svc := NewRAGBackedService(&fakeGraphSource{graph: sampleGraph()})
+
+	path, err := svc.GetPath(context.Background(), 1001, 2, 3, GraphQuery{Limit: 20})
+	if err != nil {
+		t.Fatalf("GetPath returned error: %v", err)
+	}
+	if !path.Success {
+		t.Fatalf("path success = false, msg=%s", path.Msg)
+	}
+	if got, want := path.NodeIDs, []int64{2, 1, 3}; !sameInt64s(got, want) {
+		t.Fatalf("path nodes = %#v, want %#v", got, want)
+	}
+	if got, want := path.EdgeIDs, []int64{101, 102}; !sameInt64s(got, want) {
+		t.Fatalf("path edges = %#v, want %#v", got, want)
+	}
+	if len(path.Nodes) != 3 || len(path.Edges) != 2 {
+		t.Fatalf("path graph nodes=%d edges=%d, want 3/2", len(path.Nodes), len(path.Edges))
+	}
+}
+
+func TestPathAppliesGraphFilters(t *testing.T) {
+	svc := NewRAGBackedService(&fakeGraphSource{graph: sampleGraph()})
+
+	path, err := svc.GetPath(context.Background(), 1001, 2, 3, GraphQuery{
+		TypeFilters: []string{"Service"},
+		Limit:       20,
+	})
+	if err != nil {
+		t.Fatalf("GetPath returned error: %v", err)
+	}
+	if path.Success {
+		t.Fatalf("path success = true, want database-table source filtered out")
+	}
+	if path.Msg == "" {
+		t.Fatalf("path failure should explain filtered or invisible endpoint")
+	}
+}
+
 type fakeGraphSource struct {
 	graph *rag.GraphResp
 }
@@ -126,4 +214,16 @@ func containsString(values []string, want string) bool {
 		}
 	}
 	return false
+}
+
+func sameInt64s(got, want []int64) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			return false
+		}
+	}
+	return true
 }

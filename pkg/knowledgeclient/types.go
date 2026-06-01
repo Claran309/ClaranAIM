@@ -94,9 +94,21 @@ type EdgeDetail struct {
 	Msg     string     `json:"msg,omitempty"`
 }
 
+// PathDetail 是两个实体之间的最短路径结果，用于前端路径高亮和关系解释。
+type PathDetail struct {
+	Success bool        `json:"success"`
+	Nodes   []GraphNode `json:"nodes"`
+	Edges   []GraphEdge `json:"edges"`
+	NodeIDs []int64     `json:"node_ids"`
+	EdgeIDs []int64     `json:"edge_ids"`
+	Msg     string      `json:"msg,omitempty"`
+}
+
 // Service 是 api-gateway 和 knowledge-service RPC 客户端共同遵守的接口。
 type Service interface {
 	GetGraphView(ctx context.Context, viewerID int64, input GraphQuery) (*GraphView, error)
 	GetNodeDetail(ctx context.Context, viewerID, nodeID int64, input GraphQuery) (*NodeDetail, error)
 	GetEdgeDetail(ctx context.Context, viewerID, edgeID int64, input GraphQuery) (*EdgeDetail, error)
+	GetNeighborhood(ctx context.Context, viewerID, nodeID int64, input GraphQuery) (*GraphView, error)
+	GetPath(ctx context.Context, viewerID, sourceID, targetID int64, input GraphQuery) (*PathDetail, error)
 }

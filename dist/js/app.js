@@ -35,6 +35,7 @@ let ragGraphCache = { nodes: [], edges: [], communities: [] };
 let knowledgeGraphCache = { nodes: [], edges: [], communities: [], stats: {} };
 let knowledgeGraphInstance = null;
 let knowledgeGraphSelected = null;
+let knowledgePathSelection = { sourceID: 0, targetID: 0, path: null };
 const LOCAL_LOG_KEY = 'claran_frontend_logs';
 const LOCAL_LOG_LIMIT = 500;
 
@@ -1736,6 +1737,7 @@ function renderKnowledgeGraph() {
     } else {
         renderKnowledgeSVGFallback(canvas, nodes, edges);
     }
+    applyKnowledgePathHighlight();
 }
 
 function renderKnowledgeG6(nodes, edges) {
@@ -1890,6 +1892,11 @@ async function renderKnowledgeNodeDetail(nodeID) {
             <strong>实体说明</strong>
             <p>${escapeHTML(node.summary || '暂无说明')}</p>
         </div>
+        <div class="knowledge-detail-actions">
+            <button class="btn-small ghost" onclick="loadKnowledgeNeighborhood(${jsStringArg(node.id)})">查看邻域</button>
+            <button class="btn-small ghost" onclick="setKnowledgePathPoint('source', ${jsStringArg(node.id)})">设为起点</button>
+            <button class="btn-small ghost" onclick="setKnowledgePathPoint('target', ${jsStringArg(node.id)})">设为终点</button>
+        </div>
         <div class="knowledge-detail-section">
             <strong>相邻节点</strong>
             ${(detail.neighbors || []).length ? detail.neighbors.map(n => `<button class="knowledge-neighbor" onclick="renderKnowledgeNodeDetail(${jsStringArg(n.id)})">${escapeHTML(n.name || '')}<span>${escapeHTML(n.type || '')}</span></button>`).join('') : '<p>暂无相邻节点</p>'}
@@ -1968,11 +1975,100 @@ function fitKnowledgeGraph() {
     }
 }
 
-function highlightKnowledgePath() {
-    if (!knowledgeGraphInstance) return;
-    knowledgeGraphInstance.getEdges().forEach((edge, idx) => {
-        knowledgeGraphInstance.setItemState(edge, 'selected', idx < 3);
+async function loadKnowledgeNeighborhood(nodeID) {
+    const canvas = document.getElementById('knowledge-graph-canvas');
+    if (canvas) canvas.innerHTML = '<div class="empty-tip">正在加载节点邻域...</div>';
+    const options = currentKnowledgeQueryOptions();
+    const resp = await knowledgeAPI.neighborhood(nodeID, options);
+    if (!(resp && resp.code === 0 && resp.data?.success)) {
+        if (canvas) canvas.innerHTML = `<div class="empty-tip">邻域加载失败<br><small>${escapeHTML(resp?.message || resp?.data?.msg || '')}</small></div>`;
+        return;
+    }
+    knowledgeGraphCache = resp.data;
+    knowledgePathSelection.path = null;
+    syncKnowledgeCommunityOptions(resp.data.communities || []);
+    renderKnowledgeGraph();
+    renderKnowledgeNodeDetail(nodeID);
+}
+
+function setKnowledgePathPoint(kind, nodeID) {
+    if (kind === 'source') {
+        knowledgePathSelection.sourceID = Number(nodeID || 0);
+    } else {
+        knowledgePathSelection.targetID = Number(nodeID || 0);
+    }
+    const panel = document.getElementById('knowledge-detail-panel');
+    const source = knowledgeGraphCache.nodes?.find(n => Number(n.id) === Number(knowledgePathSelection.sourceID));
+    const target = knowledgeGraphCache.nodes?.find(n => Number(n.id) === Number(knowledgePathSelection.targetID));
+    if (panel) {
+        const notice = document.createElement('div');
+        notice.className = 'knowledge-path-notice';
+        notice.innerHTML = `路径：${escapeHTML(source?.name || '未选起点')} -> ${escapeHTML(target?.name || '未选终点')}`;
+        panel.prepend(notice);
+    }
+    if (knowledgePathSelection.sourceID && knowledgePathSelection.targetID) {
+        highlightKnowledgePath();
+    }
+}
+
+async function highlightKnowledgePath() {
+    const sourceID = knowledgePathSelection.sourceID || knowledgeGraphSelected?.id || 0;
+    const targetID = knowledgePathSelection.targetID || 0;
+    if (!sourceID || !targetID || sourceID === targetID) {
+        showToast('请先在节点详情中设置不同的起点和终点');
+        return;
+    }
+    const resp = await knowledgeAPI.path({
+        sourceID,
+        targetID,
+        query: document.getElementById('knowledge-query')?.value.trim() || '',
+        limit: 180,
     });
+    if (!(resp && resp.code === 0 && resp.data?.success)) {
+        showToast(resp?.message || resp?.data?.msg || '未找到可见路径');
+        return;
+    }
+    knowledgePathSelection.path = resp.data;
+    applyKnowledgePathHighlight();
+    renderKnowledgePathDetail(resp.data);
+}
+
+function applyKnowledgePathHighlight() {
+    const path = knowledgePathSelection.path;
+    if (!path || !knowledgeGraphInstance) return;
+    const nodeSet = new Set((path.node_ids || []).map(String));
+    const edgeSet = new Set((path.edge_ids || []).map(String));
+    knowledgeGraphInstance.getNodes().forEach(node => {
+        knowledgeGraphInstance.setItemState(node, 'selected', nodeSet.has(String(node.getModel().id)));
+    });
+    knowledgeGraphInstance.getEdges().forEach(edge => {
+        knowledgeGraphInstance.setItemState(edge, 'selected', edgeSet.has(String(edge.getModel().id)));
+    });
+}
+
+function renderKnowledgePathDetail(path) {
+    const panel = document.getElementById('knowledge-detail-panel');
+    if (!panel) return;
+    const nodes = path.nodes || [];
+    const edges = path.edges || [];
+    panel.innerHTML = `
+        <div class="knowledge-detail-head relation">
+            <span class="knowledge-node-dot" style="background:#d97706"></span>
+            <div>
+                <h3>路径高亮</h3>
+                <p>${nodes.map(n => escapeHTML(n.name || '')).join(' -> ')}</p>
+            </div>
+        </div>
+        <div class="knowledge-detail-section">
+            <strong>路径关系</strong>
+            ${edges.length ? edges.map(edge => `
+                <button class="knowledge-relation-row" onclick="renderKnowledgeEdgeDetail(${jsStringArg(edge.id)})">
+                    <span>${escapeHTML(edge.relation || 'RELATED_TO')}</span>
+                    <small>${escapeHTML(edge.evidence || edge.description || '')}</small>
+                </button>
+            `).join('') : '<p>暂无路径关系</p>'}
+        </div>
+    `;
 }
 
 function resetChatView(message = '已删除会话，可通过搜索历史消息继续查找内容') {

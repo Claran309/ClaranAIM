@@ -97,6 +97,51 @@ func (h *KnowledgeHandler) GetEdgeDetail(ctx context.Context, c *app.RequestCont
 	response.Success(c, detail)
 }
 
+// GetNeighborhood 返回指定节点的一跳或多跳邻域子图。
+func (h *KnowledgeHandler) GetNeighborhood(ctx context.Context, c *app.RequestContext) {
+	if !h.ensureService(c) {
+		return
+	}
+	userID, ok := requireCurrentUserID(c)
+	if !ok {
+		return
+	}
+	nodeID := parseKnowledgeInt64(c.Param("id"), 0)
+	if nodeID <= 0 {
+		response.BadRequest(c, "无效的节点ID")
+		return
+	}
+	view, err := h.svc.GetNeighborhood(ctx, userID, nodeID, parseKnowledgeGraphQuery(c))
+	if err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	response.Success(c, view)
+}
+
+// GetPath 返回两个节点之间的最短可见路径。
+func (h *KnowledgeHandler) GetPath(ctx context.Context, c *app.RequestContext) {
+	if !h.ensureService(c) {
+		return
+	}
+	userID, ok := requireCurrentUserID(c)
+	if !ok {
+		return
+	}
+	sourceID := parseKnowledgeInt64(c.DefaultQuery("source_id", "0"), 0)
+	targetID := parseKnowledgeInt64(c.DefaultQuery("target_id", "0"), 0)
+	if sourceID <= 0 || targetID <= 0 {
+		response.BadRequest(c, "source_id和target_id不能为空")
+		return
+	}
+	path, err := h.svc.GetPath(ctx, userID, sourceID, targetID, parseKnowledgeGraphQuery(c))
+	if err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	response.Success(c, path)
+}
+
 func parseKnowledgeGraphQuery(c *app.RequestContext) knowledgeclient.GraphQuery {
 	return knowledgeclient.GraphQuery{
 		Query:           strings.TrimSpace(c.DefaultQuery("query", "")),

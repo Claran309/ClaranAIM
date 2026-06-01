@@ -14,6 +14,8 @@ type Client interface {
 	GetGraphView(ctx context.Context, req *knowledge.KnowledgeGraphReq, callOptions ...callopt.Option) (r *knowledge.KnowledgeGraphResp, err error)
 	GetNodeDetail(ctx context.Context, req *knowledge.KnowledgeNodeDetailReq, callOptions ...callopt.Option) (r *knowledge.KnowledgeNodeDetailResp, err error)
 	GetEdgeDetail(ctx context.Context, req *knowledge.KnowledgeEdgeDetailReq, callOptions ...callopt.Option) (r *knowledge.KnowledgeEdgeDetailResp, err error)
+	GetNeighborhood(ctx context.Context, req *knowledge.KnowledgeNeighborhoodReq, callOptions ...callopt.Option) (r *knowledge.KnowledgeGraphResp, err error)
+	GetPath(ctx context.Context, req *knowledge.KnowledgePathReq, callOptions ...callopt.Option) (r *knowledge.KnowledgePathResp, err error)
 }
 
 // NewClient creates a client for the service defined in IDL.
@@ -58,4 +60,14 @@ func (p *kKnowledgeServiceClient) GetNodeDetail(ctx context.Context, req *knowle
 func (p *kKnowledgeServiceClient) GetEdgeDetail(ctx context.Context, req *knowledge.KnowledgeEdgeDetailReq, callOptions ...callopt.Option) (r *knowledge.KnowledgeEdgeDetailResp, err error) {
 	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
 	return p.kClient.GetEdgeDetail(ctx, req)
+}
+
+func (p *kKnowledgeServiceClient) GetNeighborhood(ctx context.Context, req *knowledge.KnowledgeNeighborhoodReq, callOptions ...callopt.Option) (r *knowledge.KnowledgeGraphResp, err error) {
+	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
+	return p.kClient.GetNeighborhood(ctx, req)
+}
+
+func (p *kKnowledgeServiceClient) GetPath(ctx context.Context, req *knowledge.KnowledgePathReq, callOptions ...callopt.Option) (r *knowledge.KnowledgePathResp, err error) {
+	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
+	return p.kClient.GetPath(ctx, req)
 }

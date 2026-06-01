@@ -438,6 +438,25 @@ const knowledgeAPI = {
         const suffix = params.toString() ? `?${params.toString()}` : '';
         return request('GET', `/knowledge/edge/${apiID(id)}${suffix}`);
     },
+    neighborhood: (id, options = {}) => {
+        const params = new URLSearchParams();
+        if (options.query) params.set('query', options.query);
+        if (options.types?.length) params.set('types', options.types.join(','));
+        if (options.relations?.length) params.set('relations', options.relations.join(','));
+        if (options.communityID) params.set('community_id', apiID(options.communityID));
+        if (options.hops) params.set('hops', String(options.hops));
+        if (options.limit) params.set('limit', String(options.limit));
+        const suffix = params.toString() ? `?${params.toString()}` : '';
+        return request('GET', `/knowledge/node/${apiID(id)}/neighborhood${suffix}`);
+    },
+    path: ({ sourceID, targetID, query = '', limit = 180 } = {}) => {
+        const params = new URLSearchParams();
+        params.set('source_id', apiID(sourceID));
+        params.set('target_id', apiID(targetID));
+        if (query) params.set('query', query);
+        params.set('limit', String(limit || 180));
+        return request('GET', `/knowledge/path?${params.toString()}`);
+    },
 };
 
 const settingsAPI = {

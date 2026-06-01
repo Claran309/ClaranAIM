@@ -88,8 +88,38 @@ struct KnowledgeEdgeDetailResp {
     5: string msg
 }
 
+struct KnowledgeNeighborhoodReq {
+    1: i64 viewer_id
+    2: i64 node_id
+    3: string query
+    4: list<string> type_filters
+    5: list<string> relation_filters
+    6: i64 community_id
+    7: i64 hops
+    8: i64 limit
+}
+
+struct KnowledgePathReq {
+    1: i64 viewer_id
+    2: i64 source_id
+    3: i64 target_id
+    4: string query
+    5: i64 limit
+}
+
+struct KnowledgePathResp {
+    1: bool success
+    2: list<KnowledgeGraphNode> nodes
+    3: list<KnowledgeGraphEdge> edges
+    4: list<i64> node_ids
+    5: list<i64> edge_ids
+    6: string msg
+}
+
 service KnowledgeService {
     KnowledgeGraphResp GetGraphView(1: KnowledgeGraphReq req)
     KnowledgeNodeDetailResp GetNodeDetail(1: KnowledgeNodeDetailReq req)
     KnowledgeEdgeDetailResp GetEdgeDetail(1: KnowledgeEdgeDetailReq req)
+    KnowledgeGraphResp GetNeighborhood(1: KnowledgeNeighborhoodReq req)
+    KnowledgePathResp GetPath(1: KnowledgePathReq req)
 }

@@ -99,6 +99,84 @@ func (s *ragBackedService) GetEdgeDetail(ctx context.Context, viewerID, edgeID i
 	return &EdgeDetail{Success: false, Msg: "关系不存在或当前用户不可见"}, nil
 }
 
+func (s *ragBackedService) GetNeighborhood(ctx context.Context, viewerID, nodeID int64, input GraphQuery) (*GraphView, error) {
+	graph, err := s.loadGraph(ctx, viewerID, input)
+	if err != nil {
+		return nil, err
+	}
+	nodes, edges, communities := normalizeGraph(graph)
+	nodes, edges, communities = filterGraph(nodes, edges, communities, input)
+	nodeByID := indexNodes(nodes)
+	center, ok := nodeByID[nodeID]
+	if !ok {
+		return &GraphView{Success: false, Msg: "节点不存在或当前用户不可见"}, nil
+	}
+	depth := input.Hops
+	if depth <= 0 {
+		depth = 1
+	}
+	if depth > 3 {
+		depth = 3
+	}
+	allowedIDs := expandByHops(map[int64]bool{nodeID: true}, edges, depth)
+	subNodes, subEdges, subCommunities := subgraphByIDs(nodes, edges, communities, allowedIDs)
+	subNodes, subEdges = applyVisualAttrs(subNodes, subEdges, subCommunities)
+	sortGraphNodes(subNodes)
+	moveNodeFirst(subNodes, center.ID)
+	return &GraphView{
+		Success:     true,
+		Nodes:       subNodes,
+		Edges:       subEdges,
+		Communities: subCommunities,
+		Stats:       buildStats(subNodes, subEdges, subCommunities),
+	}, nil
+}
+
+func (s *ragBackedService) GetPath(ctx context.Context, viewerID, sourceID, targetID int64, input GraphQuery) (*PathDetail, error) {
+	graph, err := s.loadGraph(ctx, viewerID, input)
+	if err != nil {
+		return nil, err
+	}
+	nodes, edges, communities := normalizeGraph(graph)
+	nodes, edges, communities = filterGraph(nodes, edges, communities, input)
+	nodeByID := indexNodes(nodes)
+	if _, ok := nodeByID[sourceID]; !ok {
+		return &PathDetail{Success: false, Msg: "起点不存在或当前用户不可见"}, nil
+	}
+	if _, ok := nodeByID[targetID]; !ok {
+		return &PathDetail{Success: false, Msg: "终点不存在或当前用户不可见"}, nil
+	}
+	nodeIDs, edgeIDs := shortestPath(sourceID, targetID, edges)
+	if len(nodeIDs) == 0 {
+		return &PathDetail{Success: false, Msg: "未找到可见路径"}, nil
+	}
+	allowedIDs := map[int64]bool{}
+	for _, id := range nodeIDs {
+		allowedIDs[id] = true
+	}
+	subNodes, subEdges, subCommunities := subgraphByIDs(nodes, edges, communities, allowedIDs)
+	edgeIDSet := map[int64]bool{}
+	for _, id := range edgeIDs {
+		edgeIDSet[id] = true
+	}
+	pathEdges := make([]GraphEdge, 0, len(edgeIDs))
+	for _, edge := range subEdges {
+		if edgeIDSet[edge.ID] {
+			pathEdges = append(pathEdges, edge)
+		}
+	}
+	subNodes, pathEdges = applyVisualAttrs(subNodes, pathEdges, subCommunities)
+	orderNodesByPath(subNodes, nodeIDs)
+	orderEdgesByPath(pathEdges, edgeIDs)
+	return &PathDetail{
+		Success: true,
+		Nodes:   subNodes,
+		Edges:   pathEdges,
+		NodeIDs: nodeIDs,
+		EdgeIDs: edgeIDs,
+	}, nil
+}
+
 func (s *ragBackedService) loadGraph(ctx context.Context, viewerID int64, input GraphQuery) (*rag.GraphResp, error) {
 	if s == nil || s.source == nil {
 		return nil, errors.New("knowledge graph source未初始化")
@@ -254,6 +332,125 @@ func buildStats(nodes []GraphNode, edges []GraphEdge, communities []GraphCommuni
 		Types:          sortedKeys(typeSet),
 		Relations:      sortedKeys(relationSet),
 	}
+}
+
+func indexNodes(nodes []GraphNode) map[int64]GraphNode {
+	out := make(map[int64]GraphNode, len(nodes))
+	for _, node := range nodes {
+		out[node.ID] = node
+	}
+	return out
+}
+
+func subgraphByIDs(nodes []GraphNode, edges []GraphEdge, communities []GraphCommunity, allowedIDs map[int64]bool) ([]GraphNode, []GraphEdge, []GraphCommunity) {
+	subNodes := make([]GraphNode, 0, len(allowedIDs))
+	usedCommunities := map[int64]bool{}
+	for _, node := range nodes {
+		if !allowedIDs[node.ID] {
+			continue
+		}
+		subNodes = append(subNodes, node)
+		if node.CommunityID > 0 {
+			usedCommunities[node.CommunityID] = true
+		}
+	}
+	subEdges := make([]GraphEdge, 0, len(edges))
+	for _, edge := range edges {
+		if allowedIDs[edge.SourceID] && allowedIDs[edge.TargetID] {
+			subEdges = append(subEdges, edge)
+		}
+	}
+	subCommunities := make([]GraphCommunity, 0, len(communities))
+	for _, community := range communities {
+		if usedCommunities[community.ID] {
+			subCommunities = append(subCommunities, community)
+		}
+	}
+	return subNodes, subEdges, subCommunities
+}
+
+func moveNodeFirst(nodes []GraphNode, nodeID int64) {
+	for i := range nodes {
+		if nodes[i].ID != nodeID {
+			continue
+		}
+		if i > 0 {
+			nodes[0], nodes[i] = nodes[i], nodes[0]
+		}
+		return
+	}
+}
+
+type pathStep struct {
+	nodeID int64
+	edgeID int64
+}
+
+func shortestPath(sourceID, targetID int64, edges []GraphEdge) ([]int64, []int64) {
+	if sourceID == targetID {
+		return []int64{sourceID}, nil
+	}
+	adjacency := map[int64][]pathStep{}
+	for _, edge := range edges {
+		adjacency[edge.SourceID] = append(adjacency[edge.SourceID], pathStep{nodeID: edge.TargetID, edgeID: edge.ID})
+		adjacency[edge.TargetID] = append(adjacency[edge.TargetID], pathStep{nodeID: edge.SourceID, edgeID: edge.ID})
+	}
+	queue := []int64{sourceID}
+	visited := map[int64]bool{sourceID: true}
+	prevNode := map[int64]int64{}
+	prevEdge := map[int64]int64{}
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+		for _, next := range adjacency[current] {
+			if visited[next.nodeID] {
+				continue
+			}
+			visited[next.nodeID] = true
+			prevNode[next.nodeID] = current
+			prevEdge[next.nodeID] = next.edgeID
+			if next.nodeID == targetID {
+				return rebuildPath(sourceID, targetID, prevNode, prevEdge)
+			}
+			queue = append(queue, next.nodeID)
+		}
+	}
+	return nil, nil
+}
+
+func rebuildPath(sourceID, targetID int64, prevNode, prevEdge map[int64]int64) ([]int64, []int64) {
+	var reversedNodes []int64
+	var reversedEdges []int64
+	for current := targetID; ; current = prevNode[current] {
+		reversedNodes = append(reversedNodes, current)
+		if current == sourceID {
+			break
+		}
+		reversedEdges = append(reversedEdges, prevEdge[current])
+	}
+	for i, j := 0, len(reversedNodes)-1; i < j; i, j = i+1, j-1 {
+		reversedNodes[i], reversedNodes[j] = reversedNodes[j], reversedNodes[i]
+	}
+	for i, j := 0, len(reversedEdges)-1; i < j; i, j = i+1, j-1 {
+		reversedEdges[i], reversedEdges[j] = reversedEdges[j], reversedEdges[i]
+	}
+	return reversedNodes, reversedEdges
+}
+
+func orderNodesByPath(nodes []GraphNode, nodeIDs []int64) {
+	order := map[int64]int{}
+	for i, id := range nodeIDs {
+		order[id] = i
+	}
+	sort.Slice(nodes, func(i, j int) bool { return order[nodes[i].ID] < order[nodes[j].ID] })
+}
+
+func orderEdgesByPath(edges []GraphEdge, edgeIDs []int64) {
+	order := map[int64]int{}
+	for i, id := range edgeIDs {
+		order[id] = i
+	}
+	sort.Slice(edges, func(i, j int) bool { return order[edges[i].ID] < order[edges[j].ID] })
 }
 
 func sortGraphNodes(nodes []GraphNode) {

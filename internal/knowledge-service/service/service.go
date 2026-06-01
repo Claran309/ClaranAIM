@@ -16,6 +16,8 @@ type KnowledgeService interface {
 	GetGraphView(ctx context.Context, viewerID int64, input knowledgeclient.GraphQuery) (*knowledgeclient.GraphView, error)
 	GetNodeDetail(ctx context.Context, viewerID, nodeID int64, input knowledgeclient.GraphQuery) (*knowledgeclient.NodeDetail, error)
 	GetEdgeDetail(ctx context.Context, viewerID, edgeID int64, input knowledgeclient.GraphQuery) (*knowledgeclient.EdgeDetail, error)
+	GetNeighborhood(ctx context.Context, viewerID, nodeID int64, input knowledgeclient.GraphQuery) (*knowledgeclient.GraphView, error)
+	GetPath(ctx context.Context, viewerID, sourceID, targetID int64, input knowledgeclient.GraphQuery) (*knowledgeclient.PathDetail, error)
 }
 
 // NewKnowledgeService 创建知识图谱视图服务。

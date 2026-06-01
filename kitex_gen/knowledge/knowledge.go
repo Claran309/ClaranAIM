@@ -774,12 +774,247 @@ var fieldIDToName_KnowledgeEdgeDetailResp = map[int16]string{
 	5: "msg",
 }
 
+type KnowledgeNeighborhoodReq struct {
+	ViewerId        int64    `thrift:"viewer_id,1" frugal:"1,default,i64" json:"viewer_id"`
+	NodeId          int64    `thrift:"node_id,2" frugal:"2,default,i64" json:"node_id"`
+	Query           string   `thrift:"query,3" frugal:"3,default,string" json:"query"`
+	TypeFilters     []string `thrift:"type_filters,4" frugal:"4,default,list<string>" json:"type_filters"`
+	RelationFilters []string `thrift:"relation_filters,5" frugal:"5,default,list<string>" json:"relation_filters"`
+	CommunityId     int64    `thrift:"community_id,6" frugal:"6,default,i64" json:"community_id"`
+	Hops            int64    `thrift:"hops,7" frugal:"7,default,i64" json:"hops"`
+	Limit           int64    `thrift:"limit,8" frugal:"8,default,i64" json:"limit"`
+}
+
+func NewKnowledgeNeighborhoodReq() *KnowledgeNeighborhoodReq {
+	return &KnowledgeNeighborhoodReq{}
+}
+
+func (p *KnowledgeNeighborhoodReq) InitDefault() {
+}
+
+func (p *KnowledgeNeighborhoodReq) GetViewerId() (v int64) {
+	return p.ViewerId
+}
+
+func (p *KnowledgeNeighborhoodReq) GetNodeId() (v int64) {
+	return p.NodeId
+}
+
+func (p *KnowledgeNeighborhoodReq) GetQuery() (v string) {
+	return p.Query
+}
+
+func (p *KnowledgeNeighborhoodReq) GetTypeFilters() (v []string) {
+	return p.TypeFilters
+}
+
+func (p *KnowledgeNeighborhoodReq) GetRelationFilters() (v []string) {
+	return p.RelationFilters
+}
+
+func (p *KnowledgeNeighborhoodReq) GetCommunityId() (v int64) {
+	return p.CommunityId
+}
+
+func (p *KnowledgeNeighborhoodReq) GetHops() (v int64) {
+	return p.Hops
+}
+
+func (p *KnowledgeNeighborhoodReq) GetLimit() (v int64) {
+	return p.Limit
+}
+func (p *KnowledgeNeighborhoodReq) SetViewerId(val int64) {
+	p.ViewerId = val
+}
+func (p *KnowledgeNeighborhoodReq) SetNodeId(val int64) {
+	p.NodeId = val
+}
+func (p *KnowledgeNeighborhoodReq) SetQuery(val string) {
+	p.Query = val
+}
+func (p *KnowledgeNeighborhoodReq) SetTypeFilters(val []string) {
+	p.TypeFilters = val
+}
+func (p *KnowledgeNeighborhoodReq) SetRelationFilters(val []string) {
+	p.RelationFilters = val
+}
+func (p *KnowledgeNeighborhoodReq) SetCommunityId(val int64) {
+	p.CommunityId = val
+}
+func (p *KnowledgeNeighborhoodReq) SetHops(val int64) {
+	p.Hops = val
+}
+func (p *KnowledgeNeighborhoodReq) SetLimit(val int64) {
+	p.Limit = val
+}
+
+func (p *KnowledgeNeighborhoodReq) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("KnowledgeNeighborhoodReq(%+v)", *p)
+}
+
+var fieldIDToName_KnowledgeNeighborhoodReq = map[int16]string{
+	1: "viewer_id",
+	2: "node_id",
+	3: "query",
+	4: "type_filters",
+	5: "relation_filters",
+	6: "community_id",
+	7: "hops",
+	8: "limit",
+}
+
+type KnowledgePathReq struct {
+	ViewerId int64  `thrift:"viewer_id,1" frugal:"1,default,i64" json:"viewer_id"`
+	SourceId int64  `thrift:"source_id,2" frugal:"2,default,i64" json:"source_id"`
+	TargetId int64  `thrift:"target_id,3" frugal:"3,default,i64" json:"target_id"`
+	Query    string `thrift:"query,4" frugal:"4,default,string" json:"query"`
+	Limit    int64  `thrift:"limit,5" frugal:"5,default,i64" json:"limit"`
+}
+
+func NewKnowledgePathReq() *KnowledgePathReq {
+	return &KnowledgePathReq{}
+}
+
+func (p *KnowledgePathReq) InitDefault() {
+}
+
+func (p *KnowledgePathReq) GetViewerId() (v int64) {
+	return p.ViewerId
+}
+
+func (p *KnowledgePathReq) GetSourceId() (v int64) {
+	return p.SourceId
+}
+
+func (p *KnowledgePathReq) GetTargetId() (v int64) {
+	return p.TargetId
+}
+
+func (p *KnowledgePathReq) GetQuery() (v string) {
+	return p.Query
+}
+
+func (p *KnowledgePathReq) GetLimit() (v int64) {
+	return p.Limit
+}
+func (p *KnowledgePathReq) SetViewerId(val int64) {
+	p.ViewerId = val
+}
+func (p *KnowledgePathReq) SetSourceId(val int64) {
+	p.SourceId = val
+}
+func (p *KnowledgePathReq) SetTargetId(val int64) {
+	p.TargetId = val
+}
+func (p *KnowledgePathReq) SetQuery(val string) {
+	p.Query = val
+}
+func (p *KnowledgePathReq) SetLimit(val int64) {
+	p.Limit = val
+}
+
+func (p *KnowledgePathReq) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("KnowledgePathReq(%+v)", *p)
+}
+
+var fieldIDToName_KnowledgePathReq = map[int16]string{
+	1: "viewer_id",
+	2: "source_id",
+	3: "target_id",
+	4: "query",
+	5: "limit",
+}
+
+type KnowledgePathResp struct {
+	Success bool                  `thrift:"success,1" frugal:"1,default,bool" json:"success"`
+	Nodes   []*KnowledgeGraphNode `thrift:"nodes,2" frugal:"2,default,list<KnowledgeGraphNode>" json:"nodes"`
+	Edges   []*KnowledgeGraphEdge `thrift:"edges,3" frugal:"3,default,list<KnowledgeGraphEdge>" json:"edges"`
+	NodeIds []int64               `thrift:"node_ids,4" frugal:"4,default,list<i64>" json:"node_ids"`
+	EdgeIds []int64               `thrift:"edge_ids,5" frugal:"5,default,list<i64>" json:"edge_ids"`
+	Msg     string                `thrift:"msg,6" frugal:"6,default,string" json:"msg"`
+}
+
+func NewKnowledgePathResp() *KnowledgePathResp {
+	return &KnowledgePathResp{}
+}
+
+func (p *KnowledgePathResp) InitDefault() {
+}
+
+func (p *KnowledgePathResp) GetSuccess() (v bool) {
+	return p.Success
+}
+
+func (p *KnowledgePathResp) GetNodes() (v []*KnowledgeGraphNode) {
+	return p.Nodes
+}
+
+func (p *KnowledgePathResp) GetEdges() (v []*KnowledgeGraphEdge) {
+	return p.Edges
+}
+
+func (p *KnowledgePathResp) GetNodeIds() (v []int64) {
+	return p.NodeIds
+}
+
+func (p *KnowledgePathResp) GetEdgeIds() (v []int64) {
+	return p.EdgeIds
+}
+
+func (p *KnowledgePathResp) GetMsg() (v string) {
+	return p.Msg
+}
+func (p *KnowledgePathResp) SetSuccess(val bool) {
+	p.Success = val
+}
+func (p *KnowledgePathResp) SetNodes(val []*KnowledgeGraphNode) {
+	p.Nodes = val
+}
+func (p *KnowledgePathResp) SetEdges(val []*KnowledgeGraphEdge) {
+	p.Edges = val
+}
+func (p *KnowledgePathResp) SetNodeIds(val []int64) {
+	p.NodeIds = val
+}
+func (p *KnowledgePathResp) SetEdgeIds(val []int64) {
+	p.EdgeIds = val
+}
+func (p *KnowledgePathResp) SetMsg(val string) {
+	p.Msg = val
+}
+
+func (p *KnowledgePathResp) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("KnowledgePathResp(%+v)", *p)
+}
+
+var fieldIDToName_KnowledgePathResp = map[int16]string{
+	1: "success",
+	2: "nodes",
+	3: "edges",
+	4: "node_ids",
+	5: "edge_ids",
+	6: "msg",
+}
+
 type KnowledgeService interface {
 	GetGraphView(ctx context.Context, req *KnowledgeGraphReq) (r *KnowledgeGraphResp, err error)
 
 	GetNodeDetail(ctx context.Context, req *KnowledgeNodeDetailReq) (r *KnowledgeNodeDetailResp, err error)
 
 	GetEdgeDetail(ctx context.Context, req *KnowledgeEdgeDetailReq) (r *KnowledgeEdgeDetailResp, err error)
+
+	GetNeighborhood(ctx context.Context, req *KnowledgeNeighborhoodReq) (r *KnowledgeGraphResp, err error)
+
+	GetPath(ctx context.Context, req *KnowledgePathReq) (r *KnowledgePathResp, err error)
 }
 
 type KnowledgeServiceGetGraphViewArgs struct {
@@ -1007,5 +1242,157 @@ func (p *KnowledgeServiceGetEdgeDetailResult) String() string {
 }
 
 var fieldIDToName_KnowledgeServiceGetEdgeDetailResult = map[int16]string{
+	0: "success",
+}
+
+type KnowledgeServiceGetNeighborhoodArgs struct {
+	Req *KnowledgeNeighborhoodReq `thrift:"req,1" frugal:"1,default,KnowledgeNeighborhoodReq" json:"req"`
+}
+
+func NewKnowledgeServiceGetNeighborhoodArgs() *KnowledgeServiceGetNeighborhoodArgs {
+	return &KnowledgeServiceGetNeighborhoodArgs{}
+}
+
+func (p *KnowledgeServiceGetNeighborhoodArgs) InitDefault() {
+}
+
+var KnowledgeServiceGetNeighborhoodArgs_Req_DEFAULT *KnowledgeNeighborhoodReq
+
+func (p *KnowledgeServiceGetNeighborhoodArgs) GetReq() (v *KnowledgeNeighborhoodReq) {
+	if !p.IsSetReq() {
+		return KnowledgeServiceGetNeighborhoodArgs_Req_DEFAULT
+	}
+	return p.Req
+}
+func (p *KnowledgeServiceGetNeighborhoodArgs) SetReq(val *KnowledgeNeighborhoodReq) {
+	p.Req = val
+}
+
+func (p *KnowledgeServiceGetNeighborhoodArgs) IsSetReq() bool {
+	return p.Req != nil
+}
+
+func (p *KnowledgeServiceGetNeighborhoodArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("KnowledgeServiceGetNeighborhoodArgs(%+v)", *p)
+}
+
+var fieldIDToName_KnowledgeServiceGetNeighborhoodArgs = map[int16]string{
+	1: "req",
+}
+
+type KnowledgeServiceGetNeighborhoodResult struct {
+	Success *KnowledgeGraphResp `thrift:"success,0,optional" frugal:"0,optional,KnowledgeGraphResp" json:"success,omitempty"`
+}
+
+func NewKnowledgeServiceGetNeighborhoodResult() *KnowledgeServiceGetNeighborhoodResult {
+	return &KnowledgeServiceGetNeighborhoodResult{}
+}
+
+func (p *KnowledgeServiceGetNeighborhoodResult) InitDefault() {
+}
+
+var KnowledgeServiceGetNeighborhoodResult_Success_DEFAULT *KnowledgeGraphResp
+
+func (p *KnowledgeServiceGetNeighborhoodResult) GetSuccess() (v *KnowledgeGraphResp) {
+	if !p.IsSetSuccess() {
+		return KnowledgeServiceGetNeighborhoodResult_Success_DEFAULT
+	}
+	return p.Success
+}
+func (p *KnowledgeServiceGetNeighborhoodResult) SetSuccess(x interface{}) {
+	p.Success = x.(*KnowledgeGraphResp)
+}
+
+func (p *KnowledgeServiceGetNeighborhoodResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *KnowledgeServiceGetNeighborhoodResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("KnowledgeServiceGetNeighborhoodResult(%+v)", *p)
+}
+
+var fieldIDToName_KnowledgeServiceGetNeighborhoodResult = map[int16]string{
+	0: "success",
+}
+
+type KnowledgeServiceGetPathArgs struct {
+	Req *KnowledgePathReq `thrift:"req,1" frugal:"1,default,KnowledgePathReq" json:"req"`
+}
+
+func NewKnowledgeServiceGetPathArgs() *KnowledgeServiceGetPathArgs {
+	return &KnowledgeServiceGetPathArgs{}
+}
+
+func (p *KnowledgeServiceGetPathArgs) InitDefault() {
+}
+
+var KnowledgeServiceGetPathArgs_Req_DEFAULT *KnowledgePathReq
+
+func (p *KnowledgeServiceGetPathArgs) GetReq() (v *KnowledgePathReq) {
+	if !p.IsSetReq() {
+		return KnowledgeServiceGetPathArgs_Req_DEFAULT
+	}
+	return p.Req
+}
+func (p *KnowledgeServiceGetPathArgs) SetReq(val *KnowledgePathReq) {
+	p.Req = val
+}
+
+func (p *KnowledgeServiceGetPathArgs) IsSetReq() bool {
+	return p.Req != nil
+}
+
+func (p *KnowledgeServiceGetPathArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("KnowledgeServiceGetPathArgs(%+v)", *p)
+}
+
+var fieldIDToName_KnowledgeServiceGetPathArgs = map[int16]string{
+	1: "req",
+}
+
+type KnowledgeServiceGetPathResult struct {
+	Success *KnowledgePathResp `thrift:"success,0,optional" frugal:"0,optional,KnowledgePathResp" json:"success,omitempty"`
+}
+
+func NewKnowledgeServiceGetPathResult() *KnowledgeServiceGetPathResult {
+	return &KnowledgeServiceGetPathResult{}
+}
+
+func (p *KnowledgeServiceGetPathResult) InitDefault() {
+}
+
+var KnowledgeServiceGetPathResult_Success_DEFAULT *KnowledgePathResp
+
+func (p *KnowledgeServiceGetPathResult) GetSuccess() (v *KnowledgePathResp) {
+	if !p.IsSetSuccess() {
+		return KnowledgeServiceGetPathResult_Success_DEFAULT
+	}
+	return p.Success
+}
+func (p *KnowledgeServiceGetPathResult) SetSuccess(x interface{}) {
+	p.Success = x.(*KnowledgePathResp)
+}
+
+func (p *KnowledgeServiceGetPathResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *KnowledgeServiceGetPathResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("KnowledgeServiceGetPathResult(%+v)", *p)
+}
+
+var fieldIDToName_KnowledgeServiceGetPathResult = map[int16]string{
 	0: "success",
 }
