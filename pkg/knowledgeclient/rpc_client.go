@@ -111,6 +111,61 @@ func (c *RPCClient) GetPath(ctx context.Context, viewerID, sourceID, targetID in
 	return fromRPCPath(resp), nil
 }
 
+func (c *RPCClient) CreateGraphReviewCandidate(ctx context.Context, viewerID int64, input CreateGraphReviewCandidateInput) (*GraphReviewCandidate, error) {
+	resp, err := c.client.CreateGraphReviewCandidate(ctx, &knowledge.CreateGraphReviewCandidateReq{
+		ViewerId: viewerID,
+		ItemType: input.ItemType,
+		ItemId:   input.ItemID,
+		Reason:   input.Reason,
+		Query:    input.Query,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if !resp.GetSuccess() {
+		return nil, errors.New(defaultRPCMsg(resp.GetMsg()))
+	}
+	return fromRPCReviewCandidate(resp.GetCandidate()), nil
+}
+
+func (c *RPCClient) ListGraphReviewCandidates(ctx context.Context, viewerID int64, input ListGraphReviewCandidatesInput) (*GraphReviewCandidateList, error) {
+	resp, err := c.client.ListGraphReviewCandidates(ctx, &knowledge.ListGraphReviewCandidatesReq{
+		ViewerId: viewerID,
+		Status:   input.Status,
+		ItemType: input.ItemType,
+		Limit:    int64(input.Limit),
+		Offset:   int64(input.Offset),
+	})
+	if err != nil {
+		return nil, err
+	}
+	if resp == nil {
+		return &GraphReviewCandidateList{Success: false, Msg: "knowledge-service返回空审核列表"}, nil
+	}
+	return &GraphReviewCandidateList{
+		Success:    resp.GetSuccess(),
+		Candidates: fromRPCReviewCandidates(resp.GetCandidates()),
+		Total:      resp.GetTotal(),
+		Msg:        resp.GetMsg(),
+	}, nil
+}
+
+func (c *RPCClient) ReviewGraphCandidate(ctx context.Context, viewerID int64, input ReviewGraphCandidateInput) (*GraphReviewCandidate, error) {
+	resp, err := c.client.ReviewGraphCandidate(ctx, &knowledge.ReviewGraphCandidateReq{
+		ViewerId:    viewerID,
+		CandidateId: input.CandidateID,
+		Action:      input.Action,
+		Note:        input.Note,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if !resp.GetSuccess() {
+		return nil, errors.New(defaultRPCMsg(resp.GetMsg()))
+	}
+	return fromRPCReviewCandidate(resp.GetCandidate()), nil
+}
+
 func fromRPCGraphView(resp *knowledge.KnowledgeGraphResp) *GraphView {
 	if resp == nil {
 		return &GraphView{Success: false, Msg: "knowledge-service返回空响应"}
@@ -249,6 +304,38 @@ func fromRPCStats(stats *knowledge.KnowledgeGraphStats) GraphStats {
 		CommunityCount: int(stats.GetCommunityCount()),
 		Types:          stats.GetTypes(),
 		Relations:      stats.GetRelations(),
+	}
+}
+
+func fromRPCReviewCandidates(candidates []*knowledge.GraphReviewCandidate) []GraphReviewCandidate {
+	out := make([]GraphReviewCandidate, 0, len(candidates))
+	for _, candidate := range candidates {
+		if candidate == nil {
+			continue
+		}
+		out = append(out, *fromRPCReviewCandidate(candidate))
+	}
+	return out
+}
+
+func fromRPCReviewCandidate(candidate *knowledge.GraphReviewCandidate) *GraphReviewCandidate {
+	if candidate == nil {
+		return nil
+	}
+	return &GraphReviewCandidate{
+		ID:         candidate.GetId(),
+		ItemType:   candidate.GetItemType(),
+		ItemID:     candidate.GetItemId(),
+		Name:       candidate.GetName(),
+		Type:       candidate.GetType(),
+		Summary:    candidate.GetSummary(),
+		Evidence:   candidate.GetEvidence(),
+		Reason:     candidate.GetReason(),
+		Status:     candidate.GetStatus(),
+		ReviewNote: candidate.GetReviewNote(),
+		CreatedAt:  candidate.GetCreatedAt(),
+		UpdatedAt:  candidate.GetUpdatedAt(),
+		ReviewedAt: candidate.GetReviewedAt(),
 	}
 }
 

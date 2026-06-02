@@ -61,6 +61,9 @@ type agentServiceImpl struct {
 	userClient       userservice.Client
 	workspaceBase    string
 	memoryService    AgentMemoryService
+	defaultAPIKey    string
+	defaultBaseURL   string
+	defaultModel     string
 }
 
 const (
@@ -83,6 +86,7 @@ const (
 type AgentMemoryService interface {
 	Recall(ctx context.Context, input memoryclient.RecallInput) (memoryclient.RecallResult, error)
 	CreateMemory(ctx context.Context, input memoryclient.CreateMemoryInput) (*memoryclient.MemoryFact, error)
+	ListMemories(ctx context.Context, viewerID int64, filter memoryclient.Filter) ([]memoryclient.MemoryFact, int64, error)
 }
 
 // NewAgentService 创建 Agent 管理服务。
@@ -109,6 +113,14 @@ func (s *agentServiceImpl) SetAgentSubscriptionRepository(repo dao.AgentSubscrip
 // 当前依赖的是窄接口，后续独立 memory RPC 只要实现同一契约即可替换。
 func (s *agentServiceImpl) SetMemoryService(memory AgentMemoryService) {
 	s.memoryService = memory
+}
+
+// SetDefaultLLM 注入平台默认模型供应商配置。
+// internal Agent 在运行时使用这里的最新配置，而不是永久依赖创建时写入 bots 表的旧密钥。
+func (s *agentServiceImpl) SetDefaultLLM(apiKey, baseURL, modelName string) {
+	s.defaultAPIKey = apiKey
+	s.defaultBaseURL = baseURL
+	s.defaultModel = modelName
 }
 
 // CreateBot 创建一个由用户拥有的 Agent 配置。
@@ -340,6 +352,7 @@ func (s *agentServiceImpl) ChatWithBot(ctx context.Context, botID, userID, conve
 	if !botInfo.IsActive {
 		return nil, errors.New("bot已停用")
 	}
+	s.applyDefaultProvider(botInfo)
 	if botInfo.APIKey == "" {
 		return nil, errors.New("bot未配置API Key，请联系管理员或配置自部署Bot的API Key")
 	}
@@ -428,6 +441,7 @@ func (s *agentServiceImpl) buildInputWithMemory(ctx context.Context, botInfo *mo
 		ConversationID: conversationID,
 		SessionID:      sessionID,
 		Limit:          int(botInfo.MemoryRecallLimit),
+		Query:          message,
 	})
 	if err != nil || strings.TrimSpace(result.ContextText) == "" {
 		if err != nil {
@@ -435,7 +449,7 @@ func (s *agentServiceImpl) buildInputWithMemory(ctx context.Context, botInfo *mo
 		}
 		return message
 	}
-	return fmt.Sprintf("%s\n\n请只把上面的长期记忆作为辅助背景，不要泄露记忆系统内部字段；如果用户纠正了记忆，以用户当前说法为准。\n\n用户本次输入：\n%s", result.ContextText, message)
+	return fmt.Sprintf("%s\n\n注入策略：以下记忆只是可能相关的长期背景；如果和当前问题无关，不要强行使用；用户当前输入优先级高于记忆。\n\n用户本次输入：\n%s", result.ContextText, message)
 }
 
 // recordAgentRunMemory 将一次 Agent 交互摘要写入会话记忆，供后续跨轮召回。
@@ -445,6 +459,9 @@ func (s *agentServiceImpl) recordAgentRunMemory(ctx context.Context, botID, user
 	}
 	content := summarizeAgentRunMemory(userMessage, reply)
 	if content == "" {
+		return
+	}
+	if s.agentRunMemoryExists(ctx, botID, userID, conversationID, sessionID, content) {
 		return
 	}
 	_, err := s.memoryService.CreateMemory(ctx, memoryclient.CreateMemoryInput{
@@ -466,8 +483,35 @@ func (s *agentServiceImpl) recordAgentRunMemory(ctx context.Context, botID, user
 	}
 }
 
+// agentRunMemoryExists 查询最近同类运行摘要，避免 Kafka 重试或前端重复触发时写入完全相同的记忆。
+func (s *agentServiceImpl) agentRunMemoryExists(ctx context.Context, botID, userID, conversationID int64, sessionID, content string) bool {
+	if s.memoryService == nil || strings.TrimSpace(content) == "" {
+		return false
+	}
+	memories, _, err := s.memoryService.ListMemories(ctx, userID, memoryclient.Filter{
+		BotID:           botID,
+		UserID:          userID,
+		ConversationID:  conversationID,
+		SessionID:       sessionID,
+		Scopes:          []string{memoryclient.ScopeConversation},
+		Types:           []string{memoryclient.TypeAgentRun},
+		IncludeDisabled: false,
+		Limit:           10,
+	})
+	if err != nil {
+		return false
+	}
+	for _, memory := range memories {
+		if strings.TrimSpace(memory.Content) == strings.TrimSpace(content) {
+			return true
+		}
+	}
+	return false
+}
+
 // summarizeAgentRunMemory 把用户输入和 Agent 回复压缩成适合长期记忆保存的短文本。
 func summarizeAgentRunMemory(userMessage, reply string) string {
+	userMessage = extractTriggeredContentForMemory(userMessage)
 	userMessage = truncateRunMemoryText(userMessage, 240)
 	reply = truncateRunMemoryText(reply, 360)
 	if userMessage == "" && reply == "" {
@@ -480,6 +524,25 @@ func summarizeAgentRunMemory(userMessage, reply string) string {
 		return "Agent回复：" + reply
 	}
 	return fmt.Sprintf("用户请求：%s\nAgent回复：%s", userMessage, reply)
+}
+
+// extractTriggeredContentForMemory 从 Agent-Native 包装输入中抽出真正的用户触发内容。
+// 运行摘要不应该保存 system prompt、会话材料和长期记忆注入，否则会污染后续召回。
+func extractTriggeredContentForMemory(text string) string {
+	text = strings.TrimSpace(text)
+	marker := "当前触发内容："
+	idx := strings.Index(text, marker)
+	if idx < 0 {
+		return text
+	}
+	rest := strings.TrimSpace(text[idx+len(marker):])
+	for _, endMarker := range []string{"\n\n会话材料", "\n会话材料", "\n\n事件信息", "\n事件信息"} {
+		if end := strings.Index(rest, endMarker); end >= 0 {
+			rest = strings.TrimSpace(rest[:end])
+			break
+		}
+	}
+	return rest
 }
 
 // truncateRunMemoryText 清理换行并截断记忆文本，避免单条记忆过长。
@@ -594,6 +657,7 @@ func validPermissionRole(role string) bool {
 
 // runtimeConfig 将数据库中的 Agent 配置转换为 agent-runtime-service 的运行配置。
 func (s *agentServiceImpl) runtimeConfig(bot *model.Bot) *bot_runtime.RuntimeBotConfig {
+	s.applyDefaultProvider(bot)
 	normalizeAgentRuntimeSettings(bot)
 	workspace := bot.WorkspaceRoot
 	if workspace == "" {
@@ -618,6 +682,23 @@ func (s *agentServiceImpl) runtimeConfig(bot *model.Bot) *bot_runtime.RuntimeBot
 		Temperature:         bot.Temperature,
 		GroupTriggerMode:    bot.GroupTriggerMode,
 		AutoReplyEnabled:    bot.AutoReplyEnabled,
+	}
+}
+
+// applyDefaultProvider 为 internal Agent 覆盖最新平台默认供应商配置。
+// 这避免平台换 Key/BaseURL 后，历史 Agent 继续使用 bots 表里的旧快照而触发 401。
+func (s *agentServiceImpl) applyDefaultProvider(bot *model.Bot) {
+	if s == nil || bot == nil || bot.Type != "internal" {
+		return
+	}
+	if s.defaultAPIKey != "" {
+		bot.APIKey = s.defaultAPIKey
+	}
+	if s.defaultBaseURL != "" {
+		bot.BaseURL = s.defaultBaseURL
+	}
+	if s.defaultModel != "" && strings.TrimSpace(bot.ModelName) == "" {
+		bot.ModelName = s.defaultModel
 	}
 }
 

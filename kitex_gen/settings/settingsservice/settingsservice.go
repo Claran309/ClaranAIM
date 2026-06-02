@@ -97,6 +97,34 @@ var serviceMethods = map[string]kitex.MethodInfo{
 		false,
 		kitex.WithStreamingMode(kitex.StreamingNone),
 	),
+	"SaveMCPServer": kitex.NewMethodInfo(
+		saveMCPServerHandler,
+		newSettingsServiceSaveMCPServerArgs,
+		newSettingsServiceSaveMCPServerResult,
+		false,
+		kitex.WithStreamingMode(kitex.StreamingNone),
+	),
+	"ListMCPServers": kitex.NewMethodInfo(
+		listMCPServersHandler,
+		newSettingsServiceListMCPServersArgs,
+		newSettingsServiceListMCPServersResult,
+		false,
+		kitex.WithStreamingMode(kitex.StreamingNone),
+	),
+	"ResolveMCPServers": kitex.NewMethodInfo(
+		resolveMCPServersHandler,
+		newSettingsServiceResolveMCPServersArgs,
+		newSettingsServiceResolveMCPServersResult,
+		false,
+		kitex.WithStreamingMode(kitex.StreamingNone),
+	),
+	"DeleteMCPServer": kitex.NewMethodInfo(
+		deleteMCPServerHandler,
+		newSettingsServiceDeleteMCPServerArgs,
+		newSettingsServiceDeleteMCPServerResult,
+		false,
+		kitex.WithStreamingMode(kitex.StreamingNone),
+	),
 }
 
 var (
@@ -379,6 +407,78 @@ func newSettingsServiceDeleteSkillResult() interface{} {
 	return settings.NewSettingsServiceDeleteSkillResult()
 }
 
+func saveMCPServerHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
+	realArg := arg.(*settings.SettingsServiceSaveMCPServerArgs)
+	realResult := result.(*settings.SettingsServiceSaveMCPServerResult)
+	success, err := handler.(settings.SettingsService).SaveMCPServer(ctx, realArg.Req)
+	if err != nil {
+		return err
+	}
+	realResult.Success = success
+	return nil
+}
+func newSettingsServiceSaveMCPServerArgs() interface{} {
+	return settings.NewSettingsServiceSaveMCPServerArgs()
+}
+
+func newSettingsServiceSaveMCPServerResult() interface{} {
+	return settings.NewSettingsServiceSaveMCPServerResult()
+}
+
+func listMCPServersHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
+	realArg := arg.(*settings.SettingsServiceListMCPServersArgs)
+	realResult := result.(*settings.SettingsServiceListMCPServersResult)
+	success, err := handler.(settings.SettingsService).ListMCPServers(ctx, realArg.Req)
+	if err != nil {
+		return err
+	}
+	realResult.Success = success
+	return nil
+}
+func newSettingsServiceListMCPServersArgs() interface{} {
+	return settings.NewSettingsServiceListMCPServersArgs()
+}
+
+func newSettingsServiceListMCPServersResult() interface{} {
+	return settings.NewSettingsServiceListMCPServersResult()
+}
+
+func resolveMCPServersHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
+	realArg := arg.(*settings.SettingsServiceResolveMCPServersArgs)
+	realResult := result.(*settings.SettingsServiceResolveMCPServersResult)
+	success, err := handler.(settings.SettingsService).ResolveMCPServers(ctx, realArg.Req)
+	if err != nil {
+		return err
+	}
+	realResult.Success = success
+	return nil
+}
+func newSettingsServiceResolveMCPServersArgs() interface{} {
+	return settings.NewSettingsServiceResolveMCPServersArgs()
+}
+
+func newSettingsServiceResolveMCPServersResult() interface{} {
+	return settings.NewSettingsServiceResolveMCPServersResult()
+}
+
+func deleteMCPServerHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
+	realArg := arg.(*settings.SettingsServiceDeleteMCPServerArgs)
+	realResult := result.(*settings.SettingsServiceDeleteMCPServerResult)
+	success, err := handler.(settings.SettingsService).DeleteMCPServer(ctx, realArg.Req)
+	if err != nil {
+		return err
+	}
+	realResult.Success = success
+	return nil
+}
+func newSettingsServiceDeleteMCPServerArgs() interface{} {
+	return settings.NewSettingsServiceDeleteMCPServerArgs()
+}
+
+func newSettingsServiceDeleteMCPServerResult() interface{} {
+	return settings.NewSettingsServiceDeleteMCPServerResult()
+}
+
 type kClient struct {
 	c client.Client
 }
@@ -504,6 +604,46 @@ func (p *kClient) DeleteSkill(ctx context.Context, req *settings.DeleteSkillReq)
 	_args.Req = req
 	var _result settings.SettingsServiceDeleteSkillResult
 	if err = p.c.Call(ctx, "DeleteSkill", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
+
+func (p *kClient) SaveMCPServer(ctx context.Context, req *settings.SaveMCPServerReq) (r *settings.SaveMCPServerResp, err error) {
+	var _args settings.SettingsServiceSaveMCPServerArgs
+	_args.Req = req
+	var _result settings.SettingsServiceSaveMCPServerResult
+	if err = p.c.Call(ctx, "SaveMCPServer", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
+
+func (p *kClient) ListMCPServers(ctx context.Context, req *settings.ListMCPServersReq) (r *settings.ListMCPServersResp, err error) {
+	var _args settings.SettingsServiceListMCPServersArgs
+	_args.Req = req
+	var _result settings.SettingsServiceListMCPServersResult
+	if err = p.c.Call(ctx, "ListMCPServers", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
+
+func (p *kClient) ResolveMCPServers(ctx context.Context, req *settings.ResolveMCPServersReq) (r *settings.ResolveMCPServersResp, err error) {
+	var _args settings.SettingsServiceResolveMCPServersArgs
+	_args.Req = req
+	var _result settings.SettingsServiceResolveMCPServersResult
+	if err = p.c.Call(ctx, "ResolveMCPServers", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
+
+func (p *kClient) DeleteMCPServer(ctx context.Context, req *settings.DeleteMCPServerReq) (r *settings.DeleteMCPServerResp, err error) {
+	var _args settings.SettingsServiceDeleteMCPServerArgs
+	_args.Req = req
+	var _result settings.SettingsServiceDeleteMCPServerResult
+	if err = p.c.Call(ctx, "DeleteMCPServer", &_args, &_result); err != nil {
 		return
 	}
 	return _result.GetSuccess(), nil

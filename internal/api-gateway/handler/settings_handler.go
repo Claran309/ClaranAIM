@@ -199,6 +199,7 @@ func (h *SettingsHandler) UploadSkill(ctx context.Context, c *app.RequestContext
 		name = inferSkillName(files)
 	}
 	skill, err := h.svc.SaveSkill(ctx, userID, settingsclient.SaveSkillInput{
+		Username:    currentUsername(c),
 		Name:        name,
 		Description: description,
 		Scope:       scope,
@@ -305,6 +306,97 @@ func (h *SettingsHandler) DeleteSkill(ctx context.Context, c *app.RequestContext
 	response.Success(c, map[string]interface{}{"success": true})
 }
 
+// ListMCPServers 返回当前用户配置的外部 MCP Server，Secret 不会回显。
+func (h *SettingsHandler) ListMCPServers(ctx context.Context, c *app.RequestContext) {
+	if !h.ensureService(c) {
+		return
+	}
+	userID, ok := requireCurrentUserID(c)
+	if !ok {
+		return
+	}
+	agentID, err := parseOptionalSettingsInt64(c.DefaultQuery("agent_id", "-1"))
+	if err != nil {
+		response.BadRequest(c, "无效的Agent ID")
+		return
+	}
+	conversationID, err := parseOptionalSettingsInt64(c.DefaultQuery("conversation_id", "-1"))
+	if err != nil {
+		response.BadRequest(c, "无效的会话ID")
+		return
+	}
+	includeDisabled := strings.EqualFold(c.DefaultQuery("include_disabled", "false"), "true")
+	servers, err := h.svc.ListMCPServers(ctx, userID, c.DefaultQuery("scope", ""), agentID, conversationID, includeDisabled)
+	if err != nil {
+		response.Error(c, err.Error())
+		return
+	}
+	response.Success(c, map[string]interface{}{"success": true, "servers": servers})
+}
+
+// SaveMCPServer 创建或更新当前用户的外部 MCP Server 配置。
+func (h *SettingsHandler) SaveMCPServer(ctx context.Context, c *app.RequestContext) {
+	if !h.ensureService(c) {
+		return
+	}
+	userID, ok := requireCurrentUserID(c)
+	if !ok {
+		return
+	}
+	var req mcpServerReq
+	if err := bindSettingsJSON(c, &req); err != nil {
+		response.BadRequest(c, "参数错误")
+		return
+	}
+	server, err := h.svc.SaveMCPServer(ctx, userID, settingsclient.SaveMCPServerInput{
+		ID:             parseSettingsNumber(req.ID),
+		AgentID:        parseSettingsNumber(req.AgentID),
+		ConversationID: parseSettingsNumber(req.ConversationID),
+		Scope:          defaultSettingString(req.Scope, settingsclient.MCPScopeUser),
+		Name:           req.Name,
+		Description:    req.Description,
+		Transport:      defaultSettingString(req.Transport, settingsclient.MCPTransportStreamableHTTP),
+		EndpointURL:    req.EndpointURL,
+		Command:        req.Command,
+		ArgsJSON:       req.ArgsJSON,
+		EnvJSON:        req.EnvJSON,
+		HeadersJSON:    req.HeadersJSON,
+		AuthType:       req.AuthType,
+		Secret:         req.Secret,
+		SecretAction:   defaultSettingString(req.SecretAction, settingsclient.APIKeyActionKeep),
+		Enabled:        req.Enabled,
+		TrustLevel:     defaultSettingString(req.TrustLevel, settingsclient.MCPTrustLow),
+		AllowToolsJSON: req.AllowToolsJSON,
+		DenyToolsJSON:  req.DenyToolsJSON,
+	})
+	if err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	response.Success(c, map[string]interface{}{"success": true, "server": server})
+}
+
+// DeleteMCPServer 删除当前用户拥有的外部 MCP Server 配置。
+func (h *SettingsHandler) DeleteMCPServer(ctx context.Context, c *app.RequestContext) {
+	if !h.ensureService(c) {
+		return
+	}
+	userID, ok := requireCurrentUserID(c)
+	if !ok {
+		return
+	}
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id <= 0 {
+		response.BadRequest(c, "无效的MCP配置ID")
+		return
+	}
+	if err := h.svc.DeleteMCPServer(ctx, userID, id); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	response.Success(c, map[string]interface{}{"success": true})
+}
+
 // llmProfileReq 是浏览器保存 LLM 预设的 JSON 请求体。
 // ID 使用 json.Number，避免 JS 大整数在网关二次解析时丢失精度。
 type llmProfileReq struct {
@@ -335,6 +427,30 @@ type skillContentReq struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
 	Content     string `json:"content"`
+}
+
+// mcpServerReq 是浏览器保存外部 MCP Server 时使用的 JSON 请求体。
+// allow_tools_json / deny_tools_json / headers_json 等字段保持 JSON 字符串，方便前端高级模式直接编辑。
+type mcpServerReq struct {
+	ID             json.Number `json:"id"`
+	AgentID        json.Number `json:"agent_id"`
+	ConversationID json.Number `json:"conversation_id"`
+	Scope          string      `json:"scope"`
+	Name           string      `json:"name"`
+	Description    string      `json:"description"`
+	Transport      string      `json:"transport"`
+	EndpointURL    string      `json:"endpoint_url"`
+	Command        string      `json:"command"`
+	ArgsJSON       string      `json:"args_json"`
+	EnvJSON        string      `json:"env_json"`
+	HeadersJSON    string      `json:"headers_json"`
+	AuthType       string      `json:"auth_type"`
+	Secret         string      `json:"secret"`
+	SecretAction   string      `json:"secret_action"`
+	Enabled        *bool       `json:"enabled"`
+	TrustLevel     string      `json:"trust_level"`
+	AllowToolsJSON string      `json:"allow_tools_json"`
+	DenyToolsJSON  string      `json:"deny_tools_json"`
 }
 
 // collectSkillUploadFiles 将 multipart 上传转换为 settings-service 可保存的 Skill 文件列表。
@@ -420,12 +536,6 @@ func unzipSkillFiles(data []byte) ([]settingsclient.SkillFileInput, error) {
 func normalizeBrowserSkillPath(path string) string {
 	path = filepath.ToSlash(strings.TrimSpace(path))
 	path = strings.TrimPrefix(path, "./")
-	if strings.Contains(path, "/") {
-		parts := strings.Split(path, "/")
-		if len(parts) > 1 && !strings.EqualFold(parts[0], "SKILL.md") {
-			path = strings.Join(parts[1:], "/")
-		}
-	}
 	if path == "" {
 		return "SKILL.md"
 	}

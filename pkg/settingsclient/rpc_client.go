@@ -150,6 +150,7 @@ func (c *RPCClient) SaveSkill(ctx context.Context, ownerID int64, input SaveSkil
 		IsDefault:   input.IsDefault,
 		Enabled:     boolValue(input.Enabled, true),
 		EnabledSet:  input.Enabled != nil,
+		Username:    input.Username,
 	})
 	if err != nil {
 		return nil, err
@@ -205,6 +206,83 @@ func (c *RPCClient) UpdateSkillContent(ctx context.Context, ownerID, skillID int
 // DeleteSkill 删除当前用户拥有的 Skill。
 func (c *RPCClient) DeleteSkill(ctx context.Context, ownerID, skillID int64) error {
 	resp, err := c.client.DeleteSkill(ctx, &settings.DeleteSkillReq{UserId: ownerID, SkillId: skillID})
+	if err != nil {
+		return err
+	}
+	return rpcStatus(resp.GetSuccess(), resp.GetMsg())
+}
+
+// SaveMCPServer 创建或更新用户自定义 MCP Server。
+func (c *RPCClient) SaveMCPServer(ctx context.Context, ownerID int64, input SaveMCPServerInput) (*MCPServerConfig, error) {
+	resp, err := c.client.SaveMCPServer(ctx, &settings.SaveMCPServerReq{
+		UserId:         ownerID,
+		Id:             input.ID,
+		AgentId:        input.AgentID,
+		ConversationId: input.ConversationID,
+		Scope:          input.Scope,
+		Name:           input.Name,
+		Description:    input.Description,
+		Transport:      input.Transport,
+		EndpointUrl:    input.EndpointURL,
+		Command:        input.Command,
+		ArgsJson:       input.ArgsJSON,
+		EnvJson:        input.EnvJSON,
+		HeadersJson:    input.HeadersJSON,
+		AuthType:       input.AuthType,
+		Secret:         input.Secret,
+		SecretAction:   input.SecretAction,
+		Enabled:        boolValue(input.Enabled, true),
+		EnabledSet:     input.Enabled != nil,
+		TrustLevel:     input.TrustLevel,
+		AllowToolsJson: input.AllowToolsJSON,
+		DenyToolsJson:  input.DenyToolsJSON,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if err := rpcStatus(resp.GetSuccess(), resp.GetMsg()); err != nil {
+		return nil, err
+	}
+	return fromRPCMCPServer(resp.GetServer()), nil
+}
+
+// ListMCPServers 查询用户 MCP 配置列表，Secret 不会回显。
+func (c *RPCClient) ListMCPServers(ctx context.Context, ownerID int64, scope string, agentID, conversationID int64, includeDisabled bool) ([]MCPServerConfig, error) {
+	resp, err := c.client.ListMCPServers(ctx, &settings.ListMCPServersReq{
+		UserId:          ownerID,
+		Scope:           scope,
+		AgentId:         agentID,
+		ConversationId:  conversationID,
+		IncludeDisabled: includeDisabled,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if err := rpcStatus(resp.GetSuccess(), resp.GetMsg()); err != nil {
+		return nil, err
+	}
+	return fromRPCMCPServers(resp.GetServers()), nil
+}
+
+// ResolveMCPServers 返回某次 Agent 运行可用 MCP 配置，服务间调用可包含 Secret。
+func (c *RPCClient) ResolveMCPServers(ctx context.Context, ownerID, agentID, conversationID int64) ([]MCPServerConfig, error) {
+	resp, err := c.client.ResolveMCPServers(ctx, &settings.ResolveMCPServersReq{
+		UserId:         ownerID,
+		AgentId:        agentID,
+		ConversationId: conversationID,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if err := rpcStatus(resp.GetSuccess(), resp.GetMsg()); err != nil {
+		return nil, err
+	}
+	return fromRPCMCPServers(resp.GetServers()), nil
+}
+
+// DeleteMCPServer 删除用户 MCP 配置。
+func (c *RPCClient) DeleteMCPServer(ctx context.Context, ownerID, serverID int64) error {
+	resp, err := c.client.DeleteMCPServer(ctx, &settings.DeleteMCPServerReq{UserId: ownerID, ServerId: serverID})
 	if err != nil {
 		return err
 	}
@@ -297,6 +375,45 @@ func fromRPCAgentSkills(skills []*settings.AgentSkill) []AgentSkill {
 	out := make([]AgentSkill, 0, len(skills))
 	for _, skill := range skills {
 		item := fromRPCAgentSkill(skill)
+		if item != nil {
+			out = append(out, *item)
+		}
+	}
+	return out
+}
+
+func fromRPCMCPServer(server *settings.MCPServerConfig) *MCPServerConfig {
+	if server == nil {
+		return nil
+	}
+	return &MCPServerConfig{
+		ID:             server.GetId(),
+		OwnerID:        server.GetOwnerId(),
+		AgentID:        server.GetAgentId(),
+		ConversationID: server.GetConversationId(),
+		Scope:          server.GetScope(),
+		Name:           server.GetName(),
+		Description:    server.GetDescription(),
+		Transport:      server.GetTransport(),
+		EndpointURL:    server.GetEndpointUrl(),
+		Command:        server.GetCommand(),
+		ArgsJSON:       server.GetArgsJson(),
+		EnvJSON:        server.GetEnvJson(),
+		HeadersJSON:    server.GetHeadersJson(),
+		AuthType:       server.GetAuthType(),
+		Secret:         server.GetSecret(),
+		Enabled:        server.GetEnabled(),
+		TrustLevel:     server.GetTrustLevel(),
+		AllowToolsJSON: server.GetAllowToolsJson(),
+		DenyToolsJSON:  server.GetDenyToolsJson(),
+		HasSecret:      server.GetHasSecret(),
+	}
+}
+
+func fromRPCMCPServers(servers []*settings.MCPServerConfig) []MCPServerConfig {
+	out := make([]MCPServerConfig, 0, len(servers))
+	for _, server := range servers {
+		item := fromRPCMCPServer(server)
 		if item != nil {
 			out = append(out, *item)
 		}

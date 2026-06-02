@@ -204,6 +204,22 @@ struct BatchGetUserInfoResp {
     3: string msg
 }
 
+struct AdminListUsersReq {
+    1: string keyword
+    2: string role
+    3: string status
+    4: bool include_system
+    5: i64 limit
+    6: i64 offset
+}
+
+struct AdminListUsersResp {
+    1: bool success
+    2: list<User> users
+    3: i64 total
+    4: string msg
+}
+
 service UserService {
     RegisterResp Register(1: RegisterReq req)
     LoginResp Login(1: LoginReq req)
@@ -219,4 +235,5 @@ service UserService {
     MoveFriendGroupResp MoveFriendGroup(1: MoveFriendGroupReq req)
     GetFriendGroupsResp GetFriendGroups(1: GetFriendGroupsReq req)
     BatchGetUserInfoResp BatchGetUserInfo(1: BatchGetUserInfoReq req)
+    AdminListUsersResp AdminListUsers(1: AdminListUsersReq req)
 }

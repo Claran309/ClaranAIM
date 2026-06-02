@@ -1298,5 +1298,450 @@ evidence chunks
 
 注意，我需要精美的前端页面，有足够动效，例如鼠标悬浮在实例上的反馈，或者示例的随机漂浮
 
-## Phase 7: memory&websearch rag
+# Phase 7: memory&websearch&conversation rag
+## 7.1
 
+现在开始做memory-service，同时也是重做之前的memory。现在需要给memory集成rag，做成rag系统的memory-service，包含Embedding + Milvus 向量召回，Metadata 权限过滤，MySQL 回源校验，不要只看向量分数。Memory 要融合：
+
+向量相似度
+重要性 importance
+时效性 recency
+作用域 scope boost，TopK 限制和最低分过滤，Prompt 注入策略
+注入时要明确告诉 LLM：
+
+以下是可能相关的长期记忆。
+如果和当前问题无关，不要强行使用。
+用户当前输入优先级高于记忆。，如果召回噪声多，可以加一个轻量过滤器：
+
+query + memory candidates
+  -> 小 LLM 判断哪些记忆真正有用，记忆候选自动抽取
+从聊天或 Agent 运行结果中提取：
+
+用户偏好
+长期目标
+学习背景
+项目状态
+反复出现的困惑，先进入：
+
+pending memory_candidates
+再由用户确认或规则自动接受。，记忆冲突处理
+例如旧记忆：
+
+用户不懂 Kafka
+新记忆：
+
+用户已经学完 Kafka 基础
+需要：
+
+更新旧记忆
+降低旧记忆权重
+标记过期
+保留时间线。总的来说就是memory-service 最合理的是：
+
+Dense Vector Search
++ Metadata Filter
++ MySQL Fact Check
++ Score Fusion
++ TopK / MinScore
++ Optional LLM Relevance Filter
++ Memory Governance
+不需要什么复杂的rag技术
+
+以上我提到的内容到要实现，记得总结文档
+
+## 7.2
+现在做conversation-intelligence-service，主要负责聊天记录rag归档整合成记忆
+
+聊天记录要不要 RAG
+
+要，但不要一开始对所有聊天记录全量 RAG。
+
+IM 系统里，聊天记录 RAG 很有价值：
+
+找历史讨论
+总结某段时间发生了什么
+问“之前我们怎么决定的”
+找某个文件/任务/结论出处
+Agent 根据长期群聊上下文回答
+但聊天记录有几个难点：
+
+噪声大
+数量多
+权限复杂
+实时增长快
+短消息语义弱
+重复寒暄多
+上下文依赖强
+例如单条消息：
+
+好
+可以
+那就这样
+明天搞
+拿去 embedding 基本没意义。
+
+所以聊天记录 RAG 不应该直接“每条消息都入 Milvus”。
+
+更合理的是分层：
+
+短期上下文：直接从 msg-core 拉最近 N 条
+长期聊天 RAG：对会话片段/摘要做向量化
+推荐做法：
+
+最近 20-80 条消息：
+  直接查 msg-core-service，作为短期上下文
+
+长期历史：
+  按时间窗口/话题聚合
+  生成 conversation_summary / decision / task / topic chunk
+  再入 Milvus
+也就是说，聊天记录 RAG 的对象最好是：
+
+会话片段摘要
+讨论结论
+任务决策
+关键消息组合
+而不是每一条碎消息。
+
+也就是说，聊天记录的rag可以做定时任务，拉取1h内所有信息或者每100条信息做一次（用户可自由配置），做conversation_summary / decision / task / topic chunk或者金句/用户要求记忆或者价值信息，再入strict rag，
+
+只对有价值消息入库：
+
+长文本消息
+包含文件/代码/链接的消息
+被引用/点赞/标记的消息
+Agent 生成的总结
+用户手动收藏的消息
+决策类消息
+
+自动记忆提取
+
+Agent 对话结束后，异步判断是否应该生成新记忆：
+
+这轮对话是否产生长期有用事实？
+例如：
+
+用户明确说“我不懂 RAG 的 rerank”
+生成候选记忆：
+
+用户正在学习 RAG，特别关注 rerank、CRAG、Adaptive RAG。
+但建议先进入：
+
+pending / user_confirmed
+不要无脑写。
+
+记忆冲突处理
+
+比如旧记忆：
+
+用户不懂消息队列
+新记忆：
+
+用户已经掌握 Kafka 基础
+需要：
+
+更新旧记忆
+降低旧记忆权重
+保留时间线
+这是后期能力。
+产物应该有哪些
+
+你列的几个都很好，可以明确成几类。
+
+conversation_summary
+
+会话摘要，回答：
+
+这段时间大家聊了什么？
+字段：
+
+conversation_id
+start_message_id
+end_message_id
+start_time
+end_time
+summary
+participants
+示例：
+
+这一小时主要讨论了 Milvus 接入方式。结论是先用 docker-compose 启动 standalone，再从 memory-service 接入向量召回。
+decision
+
+决策，回答：
+
+这段讨论里做了什么决定？
+示例：
+
+决定先做 Memory RAG，不一开始上完整 CRAG/Self-RAG。
+字段：
+
+decision_text
+reason
+decided_by
+source_message_ids
+confidence
+task
+
+任务，回答：
+
+接下来要做什么？
+谁负责？
+什么时候做？
+示例：
+
+任务：设计 memory-service 的 Milvus collection schema。
+负责人：用户。
+状态：todo。
+字段：
+
+task_title
+assignee
+due_time
+status
+source_message_ids
+topic chunk
+
+话题块，回答：
+
+这段聊天属于什么主题？
+示例：
+
+主题：RAG 架构设计
+关键词：Milvus, Memory RAG, Hybrid Search, Rerank, CRAG
+它适合入向量库。
+
+quote / 金句
+
+这个可以做，但要克制。适合保存：
+
+明确结论
+用户表达偏好
+重要定义
+架构原则
+比如：
+
+“同步保证核心事实正确；异步处理可重试的后处理；缓存只加速可重建的读模型。”
+这类很适合沉淀。
+
+memory_candidate
+
+候选记忆，回答：
+
+这段聊天里有没有值得长期记住的用户信息？
+例如：
+
+用户准备开始集成 Milvus。
+用户希望按教学方式理解 RAG。
+用户倾向先做 Memory RAG。
+注意：这类最好先进入候选状态，不要全部自动写正式记忆。
+产物应该有哪些
+
+你列的几个都很好，可以明确成几类。
+
+conversation_summary
+
+会话摘要，回答：
+
+这段时间大家聊了什么？
+字段：
+
+conversation_id
+start_message_id
+end_message_id
+start_time
+end_time
+summary
+participants
+示例：
+
+这一小时主要讨论了 Milvus 接入方式。结论是先用 docker-compose 启动 standalone，再从 memory-service 接入向量召回。
+decision
+
+决策，回答：
+
+这段讨论里做了什么决定？
+示例：
+
+决定先做 Memory RAG，不一开始上完整 CRAG/Self-RAG。
+字段：
+
+decision_text
+reason
+decided_by
+source_message_ids
+confidence
+task
+
+任务，回答：
+
+接下来要做什么？
+谁负责？
+什么时候做？
+示例：
+
+任务：设计 memory-service 的 Milvus collection schema。
+负责人：用户。
+状态：todo。
+字段：
+
+task_title
+assignee
+due_time
+status
+source_message_ids
+topic chunk
+
+话题块，回答：
+
+这段聊天属于什么主题？
+示例：
+
+主题：RAG 架构设计
+关键词：Milvus, Memory RAG, Hybrid Search, Rerank, CRAG
+它适合入向量库。
+
+quote / 金句
+
+这个可以做，但要克制。适合保存：
+
+明确结论
+用户表达偏好
+重要定义
+架构原则
+比如：
+
+“同步保证核心事实正确；异步处理可重试的后处理；缓存只加速可重建的读模型。”
+这类很适合沉淀。
+
+memory_candidate
+
+候选记忆，回答：
+
+这段聊天里有没有值得长期记住的用户信息？
+例如：
+
+用户准备开始集成 Milvus。
+用户希望按教学方式理解 RAG。
+用户倾向先做 Memory RAG。
+注意：这类最好先进入候选状态，不要全部自动写正式记忆。
+Scheduler 每分钟扫描活跃会话
+  -> 找到满足条件的 conversation
+  -> 创建 digest job
+
+Worker 处理 digest job
+  -> 拉取消息窗口
+  -> 清洗消息
+  -> LLM 提炼 summary/decision/task/topic/memory_candidate
+  -> 写 MySQL
+  -> embedding
+  -> 写 Milvus
+  -> 标记 job completed
+
+所以是对活跃会话进入该服务层。
+
+如果跟memory-service相似，可以考虑合并
+
+## 7.3
+现在做web-search-service，有关web search 轻量 Web RAG 更实用
+
+如果只用搜索摘要，有时不够准。可以做轻量版：
+
+搜索
+  -> 选官方/高可信页面
+  -> 抓网页正文
+  -> 清洗正文
+  -> 截取相关段落
+  -> 给 LLM 回答
+这其实已经有 RAG 味道，但不需要向量库。
+
+你可以叫它：
+
+Web Search Augmentation
+而不是完整 Web RAG。
+
+它不需要：
+
+Milvus
+embedding
+chunk 入库
+长期索引
+只是在一次请求内临时检索。
+
+## 7.4
+完善这几块内容，并且有update文档产出，并更新plan.md
+- [~] WebSocket 在线推送和 Outbox 事件已接入，但离线推送、上线同步、多端完整同步和乱序补偿仍不完整。
+- [ ] 客户端本地数据库级缓存和云端漫游策略。
+- [~] 未读摘要、“我错过了什么”
+- [~] conversation-intelligence-service：可创建/处理会话归档任务，可消费消息/IM 事件推进活跃会话游标，并按时间窗口或消息数阈值自动归档。
+- [~] 聊天记录长期 RAG：摘要/主题块进入 rag-service，候选记忆进入 memory-service pending 区；当前仍是规则提炼和基础调度 MVP，LLM 提炼器、失败重试队列和前端归档状态页未完成。
+- [ ] API Key 加密存储
+- [ ] 实体归一化、Leiden 社区划分、社区摘要持久化、图谱候选审核和专用图数据库评估。
+
+1. 强化 conversation-intelligence-service：增加 LLM 提炼器、失败重试、归档状态前端入口、按时间范围精确拉取消息和调度指标。
+2. 补齐 Agent 运行生产化：持久化审批、checkpoint/resume、取消、心跳、长期任务队列和运行审计。
+3. 完善 IM 同步：离线推送、上线同步、多端游标、Ack/重试/乱序补偿和客户端本地缓存策略。
+4. 深化 RAG + Knowledge Graph：图谱候选审核、实体归一化、社区摘要、RAG 来源治理和 ppt/pptx 解析。
+5. 推进 Tool / Skill / MCP 生产化：工具市场、权限矩阵、审批持久化、失败重试、限流配额和 stdio MCP 安全执行沙箱。
+
+继续完善
+- [~] 实体 canonical key 归一化、Leiden-like 社区划分和社区摘要持久化已有 MVP；仍需图谱候选审核、严格 Leiden 库级实现和专用图数据库评估。
+- [~] WebSocket 在线推送和 Outbox 事件已接入，但离线推送、上线同步、多端完整同步和乱序补偿仍不完整。
+- [ ] 客户端本地数据库级缓存和云端漫游策略。
+- [~] 全项目仍缺少统一端到端验收脚本和稳定 CI。
+ Phase 9：客户端与体验扩展
+
+- [x] Web 前端已有聊天、好友、群、Agent、Memory、Settings、RAG 和 Knowledge Graph 页面。
+- [x] Markdown 消息渲染、Agent 流式对话样式、Action Card MVP 和知识图谱交互。
+- [~] Agent 上下文侧边栏、运行状态、Skill 页面和触发规则页面已有 MVP，但交互细节仍需持续打磨。
+- [ ] 管理端前端：媒体审核、系统消息、Agent 审计、知识候选审核和成本面板。
+- [ ] 更完整的文件预览、图片查看、语音播放、表情库和组合搜索体验。
+记得给我文档
+
+# Phase8 Check&Frontend
+## 8.1
+重构前端页面，可以不用只有一个展示页，很多东西可以分为独立其他前端页面上，比如管理层和配制成，其他的你自己思考。另外，注意功能链路要正确。并且给前端加上一定动效和美化，让页面更生动好看
+
+再次检查构建的文件，查找可能出现的bug，检查前端功能是否满足后端要求并添砖补瓦，检查前端按钮、悬浮窗、滑动窗口是否合理
+
+项目中pkg里诸如websearchclient是不是没必要存在了？是之前没有kitex时构筑的旧产物吧
+
+skill文件存储方式应该是用户名后的skill文件夹，而不是只有skill.md
+
+## 8.2
+- 如图，agent会错误地不断回复自己的消息
+-  在收到图片时，应该可以尝试调用orc解释图片，而不是只把orc藏在rag里面
+- 优化会话Ctx上下文侧边栏的前端展示，现在这个可读性差且丑
+- 如图，在agent管理菜单里打开的skill悬浮窗很丑，而且可用性很差，记忆管理同理
+- 现在会错误地生成相同的运行摘要，且都是system prompt
+- 删除text-to-sql
+- 联网搜索等悬浮窗都很丑，可以做成单独页面
+- 上传文件构建知识库不可用，错误状态如图
+- 上传文件构建知识库的清空按钮不可用
+
+根因更像是：Agent 发送的文本消息也会生成 message.created，私聊默认逻辑会把“另一个参与者”当作目标；如果参与者列表里只有用户和 Agent，自发消息会默认触发用户而非 Agent，但 resolveBot 可能把用户 ID 当 Agent 查不到，理论上应跳过。截图说明可能是旧 outbox payload 的 participant/mention 不完整或 agent 自己 @ 了自己。我要加防御性测试：任何来自已知 Agent 用户的事件都不再触发任何 Agent，哪怕 mention/规则命中。
+
+事件发送者是另一个 Agent 时会触发目标 Agent。这正是 Agent 原生 IM 里容易形成互相回声的问题。我会在 dispatcher 入口加“发送者是 Agent 用户则忽略触发”的防线，后面多 Agent 协作再走专门协作链路，不走普通消息触发链。
+
+## 8.3
+这里有个设计层面的根因：internal Agent 创建时把平台默认 key 快照写进 bots.api_key，后面你改 .env，旧 Agent 不会自动跟着更新。所以我准备把“internal Agent 使用当前平台默认 LLM”这件事做到运行前，而不是要求你每次换 key 后手工更新所有 Agent。
+
+根因修复会落在 agent-manager service 层：internal Agent 的 provider 配置应该是“运行时读取平台默认配置”，不是“创建时永久冻结”。这样你以后改 .env 或平台默认 LLM 后，旧 internal Agent 不会继续拿过期 key。
+
+## 8.4
+继续修改启动脚本相关问题
+- 另外，为什么有时候我启动脚本会有skip的服务呢？我明明每次测试都关掉cmd了，这种情况下不会弹出新的cmd，我也不好测试啊
+- 文档入rag后，前端显示区块为一个chunk，不能正常分片，有很大的问题，也有可能是前端显示问题，我需要知道上传文件后被分成了多少chunk
+- 文档检索界面做得不好，一个下拉菜单中有很大一部分空白
+- Go进阶与Git使用-第2节课.md： rpc timeout: timeout=1m0s, to=rag-service, method=IngestDocument, location=kitex.rpcTimeoutMW, remote=127.0.0.1:9112，但是貌似成功了一部分
+- 04 实验四 气缸缸体建模及气缸活塞杆建模.docx： rpc timeout: timeout=1m0s, to=rag-service, method=IngestDocument, location=kitex.rpcTimeoutMW, remote=127.0.0.1:9112，但是貌似成功了一部分
+- 知识库上传文件（18.9mb）时，有时候会fail to fetch，可能跟文件大小有关，但是好像有有部分上传成功了
+- 请检查 上传文件-rag解析-rag链路是否是异步的，用户切换页面时文件上传解析中是否有影响？
+- 知识图谱的划分和实体抽取有很大的问题，全是意义不明的关系
+- 知识图谱界面请用中文表明各个实体和关系
+- 联网增强无法使用
+- Adaptive rag不好用，有些问题可以入rag但是被拒绝
+- 同一个问题，混合检索效果不好，如图
+- rag检索部分除了命中信息，还要最终的检索结果，用于回答用户的问题
+- 知识图谱的前端部分改一下，主要是排版和UI，画布应占据更大的部分，参数选择等功能部分可以做成小横幅或者侧边栏
+- agent还是会回复自己
+- agent不能正常运行我注入的测试skill，如图

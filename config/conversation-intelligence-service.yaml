@@ -1,0 +1,25 @@
+service:
+  name: "conversation-intelligence-service"
+  address: "127.0.0.1:9015"
+
+mysql:
+  dsn: ""
+
+conversation_intelligence:
+  window_message_limit: 100
+  min_valuable_messages: 3
+  schedule_interval_seconds: 60
+  window_minutes: 60
+  max_retries: 3
+  retry_delay_seconds: 60
+  llm_enabled: false
+  llm_base_url: ""
+  llm_api_key: ""
+  llm_model: "glm-4-flash"
+
+governance:
+  rpc:
+    timeout_ms: 15000
+    circuit_breaker: true
+    max_connections: 500
+    max_qps: 200

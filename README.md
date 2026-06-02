@@ -27,6 +27,8 @@ ClaranAIM/
 │   ├── settings-service/                  # 用户系统设置、LLM 预设、Prompt 模板服务
 │   ├── rag-service/                       # RAG 入库、检索、GraphRAG indexing 服务
 │   ├── knowledge-service/                 # 知识图谱查询、过滤、详情和可视化 RPC 服务
+│   ├── web-search-service/                # 一次性 Web Search Augmentation RPC 服务
+│   ├── conversation-intelligence-service/ # 聊天记录摘要、决策、任务、主题和候选记忆归档服务
 │   └── msg-filter-service/                # 消息审核/过滤服务预留入口
 ├── internal/                              # 各服务内部实现，外部包不应直接依赖
 │   ├── api-gateway/                       # HTTP handler、RPC client、中间件、路由
@@ -53,6 +55,8 @@ ClaranAIM/
 │   ├── settings-service/                  # LLM 配置预设、翻译 Prompt 等用户可控设置
 │   ├── rag-service/                       # 文档解析、chunk、embedding、Hybrid RAG、GraphRAG 数据构建
 │   ├── knowledge-service/                 # 知识图谱查询、过滤、详情聚合和可视化视图模型
+│   ├── web-search-service/                # 搜索、抓网页正文、清洗、相关段落截取
+│   ├── conversation-intelligence-service/ # 拉取可见消息窗口，提炼长期聊天 RAG 与 pending 记忆候选
 │   ├── msg-filter-service/                # 消息过滤/审核预留实现
 ├── pkg/                                   # 跨服务公共包
 │   ├── cache/redis/                       # Redis 客户端与缓存辅助
@@ -65,6 +69,8 @@ ClaranAIM/
 │   ├── idgen/                             # 雪花 ID、10 位用户 UID 与 10 位群号生成
 │   ├── jwt/                               # access token / refresh token
 │   ├── knowledgeclient/                   # knowledge-service RPC 客户端、稳定契约和视图模型
+│   ├── conversationintelclient/           # conversation-intelligence-service RPC 客户端和稳定契约
+│   ├── websearchclient/                   # web-search-service RPC 客户端、稳定契约和来源 DTO
 │   ├── logger/                            # Zap 日志，本地 INFO/ERR 文件输出
 │   ├── outbox/                            # 事务 Outbox 事实表与事件发布
 │   ├── password/                          # bcrypt 密码哈希
@@ -77,6 +83,8 @@ ClaranAIM/
 │   ├── bot.thrift
 │   ├── bot_runtime.thrift
 │   ├── knowledge.thrift                   # 知识图谱可视化查询 RPC 契约
+│   ├── web_search.thrift                  # Web Search Augmentation RPC 契约
+│   ├── conversation_intelligence.thrift   # 聊天记录智能归档 RPC 契约
 │   ├── rag.thrift
 │   └── settings.thrift
 ├── kitex_gen/                             # Kitex 根据 IDL 生成的 Go 代码
@@ -87,6 +95,8 @@ ClaranAIM/
 │   ├── bot/                               # 历史 Kitex 生成包名，业务语义已迁移为 Agent
 │   ├── bot_runtime/
 │   ├── knowledge/
+│   ├── web_search/
+│   ├── conversation_intelligence/
 │   └── rag/
 ├── config/                                # 各服务 YAML 配置
 │   ├── config.yaml                        # 默认/示例公共配置
@@ -102,7 +112,9 @@ ClaranAIM/
 │   ├── agent-manager-service.yaml
 │   ├── agent-runtime-service.yaml
 │   ├── rag-service.yaml
-│   └── knowledge-service.yaml
+│   ├── knowledge-service.yaml
+│   ├── web-search-service.yaml
+│   └── conversation-intelligence-service.yaml
 ├── dist/                                  # 前端静态页面
 │   ├── index.html
 │   ├── css/
@@ -136,6 +148,10 @@ Agent 运行配置说明：创建或编辑 Agent 时可以配置“会话上下�
 
 知识图谱服务说明：`rag-service` 负责文档解析、父子 chunk、embedding、Hybrid Search、GraphRAG 实体/关系/社区数据构建；`knowledge-service` 负责面向前端的图谱查询、筛选、节点详情、关系详情和可视化属性计算。当前浏览器访问 `/api/v1/knowledge/*`，api-gateway 通过 `pkg/knowledgeclient.RPCClient` 调用独立 Kitex `knowledge-service`；knowledge-service 再通过 RPC 调用 rag-service 读取当前用户可见的 GraphRAG 子图。
 
+联网搜索说明：`web-search-service` 提供轻量 Web Search Augmentation，不做 Milvus、embedding、chunk 入库或长期索引。它只在一次请求内执行搜索、可信源排序、网页正文抓取、HTML 清洗和相关段落截取。浏览器可通过 `/api/v1/web-search/search` 与 `/api/v1/web-search/augment` 调试；Agent runtime 的 `web_search` 工具通过 `pkg/websearchclient.RPCClient` 调用该服务。
+
+聊天记录归档说明：`conversation-intelligence-service` 不把每条短消息直接写入向量库，而是按会话窗口提炼 `conversation_summary`、`decision`、`task`、`topic`、`quote` 和 `memory_candidate`。摘要和主题块会进入 rag-service 作为长期聊天 RAG 资料，候选记忆会进入 memory-service 的 pending 区等待用户确认或后续治理。浏览器可通过 `/api/v1/conversation-intelligence/jobs` 创建归档任务，通过 `/api/v1/conversation-intelligence/jobs/:id/process` 执行任务，通过 `/api/v1/conversation-intelligence/artifacts` 查询产物。
+
 ## 快速启动
 
 ```bash
@@ -159,8 +175,8 @@ scripts\start.bat
 - direct：简单问题，不检索。
 - project_rag：普通项目/知识库问题，走项目文档和代码 chunk。
 - strict_rag：复杂/高风险问题，走 Hybrid + Rerank + CRAG + Self-RAG。
-- web_rag：实时/最新问题。当前返回 Web RAG 路由提示，真正 Web Search 由 agent-runtime 工具链执行。
-- memory_rag：私有记忆问题。当前 memory-service 还没接 RAG/Milvus，所以返回 memory 路由提示。
+- web_rag：实时/最新问题。当前由 agent-runtime 的 `web_search` 工具调用 web-search-service 执行一次性 Web Search Augmentation。
+- memory_rag：私有记忆问题。当前由 memory-service 执行 Memory-RAG 召回，融合向量相似度、重要性、时效性和作用域权重。
 - tool_action：执行动作，不走 RAG，交给 Agent 工具审批/执行链路。 
 
 LLM Router 输出类似：
@@ -179,18 +195,4 @@ LLM Router 输出类似：
 }
 ```
 
-## Knowledge Graph 可视化
-
-知识图谱页面面向“看懂项目和知识关系”设计，不替代 RAG 检索。它复用 GraphRAG 的实体、关系、社区摘要和证据来源，提供一个可拖拽、可缩放、可筛选的关系画布。
-
-- 查询入口：`/api/v1/knowledge/graph`
-- 节点详情：`/api/v1/knowledge/node/:id`
-- 关系详情：`/api/v1/knowledge/edge/:id`
-- 前端能力：搜索节点、按实体类型过滤、按关系类型过滤、按社区过滤、显示一跳/二跳关系、点击节点/边查看说明与证据、重置视图、适配 G6 不可用时的 SVG 降级。
-- 数据边界：GraphRAG indexing、实体抽取、关系抽取和社区摘要仍属于 rag-service；knowledge-service 只做查询视图与可视化 DTO，避免把索引和展示耦合在一起。
-
 ## to fix list
-<<<<<<< HEAD
-=======
-
->>>>>>> c5187f3a799b7b602917cddd5c919c11998af655

@@ -164,6 +164,23 @@ func TestParseDocxDocumentExtractsDocumentXMLText(t *testing.T) {
 	}
 }
 
+func TestGLMLayoutOCRProviderFormatsRateLimitError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte(`{"error":"rate limited"}`))
+	}))
+	defer server.Close()
+
+	provider := NewGLMLayoutOCRProvider(server.URL, "test-key", "glm-ocr")
+	_, err := provider.ExtractText(context.Background(), "scan.png", "image/png", []byte("fake-image"))
+	if err == nil {
+		t.Fatal("ExtractText returned nil error, want rate limit message")
+	}
+	if !strings.Contains(err.Error(), "OCR服务当前限流") {
+		t.Fatalf("error = %q, want readable OCR rate limit message", err.Error())
+	}
+}
+
 type fakeOCRProvider struct {
 	called bool
 	text   string

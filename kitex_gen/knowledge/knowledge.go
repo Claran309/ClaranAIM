@@ -1005,6 +1005,441 @@ var fieldIDToName_KnowledgePathResp = map[int16]string{
 	6: "msg",
 }
 
+type GraphReviewCandidate struct {
+	Id         int64  `thrift:"id,1" frugal:"1,default,i64" json:"id"`
+	ItemType   string `thrift:"item_type,2" frugal:"2,default,string" json:"item_type"`
+	ItemId     int64  `thrift:"item_id,3" frugal:"3,default,i64" json:"item_id"`
+	Name       string `thrift:"name,4" frugal:"4,default,string" json:"name"`
+	Type       string `thrift:"type,5" frugal:"5,default,string" json:"type"`
+	Summary    string `thrift:"summary,6" frugal:"6,default,string" json:"summary"`
+	Evidence   string `thrift:"evidence,7" frugal:"7,default,string" json:"evidence"`
+	Reason     string `thrift:"reason,8" frugal:"8,default,string" json:"reason"`
+	Status     string `thrift:"status,9" frugal:"9,default,string" json:"status"`
+	ReviewNote string `thrift:"review_note,10" frugal:"10,default,string" json:"review_note"`
+	CreatedAt  string `thrift:"created_at,11" frugal:"11,default,string" json:"created_at"`
+	UpdatedAt  string `thrift:"updated_at,12" frugal:"12,default,string" json:"updated_at"`
+	ReviewedAt string `thrift:"reviewed_at,13" frugal:"13,default,string" json:"reviewed_at"`
+}
+
+func NewGraphReviewCandidate() *GraphReviewCandidate {
+	return &GraphReviewCandidate{}
+}
+
+func (p *GraphReviewCandidate) InitDefault() {
+}
+
+func (p *GraphReviewCandidate) GetId() (v int64) {
+	return p.Id
+}
+
+func (p *GraphReviewCandidate) GetItemType() (v string) {
+	return p.ItemType
+}
+
+func (p *GraphReviewCandidate) GetItemId() (v int64) {
+	return p.ItemId
+}
+
+func (p *GraphReviewCandidate) GetName() (v string) {
+	return p.Name
+}
+
+func (p *GraphReviewCandidate) GetType() (v string) {
+	return p.Type
+}
+
+func (p *GraphReviewCandidate) GetSummary() (v string) {
+	return p.Summary
+}
+
+func (p *GraphReviewCandidate) GetEvidence() (v string) {
+	return p.Evidence
+}
+
+func (p *GraphReviewCandidate) GetReason() (v string) {
+	return p.Reason
+}
+
+func (p *GraphReviewCandidate) GetStatus() (v string) {
+	return p.Status
+}
+
+func (p *GraphReviewCandidate) GetReviewNote() (v string) {
+	return p.ReviewNote
+}
+
+func (p *GraphReviewCandidate) GetCreatedAt() (v string) {
+	return p.CreatedAt
+}
+
+func (p *GraphReviewCandidate) GetUpdatedAt() (v string) {
+	return p.UpdatedAt
+}
+
+func (p *GraphReviewCandidate) GetReviewedAt() (v string) {
+	return p.ReviewedAt
+}
+func (p *GraphReviewCandidate) SetId(val int64) {
+	p.Id = val
+}
+func (p *GraphReviewCandidate) SetItemType(val string) {
+	p.ItemType = val
+}
+func (p *GraphReviewCandidate) SetItemId(val int64) {
+	p.ItemId = val
+}
+func (p *GraphReviewCandidate) SetName(val string) {
+	p.Name = val
+}
+func (p *GraphReviewCandidate) SetType(val string) {
+	p.Type = val
+}
+func (p *GraphReviewCandidate) SetSummary(val string) {
+	p.Summary = val
+}
+func (p *GraphReviewCandidate) SetEvidence(val string) {
+	p.Evidence = val
+}
+func (p *GraphReviewCandidate) SetReason(val string) {
+	p.Reason = val
+}
+func (p *GraphReviewCandidate) SetStatus(val string) {
+	p.Status = val
+}
+func (p *GraphReviewCandidate) SetReviewNote(val string) {
+	p.ReviewNote = val
+}
+func (p *GraphReviewCandidate) SetCreatedAt(val string) {
+	p.CreatedAt = val
+}
+func (p *GraphReviewCandidate) SetUpdatedAt(val string) {
+	p.UpdatedAt = val
+}
+func (p *GraphReviewCandidate) SetReviewedAt(val string) {
+	p.ReviewedAt = val
+}
+
+func (p *GraphReviewCandidate) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("GraphReviewCandidate(%+v)", *p)
+}
+
+var fieldIDToName_GraphReviewCandidate = map[int16]string{
+	1:  "id",
+	2:  "item_type",
+	3:  "item_id",
+	4:  "name",
+	5:  "type",
+	6:  "summary",
+	7:  "evidence",
+	8:  "reason",
+	9:  "status",
+	10: "review_note",
+	11: "created_at",
+	12: "updated_at",
+	13: "reviewed_at",
+}
+
+type CreateGraphReviewCandidateReq struct {
+	ViewerId int64  `thrift:"viewer_id,1" frugal:"1,default,i64" json:"viewer_id"`
+	ItemType string `thrift:"item_type,2" frugal:"2,default,string" json:"item_type"`
+	ItemId   int64  `thrift:"item_id,3" frugal:"3,default,i64" json:"item_id"`
+	Reason   string `thrift:"reason,4" frugal:"4,default,string" json:"reason"`
+	Query    string `thrift:"query,5" frugal:"5,default,string" json:"query"`
+}
+
+func NewCreateGraphReviewCandidateReq() *CreateGraphReviewCandidateReq {
+	return &CreateGraphReviewCandidateReq{}
+}
+
+func (p *CreateGraphReviewCandidateReq) InitDefault() {
+}
+
+func (p *CreateGraphReviewCandidateReq) GetViewerId() (v int64) {
+	return p.ViewerId
+}
+
+func (p *CreateGraphReviewCandidateReq) GetItemType() (v string) {
+	return p.ItemType
+}
+
+func (p *CreateGraphReviewCandidateReq) GetItemId() (v int64) {
+	return p.ItemId
+}
+
+func (p *CreateGraphReviewCandidateReq) GetReason() (v string) {
+	return p.Reason
+}
+
+func (p *CreateGraphReviewCandidateReq) GetQuery() (v string) {
+	return p.Query
+}
+func (p *CreateGraphReviewCandidateReq) SetViewerId(val int64) {
+	p.ViewerId = val
+}
+func (p *CreateGraphReviewCandidateReq) SetItemType(val string) {
+	p.ItemType = val
+}
+func (p *CreateGraphReviewCandidateReq) SetItemId(val int64) {
+	p.ItemId = val
+}
+func (p *CreateGraphReviewCandidateReq) SetReason(val string) {
+	p.Reason = val
+}
+func (p *CreateGraphReviewCandidateReq) SetQuery(val string) {
+	p.Query = val
+}
+
+func (p *CreateGraphReviewCandidateReq) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("CreateGraphReviewCandidateReq(%+v)", *p)
+}
+
+var fieldIDToName_CreateGraphReviewCandidateReq = map[int16]string{
+	1: "viewer_id",
+	2: "item_type",
+	3: "item_id",
+	4: "reason",
+	5: "query",
+}
+
+type GraphReviewCandidateResp struct {
+	Success   bool                  `thrift:"success,1" frugal:"1,default,bool" json:"success"`
+	Candidate *GraphReviewCandidate `thrift:"candidate,2" frugal:"2,default,GraphReviewCandidate" json:"candidate"`
+	Msg       string                `thrift:"msg,3" frugal:"3,default,string" json:"msg"`
+}
+
+func NewGraphReviewCandidateResp() *GraphReviewCandidateResp {
+	return &GraphReviewCandidateResp{}
+}
+
+func (p *GraphReviewCandidateResp) InitDefault() {
+}
+
+func (p *GraphReviewCandidateResp) GetSuccess() (v bool) {
+	return p.Success
+}
+
+var GraphReviewCandidateResp_Candidate_DEFAULT *GraphReviewCandidate
+
+func (p *GraphReviewCandidateResp) GetCandidate() (v *GraphReviewCandidate) {
+	if !p.IsSetCandidate() {
+		return GraphReviewCandidateResp_Candidate_DEFAULT
+	}
+	return p.Candidate
+}
+
+func (p *GraphReviewCandidateResp) GetMsg() (v string) {
+	return p.Msg
+}
+func (p *GraphReviewCandidateResp) SetSuccess(val bool) {
+	p.Success = val
+}
+func (p *GraphReviewCandidateResp) SetCandidate(val *GraphReviewCandidate) {
+	p.Candidate = val
+}
+func (p *GraphReviewCandidateResp) SetMsg(val string) {
+	p.Msg = val
+}
+
+func (p *GraphReviewCandidateResp) IsSetCandidate() bool {
+	return p.Candidate != nil
+}
+
+func (p *GraphReviewCandidateResp) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("GraphReviewCandidateResp(%+v)", *p)
+}
+
+var fieldIDToName_GraphReviewCandidateResp = map[int16]string{
+	1: "success",
+	2: "candidate",
+	3: "msg",
+}
+
+type ListGraphReviewCandidatesReq struct {
+	ViewerId int64  `thrift:"viewer_id,1" frugal:"1,default,i64" json:"viewer_id"`
+	Status   string `thrift:"status,2" frugal:"2,default,string" json:"status"`
+	ItemType string `thrift:"item_type,3" frugal:"3,default,string" json:"item_type"`
+	Limit    int64  `thrift:"limit,4" frugal:"4,default,i64" json:"limit"`
+	Offset   int64  `thrift:"offset,5" frugal:"5,default,i64" json:"offset"`
+}
+
+func NewListGraphReviewCandidatesReq() *ListGraphReviewCandidatesReq {
+	return &ListGraphReviewCandidatesReq{}
+}
+
+func (p *ListGraphReviewCandidatesReq) InitDefault() {
+}
+
+func (p *ListGraphReviewCandidatesReq) GetViewerId() (v int64) {
+	return p.ViewerId
+}
+
+func (p *ListGraphReviewCandidatesReq) GetStatus() (v string) {
+	return p.Status
+}
+
+func (p *ListGraphReviewCandidatesReq) GetItemType() (v string) {
+	return p.ItemType
+}
+
+func (p *ListGraphReviewCandidatesReq) GetLimit() (v int64) {
+	return p.Limit
+}
+
+func (p *ListGraphReviewCandidatesReq) GetOffset() (v int64) {
+	return p.Offset
+}
+func (p *ListGraphReviewCandidatesReq) SetViewerId(val int64) {
+	p.ViewerId = val
+}
+func (p *ListGraphReviewCandidatesReq) SetStatus(val string) {
+	p.Status = val
+}
+func (p *ListGraphReviewCandidatesReq) SetItemType(val string) {
+	p.ItemType = val
+}
+func (p *ListGraphReviewCandidatesReq) SetLimit(val int64) {
+	p.Limit = val
+}
+func (p *ListGraphReviewCandidatesReq) SetOffset(val int64) {
+	p.Offset = val
+}
+
+func (p *ListGraphReviewCandidatesReq) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("ListGraphReviewCandidatesReq(%+v)", *p)
+}
+
+var fieldIDToName_ListGraphReviewCandidatesReq = map[int16]string{
+	1: "viewer_id",
+	2: "status",
+	3: "item_type",
+	4: "limit",
+	5: "offset",
+}
+
+type ListGraphReviewCandidatesResp struct {
+	Success    bool                    `thrift:"success,1" frugal:"1,default,bool" json:"success"`
+	Candidates []*GraphReviewCandidate `thrift:"candidates,2" frugal:"2,default,list<GraphReviewCandidate>" json:"candidates"`
+	Total      int64                   `thrift:"total,3" frugal:"3,default,i64" json:"total"`
+	Msg        string                  `thrift:"msg,4" frugal:"4,default,string" json:"msg"`
+}
+
+func NewListGraphReviewCandidatesResp() *ListGraphReviewCandidatesResp {
+	return &ListGraphReviewCandidatesResp{}
+}
+
+func (p *ListGraphReviewCandidatesResp) InitDefault() {
+}
+
+func (p *ListGraphReviewCandidatesResp) GetSuccess() (v bool) {
+	return p.Success
+}
+
+func (p *ListGraphReviewCandidatesResp) GetCandidates() (v []*GraphReviewCandidate) {
+	return p.Candidates
+}
+
+func (p *ListGraphReviewCandidatesResp) GetTotal() (v int64) {
+	return p.Total
+}
+
+func (p *ListGraphReviewCandidatesResp) GetMsg() (v string) {
+	return p.Msg
+}
+func (p *ListGraphReviewCandidatesResp) SetSuccess(val bool) {
+	p.Success = val
+}
+func (p *ListGraphReviewCandidatesResp) SetCandidates(val []*GraphReviewCandidate) {
+	p.Candidates = val
+}
+func (p *ListGraphReviewCandidatesResp) SetTotal(val int64) {
+	p.Total = val
+}
+func (p *ListGraphReviewCandidatesResp) SetMsg(val string) {
+	p.Msg = val
+}
+
+func (p *ListGraphReviewCandidatesResp) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("ListGraphReviewCandidatesResp(%+v)", *p)
+}
+
+var fieldIDToName_ListGraphReviewCandidatesResp = map[int16]string{
+	1: "success",
+	2: "candidates",
+	3: "total",
+	4: "msg",
+}
+
+type ReviewGraphCandidateReq struct {
+	ViewerId    int64  `thrift:"viewer_id,1" frugal:"1,default,i64" json:"viewer_id"`
+	CandidateId int64  `thrift:"candidate_id,2" frugal:"2,default,i64" json:"candidate_id"`
+	Action      string `thrift:"action,3" frugal:"3,default,string" json:"action"`
+	Note        string `thrift:"note,4" frugal:"4,default,string" json:"note"`
+}
+
+func NewReviewGraphCandidateReq() *ReviewGraphCandidateReq {
+	return &ReviewGraphCandidateReq{}
+}
+
+func (p *ReviewGraphCandidateReq) InitDefault() {
+}
+
+func (p *ReviewGraphCandidateReq) GetViewerId() (v int64) {
+	return p.ViewerId
+}
+
+func (p *ReviewGraphCandidateReq) GetCandidateId() (v int64) {
+	return p.CandidateId
+}
+
+func (p *ReviewGraphCandidateReq) GetAction() (v string) {
+	return p.Action
+}
+
+func (p *ReviewGraphCandidateReq) GetNote() (v string) {
+	return p.Note
+}
+func (p *ReviewGraphCandidateReq) SetViewerId(val int64) {
+	p.ViewerId = val
+}
+func (p *ReviewGraphCandidateReq) SetCandidateId(val int64) {
+	p.CandidateId = val
+}
+func (p *ReviewGraphCandidateReq) SetAction(val string) {
+	p.Action = val
+}
+func (p *ReviewGraphCandidateReq) SetNote(val string) {
+	p.Note = val
+}
+
+func (p *ReviewGraphCandidateReq) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("ReviewGraphCandidateReq(%+v)", *p)
+}
+
+var fieldIDToName_ReviewGraphCandidateReq = map[int16]string{
+	1: "viewer_id",
+	2: "candidate_id",
+	3: "action",
+	4: "note",
+}
+
 type KnowledgeService interface {
 	GetGraphView(ctx context.Context, req *KnowledgeGraphReq) (r *KnowledgeGraphResp, err error)
 
@@ -1015,6 +1450,12 @@ type KnowledgeService interface {
 	GetNeighborhood(ctx context.Context, req *KnowledgeNeighborhoodReq) (r *KnowledgeGraphResp, err error)
 
 	GetPath(ctx context.Context, req *KnowledgePathReq) (r *KnowledgePathResp, err error)
+
+	CreateGraphReviewCandidate(ctx context.Context, req *CreateGraphReviewCandidateReq) (r *GraphReviewCandidateResp, err error)
+
+	ListGraphReviewCandidates(ctx context.Context, req *ListGraphReviewCandidatesReq) (r *ListGraphReviewCandidatesResp, err error)
+
+	ReviewGraphCandidate(ctx context.Context, req *ReviewGraphCandidateReq) (r *GraphReviewCandidateResp, err error)
 }
 
 type KnowledgeServiceGetGraphViewArgs struct {
@@ -1394,5 +1835,233 @@ func (p *KnowledgeServiceGetPathResult) String() string {
 }
 
 var fieldIDToName_KnowledgeServiceGetPathResult = map[int16]string{
+	0: "success",
+}
+
+type KnowledgeServiceCreateGraphReviewCandidateArgs struct {
+	Req *CreateGraphReviewCandidateReq `thrift:"req,1" frugal:"1,default,CreateGraphReviewCandidateReq" json:"req"`
+}
+
+func NewKnowledgeServiceCreateGraphReviewCandidateArgs() *KnowledgeServiceCreateGraphReviewCandidateArgs {
+	return &KnowledgeServiceCreateGraphReviewCandidateArgs{}
+}
+
+func (p *KnowledgeServiceCreateGraphReviewCandidateArgs) InitDefault() {
+}
+
+var KnowledgeServiceCreateGraphReviewCandidateArgs_Req_DEFAULT *CreateGraphReviewCandidateReq
+
+func (p *KnowledgeServiceCreateGraphReviewCandidateArgs) GetReq() (v *CreateGraphReviewCandidateReq) {
+	if !p.IsSetReq() {
+		return KnowledgeServiceCreateGraphReviewCandidateArgs_Req_DEFAULT
+	}
+	return p.Req
+}
+func (p *KnowledgeServiceCreateGraphReviewCandidateArgs) SetReq(val *CreateGraphReviewCandidateReq) {
+	p.Req = val
+}
+
+func (p *KnowledgeServiceCreateGraphReviewCandidateArgs) IsSetReq() bool {
+	return p.Req != nil
+}
+
+func (p *KnowledgeServiceCreateGraphReviewCandidateArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("KnowledgeServiceCreateGraphReviewCandidateArgs(%+v)", *p)
+}
+
+var fieldIDToName_KnowledgeServiceCreateGraphReviewCandidateArgs = map[int16]string{
+	1: "req",
+}
+
+type KnowledgeServiceCreateGraphReviewCandidateResult struct {
+	Success *GraphReviewCandidateResp `thrift:"success,0,optional" frugal:"0,optional,GraphReviewCandidateResp" json:"success,omitempty"`
+}
+
+func NewKnowledgeServiceCreateGraphReviewCandidateResult() *KnowledgeServiceCreateGraphReviewCandidateResult {
+	return &KnowledgeServiceCreateGraphReviewCandidateResult{}
+}
+
+func (p *KnowledgeServiceCreateGraphReviewCandidateResult) InitDefault() {
+}
+
+var KnowledgeServiceCreateGraphReviewCandidateResult_Success_DEFAULT *GraphReviewCandidateResp
+
+func (p *KnowledgeServiceCreateGraphReviewCandidateResult) GetSuccess() (v *GraphReviewCandidateResp) {
+	if !p.IsSetSuccess() {
+		return KnowledgeServiceCreateGraphReviewCandidateResult_Success_DEFAULT
+	}
+	return p.Success
+}
+func (p *KnowledgeServiceCreateGraphReviewCandidateResult) SetSuccess(x interface{}) {
+	p.Success = x.(*GraphReviewCandidateResp)
+}
+
+func (p *KnowledgeServiceCreateGraphReviewCandidateResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *KnowledgeServiceCreateGraphReviewCandidateResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("KnowledgeServiceCreateGraphReviewCandidateResult(%+v)", *p)
+}
+
+var fieldIDToName_KnowledgeServiceCreateGraphReviewCandidateResult = map[int16]string{
+	0: "success",
+}
+
+type KnowledgeServiceListGraphReviewCandidatesArgs struct {
+	Req *ListGraphReviewCandidatesReq `thrift:"req,1" frugal:"1,default,ListGraphReviewCandidatesReq" json:"req"`
+}
+
+func NewKnowledgeServiceListGraphReviewCandidatesArgs() *KnowledgeServiceListGraphReviewCandidatesArgs {
+	return &KnowledgeServiceListGraphReviewCandidatesArgs{}
+}
+
+func (p *KnowledgeServiceListGraphReviewCandidatesArgs) InitDefault() {
+}
+
+var KnowledgeServiceListGraphReviewCandidatesArgs_Req_DEFAULT *ListGraphReviewCandidatesReq
+
+func (p *KnowledgeServiceListGraphReviewCandidatesArgs) GetReq() (v *ListGraphReviewCandidatesReq) {
+	if !p.IsSetReq() {
+		return KnowledgeServiceListGraphReviewCandidatesArgs_Req_DEFAULT
+	}
+	return p.Req
+}
+func (p *KnowledgeServiceListGraphReviewCandidatesArgs) SetReq(val *ListGraphReviewCandidatesReq) {
+	p.Req = val
+}
+
+func (p *KnowledgeServiceListGraphReviewCandidatesArgs) IsSetReq() bool {
+	return p.Req != nil
+}
+
+func (p *KnowledgeServiceListGraphReviewCandidatesArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("KnowledgeServiceListGraphReviewCandidatesArgs(%+v)", *p)
+}
+
+var fieldIDToName_KnowledgeServiceListGraphReviewCandidatesArgs = map[int16]string{
+	1: "req",
+}
+
+type KnowledgeServiceListGraphReviewCandidatesResult struct {
+	Success *ListGraphReviewCandidatesResp `thrift:"success,0,optional" frugal:"0,optional,ListGraphReviewCandidatesResp" json:"success,omitempty"`
+}
+
+func NewKnowledgeServiceListGraphReviewCandidatesResult() *KnowledgeServiceListGraphReviewCandidatesResult {
+	return &KnowledgeServiceListGraphReviewCandidatesResult{}
+}
+
+func (p *KnowledgeServiceListGraphReviewCandidatesResult) InitDefault() {
+}
+
+var KnowledgeServiceListGraphReviewCandidatesResult_Success_DEFAULT *ListGraphReviewCandidatesResp
+
+func (p *KnowledgeServiceListGraphReviewCandidatesResult) GetSuccess() (v *ListGraphReviewCandidatesResp) {
+	if !p.IsSetSuccess() {
+		return KnowledgeServiceListGraphReviewCandidatesResult_Success_DEFAULT
+	}
+	return p.Success
+}
+func (p *KnowledgeServiceListGraphReviewCandidatesResult) SetSuccess(x interface{}) {
+	p.Success = x.(*ListGraphReviewCandidatesResp)
+}
+
+func (p *KnowledgeServiceListGraphReviewCandidatesResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *KnowledgeServiceListGraphReviewCandidatesResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("KnowledgeServiceListGraphReviewCandidatesResult(%+v)", *p)
+}
+
+var fieldIDToName_KnowledgeServiceListGraphReviewCandidatesResult = map[int16]string{
+	0: "success",
+}
+
+type KnowledgeServiceReviewGraphCandidateArgs struct {
+	Req *ReviewGraphCandidateReq `thrift:"req,1" frugal:"1,default,ReviewGraphCandidateReq" json:"req"`
+}
+
+func NewKnowledgeServiceReviewGraphCandidateArgs() *KnowledgeServiceReviewGraphCandidateArgs {
+	return &KnowledgeServiceReviewGraphCandidateArgs{}
+}
+
+func (p *KnowledgeServiceReviewGraphCandidateArgs) InitDefault() {
+}
+
+var KnowledgeServiceReviewGraphCandidateArgs_Req_DEFAULT *ReviewGraphCandidateReq
+
+func (p *KnowledgeServiceReviewGraphCandidateArgs) GetReq() (v *ReviewGraphCandidateReq) {
+	if !p.IsSetReq() {
+		return KnowledgeServiceReviewGraphCandidateArgs_Req_DEFAULT
+	}
+	return p.Req
+}
+func (p *KnowledgeServiceReviewGraphCandidateArgs) SetReq(val *ReviewGraphCandidateReq) {
+	p.Req = val
+}
+
+func (p *KnowledgeServiceReviewGraphCandidateArgs) IsSetReq() bool {
+	return p.Req != nil
+}
+
+func (p *KnowledgeServiceReviewGraphCandidateArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("KnowledgeServiceReviewGraphCandidateArgs(%+v)", *p)
+}
+
+var fieldIDToName_KnowledgeServiceReviewGraphCandidateArgs = map[int16]string{
+	1: "req",
+}
+
+type KnowledgeServiceReviewGraphCandidateResult struct {
+	Success *GraphReviewCandidateResp `thrift:"success,0,optional" frugal:"0,optional,GraphReviewCandidateResp" json:"success,omitempty"`
+}
+
+func NewKnowledgeServiceReviewGraphCandidateResult() *KnowledgeServiceReviewGraphCandidateResult {
+	return &KnowledgeServiceReviewGraphCandidateResult{}
+}
+
+func (p *KnowledgeServiceReviewGraphCandidateResult) InitDefault() {
+}
+
+var KnowledgeServiceReviewGraphCandidateResult_Success_DEFAULT *GraphReviewCandidateResp
+
+func (p *KnowledgeServiceReviewGraphCandidateResult) GetSuccess() (v *GraphReviewCandidateResp) {
+	if !p.IsSetSuccess() {
+		return KnowledgeServiceReviewGraphCandidateResult_Success_DEFAULT
+	}
+	return p.Success
+}
+func (p *KnowledgeServiceReviewGraphCandidateResult) SetSuccess(x interface{}) {
+	p.Success = x.(*GraphReviewCandidateResp)
+}
+
+func (p *KnowledgeServiceReviewGraphCandidateResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *KnowledgeServiceReviewGraphCandidateResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("KnowledgeServiceReviewGraphCandidateResult(%+v)", *p)
+}
+
+var fieldIDToName_KnowledgeServiceReviewGraphCandidateResult = map[int16]string{
 	0: "success",
 }

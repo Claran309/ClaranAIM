@@ -3,6 +3,7 @@ package service
 import (
 	"ClaranAIM/internal/settings-service/dao"
 	"ClaranAIM/internal/settings-service/model"
+	"ClaranAIM/pkg/settingsclient"
 	"context"
 	"os"
 	"path/filepath"
@@ -10,9 +11,9 @@ import (
 	"testing"
 )
 
-func TestSaveUserLLMProfileDoesNotExposeAPIKey(t *testing.T) {
+func TestSaveUserLLMProfileEncryptsAPIKeyAndDoesNotExposeIt(t *testing.T) {
 	repo := newFakeSettingsRepo()
-	svc := NewSettingsService(repo, DefaultLLMConfig{})
+	svc := NewSettingsService(repo, DefaultLLMConfig{}, WithSecretEncryptionKey("unit-test-settings-secret"))
 
 	profile, err := svc.SaveLLMProfile(context.Background(), 1001, SaveLLMProfileInput{
 		Name:         "zhipu",
@@ -30,23 +31,39 @@ func TestSaveUserLLMProfileDoesNotExposeAPIKey(t *testing.T) {
 		t.Fatal("profile should indicate api key exists")
 	}
 	stored, _ := repo.GetLLMProfile(context.Background(), profile.ID)
-	if stored.APIKey != "secret" {
-		t.Fatalf("stored api key = %q, want secret", stored.APIKey)
+	if stored.APIKey == "secret" || !strings.HasPrefix(stored.APIKey, "enc:v1:") {
+		t.Fatalf("stored api key = %q, want encrypted value", stored.APIKey)
+	}
+	resolved, err := svc.ResolveLLMProfile(context.Background(), 1001, profile.ID)
+	if err != nil {
+		t.Fatalf("ResolveLLMProfile returned error: %v", err)
+	}
+	if resolved.APIKey != "secret" {
+		t.Fatalf("resolved api key = %q, want secret", resolved.APIKey)
 	}
 }
 
 func TestSaveLLMProfileCanKeepOrClearExistingAPIKey(t *testing.T) {
 	repo := newFakeSettingsRepo()
-	svc := NewSettingsService(repo, DefaultLLMConfig{})
+	svc := NewSettingsService(repo, DefaultLLMConfig{}, WithSecretEncryptionKey("unit-test-settings-secret"))
 	created, _ := svc.SaveLLMProfile(context.Background(), 1001, SaveLLMProfileInput{Name: "default", BaseURL: "https://llm.example/v1", APIKey: "old", ModelName: "m1", APIKeyAction: APIKeyActionSet})
+	stored, _ := repo.GetLLMProfile(context.Background(), created.ID)
+	initialCiphertext := stored.APIKey
 
 	_, err := svc.SaveLLMProfile(context.Background(), 1001, SaveLLMProfileInput{ID: created.ID, Name: "default", ModelName: "m2", APIKeyAction: APIKeyActionKeep})
 	if err != nil {
 		t.Fatalf("keep returned error: %v", err)
 	}
-	stored, _ := repo.GetLLMProfile(context.Background(), created.ID)
-	if stored.APIKey != "old" || stored.ModelName != "m2" {
+	stored, _ = repo.GetLLMProfile(context.Background(), created.ID)
+	if stored.APIKey != initialCiphertext || stored.ModelName != "m2" {
 		t.Fatalf("keep stored profile = %#v", stored)
+	}
+	resolved, err := svc.ResolveLLMProfile(context.Background(), 1001, created.ID)
+	if err != nil {
+		t.Fatalf("ResolveLLMProfile returned error: %v", err)
+	}
+	if resolved.APIKey != "old" {
+		t.Fatalf("resolved api key after keep = %q, want old", resolved.APIKey)
 	}
 
 	cleared, err := svc.SaveLLMProfile(context.Background(), 1001, SaveLLMProfileInput{ID: created.ID, Name: "default", APIKeyAction: APIKeyActionClear})
@@ -59,6 +76,31 @@ func TestSaveLLMProfileCanKeepOrClearExistingAPIKey(t *testing.T) {
 	stored, _ = repo.GetLLMProfile(context.Background(), created.ID)
 	if stored.APIKey != "" {
 		t.Fatalf("stored api key after clear = %q, want empty", stored.APIKey)
+	}
+}
+
+func TestResolveLLMProfileSupportsLegacyPlaintextAPIKey(t *testing.T) {
+	repo := newFakeSettingsRepo()
+	svc := NewSettingsService(repo, DefaultLLMConfig{}, WithSecretEncryptionKey("unit-test-settings-secret"))
+	if err := repo.SaveLLMProfile(context.Background(), &model.LLMProfile{
+		Scope:        model.ScopeUser,
+		OwnerID:      1001,
+		Name:         "legacy",
+		ProviderType: "openai_compatible",
+		BaseURL:      "https://llm.example/v1",
+		APIKey:       "legacy-plain-key",
+		ModelName:    "m1",
+		UsageType:    model.ProviderTranslate,
+		Enabled:      true,
+	}); err != nil {
+		t.Fatalf("save legacy profile: %v", err)
+	}
+	resolved, err := svc.ResolveTranslationConfig(context.Background(), 1001)
+	if err != nil {
+		t.Fatalf("ResolveTranslationConfig returned error: %v", err)
+	}
+	if resolved.APIKey != "legacy-plain-key" {
+		t.Fatalf("resolved legacy api key = %q", resolved.APIKey)
 	}
 }
 
@@ -172,9 +214,41 @@ func TestSaveAgentSkillWritesUnderAgentRoot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SaveSkill returned error: %v", err)
 	}
-	wantPrefix := filepath.Join(root, "agents", "9988")
-	if skill.AgentID != 9988 || !strings.HasPrefix(skill.SkillsDir, wantPrefix) {
-		t.Fatalf("skill dir = %q agent = %d, want under %q", skill.SkillsDir, skill.AgentID, wantPrefix)
+	wantDir := filepath.Join(root, "agents", "user_1001", "9988", "skill", "skill")
+	if skill.AgentID != 9988 || skill.SkillsDir != wantDir {
+		t.Fatalf("skill dir = %q agent = %d, want %q", skill.SkillsDir, skill.AgentID, wantDir)
+	}
+}
+
+func TestSaveSkillPreservesUploadedFolderUnderUsernameSkillDirectory(t *testing.T) {
+	root := t.TempDir()
+	repo := newFakeSettingsRepo()
+	svc := NewSettingsService(repo, DefaultLLMConfig{}, WithSkillStorageRoot(root))
+
+	skill, err := svc.SaveSkill(context.Background(), 1001, SaveSkillInput{
+		Username: "Claran",
+		Name:     "Skill",
+		Scope:    model.SkillScopeGlobal,
+		Files: []settingsclient.SkillFileInput{
+			{Path: "Skill/SKILL.md", Content: []byte("# Skill\n\n用于处理会话上下文。")},
+			{Path: "Skill/references/guide.md", Content: []byte("# Guide")},
+		},
+	})
+	if err != nil {
+		t.Fatalf("SaveSkill returned error: %v", err)
+	}
+	wantDir := filepath.Join(root, "global", "Claran", "skill", "Skill")
+	if skill.SkillsDir != wantDir {
+		t.Fatalf("skills dir = %q, want %q", skill.SkillsDir, wantDir)
+	}
+	if skill.EntryFile != "SKILL.md" {
+		t.Fatalf("entry file = %q, want SKILL.md relative to package root", skill.EntryFile)
+	}
+	if _, err := os.Stat(filepath.Join(skill.SkillsDir, "SKILL.md")); err != nil {
+		t.Fatalf("nested SKILL.md was not preserved under package root: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(skill.SkillsDir, "references", "guide.md")); err != nil {
+		t.Fatalf("nested support file was not preserved: %v", err)
 	}
 }
 
@@ -258,15 +332,104 @@ func TestUpdateSkillContentRewritesSkillMarkdownInPlace(t *testing.T) {
 	}
 }
 
+func TestSaveMCPServerListsSanitizedAndResolveIncludesSecret(t *testing.T) {
+	repo := newFakeSettingsRepo()
+	svc := NewSettingsService(repo, DefaultLLMConfig{}, WithSecretEncryptionKey("unit-test-settings-secret"))
+
+	global, err := svc.SaveMCPServer(context.Background(), 1001, SaveMCPServerInput{
+		Name:         "global-mcp",
+		Scope:        model.MCPScopeGlobal,
+		Transport:    model.MCPTransportStreamableHTTP,
+		EndpointURL:  "https://global-mcp.example/mcp",
+		TrustLevel:   model.MCPTrustLow,
+		Secret:       "global-secret",
+		SecretAction: APIKeyActionSet,
+	})
+	if err != nil {
+		t.Fatalf("SaveMCPServer global returned error: %v", err)
+	}
+	if global.Secret != "" || !global.HasSecret {
+		t.Fatalf("global dto = %#v, want sanitized secret flag", global)
+	}
+
+	server, err := svc.SaveMCPServer(context.Background(), 1001, SaveMCPServerInput{
+		Name:           "github-mcp",
+		Scope:          model.MCPScopeAgent,
+		AgentID:        9988,
+		Transport:      model.MCPTransportStreamableHTTP,
+		EndpointURL:    "https://mcp.example/mcp",
+		HeadersJSON:    `{"X-Team":"claran"}`,
+		Secret:         "secret-token",
+		SecretAction:   APIKeyActionSet,
+		TrustLevel:     model.MCPTrustNormal,
+		AllowToolsJSON: `["github_search"]`,
+	})
+	if err != nil {
+		t.Fatalf("SaveMCPServer returned error: %v", err)
+	}
+	if !server.HasSecret || server.Secret != "" {
+		t.Fatalf("saved dto = %#v, want secret presence but no secret value", server)
+	}
+	stored, _ := repo.GetMCPServer(context.Background(), server.ID)
+	if stored.Secret == "secret-token" || !strings.HasPrefix(stored.Secret, "enc:v1:") {
+		t.Fatalf("stored mcp secret = %q, want encrypted value", stored.Secret)
+	}
+
+	listed, err := svc.ListMCPServers(context.Background(), 1001, model.MCPScopeAgent, 9988, -1, false)
+	if err != nil {
+		t.Fatalf("ListMCPServers returned error: %v", err)
+	}
+	if len(listed) != 1 || listed[0].Secret != "" || !listed[0].HasSecret {
+		t.Fatalf("listed = %#v, want sanitized MCP config", listed)
+	}
+
+	resolved, err := svc.ResolveMCPServers(context.Background(), 1001, 9988, 0)
+	if err != nil {
+		t.Fatalf("ResolveMCPServers returned error: %v", err)
+	}
+	if len(resolved) != 2 {
+		t.Fatalf("resolved = %#v, want global and agent MCP configs", resolved)
+	}
+	secretByName := map[string]string{}
+	for _, item := range resolved {
+		secretByName[item.Name] = item.Secret
+	}
+	if secretByName["global-mcp"] != "global-secret" || secretByName["github-mcp"] != "secret-token" {
+		t.Fatalf("resolved = %#v, want secrets for mcp-gateway service call", resolved)
+	}
+}
+
+func TestSaveMCPServerRejectsInvalidRemoteConfig(t *testing.T) {
+	svc := NewSettingsService(newFakeSettingsRepo(), DefaultLLMConfig{})
+	if _, err := svc.SaveMCPServer(context.Background(), 1001, SaveMCPServerInput{
+		Name:      "bad",
+		Scope:     model.MCPScopeAgent,
+		AgentID:   1,
+		Transport: model.MCPTransportStreamableHTTP,
+	}); err == nil {
+		t.Fatal("SaveMCPServer should reject remote MCP without endpoint_url")
+	}
+	if _, err := svc.SaveMCPServer(context.Background(), 1001, SaveMCPServerInput{
+		Name:        "bad-json",
+		Scope:       model.MCPScopeUser,
+		Transport:   model.MCPTransportStreamableHTTP,
+		EndpointURL: "https://mcp.example/mcp",
+		HeadersJSON: "not json",
+	}); err == nil {
+		t.Fatal("SaveMCPServer should reject invalid JSON fields")
+	}
+}
+
 type fakeSettingsRepo struct {
 	nextID  int64
 	llms    map[int64]*model.LLMProfile
 	prompts map[int64]*model.PromptTemplate
 	skills  map[int64]*model.AgentSkill
+	mcps    map[int64]*model.MCPServerConfig
 }
 
 func newFakeSettingsRepo() *fakeSettingsRepo {
-	return &fakeSettingsRepo{nextID: 1, llms: map[int64]*model.LLMProfile{}, prompts: map[int64]*model.PromptTemplate{}, skills: map[int64]*model.AgentSkill{}}
+	return &fakeSettingsRepo{nextID: 1, llms: map[int64]*model.LLMProfile{}, prompts: map[int64]*model.PromptTemplate{}, skills: map[int64]*model.AgentSkill{}, mcps: map[int64]*model.MCPServerConfig{}}
 }
 
 func (r *fakeSettingsRepo) SaveLLMProfile(ctx context.Context, profile *model.LLMProfile) error {
@@ -386,6 +549,52 @@ func (r *fakeSettingsRepo) ListSkills(ctx context.Context, filter dao.SkillFilte
 
 func (r *fakeSettingsRepo) DeleteSkill(ctx context.Context, id int64) error {
 	delete(r.skills, id)
+	return nil
+}
+
+func (r *fakeSettingsRepo) SaveMCPServer(ctx context.Context, server *model.MCPServerConfig) error {
+	if server.ID == 0 {
+		server.ID = r.nextID
+		r.nextID++
+	}
+	cp := *server
+	r.mcps[server.ID] = &cp
+	return nil
+}
+
+func (r *fakeSettingsRepo) GetMCPServer(ctx context.Context, id int64) (*model.MCPServerConfig, error) {
+	if server := r.mcps[id]; server != nil {
+		cp := *server
+		return &cp, nil
+	}
+	return nil, nil
+}
+
+func (r *fakeSettingsRepo) ListMCPServers(ctx context.Context, filter dao.MCPServerFilter) ([]model.MCPServerConfig, error) {
+	var out []model.MCPServerConfig
+	for _, server := range r.mcps {
+		if filter.OwnerID >= 0 && server.OwnerID != filter.OwnerID {
+			continue
+		}
+		if filter.Scope != "" && server.Scope != filter.Scope {
+			continue
+		}
+		if filter.AgentID >= 0 && server.AgentID != filter.AgentID {
+			continue
+		}
+		if filter.ConversationID >= 0 && server.ConversationID != filter.ConversationID {
+			continue
+		}
+		if filter.Enabled != nil && server.Enabled != *filter.Enabled {
+			continue
+		}
+		out = append(out, *server)
+	}
+	return out, nil
+}
+
+func (r *fakeSettingsRepo) DeleteMCPServer(ctx context.Context, id int64) error {
+	delete(r.mcps, id)
 	return nil
 }
 

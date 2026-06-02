@@ -43,6 +43,8 @@ type Repository interface {
 	SaveEntity(ctx context.Context, entity *model.Entity) error
 	SaveRelation(ctx context.Context, relation *model.Relation) error
 	SaveCommunity(ctx context.Context, community *model.Community) error
+	ListOwnerGraph(ctx context.Context, ownerID int64) ([]model.Entity, []model.Relation, error)
+	ReplaceOwnerCommunities(ctx context.Context, ownerID int64, communities []model.Community, entityCommunity map[int64]int64) error
 	ListGraph(ctx context.Context, viewerID int64, query string, limit int) ([]model.Entity, []model.Relation, []model.Community, error)
 }
 
@@ -182,6 +184,40 @@ func (r *repositoryImpl) SaveRelation(ctx context.Context, relation *model.Relat
 
 func (r *repositoryImpl) SaveCommunity(ctx context.Context, community *model.Community) error {
 	return r.db.WithContext(ctx).Save(community).Error
+}
+
+// ListOwnerGraph 读取某个 owner 的完整图谱，用于 GraphRAG 社区划分。
+func (r *repositoryImpl) ListOwnerGraph(ctx context.Context, ownerID int64) ([]model.Entity, []model.Relation, error) {
+	var entities []model.Entity
+	if err := r.db.WithContext(ctx).Where("owner_id = ?", ownerID).Find(&entities).Error; err != nil {
+		return nil, nil, err
+	}
+	var relations []model.Relation
+	if err := r.db.WithContext(ctx).Where("owner_id = ?", ownerID).Find(&relations).Error; err != nil {
+		return nil, nil, err
+	}
+	return entities, relations, nil
+}
+
+// ReplaceOwnerCommunities 用一次事务替换 owner 当前的社区摘要和实体归属。
+func (r *repositoryImpl) ReplaceOwnerCommunities(ctx context.Context, ownerID int64, communities []model.Community, entityCommunity map[int64]int64) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("owner_id = ?", ownerID).Delete(&model.Community{}).Error; err != nil {
+			return err
+		}
+		for i := range communities {
+			communities[i].OwnerID = ownerID
+			if err := tx.Save(&communities[i]).Error; err != nil {
+				return err
+			}
+		}
+		for entityID, communityID := range entityCommunity {
+			if err := tx.Model(&model.Entity{}).Where("id = ? AND owner_id = ?", entityID, ownerID).Update("community_id", communityID).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 // ListGraph 返回当前用户可见的轻量知识图谱。

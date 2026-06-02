@@ -2,7 +2,9 @@ package handler
 
 import (
 	"ClaranAIM/internal/api-gateway/client"
+	"ClaranAIM/kitex_gen/file"
 	"ClaranAIM/pkg/config"
+	"ClaranAIM/pkg/documentparser"
 	"ClaranAIM/pkg/logger"
 	"ClaranAIM/pkg/response"
 	"context"
@@ -36,6 +38,7 @@ var minioEndpoint string
 
 // storageDir 是本地文件存储根目录，所有本地读取都必须限制在该目录下。
 var storageDir string
+var fileOCRProvider documentparser.OCRProvider
 
 // InitFileStorage 初始化 API 网关使用的二进制对象存储。
 //
@@ -82,6 +85,10 @@ func InitFileStorage(cfg *config.Config) {
 		useMinio = false
 		logger.Info("文件上传使用本地存储", "dir", storageDir)
 	}
+}
+
+func InitFileOCR(provider documentparser.OCRProvider) {
+	fileOCRProvider = provider
 }
 
 // FileHandler 处理浏览器文件上传、预览、下载和文件列表接口。
@@ -226,6 +233,50 @@ func (h *FileHandler) PreviewFile(ctx context.Context, c *app.RequestContext) {
 	h.serveFileByID(ctx, c, false)
 }
 
+// AnalyzeImage 对聊天图片做一次 OCR / 版面解析，供前端和 Agent 工具解释截图使用。
+func (h *FileHandler) AnalyzeImage(ctx context.Context, c *app.RequestContext) {
+	if fileOCRProvider == nil {
+		response.BadRequest(c, "OCR服务未配置")
+		return
+	}
+	fileID := c.Param("id")
+	resp, err := client.FileClient.GetFile(ctx, client.NewGetFileReq(fileID))
+	if err != nil {
+		response.Error(c, err.Error())
+		return
+	}
+	if resp == nil || !resp.Success {
+		msg := "文件不存在或无权访问"
+		if resp != nil && resp.Msg != "" {
+			msg = resp.Msg
+		}
+		response.Error(c, msg)
+		return
+	}
+	if !strings.HasPrefix(strings.ToLower(resp.ContentType), "image/") && !isImageFileName(resp.FileName) {
+		response.BadRequest(c, "当前文件不是图片，无法执行图片OCR")
+		return
+	}
+	data, err := readStoredFileBytes(ctx, resp)
+	if err != nil {
+		response.Error(c, err.Error())
+		return
+	}
+	text, err := fileOCRProvider.ExtractText(ctx, resp.FileName, resp.ContentType, data)
+	if err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	response.Success(c, map[string]interface{}{
+		"success":      true,
+		"file_id":      fileID,
+		"file_name":    resp.FileName,
+		"content_type": resp.ContentType,
+		"text":         text,
+		"msg":          "ok",
+	})
+}
+
 // serveFileByID 根据 file-service 元数据读取对象并写回浏览器。
 // attachment=true 时走下载附件；false 时以内联方式服务图片、语音等预览。
 func (h *FileHandler) serveFileByID(ctx context.Context, c *app.RequestContext, attachment bool) {
@@ -297,6 +348,58 @@ func (h *FileHandler) serveFileByID(ctx context.Context, c *app.RequestContext, 
 	}
 	c.Header("Content-Disposition", fmt.Sprintf(`%s; filename="%s"`, disposition, resp.FileName))
 	c.File(fullPath)
+}
+
+func readStoredFileBytes(ctx context.Context, meta *file.GetFileResp) ([]byte, error) {
+	if meta == nil {
+		return nil, errors.New("文件不存在")
+	}
+	if strings.HasPrefix(meta.FileUrl, "http://") || strings.HasPrefix(meta.FileUrl, "https://") {
+		if useMinio && minioClient != nil {
+			objectName, err := minioObjectNameFromURL(meta.FileUrl)
+			if err != nil {
+				return nil, err
+			}
+			obj, err := minioClient.GetObject(ctx, minioBucket, objectName, minio.GetObjectOptions{})
+			if err != nil {
+				return nil, errors.New("文件读取失败")
+			}
+			defer obj.Close()
+			return io.ReadAll(obj)
+		}
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, meta.FileUrl, nil)
+		if err != nil {
+			return nil, err
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return nil, errors.New("远程文件读取失败")
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			return nil, fmt.Errorf("远程文件返回状态码%d", resp.StatusCode)
+		}
+		return io.ReadAll(resp.Body)
+	}
+	if !strings.HasPrefix(meta.FileUrl, "/files/") {
+		return nil, errors.New("不支持的文件地址")
+	}
+	relativePath := strings.TrimPrefix(meta.FileUrl, "/files/")
+	cleanPath := filepath.Clean(filepath.FromSlash(relativePath))
+	if cleanPath == "." || strings.HasPrefix(cleanPath, ".."+string(os.PathSeparator)) || filepath.IsAbs(cleanPath) {
+		return nil, errors.New("无效的文件路径")
+	}
+	fullPath := filepath.Join(storageDir, cleanPath)
+	return os.ReadFile(fullPath)
+}
+
+func isImageFileName(name string) bool {
+	switch strings.ToLower(filepath.Ext(name)) {
+	case ".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif", ".tif", ".tiff":
+		return true
+	default:
+		return false
+	}
 }
 
 // minioObjectNameFromURL 将保存的 MinIO HTTP URL 反解为桶内 objectName。

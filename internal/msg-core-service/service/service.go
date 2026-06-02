@@ -1536,6 +1536,12 @@ func attachmentRefFromMessageContent(content string) events.AttachmentRef {
 			break
 		}
 	}
+	for _, suffix := range []string{"[/file]", "[/img]", "[/voice]"} {
+		if strings.HasSuffix(trimmed, suffix) {
+			trimmed = strings.TrimSpace(strings.TrimSuffix(trimmed, suffix))
+			break
+		}
+	}
 	var media mediaMessagePayload
 	if strings.HasPrefix(trimmed, "{") {
 		_ = json.Unmarshal([]byte(trimmed), &media)

@@ -73,6 +73,17 @@ func (r *fakeGroupRepo) GetUserGroups(ctx context.Context, userID int64) ([]mode
 	return groups, nil
 }
 
+func (r *fakeGroupRepo) AdminListGroups(ctx context.Context, keyword string, ownerID, limit, offset int64) ([]model.Group, int64, error) {
+	var groups []model.Group
+	for _, group := range r.groups {
+		if ownerID > 0 && group.OwnerID != ownerID {
+			continue
+		}
+		groups = append(groups, *group)
+	}
+	return groups, int64(len(groups)), nil
+}
+
 func (r *fakeGroupRepo) AddMember(ctx context.Context, member *model.GroupMember) error {
 	if r.members[member.GroupID] == nil {
 		r.members[member.GroupID] = map[int64]*model.GroupMember{}

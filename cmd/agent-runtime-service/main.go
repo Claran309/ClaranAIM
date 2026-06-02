@@ -5,12 +5,16 @@ import (
 	"ClaranAIM/internal/agent-runtime-service/logic"
 	"ClaranAIM/internal/agent-runtime-service/service"
 	"ClaranAIM/kitex_gen/bot_runtime/botruntimeservice"
+	"ClaranAIM/kitex_gen/mcp_gateway/mcpgatewayservice"
 	"ClaranAIM/kitex_gen/rag/ragservice"
+	"ClaranAIM/kitex_gen/web_search/websearchservice"
 	"ClaranAIM/pkg/config"
 	"ClaranAIM/pkg/governance"
 	"ClaranAIM/pkg/health"
 	"ClaranAIM/pkg/logger"
+	"ClaranAIM/pkg/mcpclient"
 	"ClaranAIM/pkg/ragclient"
+	"ClaranAIM/pkg/websearchclient"
 	"net"
 
 	"github.com/cloudwego/kitex/client"
@@ -53,6 +57,26 @@ func main() {
 		} else {
 			logic.SetRAGService(ragclient.NewRPCClient(ragRPCClient))
 			logger.Info("Agent知识库工具已连接rag-service")
+		}
+		webSearchRPCClient, cliErr := websearchservice.NewClient(
+			"web-search-service",
+			append([]client.Option{client.WithResolver(resolver)}, governance.ClientOptions(cfg.Governance.RPC)...)...,
+		)
+		if cliErr != nil {
+			logger.Warn("创建web-search-service客户端失败，Agent联网搜索工具将不可用", "error", cliErr)
+		} else {
+			logic.SetWebSearchService(websearchclient.NewRPCClient(webSearchRPCClient))
+			logger.Info("Agent联网搜索工具已连接web-search-service")
+		}
+		mcpGatewayRPCClient, cliErr := mcpgatewayservice.NewClient(
+			"mcp-gateway-service",
+			append([]client.Option{client.WithResolver(resolver)}, governance.ClientOptions(cfg.Governance.RPC)...)...,
+		)
+		if cliErr != nil {
+			logger.Warn("创建mcp-gateway-service客户端失败，Agent MCP工具将不可用", "error", cliErr)
+		} else {
+			logic.SetMCPService(mcpclient.NewRPCClient(mcpGatewayRPCClient))
+			logger.Info("Agent MCP工具已连接mcp-gateway-service")
 		}
 	} else {
 		logger.Warn("创建etcd resolver失败，Agent知识库工具将不可用", "error", err)

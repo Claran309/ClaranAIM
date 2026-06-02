@@ -4,6 +4,7 @@ import (
 	"ClaranAIM/pkg/knowledgeclient"
 	"ClaranAIM/pkg/response"
 	"context"
+	"encoding/json"
 	"strconv"
 	"strings"
 
@@ -140,6 +141,99 @@ func (h *KnowledgeHandler) GetPath(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 	response.Success(c, path)
+}
+
+// CreateReviewCandidate 将当前图谱节点或关系提交到审核工作台。
+func (h *KnowledgeHandler) CreateReviewCandidate(ctx context.Context, c *app.RequestContext) {
+	if !h.ensureService(c) {
+		return
+	}
+	userID, ok := requireCurrentUserID(c)
+	if !ok {
+		return
+	}
+	var req struct {
+		ItemType string      `json:"item_type"`
+		ItemID   json.Number `json:"item_id"`
+		Reason   string      `json:"reason"`
+		Query    string      `json:"query"`
+	}
+	if err := bindJSONUseNumber(c, &req); err != nil {
+		response.BadRequest(c, "参数错误")
+		return
+	}
+	itemID, err := numberToInt64(req.ItemID)
+	if err != nil || itemID <= 0 {
+		response.BadRequest(c, "无效的候选对象ID")
+		return
+	}
+	candidate, err := h.svc.CreateGraphReviewCandidate(ctx, userID, knowledgeclient.CreateGraphReviewCandidateInput{
+		ItemType: req.ItemType,
+		ItemID:   itemID,
+		Reason:   req.Reason,
+		Query:    req.Query,
+	})
+	if err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	response.Success(c, map[string]interface{}{"success": true, "candidate": candidate})
+}
+
+// ListReviewCandidates 返回当前用户的图谱审核候选。
+func (h *KnowledgeHandler) ListReviewCandidates(ctx context.Context, c *app.RequestContext) {
+	if !h.ensureService(c) {
+		return
+	}
+	userID, ok := requireCurrentUserID(c)
+	if !ok {
+		return
+	}
+	list, err := h.svc.ListGraphReviewCandidates(ctx, userID, knowledgeclient.ListGraphReviewCandidatesInput{
+		Status:   strings.TrimSpace(c.DefaultQuery("status", "")),
+		ItemType: strings.TrimSpace(c.DefaultQuery("item_type", "")),
+		Limit:    int(parseKnowledgeInt64(c.DefaultQuery("limit", "50"), 50)),
+		Offset:   int(parseKnowledgeInt64(c.DefaultQuery("offset", "0"), 0)),
+	})
+	if err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	response.Success(c, list)
+}
+
+// ReviewCandidate 对图谱候选执行通过或拒绝。
+func (h *KnowledgeHandler) ReviewCandidate(ctx context.Context, c *app.RequestContext) {
+	if !h.ensureService(c) {
+		return
+	}
+	userID, ok := requireCurrentUserID(c)
+	if !ok {
+		return
+	}
+	candidateID := parseKnowledgeInt64(c.Param("id"), 0)
+	if candidateID <= 0 {
+		response.BadRequest(c, "无效的候选ID")
+		return
+	}
+	var req struct {
+		Action string `json:"action"`
+		Note   string `json:"note"`
+	}
+	if err := bindJSONUseNumber(c, &req); err != nil {
+		response.BadRequest(c, "参数错误")
+		return
+	}
+	candidate, err := h.svc.ReviewGraphCandidate(ctx, userID, knowledgeclient.ReviewGraphCandidateInput{
+		CandidateID: candidateID,
+		Action:      req.Action,
+		Note:        req.Note,
+	})
+	if err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	response.Success(c, map[string]interface{}{"success": true, "candidate": candidate})
 }
 
 func parseKnowledgeGraphQuery(c *app.RequestContext) knowledgeclient.GraphQuery {

@@ -1,0 +1,13 @@
+service:
+  name: "mcp-gateway-service"
+  address: "127.0.0.1:9016"
+
+mysql:
+  dsn: ""
+
+governance:
+  rpc:
+    timeout_ms: 20000
+    circuit_breaker: true
+    max_connections: 500
+    max_qps: 300

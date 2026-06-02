@@ -41,6 +41,10 @@ type SettingsService interface {
 	UpdateSkillContent(ctx context.Context, ownerID, skillID int64, name, description string, content []byte) (*settingsclient.AgentSkill, error)
 	ListSkills(ctx context.Context, ownerID int64, scope string, agentID int64) ([]settingsclient.AgentSkill, error)
 	DeleteSkill(ctx context.Context, ownerID, skillID int64) error
+	SaveMCPServer(ctx context.Context, ownerID int64, input SaveMCPServerInput) (*settingsclient.MCPServerConfig, error)
+	ListMCPServers(ctx context.Context, ownerID int64, scope string, agentID, conversationID int64, includeDisabled bool) ([]settingsclient.MCPServerConfig, error)
+	ResolveMCPServers(ctx context.Context, ownerID, agentID, conversationID int64) ([]settingsclient.MCPServerConfig, error)
+	DeleteMCPServer(ctx context.Context, ownerID, serverID int64) error
 }
 
 // SaveLLMProfileInput 描述一份可复用模型供应商配置。
@@ -52,6 +56,9 @@ type SavePromptInput = settingsclient.SavePromptInput
 // SaveSkillInput 描述一次 Skill 包上传保存请求。
 type SaveSkillInput = settingsclient.SaveSkillInput
 
+// SaveMCPServerInput 描述一次外部 MCP Server 配置保存请求。
+type SaveMCPServerInput = settingsclient.SaveMCPServerInput
+
 // ResolvedLLMConfig 是为某个任务解析出的模型供应商和 prompt 配置。
 type ResolvedLLMConfig = settingsclient.ResolvedLLMConfig
 
@@ -60,6 +67,7 @@ type settingsServiceImpl struct {
 	repo             dao.SettingsRepository
 	defaultLLM       DefaultLLMConfig
 	skillStorageRoot string
+	secretCodec      secretCodec
 }
 
 // Option 调整 settings-service 的可选运行配置。
@@ -72,13 +80,29 @@ func WithSkillStorageRoot(root string) Option {
 	}
 }
 
+// WithSecretEncryptionKey 配置 settings-service 用于保护 API Key / MCP Secret 的本地加密密钥。
+// 空字符串表示保持兼容模式：保存和读取都按明文处理，便于测试或旧部署临时过渡。
+func WithSecretEncryptionKey(secret string) Option {
+	return func(s *settingsServiceImpl) {
+		codec, err := newAESGCMSecretCodec(secret)
+		if err != nil {
+			s.secretCodec = noopSecretCodec{}
+			return
+		}
+		s.secretCodec = codec
+	}
+}
+
 // NewSettingsService 创建设置业务服务。
 func NewSettingsService(repo dao.SettingsRepository, defaultLLM DefaultLLMConfig, opts ...Option) SettingsService {
-	svc := &settingsServiceImpl{repo: repo, defaultLLM: defaultLLM, skillStorageRoot: "storage/agent/skills"}
+	svc := &settingsServiceImpl{repo: repo, defaultLLM: defaultLLM, skillStorageRoot: "storage/agent/skills", secretCodec: noopSecretCodec{}}
 	for _, opt := range opts {
 		if opt != nil {
 			opt(svc)
 		}
+	}
+	if svc.secretCodec == nil {
+		svc.secretCodec = noopSecretCodec{}
 	}
 	return svc
 }
@@ -121,7 +145,11 @@ func (s *settingsServiceImpl) SaveLLMProfile(ctx context.Context, ownerID int64,
 	profile.Enabled = enabled
 	switch defaultString(input.APIKeyAction, APIKeyActionKeep) {
 	case APIKeyActionSet:
-		profile.APIKey = input.APIKey
+		encrypted, err := s.encryptSecret(input.APIKey)
+		if err != nil {
+			return nil, err
+		}
+		profile.APIKey = encrypted
 	case APIKeyActionClear:
 		profile.APIKey = ""
 	case APIKeyActionKeep:
@@ -255,8 +283,12 @@ func (s *settingsServiceImpl) ResolveTranslationConfig(ctx context.Context, owne
 		PromptTemplate: model.DefaultTranslatePrompt,
 	}
 	if selected != nil {
+		apiKey, err := s.decryptSecret(selected.APIKey)
+		if err != nil {
+			return ResolvedLLMConfig{}, err
+		}
 		resolved.ProfileID = selected.ID
-		resolved.APIKey = selected.APIKey
+		resolved.APIKey = apiKey
 		resolved.BaseURL = selected.BaseURL
 		resolved.ModelName = selected.ModelName
 		resolved.ProviderType = selected.ProviderType
@@ -290,12 +322,16 @@ func (s *settingsServiceImpl) ResolveLLMProfile(ctx context.Context, ownerID, pr
 	if !profile.Enabled {
 		return ResolvedLLMConfig{}, errors.New("LLM配置已停用")
 	}
-	if strings.TrimSpace(profile.APIKey) == "" || strings.TrimSpace(profile.BaseURL) == "" || strings.TrimSpace(profile.ModelName) == "" {
+	apiKey, err := s.decryptSecret(profile.APIKey)
+	if err != nil {
+		return ResolvedLLMConfig{}, err
+	}
+	if strings.TrimSpace(apiKey) == "" || strings.TrimSpace(profile.BaseURL) == "" || strings.TrimSpace(profile.ModelName) == "" {
 		return ResolvedLLMConfig{}, errors.New("LLM配置不完整")
 	}
 	return ResolvedLLMConfig{
 		ProfileID:    profile.ID,
-		APIKey:       profile.APIKey,
+		APIKey:       apiKey,
 		BaseURL:      profile.BaseURL,
 		ModelName:    profile.ModelName,
 		ProviderType: profile.ProviderType,
@@ -325,8 +361,9 @@ func (s *settingsServiceImpl) SaveSkill(ctx context.Context, ownerID int64, inpu
 	if err != nil {
 		return nil, err
 	}
-	if !containsSkillMarkdown(files) {
-		return nil, errors.New("Skill包必须包含SKILL.md")
+	files, entryFile, packageDir, err := normalizeSkillPackageRoot(files)
+	if err != nil {
+		return nil, err
 	}
 	enabled := true
 	if input.Enabled != nil {
@@ -338,7 +375,7 @@ func (s *settingsServiceImpl) SaveSkill(ctx context.Context, ownerID int64, inpu
 		Scope:       scope,
 		Name:        name,
 		Description: strings.TrimSpace(input.Description),
-		EntryFile:   "SKILL.md",
+		EntryFile:   entryFile,
 		SourceType:  sourceType,
 		IsDefault:   input.IsDefault,
 		Enabled:     enabled,
@@ -353,7 +390,7 @@ func (s *settingsServiceImpl) SaveSkill(ctx context.Context, ownerID int64, inpu
 		}
 		skill.ID = existing.ID
 	}
-	dir, err := s.writeSkillFiles(ownerID, skill.AgentID, scope, name, files)
+	dir, err := s.writeSkillFiles(ownerID, input.Username, skill.AgentID, scope, name, packageDir, files)
 	if err != nil {
 		return nil, err
 	}
@@ -439,7 +476,6 @@ func (s *settingsServiceImpl) UpdateSkillContent(ctx context.Context, ownerID, s
 		skill.Name = trimmedName
 	}
 	skill.Description = strings.TrimSpace(description)
-	skill.EntryFile = "SKILL.md"
 	if err := s.repo.SaveSkill(ctx, skill); err != nil {
 		return nil, err
 	}
@@ -465,6 +501,176 @@ func (s *settingsServiceImpl) DeleteSkill(ctx context.Context, ownerID, skillID 
 		return errors.New("只能删除自己的Skill")
 	}
 	return s.repo.DeleteSkill(ctx, skillID)
+}
+
+// SaveMCPServer 保存用户自定义外部 MCP Server 配置。
+// 列表接口会脱敏 Secret；只有 ResolveMCPServers 会把 Secret 返回给 mcp-gateway 做服务间调用。
+func (s *settingsServiceImpl) SaveMCPServer(ctx context.Context, ownerID int64, input SaveMCPServerInput) (*settingsclient.MCPServerConfig, error) {
+	if ownerID <= 0 {
+		return nil, errors.New("用户未登录")
+	}
+	name := strings.TrimSpace(input.Name)
+	if name == "" {
+		return nil, errors.New("MCP名称不能为空")
+	}
+	scope := defaultString(input.Scope, model.MCPScopeUser)
+	if err := validateMCPScope(scope, input.AgentID, input.ConversationID); err != nil {
+		return nil, err
+	}
+	transport := defaultString(input.Transport, model.MCPTransportStreamableHTTP)
+	if err := validateMCPTransport(transport, input.EndpointURL, input.Command); err != nil {
+		return nil, err
+	}
+	trust := defaultString(input.TrustLevel, model.MCPTrustLow)
+	if trust != model.MCPTrustLow && trust != model.MCPTrustNormal && trust != model.MCPTrustHigh {
+		return nil, errors.New("无效的MCP信任级别")
+	}
+	if err := validateMaybeJSON(input.ArgsJSON, "args_json"); err != nil {
+		return nil, err
+	}
+	if err := validateMaybeJSON(input.EnvJSON, "env_json"); err != nil {
+		return nil, err
+	}
+	if err := validateMaybeJSON(input.HeadersJSON, "headers_json"); err != nil {
+		return nil, err
+	}
+	if err := validateMaybeJSON(input.AllowToolsJSON, "allow_tools_json"); err != nil {
+		return nil, err
+	}
+	if err := validateMaybeJSON(input.DenyToolsJSON, "deny_tools_json"); err != nil {
+		return nil, err
+	}
+	enabled := true
+	var existing *model.MCPServerConfig
+	if input.ID > 0 {
+		loaded, err := s.repo.GetMCPServer(ctx, input.ID)
+		if err != nil {
+			return nil, err
+		}
+		if loaded == nil || loaded.OwnerID != ownerID {
+			return nil, errors.New("MCP配置不存在或无权修改")
+		}
+		existing = loaded
+		enabled = loaded.Enabled
+	}
+	if input.Enabled != nil {
+		enabled = *input.Enabled
+	}
+	server := &model.MCPServerConfig{}
+	if existing != nil {
+		*server = *existing
+	}
+	server.OwnerID = ownerID
+	server.AgentID = input.AgentID
+	server.ConversationID = input.ConversationID
+	server.Scope = scope
+	server.Name = name
+	server.Description = strings.TrimSpace(input.Description)
+	server.Transport = transport
+	server.EndpointURL = strings.TrimSpace(input.EndpointURL)
+	server.Command = strings.TrimSpace(input.Command)
+	server.ArgsJSON = strings.TrimSpace(input.ArgsJSON)
+	server.EnvJSON = strings.TrimSpace(input.EnvJSON)
+	server.HeadersJSON = strings.TrimSpace(input.HeadersJSON)
+	server.AuthType = strings.TrimSpace(input.AuthType)
+	server.Enabled = enabled
+	server.TrustLevel = trust
+	server.AllowToolsJSON = strings.TrimSpace(input.AllowToolsJSON)
+	server.DenyToolsJSON = strings.TrimSpace(input.DenyToolsJSON)
+	switch defaultString(input.SecretAction, APIKeyActionKeep) {
+	case APIKeyActionSet:
+		encrypted, err := s.encryptSecret(input.Secret)
+		if err != nil {
+			return nil, err
+		}
+		server.Secret = encrypted
+	case APIKeyActionClear:
+		server.Secret = ""
+	case APIKeyActionKeep:
+	default:
+		return nil, errors.New("无效的MCP Secret操作")
+	}
+	if err := s.repo.SaveMCPServer(ctx, server); err != nil {
+		return nil, err
+	}
+	return mcpServerToDTO(server, false), nil
+}
+
+// ListMCPServers 返回当前用户可见的 MCP 配置列表，默认只返回启用项并脱敏。
+func (s *settingsServiceImpl) ListMCPServers(ctx context.Context, ownerID int64, scope string, agentID, conversationID int64, includeDisabled bool) ([]settingsclient.MCPServerConfig, error) {
+	if ownerID <= 0 {
+		return nil, errors.New("用户未登录")
+	}
+	var enabled *bool
+	if !includeDisabled {
+		v := true
+		enabled = &v
+	}
+	servers, err := s.repo.ListMCPServers(ctx, dao.MCPServerFilter{
+		OwnerID:        ownerID,
+		Scope:          strings.TrimSpace(scope),
+		AgentID:        agentID,
+		ConversationID: conversationID,
+		Enabled:        enabled,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return mcpServersToDTO(servers, false), nil
+}
+
+// ResolveMCPServers 解析某次 Agent 运行可用的 MCP Server，包含全局、用户、Agent、会话四个作用域。
+func (s *settingsServiceImpl) ResolveMCPServers(ctx context.Context, ownerID, agentID, conversationID int64) ([]settingsclient.MCPServerConfig, error) {
+	if ownerID <= 0 {
+		return nil, errors.New("用户未登录")
+	}
+	enabled := true
+	var all []model.MCPServerConfig
+	for _, filter := range []dao.MCPServerFilter{
+		{OwnerID: ownerID, Scope: model.MCPScopeGlobal, AgentID: 0, ConversationID: 0, Enabled: &enabled},
+		{OwnerID: ownerID, Scope: model.MCPScopeUser, AgentID: 0, ConversationID: 0, Enabled: &enabled},
+		{OwnerID: ownerID, Scope: model.MCPScopeAgent, AgentID: agentID, ConversationID: 0, Enabled: &enabled},
+		{OwnerID: ownerID, Scope: model.MCPScopeConversation, AgentID: agentID, ConversationID: conversationID, Enabled: &enabled},
+	} {
+		items, err := s.repo.ListMCPServers(ctx, filter)
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, items...)
+	}
+	return s.mcpServersToDTO(all, true), nil
+}
+
+// DeleteMCPServer 删除当前用户拥有的 MCP 配置。
+func (s *settingsServiceImpl) DeleteMCPServer(ctx context.Context, ownerID, serverID int64) error {
+	if ownerID <= 0 || serverID <= 0 {
+		return errors.New("用户和MCP配置不能为空")
+	}
+	server, err := s.repo.GetMCPServer(ctx, serverID)
+	if err != nil {
+		return err
+	}
+	if server == nil {
+		return nil
+	}
+	if server.OwnerID != ownerID {
+		return errors.New("只能删除自己的MCP配置")
+	}
+	return s.repo.DeleteMCPServer(ctx, serverID)
+}
+
+func (s *settingsServiceImpl) encryptSecret(value string) (string, error) {
+	if s.secretCodec == nil {
+		return value, nil
+	}
+	return s.secretCodec.Encrypt(value)
+}
+
+func (s *settingsServiceImpl) decryptSecret(value string) (string, error) {
+	if s.secretCodec == nil {
+		return value, nil
+	}
+	return s.secretCodec.Decrypt(value)
 }
 
 // sanitizeLLMProfile 将数据库模型转换为脱敏 DTO。
@@ -524,6 +730,119 @@ func skillToDTO(skill *model.AgentSkill) *settingsclient.AgentSkill {
 		dto.Summary = strings.TrimSpace(dto.Description)
 	}
 	return dto
+}
+
+func mcpServerToDTO(server *model.MCPServerConfig, includeSecret bool) *settingsclient.MCPServerConfig {
+	if server == nil {
+		return nil
+	}
+	dto := &settingsclient.MCPServerConfig{
+		ID:             server.ID,
+		OwnerID:        server.OwnerID,
+		AgentID:        server.AgentID,
+		ConversationID: server.ConversationID,
+		Scope:          server.Scope,
+		Name:           server.Name,
+		Description:    server.Description,
+		Transport:      server.Transport,
+		EndpointURL:    server.EndpointURL,
+		Command:        server.Command,
+		ArgsJSON:       server.ArgsJSON,
+		EnvJSON:        server.EnvJSON,
+		HeadersJSON:    server.HeadersJSON,
+		AuthType:       server.AuthType,
+		Enabled:        server.Enabled,
+		TrustLevel:     server.TrustLevel,
+		AllowToolsJSON: server.AllowToolsJSON,
+		DenyToolsJSON:  server.DenyToolsJSON,
+		HasSecret:      strings.TrimSpace(server.Secret) != "",
+	}
+	if includeSecret {
+		dto.Secret = server.Secret
+	}
+	return dto
+}
+
+func mcpServersToDTO(servers []model.MCPServerConfig, includeSecret bool) []settingsclient.MCPServerConfig {
+	out := make([]settingsclient.MCPServerConfig, 0, len(servers))
+	for i := range servers {
+		dto := mcpServerToDTO(&servers[i], includeSecret)
+		if dto != nil {
+			out = append(out, *dto)
+		}
+	}
+	return out
+}
+
+func (s *settingsServiceImpl) mcpServerToDTO(server *model.MCPServerConfig, includeSecret bool) *settingsclient.MCPServerConfig {
+	dto := mcpServerToDTO(server, includeSecret)
+	if dto == nil || !includeSecret {
+		return dto
+	}
+	secret, err := s.decryptSecret(dto.Secret)
+	if err != nil {
+		dto.Secret = ""
+		return dto
+	}
+	dto.Secret = secret
+	return dto
+}
+
+func (s *settingsServiceImpl) mcpServersToDTO(servers []model.MCPServerConfig, includeSecret bool) []settingsclient.MCPServerConfig {
+	out := make([]settingsclient.MCPServerConfig, 0, len(servers))
+	for i := range servers {
+		dto := s.mcpServerToDTO(&servers[i], includeSecret)
+		if dto != nil {
+			out = append(out, *dto)
+		}
+	}
+	return out
+}
+
+func validateMCPScope(scope string, agentID, conversationID int64) error {
+	switch scope {
+	case model.MCPScopeUser, model.MCPScopeGlobal:
+		return nil
+	case model.MCPScopeAgent:
+		if agentID <= 0 {
+			return errors.New("Agent级MCP必须指定Agent ID")
+		}
+		return nil
+	case model.MCPScopeConversation:
+		if agentID <= 0 || conversationID <= 0 {
+			return errors.New("会话级MCP必须指定Agent ID和会话ID")
+		}
+		return nil
+	default:
+		return errors.New("无效的MCP作用域")
+	}
+}
+
+func validateMCPTransport(transport, endpointURL, command string) error {
+	switch transport {
+	case model.MCPTransportStreamableHTTP, model.MCPTransportSSE:
+		if strings.TrimSpace(endpointURL) == "" {
+			return errors.New("远程MCP必须配置endpoint_url")
+		}
+	case model.MCPTransportStdio:
+		if strings.TrimSpace(command) == "" {
+			return errors.New("stdio MCP必须配置command")
+		}
+	default:
+		return errors.New("无效的MCP传输类型")
+	}
+	return nil
+}
+
+func validateMaybeJSON(value, field string) error {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil
+	}
+	if !(strings.HasPrefix(value, "{") || strings.HasPrefix(value, "[")) {
+		return fmt.Errorf("%s必须是JSON对象或数组", field)
+	}
+	return nil
 }
 
 // readSkillEntryContent 读取入口文件正文；入口文件固定限制在 Skill 目录内，防止元数据污染导致越界读取。
@@ -628,18 +947,50 @@ func cleanSkillRelativePath(path string) (string, error) {
 	return clean, nil
 }
 
-// containsSkillMarkdown 判断 Skill 包根目录是否包含入口文件。
-func containsSkillMarkdown(files []settingsclient.SkillFileInput) bool {
+// normalizeSkillPackageRoot 找到上传包中的 SKILL.md，并把所有文件裁剪到同一个包根目录下。
+// 例如浏览器目录上传 Skill/SKILL.md 和 Skill/references/a.md 时，落盘目录就是 .../Skill，
+// EntryFile 仍是相对包根的 SKILL.md，runtime 不需要理解浏览器原始目录层级。
+func normalizeSkillPackageRoot(files []settingsclient.SkillFileInput) ([]settingsclient.SkillFileInput, string, string, error) {
+	entryPath := ""
 	for _, f := range files {
-		if strings.EqualFold(filepath.ToSlash(f.Path), "SKILL.md") {
-			return true
+		normalized := filepath.ToSlash(f.Path)
+		if strings.EqualFold(filepath.Base(normalized), "SKILL.md") {
+			entryPath = normalized
+			break
 		}
 	}
-	return false
+	if entryPath == "" {
+		return nil, "", "", errors.New("Skill包必须包含SKILL.md")
+	}
+	packageDir := filepath.ToSlash(filepath.Dir(entryPath))
+	if packageDir == "." || packageDir == "/" {
+		packageDir = ""
+	}
+	out := make([]settingsclient.SkillFileInput, 0, len(files))
+	for _, f := range files {
+		path := filepath.ToSlash(f.Path)
+		rel := path
+		if packageDir != "" {
+			prefix := packageDir + "/"
+			if path != packageDir && !strings.HasPrefix(path, prefix) {
+				continue
+			}
+			rel = strings.TrimPrefix(path, prefix)
+		}
+		clean, err := cleanSkillRelativePath(rel)
+		if err != nil {
+			return nil, "", "", err
+		}
+		out = append(out, settingsclient.SkillFileInput{Path: clean, Content: f.Content})
+	}
+	if len(out) == 0 {
+		return nil, "", "", errors.New("Skill包为空")
+	}
+	return out, "SKILL.md", packageDir, nil
 }
 
 // writeSkillFiles 将 Skill 包写入受控存储根目录。
-func (s *settingsServiceImpl) writeSkillFiles(ownerID, agentID int64, scope, name string, files []settingsclient.SkillFileInput) (string, error) {
+func (s *settingsServiceImpl) writeSkillFiles(ownerID int64, username string, agentID int64, scope, name, packageDir string, files []settingsclient.SkillFileInput) (string, error) {
 	root := strings.TrimSpace(s.skillStorageRoot)
 	if root == "" {
 		root = "storage/agent/skills"
@@ -648,15 +999,13 @@ func (s *settingsServiceImpl) writeSkillFiles(ownerID, agentID int64, scope, nam
 	if err != nil {
 		return "", err
 	}
-	slug := safeSkillSlug(name)
-	if slug == "" {
-		slug = "skill"
-	}
+	userFolder := safeUserFolder(username, ownerID)
+	packageFolder := safeSkillPackageFolder(packageDir)
 	var target string
 	if scope == model.SkillScopeAgent {
-		target = filepath.Join(absRoot, "agents", fmt.Sprintf("%d", agentID), slug)
+		target = filepath.Join(absRoot, "agents", userFolder, fmt.Sprintf("%d", agentID), "skill", packageFolder)
 	} else {
-		target = filepath.Join(absRoot, "global", fmt.Sprintf("%d", ownerID), slug)
+		target = filepath.Join(absRoot, "global", userFolder, "skill", packageFolder)
 	}
 	absTarget, err := filepath.Abs(target)
 	if err != nil {
@@ -717,6 +1066,47 @@ func safeSkillSlug(name string) string {
 		return fmt.Sprintf("skill_%d", len([]rune(name)))
 	}
 	return b.String()
+}
+
+// safeUserFolder 生成用户级 Skill 存储目录名。
+// 用户名为空时回退到 user_<id>，保证服务间旧调用不会落到共享目录。
+func safeUserFolder(username string, ownerID int64) string {
+	folder := safePathSegment(username)
+	if folder == "" {
+		folder = fmt.Sprintf("user_%d", ownerID)
+	}
+	return folder
+}
+
+// safeSkillPackageFolder 保留上传包最外层目录名；单文件上传没有包目录时使用固定 skill 目录。
+func safeSkillPackageFolder(packageDir string) string {
+	packageDir = filepath.ToSlash(strings.TrimSpace(packageDir))
+	packageDir = strings.Trim(packageDir, "/")
+	if packageDir == "" || packageDir == "." {
+		return "skill"
+	}
+	return defaultString(safePathSegment(filepath.Base(packageDir)), "skill")
+}
+
+// safePathSegment 过滤 Windows 和类 Unix 路径中有特殊含义的字符，保留中文等普通可读字符。
+func safePathSegment(value string) string {
+	value = strings.TrimSpace(value)
+	var b strings.Builder
+	for _, r := range value {
+		switch {
+		case r == '/' || r == '\\' || r == ':' || r == '*' || r == '?' || r == '"' || r == '<' || r == '>' || r == '|':
+			b.WriteByte('_')
+		case r < 32:
+			continue
+		default:
+			b.WriteRune(r)
+		}
+	}
+	out := strings.Trim(strings.TrimSpace(b.String()), ". ")
+	if out == "" || out == "." || out == ".." {
+		return ""
+	}
+	return out
 }
 
 // defaultString 去除空白后在 value 为空时返回 fallback。

@@ -1,7 +1,7 @@
 # 服务配置
 service:
   name: "user-service"
-  address: "127.0.0.1:9001"
+  address: "127.0.0.1:9101"
 
 # 以下敏感配置从 .env 文件读取
 # MySQL/Redis/JWT/Etcd 配置由环境变量覆盖

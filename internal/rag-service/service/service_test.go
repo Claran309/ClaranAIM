@@ -478,6 +478,150 @@ func TestGraphRAGCanonicalizesEntityAliasesAndKeepsTypedRelations(t *testing.T) 
 	}
 }
 
+func TestParseGraphExtractResultAcceptsLLMJSONAndKeepsEvidence(t *testing.T) {
+	result, err := parseGraphExtractResult(`模型输出如下：
+{
+  "entities": [
+    {
+      "name": "msg-core-service",
+      "type": "Service",
+      "description": "消息核心服务，负责消息事实写入和事件发布",
+      "aliases": ["消息核心服务", "MessageService"]
+    },
+    {
+      "name": "event_outbox",
+      "type": "DatabaseTable",
+      "description": "事务Outbox表",
+      "aliases": []
+    }
+  ],
+  "relationships": [
+    {
+      "source": "msg-core-service",
+      "target": "event_outbox",
+      "type": "writes",
+      "description": "msg-core-service 在消息事务中写入 event_outbox",
+      "evidence": "发送消息时同事务写入 messages 和 event_outbox",
+      "confidence": 0.91
+    },
+    {
+      "source": "msg-core-service",
+      "target": "missing-node",
+      "type": "calls",
+      "description": "非法关系应被丢弃",
+      "evidence": "",
+      "confidence": 0.4
+    }
+  ]
+}`)
+	if err != nil {
+		t.Fatalf("parseGraphExtractResult returned error: %v", err)
+	}
+	if len(result.Entities) != 2 {
+		t.Fatalf("entities len = %d, want 2", len(result.Entities))
+	}
+	if result.Entities[0].Type != "Service" || !strings.Contains(strings.Join(result.Entities[0].Aliases, ","), "消息核心服务") {
+		t.Fatalf("first entity = %#v, want Service with aliases", result.Entities[0])
+	}
+	if len(result.Relationships) != 1 {
+		t.Fatalf("relationships len = %d, want invalid relation filtered", len(result.Relationships))
+	}
+	rel := result.Relationships[0]
+	if rel.Type != "WRITES" || rel.Confidence != 0.91 || !strings.Contains(rel.Evidence, "event_outbox") {
+		t.Fatalf("relationship = %#v, want normalized WRITES with confidence and evidence", rel)
+	}
+}
+
+func TestGraphRAGUsesInjectedLLMExtractorAndCommunitySummarizer(t *testing.T) {
+	repo := newFakeRAGRepo()
+	extractor := &fakeGraphExtractor{result: graphExtractResult{
+		Entities: []extractedEntity{
+			{Name: "msg-core-service", Type: "Service", Description: "消息事实源", Aliases: []string{"消息核心服务"}},
+			{Name: "event_outbox", Type: "DatabaseTable", Description: "事务Outbox表"},
+			{Name: "claran.message.events", Type: "EventTopic", Description: "消息事件Topic"},
+		},
+		Relationships: []extractedRelationship{
+			{Source: "msg-core-service", Target: "event_outbox", Type: "WRITES", Description: "写入Outbox", Evidence: "msg-core-service 写入 event_outbox", Confidence: 0.93},
+			{Source: "msg-core-service", Target: "claran.message.events", Type: "PUBLISHES", Description: "发布消息事件", Evidence: "发布到 claran.message.events", Confidence: 0.88},
+		},
+	}}
+	summarizer := &fakeGraphCommunitySummarizer{
+		title:   "IM 消息链路",
+		summary: "该社区描述 msg-core-service 写入 event_outbox 并发布 claran.message.events 的消息事件链路。",
+	}
+	svc := NewRAGServiceWithGraphExtractor(repo, NewLocalVectorIndex(), 64, "hybrid", nil, nil, nil, nil, nil, extractor, summarizer)
+
+	result, err := svc.IngestDocument(context.Background(), IngestInput{
+		OwnerID:    1001,
+		Title:      "消息链路",
+		Content:    "这段文本由 fake extractor 接管，内容本身不参与规则抽取。",
+		Visibility: model.VisibilityPrivate,
+	})
+	if err != nil {
+		t.Fatalf("IngestDocument returned error: %v", err)
+	}
+	if !extractor.called {
+		t.Fatalf("LLM graph extractor was not called")
+	}
+	if !summarizer.called {
+		t.Fatalf("community summarizer was not called")
+	}
+	if result.EntityCount != 3 || result.RelationCount != 2 {
+		t.Fatalf("ingest graph counts = entities %d relations %d, want 3 and 2", result.EntityCount, result.RelationCount)
+	}
+	if len(repo.communities) != 1 {
+		t.Fatalf("communities len = %d, want one LLM summarized community", len(repo.communities))
+	}
+	if repo.communities[0].Name != "IM 消息链路" || !strings.Contains(repo.communities[0].Summary, "event_outbox") {
+		t.Fatalf("community = %#v, want injected LLM summary", repo.communities[0])
+	}
+	for _, entity := range repo.entities {
+		if entity.CommunityID == 0 {
+			t.Fatalf("entity %s has no community id after rebuild", entity.Name)
+		}
+	}
+}
+
+func TestLeidenLikeCommunitiesSeparatesDenseClusters(t *testing.T) {
+	entities := []model.Entity{
+		{ID: 1, Name: "msg-core-service", Type: "Service", Score: 1},
+		{ID: 2, Name: "event_outbox", Type: "DatabaseTable", Score: 1},
+		{ID: 3, Name: "claran.message.events", Type: "EventTopic", Score: 1},
+		{ID: 4, Name: "agent-manager-service", Type: "Service", Score: 1},
+		{ID: 5, Name: "agent-runtime-service", Type: "Service", Score: 1},
+		{ID: 6, Name: "agent_dispatch_records", Type: "DatabaseTable", Score: 1},
+	}
+	relations := []model.Relation{
+		{SourceID: 1, TargetID: 2, Weight: 1},
+		{SourceID: 1, TargetID: 3, Weight: 1},
+		{SourceID: 2, TargetID: 3, Weight: 1},
+		{SourceID: 4, TargetID: 5, Weight: 1},
+		{SourceID: 4, TargetID: 6, Weight: 1},
+		{SourceID: 5, TargetID: 6, Weight: 1},
+		{SourceID: 3, TargetID: 4, Weight: 0.01},
+	}
+
+	assignments := leidenLikeCommunities(entities, relations)
+	if assignments[1] != assignments[2] || assignments[1] != assignments[3] {
+		t.Fatalf("message cluster assignments = %#v, want nodes 1/2/3 together", assignments)
+	}
+	if assignments[4] != assignments[5] || assignments[4] != assignments[6] {
+		t.Fatalf("agent cluster assignments = %#v, want nodes 4/5/6 together", assignments)
+	}
+	if assignments[1] == assignments[4] {
+		t.Fatalf("assignments = %#v, want weakly connected dense clusters separated", assignments)
+	}
+
+	svc := NewRAGService(newFakeRAGRepo(), NewLocalVectorIndex(), 64, "hybrid").(*ragServiceImpl)
+	communities := svc.buildCommunityModels(context.Background(), 1001, entities, relations, assignments)
+	if len(communities) != 2 {
+		t.Fatalf("communities len = %d, want 2", len(communities))
+	}
+	if !strings.Contains(communities[0].KeyEntitiesJSON, "msg-core-service") && !strings.Contains(communities[1].KeyEntitiesJSON, "msg-core-service") {
+		t.Fatalf("communities = %#v, want key entities encoded", communities)
+	}
+}
+
 func TestGraphRAGQueryExpandsOneHopSubgraph(t *testing.T) {
 	repo := newFakeRAGRepo()
 	svc := NewRAGService(repo, NewLocalVectorIndex(), 64, "hybrid")
@@ -686,6 +830,33 @@ type recordingSelfRAGJudge struct {
 	query  string
 }
 
+type fakeGraphExtractor struct {
+	result graphExtractResult
+	err    error
+	called bool
+}
+
+type fakeGraphCommunitySummarizer struct {
+	title   string
+	summary string
+	err     error
+	called  bool
+}
+
+func (e *fakeGraphExtractor) Extract(ctx context.Context, input graphExtractInput) (graphExtractResult, error) {
+	_ = ctx
+	_ = input
+	e.called = true
+	return e.result, e.err
+}
+
+func (s *fakeGraphCommunitySummarizer) Summarize(ctx context.Context, input graphCommunitySummaryInput) (graphCommunitySummary, error) {
+	_ = ctx
+	_ = input
+	s.called = true
+	return graphCommunitySummary{Title: s.title, Summary: s.summary}, s.err
+}
+
 func (j *recordingSelfRAGJudge) Judge(ctx context.Context, input SelfRAGJudgeInput) (SelfRAGJudgement, error) {
 	_ = ctx
 	j.called = true
@@ -848,6 +1019,50 @@ func (r *fakeRAGRepo) SaveCommunity(ctx context.Context, community *model.Commun
 	return nil
 }
 
+func (r *fakeRAGRepo) ListOwnerGraph(ctx context.Context, ownerID int64) ([]model.Entity, []model.Relation, error) {
+	_ = ctx
+	entities := make([]model.Entity, 0, len(r.entities))
+	for _, entity := range r.entities {
+		if entity.OwnerID == ownerID {
+			entities = append(entities, entity)
+		}
+	}
+	relations := make([]model.Relation, 0, len(r.relations))
+	for _, relation := range r.relations {
+		if relation.OwnerID == ownerID {
+			relations = append(relations, relation)
+		}
+	}
+	return entities, relations, nil
+}
+
+func (r *fakeRAGRepo) ReplaceOwnerCommunities(ctx context.Context, ownerID int64, communities []model.Community, entityCommunity map[int64]int64) error {
+	_ = ctx
+	kept := make([]model.Community, 0, len(r.communities))
+	for _, community := range r.communities {
+		if community.OwnerID != ownerID {
+			kept = append(kept, community)
+		}
+	}
+	for i := range communities {
+		if communities[i].ID == 0 {
+			communities[i].ID = r.allocID()
+		}
+		communities[i].OwnerID = ownerID
+		kept = append(kept, communities[i])
+	}
+	r.communities = kept
+	for i := range r.entities {
+		if r.entities[i].OwnerID != ownerID {
+			continue
+		}
+		if communityID, ok := entityCommunity[r.entities[i].ID]; ok {
+			r.entities[i].CommunityID = communityID
+		}
+	}
+	return nil
+}
+
 func (r *fakeRAGRepo) ListGraph(ctx context.Context, viewerID int64, query string, limit int) ([]model.Entity, []model.Relation, []model.Community, error) {
 	_ = ctx
 	if limit <= 0 {
@@ -970,5 +1185,21 @@ func (s *fakeRouterSettings) ListSkills(ctx context.Context, ownerID int64, scop
 }
 
 func (s *fakeRouterSettings) DeleteSkill(ctx context.Context, ownerID, skillID int64) error {
+	return nil
+}
+
+func (s *fakeRouterSettings) SaveMCPServer(ctx context.Context, ownerID int64, input settingsclient.SaveMCPServerInput) (*settingsclient.MCPServerConfig, error) {
+	return nil, nil
+}
+
+func (s *fakeRouterSettings) ListMCPServers(ctx context.Context, ownerID int64, scope string, agentID, conversationID int64, includeDisabled bool) ([]settingsclient.MCPServerConfig, error) {
+	return nil, nil
+}
+
+func (s *fakeRouterSettings) ResolveMCPServers(ctx context.Context, ownerID, agentID, conversationID int64) ([]settingsclient.MCPServerConfig, error) {
+	return nil, nil
+}
+
+func (s *fakeRouterSettings) DeleteMCPServer(ctx context.Context, ownerID, serverID int64) error {
 	return nil
 }

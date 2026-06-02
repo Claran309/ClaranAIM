@@ -68,16 +68,88 @@ func InitTools(ctx context.Context, chatModel model.BaseChatModel, includeDomain
 			tools = append(tools, skillCreatorTool)
 		}
 
-		knowledgeSearchTool, err := utils.InferTool(
-			"search_knowledge_base",
-			"检索 ClaranAIM 知识库，支持 Adaptive RAG、Hybrid Search、GraphRAG、CRAG 和来源返回",
-			logic.SearchKnowledgeBase,
+		webSearchAugmentTool, err := utils.InferTool(
+			"web_search",
+			"通过 MCP Gateway 查询外部实时资料、官方文档、价格、版本和 API，并返回来源。",
+			logic.MCPWebSearch,
 		)
 		if err != nil {
 			log.Print("初始化工具失败:", err)
 		} else {
-			log.Println("工具 search_knowledge_base 初始化成功")
+			log.Println("工具 web_search 初始化成功")
+			tools = append(tools, webSearchAugmentTool)
+		}
+
+		memorySearchTool, err := utils.InferTool(
+			"search_memory",
+			"通过 MCP Gateway 查询用户、会话或 Agent 的长期记忆；记忆只作为可能相关的辅助信息。",
+			logic.MCPSearchMemory,
+		)
+		if err != nil {
+			log.Print("初始化工具失败:", err)
+		} else {
+			log.Println("工具 search_memory 初始化成功")
+			tools = append(tools, memorySearchTool)
+		}
+
+		knowledgeSearchTool, err := utils.InferTool(
+			"search_knowledge",
+			"通过 MCP Gateway 检索项目文档、文件知识库和 RAG chunks，支持 Adaptive RAG、Hybrid Search、GraphRAG 和来源返回。",
+			logic.MCPSearchKnowledge,
+		)
+		if err != nil {
+			log.Print("初始化工具失败:", err)
+		} else {
+			log.Println("工具 search_knowledge 初始化成功")
 			tools = append(tools, knowledgeSearchTool)
+		}
+
+		knowledgeGraphTool, err := utils.InferTool(
+			"query_knowledge_graph",
+			"通过 MCP Gateway 查询知识图谱实体、关系、社区摘要和邻域子图。",
+			logic.MCPQueryKnowledgeGraph,
+		)
+		if err != nil {
+			log.Print("初始化工具失败:", err)
+		} else {
+			log.Println("工具 query_knowledge_graph 初始化成功")
+			tools = append(tools, knowledgeGraphTool)
+		}
+
+		conversationSummaryTool, err := utils.InferTool(
+			"summarize_conversation",
+			"通过 MCP Gateway 手动触发会话智能归档，总结某个会话窗口中的摘要、决策、任务、话题和候选记忆。",
+			logic.MCPSummarizeConversation,
+		)
+		if err != nil {
+			log.Print("初始化工具失败:", err)
+		} else {
+			log.Println("工具 summarize_conversation 初始化成功")
+			tools = append(tools, conversationSummaryTool)
+		}
+
+		mcpListToolsTool, err := utils.InferTool(
+			"list_mcp_tools",
+			"列出当前用户、Agent 和会话上下文可用的全部 MCP 工具，包含内置工具和用户配置的远程 MCP 工具。",
+			logic.MCPListTools,
+		)
+		if err != nil {
+			log.Print("初始化工具失败:", err)
+		} else {
+			log.Println("工具 list_mcp_tools 初始化成功")
+			tools = append(tools, mcpListToolsTool)
+		}
+
+		mcpCallTool, err := utils.InferTool(
+			"call_mcp_tool",
+			"调用当前上下文可用的任意 MCP 工具，主要用于调用用户配置的远程 MCP 工具。调用前应先用 list_mcp_tools 确认工具名和参数格式。",
+			logic.MCPCallTool,
+		)
+		if err != nil {
+			log.Print("初始化工具失败:", err)
+		} else {
+			log.Println("工具 call_mcp_tool 初始化成功")
+			tools = append(tools, mcpCallTool)
 		}
 	}
 
@@ -87,14 +159,6 @@ func InitTools(ctx context.Context, chatModel model.BaseChatModel, includeDomain
 	} else {
 		log.Println("工具 rag 初始化成功")
 		tools = append(tools, ragTool)
-	}
-
-	webSearchTool, err := graphTool.BuildWebSearchTool(ctx, chatModel)
-	if err != nil {
-		log.Print("初始化联网搜索工具失败:", err)
-	} else {
-		log.Println("工具 web_search 初始化成功")
-		tools = append(tools, webSearchTool)
 	}
 
 	return tools

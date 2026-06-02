@@ -16,7 +16,7 @@ func InitDB(dsn string) (*gorm.DB, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := db.AutoMigrate(&model.LLMProfile{}, &model.PromptTemplate{}, &model.AgentSkill{}); err != nil {
+	if err := db.AutoMigrate(&model.LLMProfile{}, &model.PromptTemplate{}, &model.AgentSkill{}, &model.MCPServerConfig{}); err != nil {
 		return nil, err
 	}
 	return db, nil
@@ -46,6 +46,15 @@ type SkillFilter struct {
 	Enabled *bool
 }
 
+// MCPServerFilter 限定外部 MCP Server 配置查询条件。
+type MCPServerFilter struct {
+	OwnerID        int64
+	Scope          string
+	AgentID        int64
+	ConversationID int64
+	Enabled        *bool
+}
+
 // SettingsRepository 定义 settings-service 使用的存储操作。
 type SettingsRepository interface {
 	SaveLLMProfile(ctx context.Context, profile *model.LLMProfile) error
@@ -60,6 +69,10 @@ type SettingsRepository interface {
 	GetSkill(ctx context.Context, id int64) (*model.AgentSkill, error)
 	ListSkills(ctx context.Context, filter SkillFilter) ([]model.AgentSkill, error)
 	DeleteSkill(ctx context.Context, id int64) error
+	SaveMCPServer(ctx context.Context, server *model.MCPServerConfig) error
+	GetMCPServer(ctx context.Context, id int64) (*model.MCPServerConfig, error)
+	ListMCPServers(ctx context.Context, filter MCPServerFilter) ([]model.MCPServerConfig, error)
+	DeleteMCPServer(ctx context.Context, id int64) error
 }
 
 // settingsRepositoryImpl 是基于 GORM 的系统设置仓储实现。
@@ -197,4 +210,47 @@ func (r *settingsRepositoryImpl) ListSkills(ctx context.Context, filter SkillFil
 // DeleteSkill 删除一条 Agent Skill 元数据。
 func (r *settingsRepositoryImpl) DeleteSkill(ctx context.Context, id int64) error {
 	return r.db.WithContext(ctx).Delete(&model.AgentSkill{}, id).Error
+}
+
+// SaveMCPServer 保存一份外部 MCP Server 配置。
+func (r *settingsRepositoryImpl) SaveMCPServer(ctx context.Context, server *model.MCPServerConfig) error {
+	return r.db.WithContext(ctx).Save(server).Error
+}
+
+// GetMCPServer 按 ID 读取 MCP 配置，不存在时返回 nil。
+func (r *settingsRepositoryImpl) GetMCPServer(ctx context.Context, id int64) (*model.MCPServerConfig, error) {
+	var server model.MCPServerConfig
+	err := r.db.WithContext(ctx).Where("id = ?", id).First(&server).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	return &server, err
+}
+
+// ListMCPServers 按 owner、scope、Agent、会话和启用状态查询 MCP 配置。
+func (r *settingsRepositoryImpl) ListMCPServers(ctx context.Context, filter MCPServerFilter) ([]model.MCPServerConfig, error) {
+	query := r.db.WithContext(ctx).Model(&model.MCPServerConfig{})
+	if filter.OwnerID >= 0 {
+		query = query.Where("owner_id = ?", filter.OwnerID)
+	}
+	if filter.Scope != "" {
+		query = query.Where("scope = ?", filter.Scope)
+	}
+	if filter.AgentID >= 0 {
+		query = query.Where("agent_id = ?", filter.AgentID)
+	}
+	if filter.ConversationID >= 0 {
+		query = query.Where("conversation_id = ?", filter.ConversationID)
+	}
+	if filter.Enabled != nil {
+		query = query.Where("enabled = ?", *filter.Enabled)
+	}
+	var servers []model.MCPServerConfig
+	err := query.Order("updated_at DESC, id DESC").Find(&servers).Error
+	return servers, err
+}
+
+// DeleteMCPServer 删除一条 MCP 配置。
+func (r *settingsRepositoryImpl) DeleteMCPServer(ctx context.Context, id int64) error {
+	return r.db.WithContext(ctx).Delete(&model.MCPServerConfig{}, id).Error
 }

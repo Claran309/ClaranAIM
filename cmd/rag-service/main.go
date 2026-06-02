@@ -85,6 +85,20 @@ func main() {
 			logger.Warn("RAG CRAG/Self-RAG小模型配置不完整，已降级规则评估")
 		}
 	}
+	var graphExtractor *ragsvc.LLMGraphExtractor
+	var graphSummarizer *ragsvc.LLMGraphCommunitySummarizer
+	if cfg.RAG.RouterProvider == "llm" {
+		graphAPIKey := firstNonEmpty(cfg.RAG.RouterAPIKey, cfg.LLM.DefaultAPIKey)
+		graphBaseURL := firstNonEmpty(cfg.RAG.RouterBaseURL, cfg.LLM.DefaultBaseURL)
+		graphModel := firstNonEmpty(cfg.RAG.RouterModel, cfg.LLM.DefaultModel, "glm-4-flash")
+		if graphAPIKey != "" && graphBaseURL != "" {
+			graphExtractor = ragsvc.NewLLMGraphExtractor(graphAPIKey, graphBaseURL, graphModel)
+			graphSummarizer = ragsvc.NewLLMGraphCommunitySummarizer(graphAPIKey, graphBaseURL, graphModel)
+			logger.Info("GraphRAG LLM实体/关系抽取和社区摘要已启用", "model", graphModel)
+		} else {
+			logger.Warn("GraphRAG LLM配置不完整，已降级规则抽取和本地社区摘要")
+		}
+	}
 	var reranker ragsvc.Reranker
 	if cfg.RAG.RerankProvider == "glm" {
 		if cfg.RAG.RerankAPIKey != "" && cfg.RAG.RerankURL != "" {
@@ -109,8 +123,9 @@ func main() {
 	if settingsRPCClient != nil {
 		settingsSvc = settingsclient.NewRPCClient(settingsRPCClient)
 	}
-	ragService := ragsvc.NewRAGServiceWithRouterRerankerCRAGAndSelfJudge(
-		ragdao.NewRepository(db),
+	repo := ragdao.NewRepository(db)
+	ragService := ragsvc.NewRAGServiceWithGraphExtractor(
+		repo,
 		vectorIndex,
 		cfg.RAG.EmbeddingDim,
 		cfg.RAG.DefaultMode,
@@ -119,10 +134,12 @@ func main() {
 		reranker,
 		cragEvaluator,
 		selfJudge,
+		graphExtractor,
+		graphSummarizer,
 	)
 	if settingsSvc != nil {
-		ragService = ragsvc.NewRAGServiceWithRouterProvider(
-			ragdao.NewRepository(db),
+		ragService = ragsvc.NewRAGServiceWithRouterProviderAndGraphExtractor(
+			repo,
 			vectorIndex,
 			cfg.RAG.EmbeddingDim,
 			cfg.RAG.DefaultMode,
@@ -133,6 +150,8 @@ func main() {
 			selfJudge,
 			settingsSvc,
 			nil,
+			graphExtractor,
+			graphSummarizer,
 		)
 		logger.Info("RAG用户级Router配置解析已启用", "usage_type", settingsclient.ProviderRAGRouter)
 	}

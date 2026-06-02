@@ -19,6 +19,19 @@ const (
 	SkillScopeGlobal = "global"
 	SkillScopeAgent  = "agent"
 
+	MCPScopeGlobal       = "global"
+	MCPScopeUser         = "user"
+	MCPScopeAgent        = "agent"
+	MCPScopeConversation = "conversation"
+
+	MCPTransportStreamableHTTP = "streamable_http"
+	MCPTransportSSE            = "sse"
+	MCPTransportStdio          = "stdio"
+
+	MCPTrustLow    = "low"
+	MCPTrustNormal = "normal"
+	MCPTrustHigh   = "high"
+
 	DefaultTranslatePrompt = "请将下面内容翻译成中文。只输出译文，保留代码、链接、数字、专有名词和 Markdown 结构。"
 )
 
@@ -103,6 +116,45 @@ func (AgentSkill) TableName() string {
 // BeforeCreate 为 Agent Skill 写入分布式 ID。
 func (s *AgentSkill) BeforeCreate(tx *gorm.DB) error {
 	return fillSnowflakeID(&s.ID)
+}
+
+// MCPServerConfig 保存用户或 Agent 可接入的外部 MCP Server 配置。
+//
+// settings-service 只负责持久化和敏感字段脱敏；实际连接、工具发现和调用由
+// mcp-gateway-service 执行。Secret 当前以服务间明文字段保存和解析，后续应接入
+// KMS/secret-store 后改为 encrypted_secret_ref。
+type MCPServerConfig struct {
+	ID             int64     `json:"id" gorm:"primaryKey;autoIncrement:false"`
+	OwnerID        int64     `json:"owner_id" gorm:"index:idx_mcp_owner_scope;not null"`
+	AgentID        int64     `json:"agent_id" gorm:"index;not null;default:0"`
+	ConversationID int64     `json:"conversation_id" gorm:"index;not null;default:0"`
+	Scope          string    `json:"scope" gorm:"size:32;index:idx_mcp_owner_scope;not null"`
+	Name           string    `json:"name" gorm:"size:120;not null"`
+	Description    string    `json:"description" gorm:"size:255"`
+	Transport      string    `json:"transport" gorm:"size:32;not null;default:streamable_http"`
+	EndpointURL    string    `json:"endpoint_url" gorm:"size:500"`
+	Command        string    `json:"command" gorm:"size:500"`
+	ArgsJSON       string    `json:"args_json" gorm:"type:text"`
+	EnvJSON        string    `json:"env_json" gorm:"type:text"`
+	HeadersJSON    string    `json:"headers_json" gorm:"type:text"`
+	AuthType       string    `json:"auth_type" gorm:"size:32"`
+	Secret         string    `json:"-" gorm:"type:text"`
+	Enabled        bool      `json:"enabled" gorm:"not null;default:true;index"`
+	TrustLevel     string    `json:"trust_level" gorm:"size:32;not null;default:low"`
+	AllowToolsJSON string    `json:"allow_tools_json" gorm:"type:text"`
+	DenyToolsJSON  string    `json:"deny_tools_json" gorm:"type:text"`
+	CreatedAt      time.Time `json:"created_at" gorm:"autoCreateTime"`
+	UpdatedAt      time.Time `json:"updated_at" gorm:"autoUpdateTime"`
+}
+
+// TableName 返回 MCP server 配置表名。
+func (MCPServerConfig) TableName() string {
+	return "mcp_server_configs"
+}
+
+// BeforeCreate 为 MCP 配置分配雪花 ID。
+func (c *MCPServerConfig) BeforeCreate(tx *gorm.DB) error {
+	return fillSnowflakeID(&c.ID)
 }
 
 // fillSnowflakeID 只在模型创建钩子中使用。

@@ -39,7 +39,7 @@ func WithRAGRuntimeContext(ctx context.Context, userID, conversationID int64) co
 // KnowledgeSearchParams 是 Agentic RAG 知识库检索工具的入参。
 type KnowledgeSearchParams struct {
 	Query string `json:"query" jsonschema:"description=要在项目知识库中检索的问题或关键词"`
-	Mode  string `json:"mode" jsonschema:"description=检索模式，可选 adaptive、hybrid、graphrag、text_to_sql；为空时使用 adaptive"`
+	Mode  string `json:"mode" jsonschema:"description=检索模式，可选 adaptive、hybrid、graphrag；为空时使用 adaptive"`
 	Limit int    `json:"limit" jsonschema:"description=返回来源数量，建议 3 到 8；为空时使用 5"`
 }
 

@@ -31,6 +31,17 @@ func requireCurrentUserID(c *app.RequestContext) (int64, bool) {
 	return id, ok
 }
 
+// currentUsername 从 JWT 中间件写入的 Hertz 上下文读取登录用户名。
+// 该值只作为展示和用户级文件夹命名辅助，权限判断仍以 userID 为准。
+func currentUsername(c *app.RequestContext) string {
+	value, ok := c.Get("username")
+	if !ok {
+		return ""
+	}
+	username, _ := value.(string)
+	return username
+}
+
 // userInfoLookupOK 统一判断 user-service 查询是否拿到了可用用户资料。
 // 网关批量补充昵称、头像时用它区分“未找到/下游失败”和正常响应。
 func userInfoLookupOK(resp *user.GetUserInfoResp, err error) bool {

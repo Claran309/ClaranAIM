@@ -12,6 +12,19 @@ const (
 	SkillScopeGlobal = "global"
 	SkillScopeAgent  = "agent"
 
+	MCPScopeGlobal       = "global"
+	MCPScopeUser         = "user"
+	MCPScopeAgent        = "agent"
+	MCPScopeConversation = "conversation"
+
+	MCPTransportStreamableHTTP = "streamable_http"
+	MCPTransportSSE            = "sse"
+	MCPTransportStdio          = "stdio"
+
+	MCPTrustLow    = "low"
+	MCPTrustNormal = "normal"
+	MCPTrustHigh   = "high"
+
 	APIKeyActionKeep  = "keep"
 	APIKeyActionSet   = "set"
 	APIKeyActionClear = "clear"
@@ -59,6 +72,31 @@ type AgentSkill struct {
 	Content     string `json:"content,omitempty"`
 }
 
+// MCPServerConfig 是用户自定义外部 MCP Server 的跨服务 DTO。
+// Secret 只允许 ResolveMCPServers 等服务间调用返回，浏览器列表接口不会回显。
+type MCPServerConfig struct {
+	ID             int64  `json:"id"`
+	OwnerID        int64  `json:"owner_id"`
+	AgentID        int64  `json:"agent_id"`
+	ConversationID int64  `json:"conversation_id"`
+	Scope          string `json:"scope"`
+	Name           string `json:"name"`
+	Description    string `json:"description"`
+	Transport      string `json:"transport"`
+	EndpointURL    string `json:"endpoint_url"`
+	Command        string `json:"command,omitempty"`
+	ArgsJSON       string `json:"args_json,omitempty"`
+	EnvJSON        string `json:"env_json,omitempty"`
+	HeadersJSON    string `json:"headers_json,omitempty"`
+	AuthType       string `json:"auth_type,omitempty"`
+	Secret         string `json:"secret,omitempty"`
+	Enabled        bool   `json:"enabled"`
+	TrustLevel     string `json:"trust_level"`
+	AllowToolsJSON string `json:"allow_tools_json,omitempty"`
+	DenyToolsJSON  string `json:"deny_tools_json,omitempty"`
+	HasSecret      bool   `json:"has_secret"`
+}
+
 // SaveLLMProfileInput 表示保存 LLM profile 的入参。
 // APIKeyAction 用于区分保留、设置、清空密钥，避免空字符串语义不清。
 type SaveLLMProfileInput struct {
@@ -88,6 +126,7 @@ type SavePromptInput struct {
 // Content 用于单文件 SKILL.md，Files 用于 zip 或文件夹展开后的多文件 Skill 包。
 type SaveSkillInput struct {
 	ID          int64
+	Username    string
 	Name        string
 	Description string
 	Scope       string
@@ -97,6 +136,29 @@ type SaveSkillInput struct {
 	Files       []SkillFileInput
 	IsDefault   bool
 	Enabled     *bool
+}
+
+// SaveMCPServerInput 描述一次外部 MCP Server 配置保存请求。
+type SaveMCPServerInput struct {
+	ID             int64
+	AgentID        int64
+	ConversationID int64
+	Scope          string
+	Name           string
+	Description    string
+	Transport      string
+	EndpointURL    string
+	Command        string
+	ArgsJSON       string
+	EnvJSON        string
+	HeadersJSON    string
+	AuthType       string
+	Secret         string
+	SecretAction   string
+	Enabled        *bool
+	TrustLevel     string
+	AllowToolsJSON string
+	DenyToolsJSON  string
 }
 
 // SkillFileInput 表示 Skill 包内的一个相对路径文件。
@@ -130,4 +192,8 @@ type Service interface {
 	UpdateSkillContent(ctx context.Context, ownerID, skillID int64, name, description string, content []byte) (*AgentSkill, error)
 	ListSkills(ctx context.Context, ownerID int64, scope string, agentID int64) ([]AgentSkill, error)
 	DeleteSkill(ctx context.Context, ownerID, skillID int64) error
+	SaveMCPServer(ctx context.Context, ownerID int64, input SaveMCPServerInput) (*MCPServerConfig, error)
+	ListMCPServers(ctx context.Context, ownerID int64, scope string, agentID, conversationID int64, includeDisabled bool) ([]MCPServerConfig, error)
+	ResolveMCPServers(ctx context.Context, ownerID, agentID, conversationID int64) ([]MCPServerConfig, error)
+	DeleteMCPServer(ctx context.Context, ownerID, serverID int64) error
 }

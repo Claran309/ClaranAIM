@@ -37,7 +37,7 @@ func main() {
 		APIKey:  cfg.LLM.DefaultAPIKey,
 		BaseURL: cfg.LLM.DefaultBaseURL,
 		Model:   cfg.LLM.DefaultModel,
-	}, settingssvc.WithSkillStorageRoot(cfg.Skills.Dir))
+	}, settingssvc.WithSkillStorageRoot(cfg.Skills.Dir), settingssvc.WithSecretEncryptionKey(cfg.Settings.SecretKey))
 
 	r, err := etcd.NewEtcdRegistry(cfg.Etcd.Endpoints)
 	if err != nil {

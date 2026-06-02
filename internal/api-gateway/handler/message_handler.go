@@ -398,6 +398,119 @@ func (h *MessageHandler) GetUserConversations(ctx context.Context, c *app.Reques
 	response.Success(c, resp)
 }
 
+// GetOfflineMessages 拉取当前用户尚未确认的离线消息索引。
+//
+// msg-history-service 保存的是离线索引而不是完整消息体；前端拿到 message_id 后，
+// 会再通过会话历史或上线同步刷新本地消息缓存，避免历史服务复制 msg-core 的可见性逻辑。
+func (h *MessageHandler) GetOfflineMessages(ctx context.Context, c *app.RequestContext) {
+	id, ok := requireCurrentUserID(c)
+	if !ok {
+		return
+	}
+	resp, err := client.HistoryClient.GetOfflineMessages(ctx, &message.GetOfflineMessagesReq{UserId: id})
+	if err != nil {
+		response.Error(c, err.Error())
+		return
+	}
+	response.Success(c, resp)
+}
+
+// MarkOfflineRead 标记离线消息索引已被当前用户上线同步处理。
+func (h *MessageHandler) MarkOfflineRead(ctx context.Context, c *app.RequestContext) {
+	type markOfflineReq struct {
+		MessageIDs []json.Number `json:"message_ids"`
+	}
+	var req markOfflineReq
+	if err := bindJSONUseNumber(c, &req); err != nil {
+		response.BadRequest(c, "参数错误")
+		return
+	}
+	ids := make([]int64, 0, len(req.MessageIDs))
+	for _, raw := range req.MessageIDs {
+		id, err := numberToInt64(raw)
+		if err != nil || id <= 0 {
+			response.BadRequest(c, "无效的消息ID")
+			return
+		}
+		ids = append(ids, id)
+	}
+	userID, ok := requireCurrentUserID(c)
+	if !ok {
+		return
+	}
+	resp, err := client.HistoryClient.MarkOfflineRead(ctx, &message.MarkOfflineReadReq{UserId: userID, MessageIds: ids})
+	if err != nil {
+		response.Error(c, err.Error())
+		return
+	}
+	response.Success(c, resp)
+}
+
+// GetUnreadCount 返回 msg-history-service 记录的离线未读总数。
+func (h *MessageHandler) GetUnreadCount(ctx context.Context, c *app.RequestContext) {
+	id, ok := requireCurrentUserID(c)
+	if !ok {
+		return
+	}
+	resp, err := client.HistoryClient.GetUnreadCount(ctx, &message.GetUnreadCountReq{UserId: id})
+	if err != nil {
+		response.Error(c, err.Error())
+		return
+	}
+	response.Success(c, resp)
+}
+
+// SyncOnReconnect 是浏览器上线或 WebSocket 重连后的轻量同步入口。
+//
+// 它返回当前用户会话列表和每个会话最近 N 条消息。前端用 message_id 去重合并到
+// 本地缓存，补偿 WebSocket 断线期间错过的消息和乱序事件。
+func (h *MessageHandler) SyncOnReconnect(ctx context.Context, c *app.RequestContext) {
+	userID, ok := requireCurrentUserID(c)
+	if !ok {
+		return
+	}
+	limit, ok := parsePositiveLimit(c, "limit", 30, 80)
+	if !ok {
+		return
+	}
+	convsResp, err := client.MessageClient.GetUserConversations(ctx, &message.GetUserConversationsReq{UserId: userID})
+	if err != nil {
+		response.Error(c, err.Error())
+		return
+	}
+	payload := map[string]interface{}{
+		"success":       convsResp.GetSuccess(),
+		"conversations": convsResp.GetConversations(),
+		"windows":       []map[string]interface{}{},
+	}
+	if convsResp == nil || !convsResp.GetSuccess() {
+		response.Success(c, payload)
+		return
+	}
+	windows := make([]map[string]interface{}, 0, len(convsResp.GetConversations()))
+	for _, conv := range convsResp.GetConversations() {
+		if conv == nil || conv.GetConversationId() <= 0 {
+			continue
+		}
+		history, err := client.MessageClient.GetHistory(ctx, client.NewGetHistoryReq(conv.GetConversationId(), userID, limit, 0))
+		if err != nil || history == nil || !history.GetSuccess() {
+			windows = append(windows, map[string]interface{}{
+				"conversation_id": conv.GetConversationId(),
+				"success":         false,
+				"msg":             errorMessage(err, history.GetMsg()),
+			})
+			continue
+		}
+		windows = append(windows, map[string]interface{}{
+			"conversation_id": conv.GetConversationId(),
+			"success":         true,
+			"messages":        history.GetMessages(),
+		})
+	}
+	payload["windows"] = windows
+	response.Success(c, payload)
+}
+
 // TranslateMessage 通过 msg-core-service 手动翻译一条当前用户可见的文本消息。
 func (h *MessageHandler) TranslateMessage(ctx context.Context, c *app.RequestContext) {
 	type translateReq struct {
@@ -447,6 +560,16 @@ func (h *MessageHandler) TranslateMessage(ctx context.Context, c *app.RequestCon
 			"model_name":      result.ModelName,
 		},
 	})
+}
+
+func errorMessage(err error, fallback string) string {
+	if err != nil {
+		return err.Error()
+	}
+	if fallback != "" {
+		return fallback
+	}
+	return "同步失败"
 }
 
 // parsePositiveLimit 解析分页 limit，并限制最大值，避免非法或过大的请求直接打到服务层。

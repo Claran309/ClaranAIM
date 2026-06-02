@@ -32,6 +32,7 @@ type UserService interface {
 	GetFriendGroups(ctx context.Context, userID int64) ([]model.FriendGroup, error)
 	MoveFriendGroup(ctx context.Context, userID, friendID, groupID int64) error
 	BatchGetUserInfo(ctx context.Context, ids []int64) ([]model.User, error)
+	AdminListUsers(ctx context.Context, keyword, role, status string, includeSystem bool, limit, offset int64) ([]model.User, int64, error)
 }
 
 // TokenPair 是登录成功后返回的一组访问凭证。
@@ -630,6 +631,12 @@ func (s *userServiceImpl) BatchGetUserInfo(ctx context.Context, ids []int64) ([]
 	}
 
 	return s.repo.BatchGetUsersByIDs(ctx, ids)
+}
+
+// AdminListUsers 为 admin-service 提供用户运营列表。
+// 它不做角色鉴权，调用方必须来自只挂在 /api/v1/admin 下的管理链路。
+func (s *userServiceImpl) AdminListUsers(ctx context.Context, keyword, role, status string, includeSystem bool, limit, offset int64) ([]model.User, int64, error) {
+	return s.repo.AdminListUsers(ctx, strings.TrimSpace(keyword), strings.TrimSpace(role), strings.TrimSpace(status), includeSystem, limit, offset)
 }
 
 // cacheUserInfo 缓存用户信息到Redis

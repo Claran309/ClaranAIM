@@ -1,0 +1,19 @@
+service:
+  name: "web-search-service"
+  address: "127.0.0.1:9114"
+
+web_search:
+  max_results: 5
+  max_fetch: 5
+  max_passages: 3
+  max_chars_per_page: 12000
+  trusted_domains: "gov.cn,edu.cn,who.int,cdc.gov,nih.gov,developer.mozilla.org,docs.github.com,openai.com,cloudwego.io,go.dev,docs.docker.com,kubernetes.io"
+  user_agent: "ClaranAIM-WebSearch/1.0"
+  timeout_ms: 10000
+
+governance:
+  rpc:
+    timeout_ms: 15000
+    circuit_breaker: true
+    max_connections: 500
+    max_qps: 200

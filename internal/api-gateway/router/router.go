@@ -28,6 +28,10 @@ func RegisterRoutes(r *route.Engine, cfg ...*config.Config) {
 	ragHandler := handler.NewRAGHandler()
 	knowledgeHandler := handler.NewKnowledgeHandler()
 	settingsHandler := handler.NewSettingsHandler()
+	webSearchHandler := handler.NewWebSearchHandler()
+	conversationIntelligenceHandler := handler.NewConversationIntelligenceHandler()
+	mcpHandler := handler.NewMCPHandler()
+	adminHandler := handler.NewAdminHandler()
 
 	r.Use(middleware.CORSMiddleware())
 	if len(cfg) > 0 && cfg[0] != nil {
@@ -86,9 +90,14 @@ func RegisterRoutes(r *route.Engine, cfg ...*config.Config) {
 		auth.GET("/message/history/:id", messageHandler.GetHistory)
 		auth.GET("/message/search", messageHandler.SearchMessages)
 		auth.GET("/message/conversations", messageHandler.GetUserConversations)
+		auth.GET("/message/offline", messageHandler.GetOfflineMessages)
+		auth.POST("/message/offline/read", messageHandler.MarkOfflineRead)
+		auth.GET("/message/unread-count", messageHandler.GetUnreadCount)
+		auth.GET("/message/sync", messageHandler.SyncOnReconnect)
 		auth.POST("/message/translate", messageHandler.TranslateMessage)
 
 		auth.POST("/file/upload", fileHandler.UploadFile)
+		auth.POST("/file/:id/ocr", fileHandler.AnalyzeImage)
 		auth.GET("/file/download/:id", fileHandler.DownloadFile)
 		auth.GET("/file/list", fileHandler.ListFiles)
 		auth.GET("/file/:id", fileHandler.GetFile)
@@ -122,6 +131,10 @@ func RegisterRoutes(r *route.Engine, cfg ...*config.Config) {
 		auth.POST("/memory/create", memoryHandler.CreateMemory)
 		auth.PUT("/memory/:id", memoryHandler.UpdateMemory)
 		auth.DELETE("/memory/:id", memoryHandler.DeleteMemory)
+		auth.GET("/memory/candidates", memoryHandler.ListCandidates)
+		auth.POST("/memory/candidate/create", memoryHandler.CreateCandidate)
+		auth.POST("/memory/candidate/:id/accept", memoryHandler.AcceptCandidate)
+		auth.POST("/memory/candidate/:id/reject", memoryHandler.RejectCandidate)
 
 		auth.POST("/rag/ingest", ragHandler.IngestDocument)
 		auth.POST("/rag/upload", ragHandler.UploadDocument)
@@ -129,11 +142,28 @@ func RegisterRoutes(r *route.Engine, cfg ...*config.Config) {
 		auth.GET("/rag/graph", ragHandler.GetGraph)
 		auth.GET("/rag/documents", ragHandler.ListDocuments)
 
+		auth.GET("/web-search/search", webSearchHandler.Search)
+		auth.POST("/web-search/augment", webSearchHandler.Augment)
+
+		auth.POST("/conversation-intelligence/jobs", conversationIntelligenceHandler.CreateDigestJob)
+		auth.GET("/conversation-intelligence/jobs", conversationIntelligenceHandler.ListDigestJobs)
+		auth.POST("/conversation-intelligence/jobs/:id/process", conversationIntelligenceHandler.ProcessDigestJob)
+		auth.POST("/conversation-intelligence/jobs/:id/retry", conversationIntelligenceHandler.RetryDigestJob)
+		auth.GET("/conversation-intelligence/artifacts", conversationIntelligenceHandler.ListArtifacts)
+
 		auth.GET("/knowledge/graph", knowledgeHandler.GetGraphView)
 		auth.GET("/knowledge/node/:id", knowledgeHandler.GetNodeDetail)
 		auth.GET("/knowledge/node/:id/neighborhood", knowledgeHandler.GetNeighborhood)
 		auth.GET("/knowledge/edge/:id", knowledgeHandler.GetEdgeDetail)
 		auth.GET("/knowledge/path", knowledgeHandler.GetPath)
+		auth.GET("/knowledge/review-candidates", knowledgeHandler.ListReviewCandidates)
+		auth.POST("/knowledge/review-candidates", knowledgeHandler.CreateReviewCandidate)
+		auth.POST("/knowledge/review-candidates/:id/review", knowledgeHandler.ReviewCandidate)
+
+		auth.GET("/mcp/tools", mcpHandler.ListTools)
+		auth.POST("/mcp/call", mcpHandler.CallTool)
+		auth.GET("/mcp/traces", mcpHandler.ListToolCalls)
+		auth.GET("/mcp/traces/:trace_id", mcpHandler.GetToolCallTrace)
 
 		auth.GET("/settings/llm-profiles", settingsHandler.ListLLMProfiles)
 		auth.POST("/settings/llm-profiles", settingsHandler.SaveLLMProfile)
@@ -145,12 +175,26 @@ func RegisterRoutes(r *route.Engine, cfg ...*config.Config) {
 		auth.GET("/settings/skills/:id", settingsHandler.GetSkill)
 		auth.PUT("/settings/skills/:id", settingsHandler.UpdateSkillContent)
 		auth.DELETE("/settings/skills/:id", settingsHandler.DeleteSkill)
+		auth.GET("/settings/mcp-servers", settingsHandler.ListMCPServers)
+		auth.POST("/settings/mcp-servers", settingsHandler.SaveMCPServer)
+		auth.DELETE("/settings/mcp-servers/:id", settingsHandler.DeleteMCPServer)
 	}
 
 	admin := r.Group("/api/v1/admin")
 	admin.Use(middleware.JWTAuthMiddleware(), middleware.RequireRole("admin"))
 	{
-		// 管理层路由占位：后续新增系统管理接口必须挂在该分组下。
+		admin.GET("/dashboard", adminHandler.Dashboard)
+		admin.GET("/users", adminHandler.ListUsers)
+		admin.GET("/groups", adminHandler.ListGroups)
+		admin.GET("/files", adminHandler.ListFiles)
+		admin.GET("/agents", adminHandler.ListAgents)
+		admin.GET("/billing", adminHandler.ListBilling)
+		admin.GET("/reviews", adminHandler.ListReviews)
+		admin.POST("/reviews/action", adminHandler.ReviewItem)
+		admin.GET("/mcp/traces", adminHandler.ListMCPTraces)
+		admin.GET("/notices", adminHandler.ListNotices)
+		admin.POST("/notices", adminHandler.SaveNotice)
+		admin.GET("/audits", adminHandler.ListAuditLogs)
 	}
 
 	// 网关本地存储文件的预览端点；元数据仍由 file-service 管理。

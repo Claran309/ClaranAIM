@@ -87,6 +87,47 @@ func (h *KnowledgeServiceImpl) GetPath(ctx context.Context, req *knowledge.Knowl
 	return toRPCPath(path), nil
 }
 
+// CreateGraphReviewCandidate 把当前图谱节点或关系提交到人工候选审核区。
+func (h *KnowledgeServiceImpl) CreateGraphReviewCandidate(ctx context.Context, req *knowledge.CreateGraphReviewCandidateReq) (*knowledge.GraphReviewCandidateResp, error) {
+	candidate, err := h.svc.CreateGraphReviewCandidate(ctx, req.GetViewerId(), knowledgeclient.CreateGraphReviewCandidateInput{
+		ItemType: req.GetItemType(),
+		ItemID:   req.GetItemId(),
+		Reason:   req.GetReason(),
+		Query:    req.GetQuery(),
+	})
+	if err != nil {
+		return &knowledge.GraphReviewCandidateResp{Success: false, Msg: err.Error()}, nil
+	}
+	return &knowledge.GraphReviewCandidateResp{Success: true, Candidate: toRPCReviewCandidate(candidate)}, nil
+}
+
+// ListGraphReviewCandidates 返回当前用户提交的图谱候选审核记录。
+func (h *KnowledgeServiceImpl) ListGraphReviewCandidates(ctx context.Context, req *knowledge.ListGraphReviewCandidatesReq) (*knowledge.ListGraphReviewCandidatesResp, error) {
+	list, err := h.svc.ListGraphReviewCandidates(ctx, req.GetViewerId(), knowledgeclient.ListGraphReviewCandidatesInput{
+		Status:   req.GetStatus(),
+		ItemType: req.GetItemType(),
+		Limit:    int(req.GetLimit()),
+		Offset:   int(req.GetOffset()),
+	})
+	if err != nil {
+		return &knowledge.ListGraphReviewCandidatesResp{Success: false, Msg: err.Error()}, nil
+	}
+	return &knowledge.ListGraphReviewCandidatesResp{Success: list.Success, Candidates: toRPCReviewCandidates(list.Candidates), Total: list.Total, Msg: list.Msg}, nil
+}
+
+// ReviewGraphCandidate 对图谱候选执行通过或拒绝。
+func (h *KnowledgeServiceImpl) ReviewGraphCandidate(ctx context.Context, req *knowledge.ReviewGraphCandidateReq) (*knowledge.GraphReviewCandidateResp, error) {
+	candidate, err := h.svc.ReviewGraphCandidate(ctx, req.GetViewerId(), knowledgeclient.ReviewGraphCandidateInput{
+		CandidateID: req.GetCandidateId(),
+		Action:      req.GetAction(),
+		Note:        req.GetNote(),
+	})
+	if err != nil {
+		return &knowledge.GraphReviewCandidateResp{Success: false, Msg: err.Error()}, nil
+	}
+	return &knowledge.GraphReviewCandidateResp{Success: true, Candidate: toRPCReviewCandidate(candidate)}, nil
+}
+
 func toRPCGraphView(view *knowledgeclient.GraphView) *knowledge.KnowledgeGraphResp {
 	if view == nil {
 		return &knowledge.KnowledgeGraphResp{Success: false, Msg: "knowledge-service返回空图谱"}
@@ -213,5 +254,34 @@ func toRPCStats(stats knowledgeclient.GraphStats) *knowledge.KnowledgeGraphStats
 		CommunityCount: int64(stats.CommunityCount),
 		Types:          stats.Types,
 		Relations:      stats.Relations,
+	}
+}
+
+func toRPCReviewCandidates(candidates []knowledgeclient.GraphReviewCandidate) []*knowledge.GraphReviewCandidate {
+	out := make([]*knowledge.GraphReviewCandidate, 0, len(candidates))
+	for i := range candidates {
+		out = append(out, toRPCReviewCandidate(&candidates[i]))
+	}
+	return out
+}
+
+func toRPCReviewCandidate(candidate *knowledgeclient.GraphReviewCandidate) *knowledge.GraphReviewCandidate {
+	if candidate == nil {
+		return nil
+	}
+	return &knowledge.GraphReviewCandidate{
+		Id:         candidate.ID,
+		ItemType:   candidate.ItemType,
+		ItemId:     candidate.ItemID,
+		Name:       candidate.Name,
+		Type:       candidate.Type,
+		Summary:    candidate.Summary,
+		Evidence:   candidate.Evidence,
+		Reason:     candidate.Reason,
+		Status:     candidate.Status,
+		ReviewNote: candidate.ReviewNote,
+		CreatedAt:  candidate.CreatedAt,
+		UpdatedAt:  candidate.UpdatedAt,
+		ReviewedAt: candidate.ReviewedAt,
 	}
 }

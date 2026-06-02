@@ -111,6 +111,13 @@ var serviceMethods = map[string]kitex.MethodInfo{
 		false,
 		kitex.WithStreamingMode(kitex.StreamingNone),
 	),
+	"AdminListGroups": kitex.NewMethodInfo(
+		adminListGroupsHandler,
+		newGroupServiceAdminListGroupsArgs,
+		newGroupServiceAdminListGroupsResult,
+		false,
+		kitex.WithStreamingMode(kitex.StreamingNone),
+	),
 }
 
 var (
@@ -429,6 +436,24 @@ func newGroupServicePinGroupResult() interface{} {
 	return group.NewGroupServicePinGroupResult()
 }
 
+func adminListGroupsHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
+	realArg := arg.(*group.GroupServiceAdminListGroupsArgs)
+	realResult := result.(*group.GroupServiceAdminListGroupsResult)
+	success, err := handler.(group.GroupService).AdminListGroups(ctx, realArg.Req)
+	if err != nil {
+		return err
+	}
+	realResult.Success = success
+	return nil
+}
+func newGroupServiceAdminListGroupsArgs() interface{} {
+	return group.NewGroupServiceAdminListGroupsArgs()
+}
+
+func newGroupServiceAdminListGroupsResult() interface{} {
+	return group.NewGroupServiceAdminListGroupsResult()
+}
+
 type kClient struct {
 	c client.Client
 }
@@ -574,6 +599,16 @@ func (p *kClient) PinGroup(ctx context.Context, req *group.PinGroupReq) (r *grou
 	_args.Req = req
 	var _result group.GroupServicePinGroupResult
 	if err = p.c.Call(ctx, "PinGroup", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
+
+func (p *kClient) AdminListGroups(ctx context.Context, req *group.AdminListGroupsReq) (r *group.AdminListGroupsResp, err error) {
+	var _args group.GroupServiceAdminListGroupsArgs
+	_args.Req = req
+	var _result group.GroupServiceAdminListGroupsResult
+	if err = p.c.Call(ctx, "AdminListGroups", &_args, &_result); err != nil {
 		return
 	}
 	return _result.GetSuccess(), nil

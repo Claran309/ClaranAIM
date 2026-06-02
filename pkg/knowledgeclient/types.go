@@ -104,6 +104,54 @@ type PathDetail struct {
 	Msg     string      `json:"msg,omitempty"`
 }
 
+// GraphReviewCandidate 是图谱候选审核工作台展示的数据。
+type GraphReviewCandidate struct {
+	ID         int64  `json:"id"`
+	ItemType   string `json:"item_type"`
+	ItemID     int64  `json:"item_id"`
+	Name       string `json:"name"`
+	Type       string `json:"type"`
+	Summary    string `json:"summary"`
+	Evidence   string `json:"evidence"`
+	Reason     string `json:"reason"`
+	Status     string `json:"status"`
+	ReviewNote string `json:"review_note"`
+	CreatedAt  string `json:"created_at"`
+	UpdatedAt  string `json:"updated_at"`
+	ReviewedAt string `json:"reviewed_at"`
+}
+
+// CreateGraphReviewCandidateInput 描述一次候选提交。
+type CreateGraphReviewCandidateInput struct {
+	ItemType string
+	ItemID   int64
+	Reason   string
+	Query    string
+}
+
+// ListGraphReviewCandidatesInput 描述候选审核列表过滤条件。
+type ListGraphReviewCandidatesInput struct {
+	Status   string
+	ItemType string
+	Limit    int
+	Offset   int
+}
+
+// ReviewGraphCandidateInput 描述审核动作。
+type ReviewGraphCandidateInput struct {
+	CandidateID int64
+	Action      string
+	Note        string
+}
+
+// GraphReviewCandidateList 是审核列表响应。
+type GraphReviewCandidateList struct {
+	Success    bool                   `json:"success"`
+	Candidates []GraphReviewCandidate `json:"candidates"`
+	Total      int64                  `json:"total"`
+	Msg        string                 `json:"msg,omitempty"`
+}
+
 // Service 是 api-gateway 和 knowledge-service RPC 客户端共同遵守的接口。
 type Service interface {
 	GetGraphView(ctx context.Context, viewerID int64, input GraphQuery) (*GraphView, error)
@@ -111,4 +159,7 @@ type Service interface {
 	GetEdgeDetail(ctx context.Context, viewerID, edgeID int64, input GraphQuery) (*EdgeDetail, error)
 	GetNeighborhood(ctx context.Context, viewerID, nodeID int64, input GraphQuery) (*GraphView, error)
 	GetPath(ctx context.Context, viewerID, sourceID, targetID int64, input GraphQuery) (*PathDetail, error)
+	CreateGraphReviewCandidate(ctx context.Context, viewerID int64, input CreateGraphReviewCandidateInput) (*GraphReviewCandidate, error)
+	ListGraphReviewCandidates(ctx context.Context, viewerID int64, input ListGraphReviewCandidatesInput) (*GraphReviewCandidateList, error)
+	ReviewGraphCandidate(ctx context.Context, viewerID int64, input ReviewGraphCandidateInput) (*GraphReviewCandidate, error)
 }

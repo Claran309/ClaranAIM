@@ -117,6 +117,7 @@ type UserRepository interface {
 	CreateFriendGroup(ctx context.Context, group *model.FriendGroup) error
 	GetFriendGroups(ctx context.Context, userID int64) ([]model.FriendGroup, error)
 	GetFriendGroupByID(ctx context.Context, id int64) (*model.FriendGroup, error)
+	AdminListUsers(ctx context.Context, keyword, role, status string, includeSystem bool, limit, offset int64) ([]model.User, int64, error)
 }
 
 // userRepositoryImpl 基于 GORM 的 UserRepository 实现
@@ -165,6 +166,38 @@ func (r *userRepositoryImpl) BatchGetUsersByIDs(ctx context.Context, ids []int64
 	var users []model.User
 	err := r.db.WithContext(ctx).Where("id IN ?", ids).Find(&users).Error
 	return users, err
+}
+
+// AdminListUsers 是管理端分页用户列表。
+// 它只返回用户资料模型，不暴露密码；权限由 api-gateway 的 admin 路由和 admin-service 共同约束。
+func (r *userRepositoryImpl) AdminListUsers(ctx context.Context, keyword, role, status string, includeSystem bool, limit, offset int64) ([]model.User, int64, error) {
+	var users []model.User
+	var total int64
+	query := r.db.WithContext(ctx).Model(&model.User{})
+	if keyword != "" {
+		like := "%" + keyword + "%"
+		query = query.Where("username LIKE ? OR nickname LIKE ? OR email LIKE ? OR phone LIKE ?", like, like, like, like)
+	}
+	if role != "" {
+		query = query.Where("role = ?", role)
+	}
+	if status != "" {
+		query = query.Where("status = ?", status)
+	}
+	if !includeSystem {
+		query = query.Where("is_system = ?", false)
+	}
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	err := query.Order("created_at DESC, id DESC").Limit(int(limit)).Offset(int(offset)).Find(&users).Error
+	return users, total, err
 }
 
 // AddFriend 添加好友关系记录

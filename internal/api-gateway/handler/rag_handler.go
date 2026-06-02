@@ -164,7 +164,7 @@ func (h *RAGHandler) handleOneRAGUpload(ctx context.Context, userID int64, heade
 	return result
 }
 
-// Search 执行 Adaptive/Hybrid/GraphRAG/Text-to-SQL 路由检索。
+// Search 执行 Adaptive、Hybrid 和 GraphRAG 路由检索。
 func (h *RAGHandler) Search(ctx context.Context, c *app.RequestContext) {
 	if !h.ensureService(c) {
 		return

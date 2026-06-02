@@ -2,6 +2,8 @@ const API_BASE = 'http://localhost:8080/api/v1';
 const WS_BASE = 'ws://localhost:8081/ws';
 const API_LOG_KEY = 'claran_frontend_logs';
 const API_LOG_LIMIT = 500;
+const LOCAL_MESSAGE_CACHE_KEY = 'claran_local_message_cache_v1';
+const LOCAL_MESSAGE_CACHE_LIMIT = 80;
 
 function apiLocalLog(level, message, details = null) {
     const entry = {
@@ -36,6 +38,7 @@ let userAvatarCache = {};
 let friendRemarkCache = {};
 let conversationNameCache = {};
 let refreshPromise = null;
+let localMessageCache = loadLocalMessageCache();
 
 function parseJSONSafeInt(text) {
     return JSON.parse(text.replace(/:\s*(-?\d{16,})(?=[,}\]])/g, ':"$1"'));
@@ -47,6 +50,58 @@ if (currentUser && currentUser.id) {
 
 function saveUnreadMap() {
     localStorage.setItem('claran_unread', JSON.stringify(unreadMap));
+}
+
+function loadLocalMessageCache() {
+    try {
+        return JSON.parse(localStorage.getItem(LOCAL_MESSAGE_CACHE_KEY) || '{}');
+    } catch (err) {
+        console.warn('读取本地消息缓存失败:', err);
+        return {};
+    }
+}
+
+function persistLocalMessageCache() {
+    try {
+        localStorage.setItem(LOCAL_MESSAGE_CACHE_KEY, JSON.stringify(localMessageCache));
+    } catch (err) {
+        console.warn('写入本地消息缓存失败:', err);
+    }
+}
+
+function normalizeCachedMessage(message) {
+    if (!message) return null;
+    const id = message.id || message.msg_id || message.message_id || 0;
+    return { ...message, id };
+}
+
+function cacheMessages(conversationID, messages = []) {
+    if (!conversationID || !Array.isArray(messages)) return;
+    const key = String(conversationID);
+    const existing = Array.isArray(localMessageCache[key]) ? localMessageCache[key] : [];
+    const byID = new Map();
+    [...existing, ...messages].forEach(raw => {
+        const msg = normalizeCachedMessage(raw);
+        if (!msg) return;
+        const identity = msg.id ? `id:${msg.id}` : (msg.client_msg_id ? `client:${msg.client_msg_id}` : '');
+        if (identity) byID.set(identity, { ...(byID.get(identity) || {}), ...msg });
+    });
+    localMessageCache[key] = Array.from(byID.values())
+        .sort((a, b) => Number(a.id || 0) - Number(b.id || 0))
+        .slice(-LOCAL_MESSAGE_CACHE_LIMIT);
+    persistLocalMessageCache();
+}
+
+function getCachedMessages(conversationID) {
+    const cached = localMessageCache[String(conversationID || '')];
+    return Array.isArray(cached) ? cached : [];
+}
+
+function removeCachedMessage(conversationID, messageID) {
+    const key = String(conversationID || '');
+    if (!localMessageCache[key]) return;
+    localMessageCache[key] = localMessageCache[key].filter(m => String(m.id || m.msg_id) !== String(messageID));
+    persistLocalMessageCache();
 }
 
 function saveAuthTokens(accessToken, nextRefreshToken) {
@@ -218,6 +273,7 @@ const messageAPI = {
             reply_to_id: apiID(options.reply_to_id || 0),
             mention_user_ids: (options.mention_user_ids || []).map(apiID),
             mention_all: !!options.mention_all,
+            client_msg_id: options.client_msg_id || '',
         }),
     markRead: (conversationID, messageID = 0) =>
         request('POST', '/message/read', { conversation_id: apiID(conversationID), message_id: apiID(messageID) }),
@@ -232,6 +288,11 @@ const messageAPI = {
     search: (keyword, conversationID = 0, limit = 20, startAt = '', endAt = '') =>
         request('GET', `/message/search?keyword=${encodeURIComponent(keyword)}&limit=${limit}&conversation_id=${conversationID}&start_at=${encodeURIComponent(startAt)}&end_at=${encodeURIComponent(endAt)}`),
     getConversations: () => request('GET', '/message/conversations'),
+    offline: () => request('GET', '/message/offline'),
+    markOfflineRead: (messageIDs = []) =>
+        request('POST', '/message/offline/read', { message_ids: (messageIDs || []).map(apiID) }),
+    unreadCount: () => request('GET', '/message/unread-count'),
+    sync: (limit = 30) => request('GET', `/message/sync?limit=${limit}`),
     translate: (messageID, targetLanguage = '中文', force = false) =>
         request('POST', '/message/translate', { message_id: apiID(messageID), target_language: targetLanguage, force }),
 };
@@ -274,6 +335,7 @@ const fileAPI = {
         }
     },
     get: (id) => request('GET', `/file/${id}`),
+    ocr: (id) => request('POST', `/file/${id}/ocr`),
     previewURL: (id) => `http://localhost:8080/file/preview/${id}`,
     downloadURL: (id) => `${API_BASE}/file/download/${id}`,
     fetchBlob: async (id) => {
@@ -353,6 +415,51 @@ const memoryAPI = {
     create: (data) => request('POST', '/memory/create', data),
     update: (id, data) => request('PUT', `/memory/${apiID(id)}`, data),
     delete: (id) => request('DELETE', `/memory/${apiID(id)}`),
+    candidates: (params = {}) => {
+        const query = new URLSearchParams();
+        Object.entries(params || {}).forEach(([key, value]) => {
+            if (value !== undefined && value !== null && value !== '') {
+                query.set(key, String(value));
+            }
+        });
+        const suffix = query.toString() ? `?${query.toString()}` : '';
+        return request('GET', `/memory/candidates${suffix}`);
+    },
+    createCandidate: (data) => request('POST', '/memory/candidate/create', data),
+    acceptCandidate: (id) => request('POST', `/memory/candidate/${apiID(id)}/accept`, {}),
+    rejectCandidate: (id) => request('POST', `/memory/candidate/${apiID(id)}/reject`, {}),
+};
+
+const webSearchAPI = {
+    search: (query, limit = 5) =>
+        request('GET', `/web-search/search?query=${encodeURIComponent(query)}&limit=${limit}`),
+    augment: (data) => request('POST', '/web-search/augment', data),
+};
+
+const conversationIntelligenceAPI = {
+    createJob: (data) => request('POST', '/conversation-intelligence/jobs', data),
+    processJob: (id) => request('POST', `/conversation-intelligence/jobs/${apiID(id)}/process`, {}),
+    retryJob: (id) => request('POST', `/conversation-intelligence/jobs/${apiID(id)}/retry`, {}),
+    jobs: (params = {}) => {
+        const query = new URLSearchParams();
+        Object.entries(params || {}).forEach(([key, value]) => {
+            if (value !== undefined && value !== null && value !== '') {
+                query.set(key, String(value));
+            }
+        });
+        const suffix = query.toString() ? `?${query.toString()}` : '';
+        return request('GET', `/conversation-intelligence/jobs${suffix}`);
+    },
+    artifacts: (params = {}) => {
+        const query = new URLSearchParams();
+        Object.entries(params || {}).forEach(([key, value]) => {
+            if (value !== undefined && value !== null && value !== '') {
+                query.set(key, String(value));
+            }
+        });
+        const suffix = query.toString() ? `?${query.toString()}` : '';
+        return request('GET', `/conversation-intelligence/artifacts${suffix}`);
+    },
 };
 
 const ragAPI = {
@@ -457,6 +564,23 @@ const knowledgeAPI = {
         params.set('limit', String(limit || 180));
         return request('GET', `/knowledge/path?${params.toString()}`);
     },
+    createReviewCandidate: ({ itemType, itemID, reason = '', query = '' }) =>
+        request('POST', '/knowledge/review-candidates', {
+            item_type: itemType,
+            item_id: apiID(itemID),
+            reason,
+            query,
+        }),
+    reviewCandidates: ({ status = '', itemType = '', limit = 50, offset = 0 } = {}) => {
+        const params = new URLSearchParams();
+        if (status) params.set('status', status);
+        if (itemType) params.set('item_type', itemType);
+        params.set('limit', String(limit || 50));
+        params.set('offset', String(offset || 0));
+        return request('GET', `/knowledge/review-candidates?${params.toString()}`);
+    },
+    reviewCandidate: ({ id, action, note = '' }) =>
+        request('POST', `/knowledge/review-candidates/${apiID(id)}/review`, { action, note }),
 };
 
 const settingsAPI = {
@@ -511,6 +635,58 @@ const settingsAPI = {
         }
     },
     deleteSkill: (id) => request('DELETE', `/settings/skills/${apiID(id)}`),
+    listMCPServers: ({ scope = '', agentID = -1, conversationID = -1, includeDisabled = true } = {}) => {
+        const params = new URLSearchParams();
+        if (scope) params.set('scope', scope);
+        params.set('agent_id', apiID(agentID));
+        params.set('conversation_id', apiID(conversationID));
+        params.set('include_disabled', String(!!includeDisabled));
+        return request('GET', `/settings/mcp-servers?${params.toString()}`);
+    },
+    saveMCPServer: (server) => request('POST', '/settings/mcp-servers', server),
+    deleteMCPServer: (id) => request('DELETE', `/settings/mcp-servers/${apiID(id)}`),
+};
+
+const mcpAPI = {
+    tools: ({ agentID = 0, conversationID = 0 } = {}) => {
+        const params = new URLSearchParams();
+        if (agentID) params.set('agent_id', apiID(agentID));
+        if (conversationID) params.set('conversation_id', apiID(conversationID));
+        const suffix = params.toString() ? `?${params.toString()}` : '';
+        return request('GET', `/mcp/tools${suffix}`);
+    },
+    call: ({ agentID = 0, conversationID = 0, toolName, argumentsJSON = '{}', traceID = '' } = {}) =>
+        request('POST', '/mcp/call', {
+            agent_id: agentID,
+            conversation_id: conversationID,
+            tool_name: toolName,
+            arguments_json: argumentsJSON,
+            trace_id: traceID,
+        }),
+    traces: ({ agentID = 0, conversationID = 0, limit = 50, offset = 0 } = {}) => {
+        const params = new URLSearchParams();
+        if (agentID) params.set('agent_id', apiID(agentID));
+        if (conversationID) params.set('conversation_id', apiID(conversationID));
+        params.set('limit', String(limit || 50));
+        params.set('offset', String(offset || 0));
+        return request('GET', `/mcp/traces?${params.toString()}`);
+    },
+    trace: (traceID) => request('GET', `/mcp/traces/${encodeURIComponent(traceID)}`),
+};
+
+const adminAPI = {
+    dashboard: () => request('GET', '/admin/dashboard'),
+    users: (params = {}) => request('GET', `/admin/users?${new URLSearchParams(params).toString()}`),
+    groups: (params = {}) => request('GET', `/admin/groups?${new URLSearchParams(params).toString()}`),
+    files: (params = {}) => request('GET', `/admin/files?${new URLSearchParams(params).toString()}`),
+    agents: (params = {}) => request('GET', `/admin/agents?${new URLSearchParams(params).toString()}`),
+    billing: (params = {}) => request('GET', `/admin/billing?${new URLSearchParams(params).toString()}`),
+    reviews: (params = {}) => request('GET', `/admin/reviews?${new URLSearchParams(params).toString()}`),
+    reviewAction: (payload) => request('POST', '/admin/reviews/action', payload),
+    mcpTraces: (params = {}) => request('GET', `/admin/mcp/traces?${new URLSearchParams(params).toString()}`),
+    notices: (params = {}) => request('GET', `/admin/notices?${new URLSearchParams(params).toString()}`),
+    saveNotice: (payload) => request('POST', '/admin/notices', payload),
+    audits: (params = {}) => request('GET', `/admin/audits?${new URLSearchParams(params).toString()}`),
 };
 
 async function connectWS() {
@@ -530,6 +706,9 @@ async function connectWS() {
         if (wsReconnectTimer) {
             clearTimeout(wsReconnectTimer);
             wsReconnectTimer = null;
+        }
+        if (typeof syncAfterOnline === 'function') {
+            syncAfterOnline();
         }
     };
 
@@ -574,6 +753,7 @@ function handleWSMessage(msg) {
             const convId = data.conversation_id;
             setConversationHidden(convId, false);
             unreadMap[convId] = (unreadMap[convId] || 0) + 1;
+            cacheMessages(convId, [data]);
             saveUnreadMap();
             updateUnreadBadge();
         }

@@ -15,22 +15,26 @@ import (
 // 包含所有服务共用的配置项：MySQL、Redis、JWT、Etcd、Service、MinIO、Storage
 // 每个服务通过各自的YAML配置文件加载，环境变量可覆盖敏感信息
 type Config struct {
-	MySQL      MySQLConfig      `yaml:"mysql"`
-	Redis      RedisConfig      `yaml:"redis"`
-	JWT        JWTConfig        `yaml:"jwt"`
-	Etcd       EtcdConfig       `yaml:"etcd"`
-	Service    ServiceConfig    `yaml:"service"`
-	Minio      MinioConfig      `yaml:"minio"`
-	Storage    StorageConfig    `yaml:"storage"`
-	LLM        LLMConfig        `yaml:"llm"`
-	Agent      AgentConfig      `yaml:"agent"`
-	Skills     SkillsConfig     `yaml:"skills"`
-	Kafka      KafkaConfig      `yaml:"kafka"`
-	DTM        DTMConfig        `yaml:"dtm"`
-	RAG        RAGConfig        `yaml:"rag"`
-	Document   DocumentConfig   `yaml:"document"`
-	Milvus     MilvusConfig     `yaml:"milvus"`
-	Governance GovernanceConfig `yaml:"governance"`
+	MySQL                    MySQLConfig                    `yaml:"mysql"`
+	Redis                    RedisConfig                    `yaml:"redis"`
+	JWT                      JWTConfig                      `yaml:"jwt"`
+	Etcd                     EtcdConfig                     `yaml:"etcd"`
+	Service                  ServiceConfig                  `yaml:"service"`
+	Minio                    MinioConfig                    `yaml:"minio"`
+	Storage                  StorageConfig                  `yaml:"storage"`
+	LLM                      LLMConfig                      `yaml:"llm"`
+	Settings                 SettingsConfig                 `yaml:"settings"`
+	Agent                    AgentConfig                    `yaml:"agent"`
+	Skills                   SkillsConfig                   `yaml:"skills"`
+	Kafka                    KafkaConfig                    `yaml:"kafka"`
+	DTM                      DTMConfig                      `yaml:"dtm"`
+	RAG                      RAGConfig                      `yaml:"rag"`
+	MemoryRAG                MemoryRAGConfig                `yaml:"memory_rag"`
+	WebSearch                WebSearchConfig                `yaml:"web_search"`
+	ConversationIntelligence ConversationIntelligenceConfig `yaml:"conversation_intelligence"`
+	Document                 DocumentConfig                 `yaml:"document"`
+	Milvus                   MilvusConfig                   `yaml:"milvus"`
+	Governance               GovernanceConfig               `yaml:"governance"`
 }
 
 // MySQLConfig MySQL数据库配置
@@ -92,6 +96,11 @@ type LLMConfig struct {
 	DefaultModel   string `yaml:"default_model"`
 }
 
+// SettingsConfig 保存 settings-service 自身的安全配置。
+type SettingsConfig struct {
+	SecretKey string `yaml:"secret_key"`
+}
+
 // AgentConfig 控制 Agent 长会话、工具目录和工作根目录等本地文件位置。
 type AgentConfig struct {
 	SessionDir    string `yaml:"session_dir"`
@@ -123,6 +132,55 @@ type RAGConfig struct {
 	RerankURL          string `yaml:"rerank_url"`
 	RerankAPIKey       string `yaml:"rerank_api_key"`
 	RerankModel        string `yaml:"rerank_model"`
+}
+
+// MemoryRAGConfig 控制 memory-service 的长期记忆向量召回和融合打分策略。
+type MemoryRAGConfig struct {
+	Enabled            bool    `yaml:"enabled"`
+	EmbeddingDim       int     `yaml:"embedding_dim"`
+	EmbeddingProvider  string  `yaml:"embedding_provider"`
+	EmbeddingURL       string  `yaml:"embedding_url"`
+	EmbeddingAPIKey    string  `yaml:"embedding_api_key"`
+	EmbeddingModel     string  `yaml:"embedding_model"`
+	EmbeddingDimension int     `yaml:"embedding_dimension"`
+	MilvusEnabled      bool    `yaml:"milvus_enabled"`
+	MilvusAddress      string  `yaml:"milvus_address"`
+	MilvusCollection   string  `yaml:"milvus_collection"`
+	VectorCandidateK   int     `yaml:"vector_candidate_k"`
+	MinScore           float64 `yaml:"min_score"`
+	VectorWeight       float64 `yaml:"vector_weight"`
+	ImportanceWeight   float64 `yaml:"importance_weight"`
+	RecencyWeight      float64 `yaml:"recency_weight"`
+	ScopeWeight        float64 `yaml:"scope_weight"`
+	LLMFilterEnabled   bool    `yaml:"llm_filter_enabled"`
+	LLMFilterBaseURL   string  `yaml:"llm_filter_base_url"`
+	LLMFilterAPIKey    string  `yaml:"llm_filter_api_key"`
+	LLMFilterModel     string  `yaml:"llm_filter_model"`
+}
+
+// WebSearchConfig 控制 web-search-service 的一次性联网搜索增强策略。
+type WebSearchConfig struct {
+	MaxResults      int    `yaml:"max_results"`
+	MaxFetch        int    `yaml:"max_fetch"`
+	MaxPassages     int    `yaml:"max_passages"`
+	MaxCharsPerPage int    `yaml:"max_chars_per_page"`
+	TrustedDomains  string `yaml:"trusted_domains"`
+	UserAgent       string `yaml:"user_agent"`
+	TimeoutMS       int    `yaml:"timeout_ms"`
+}
+
+// ConversationIntelligenceConfig 控制聊天记录智能归档窗口和触发阈值。
+type ConversationIntelligenceConfig struct {
+	WindowMessageLimit      int    `yaml:"window_message_limit"`
+	MinValuableMessages     int    `yaml:"min_valuable_messages"`
+	ScheduleIntervalSeconds int    `yaml:"schedule_interval_seconds"`
+	WindowMinutes           int    `yaml:"window_minutes"`
+	MaxRetries              int    `yaml:"max_retries"`
+	RetryDelaySeconds       int    `yaml:"retry_delay_seconds"`
+	LLMEnabled              bool   `yaml:"llm_enabled"`
+	LLMBaseURL              string `yaml:"llm_base_url"`
+	LLMAPIKey               string `yaml:"llm_api_key"`
+	LLMModel                string `yaml:"llm_model"`
 }
 
 // DocumentConfig 控制上传文档解析时可选的 OCR / 版面解析能力。
@@ -221,6 +279,38 @@ func Load(configPath string) (*Config, error) {
 	v.SetDefault("milvus.enabled", false)
 	v.SetDefault("milvus.address", "127.0.0.1:19530")
 	v.SetDefault("milvus.collection", "claran_rag_chunks")
+	v.SetDefault("memory_rag.enabled", true)
+	v.SetDefault("memory_rag.embedding_dim", 256)
+	v.SetDefault("memory_rag.embedding_provider", "hash")
+	v.SetDefault("memory_rag.embedding_url", "https://open.bigmodel.cn/api/paas/v4/embeddings")
+	v.SetDefault("memory_rag.embedding_model", "embedding-3")
+	v.SetDefault("memory_rag.embedding_dimension", 0)
+	v.SetDefault("memory_rag.milvus_enabled", false)
+	v.SetDefault("memory_rag.milvus_address", "127.0.0.1:19530")
+	v.SetDefault("memory_rag.milvus_collection", "claran_memory_facts")
+	v.SetDefault("memory_rag.vector_candidate_k", 80)
+	v.SetDefault("memory_rag.min_score", 0.05)
+	v.SetDefault("memory_rag.vector_weight", 0.45)
+	v.SetDefault("memory_rag.importance_weight", 0.25)
+	v.SetDefault("memory_rag.recency_weight", 0.15)
+	v.SetDefault("memory_rag.scope_weight", 0.15)
+	v.SetDefault("memory_rag.llm_filter_enabled", false)
+	v.SetDefault("memory_rag.llm_filter_model", "glm-4-flash")
+	v.SetDefault("web_search.max_results", 5)
+	v.SetDefault("web_search.max_fetch", 5)
+	v.SetDefault("web_search.max_passages", 3)
+	v.SetDefault("web_search.max_chars_per_page", 12000)
+	v.SetDefault("web_search.trusted_domains", "gov.cn,edu.cn,who.int,cdc.gov,nih.gov,developer.mozilla.org,docs.github.com,openai.com,cloudwego.io,go.dev,docs.docker.com,kubernetes.io")
+	v.SetDefault("web_search.user_agent", "ClaranAIM-WebSearch/1.0")
+	v.SetDefault("web_search.timeout_ms", 10000)
+	v.SetDefault("conversation_intelligence.window_message_limit", 100)
+	v.SetDefault("conversation_intelligence.min_valuable_messages", 3)
+	v.SetDefault("conversation_intelligence.schedule_interval_seconds", 60)
+	v.SetDefault("conversation_intelligence.window_minutes", 60)
+	v.SetDefault("conversation_intelligence.max_retries", 3)
+	v.SetDefault("conversation_intelligence.retry_delay_seconds", 60)
+	v.SetDefault("conversation_intelligence.llm_enabled", false)
+	v.SetDefault("conversation_intelligence.llm_model", "glm-4-flash")
 	// 读取 YAML 配置文件
 	v.SetConfigFile(configPath)
 	v.SetConfigType("yaml")
@@ -358,6 +448,9 @@ func applyEnvOverrides(cfg *Config) {
 	if model := os.Getenv("LLM_DEFAULT_MODEL"); model != "" {
 		cfg.LLM.DefaultModel = model
 	}
+	if secretKey := os.Getenv("SETTINGS_SECRET_KEY"); secretKey != "" {
+		cfg.Settings.SecretKey = secretKey
+	}
 
 	if sessionDir := os.Getenv("AGENT_SESSION_DIR"); sessionDir != "" {
 		cfg.Agent.SessionDir = sessionDir
@@ -447,6 +540,166 @@ func applyEnvOverrides(cfg *Config) {
 	}
 	if collection := os.Getenv("MILVUS_COLLECTION"); collection != "" {
 		cfg.Milvus.Collection = collection
+	}
+
+	if enabled := os.Getenv("MEMORY_RAG_ENABLED"); enabled != "" {
+		if v, err := strconv.ParseBool(enabled); err == nil {
+			cfg.MemoryRAG.Enabled = v
+		}
+	}
+	if dim := os.Getenv("MEMORY_RAG_EMBEDDING_DIM"); dim != "" {
+		if v, err := strconv.Atoi(dim); err == nil {
+			cfg.MemoryRAG.EmbeddingDim = v
+		}
+	}
+	if provider := os.Getenv("MEMORY_RAG_EMBEDDING_PROVIDER"); provider != "" {
+		cfg.MemoryRAG.EmbeddingProvider = provider
+	}
+	if url := os.Getenv("MEMORY_RAG_EMBEDDING_URL"); url != "" {
+		cfg.MemoryRAG.EmbeddingURL = url
+	}
+	if apiKey := os.Getenv("MEMORY_RAG_EMBEDDING_API_KEY"); apiKey != "" {
+		cfg.MemoryRAG.EmbeddingAPIKey = apiKey
+	}
+	if model := os.Getenv("MEMORY_RAG_EMBEDDING_MODEL"); model != "" {
+		cfg.MemoryRAG.EmbeddingModel = model
+	}
+	if dim := os.Getenv("MEMORY_RAG_EMBEDDING_DIMENSION"); dim != "" {
+		if v, err := strconv.Atoi(dim); err == nil {
+			cfg.MemoryRAG.EmbeddingDimension = v
+		}
+	}
+	if enabled := os.Getenv("MEMORY_RAG_MILVUS_ENABLED"); enabled != "" {
+		if v, err := strconv.ParseBool(enabled); err == nil {
+			cfg.MemoryRAG.MilvusEnabled = v
+		}
+	}
+	if address := os.Getenv("MEMORY_RAG_MILVUS_ADDRESS"); address != "" {
+		cfg.MemoryRAG.MilvusAddress = address
+	}
+	if collection := os.Getenv("MEMORY_RAG_MILVUS_COLLECTION"); collection != "" {
+		cfg.MemoryRAG.MilvusCollection = collection
+	}
+	if k := os.Getenv("MEMORY_RAG_VECTOR_CANDIDATE_K"); k != "" {
+		if v, err := strconv.Atoi(k); err == nil {
+			cfg.MemoryRAG.VectorCandidateK = v
+		}
+	}
+	if score := os.Getenv("MEMORY_RAG_MIN_SCORE"); score != "" {
+		if v, err := strconv.ParseFloat(score, 64); err == nil {
+			cfg.MemoryRAG.MinScore = v
+		}
+	}
+	if weight := os.Getenv("MEMORY_RAG_VECTOR_WEIGHT"); weight != "" {
+		if v, err := strconv.ParseFloat(weight, 64); err == nil {
+			cfg.MemoryRAG.VectorWeight = v
+		}
+	}
+	if weight := os.Getenv("MEMORY_RAG_IMPORTANCE_WEIGHT"); weight != "" {
+		if v, err := strconv.ParseFloat(weight, 64); err == nil {
+			cfg.MemoryRAG.ImportanceWeight = v
+		}
+	}
+	if weight := os.Getenv("MEMORY_RAG_RECENCY_WEIGHT"); weight != "" {
+		if v, err := strconv.ParseFloat(weight, 64); err == nil {
+			cfg.MemoryRAG.RecencyWeight = v
+		}
+	}
+	if weight := os.Getenv("MEMORY_RAG_SCOPE_WEIGHT"); weight != "" {
+		if v, err := strconv.ParseFloat(weight, 64); err == nil {
+			cfg.MemoryRAG.ScopeWeight = v
+		}
+	}
+	if enabled := os.Getenv("MEMORY_RAG_LLM_FILTER_ENABLED"); enabled != "" {
+		if v, err := strconv.ParseBool(enabled); err == nil {
+			cfg.MemoryRAG.LLMFilterEnabled = v
+		}
+	}
+	if baseURL := os.Getenv("MEMORY_RAG_LLM_FILTER_BASE_URL"); baseURL != "" {
+		cfg.MemoryRAG.LLMFilterBaseURL = baseURL
+	}
+	if apiKey := os.Getenv("MEMORY_RAG_LLM_FILTER_API_KEY"); apiKey != "" {
+		cfg.MemoryRAG.LLMFilterAPIKey = apiKey
+	}
+	if model := os.Getenv("MEMORY_RAG_LLM_FILTER_MODEL"); model != "" {
+		cfg.MemoryRAG.LLMFilterModel = model
+	}
+
+	if limit := os.Getenv("WEB_SEARCH_MAX_RESULTS"); limit != "" {
+		if v, err := strconv.Atoi(limit); err == nil {
+			cfg.WebSearch.MaxResults = v
+		}
+	}
+	if limit := os.Getenv("WEB_SEARCH_MAX_FETCH"); limit != "" {
+		if v, err := strconv.Atoi(limit); err == nil {
+			cfg.WebSearch.MaxFetch = v
+		}
+	}
+	if limit := os.Getenv("WEB_SEARCH_MAX_PASSAGES"); limit != "" {
+		if v, err := strconv.Atoi(limit); err == nil {
+			cfg.WebSearch.MaxPassages = v
+		}
+	}
+	if limit := os.Getenv("WEB_SEARCH_MAX_CHARS_PER_PAGE"); limit != "" {
+		if v, err := strconv.Atoi(limit); err == nil {
+			cfg.WebSearch.MaxCharsPerPage = v
+		}
+	}
+	if domains := os.Getenv("WEB_SEARCH_TRUSTED_DOMAINS"); domains != "" {
+		cfg.WebSearch.TrustedDomains = domains
+	}
+	if userAgent := os.Getenv("WEB_SEARCH_USER_AGENT"); userAgent != "" {
+		cfg.WebSearch.UserAgent = userAgent
+	}
+	if timeout := os.Getenv("WEB_SEARCH_TIMEOUT_MS"); timeout != "" {
+		if v, err := strconv.Atoi(timeout); err == nil {
+			cfg.WebSearch.TimeoutMS = v
+		}
+	}
+
+	if limit := os.Getenv("CONVERSATION_INTELLIGENCE_WINDOW_MESSAGE_LIMIT"); limit != "" {
+		if v, err := strconv.Atoi(limit); err == nil {
+			cfg.ConversationIntelligence.WindowMessageLimit = v
+		}
+	}
+	if limit := os.Getenv("CONVERSATION_INTELLIGENCE_MIN_VALUABLE_MESSAGES"); limit != "" {
+		if v, err := strconv.Atoi(limit); err == nil {
+			cfg.ConversationIntelligence.MinValuableMessages = v
+		}
+	}
+	if interval := os.Getenv("CONVERSATION_INTELLIGENCE_SCHEDULE_INTERVAL_SECONDS"); interval != "" {
+		if v, err := strconv.Atoi(interval); err == nil {
+			cfg.ConversationIntelligence.ScheduleIntervalSeconds = v
+		}
+	}
+	if minutes := os.Getenv("CONVERSATION_INTELLIGENCE_WINDOW_MINUTES"); minutes != "" {
+		if v, err := strconv.Atoi(minutes); err == nil {
+			cfg.ConversationIntelligence.WindowMinutes = v
+		}
+	}
+	if retries := os.Getenv("CONVERSATION_INTELLIGENCE_MAX_RETRIES"); retries != "" {
+		if v, err := strconv.Atoi(retries); err == nil {
+			cfg.ConversationIntelligence.MaxRetries = v
+		}
+	}
+	if delay := os.Getenv("CONVERSATION_INTELLIGENCE_RETRY_DELAY_SECONDS"); delay != "" {
+		if v, err := strconv.Atoi(delay); err == nil {
+			cfg.ConversationIntelligence.RetryDelaySeconds = v
+		}
+	}
+	if enabled := os.Getenv("CONVERSATION_INTELLIGENCE_LLM_ENABLED"); enabled != "" {
+		if v, err := strconv.ParseBool(enabled); err == nil {
+			cfg.ConversationIntelligence.LLMEnabled = v
+		}
+	}
+	if baseURL := os.Getenv("CONVERSATION_INTELLIGENCE_LLM_BASE_URL"); baseURL != "" {
+		cfg.ConversationIntelligence.LLMBaseURL = baseURL
+	}
+	if apiKey := os.Getenv("CONVERSATION_INTELLIGENCE_LLM_API_KEY"); apiKey != "" {
+		cfg.ConversationIntelligence.LLMAPIKey = apiKey
+	}
+	if model := os.Getenv("CONVERSATION_INTELLIGENCE_LLM_MODEL"); model != "" {
+		cfg.ConversationIntelligence.LLMModel = model
 	}
 
 	if enabled := os.Getenv("KAFKA_ENABLED"); enabled != "" {

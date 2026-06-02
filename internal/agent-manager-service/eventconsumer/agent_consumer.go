@@ -129,6 +129,9 @@ func (d *AgentEventDispatcher) Handle(ctx context.Context, envelope events.Envel
 	if event == nil {
 		return nil
 	}
+	if d.isAgentSender(ctx, event.SenderID) {
+		return nil
+	}
 	decisions, err := d.decide(ctx, *event)
 	if err != nil {
 		return err
@@ -232,6 +235,16 @@ func (d *AgentEventDispatcher) Handle(ctx context.Context, envelope events.Envel
 	return nil
 }
 
+// isAgentSender 判断事件发送者本身是否是 Agent 系统用户。
+// 普通 IM 触发链必须忽略 Agent 自己发出的消息，避免 Agent 回复落库后再次触发自己或其他 Agent 形成回声。
+func (d *AgentEventDispatcher) isAgentSender(ctx context.Context, senderID int64) bool {
+	if d == nil || d.agentService == nil || senderID <= 0 {
+		return false
+	}
+	bot, err := d.agentService.GetBotByAgentUserID(ctx, senderID)
+	return err == nil && bot != nil && bot.AgentUserID == senderID
+}
+
 func (d *AgentEventDispatcher) queueTask(ctx context.Context, bot *model.Bot, event agentEvent, sourceEventID, traceID string) error {
 	if d.taskRepo == nil || bot == nil {
 		return nil
@@ -290,6 +303,9 @@ func decodeAgentEvent(envelope events.Envelope) (*agentEvent, error) {
 		if strings.TrimSpace(payload.Content) == "" && len(payload.MentionUserIDs) == 0 {
 			return nil, nil
 		}
+		if isMediaMessagePayload(payload.MsgType, payload.Content) {
+			return nil, nil
+		}
 		return &agentEvent{
 			EventType:        envelope.Type,
 			ConversationID:   payload.ConversationID,
@@ -332,6 +348,15 @@ func decodeAgentEvent(envelope events.Envelope) (*agentEvent, error) {
 	}
 }
 
+func isMediaMessagePayload(msgType, content string) bool {
+	switch strings.ToLower(strings.TrimSpace(msgType)) {
+	case "image", "file", "voice":
+		return true
+	}
+	trimmed := strings.TrimSpace(content)
+	return strings.HasPrefix(trimmed, "[img]") || strings.HasPrefix(trimmed, "[file]") || strings.HasPrefix(trimmed, "[voice]")
+}
+
 // toMessagePayload 把统一事件降级成旧 MessagePayload 形状。
 // 这样上下文构建和 @ 目标识别可以在迁移期复用原有 helper。
 func (e agentEvent) toMessagePayload() events.MessagePayload {
@@ -343,7 +368,11 @@ func (e agentEvent) toMessagePayload() events.MessagePayload {
 			if name == "" {
 				name = fmt.Sprintf("file:%d", ref.FileID)
 			}
-			parts = append(parts, fmt.Sprintf("[附件 file_id=%d name=%s content_type=%s url=%s size=%d]", ref.FileID, name, ref.ContentType, ref.URL, ref.Size))
+			hint := ""
+			if strings.HasPrefix(strings.ToLower(ref.ContentType), "image/") {
+				hint = " 可使用图片OCR/识别能力解释图片内容。"
+			}
+			parts = append(parts, fmt.Sprintf("[附件 file_id=%d name=%s content_type=%s url=%s size=%d]%s", ref.FileID, name, ref.ContentType, ref.URL, ref.Size, hint))
 		}
 		content = strings.Join(parts, " ")
 	}
@@ -626,9 +655,18 @@ func isPermanentAgentDispatchError(err error) bool {
 		"bot已停用",
 		"bot未配置API Key",
 		"bot未配置Base URL",
+		"Agent未配置API Key",
+		"Agent未配置Base URL",
+		"Agent未配置模型",
+		"401 Unauthorized",
+		"status code: 401",
+		"身份验证失败",
+		"invalid api key",
+		"invalid_api_key",
+		"unauthorized",
 	}
 	for _, hint := range permanentHints {
-		if strings.Contains(msg, hint) {
+		if strings.Contains(strings.ToLower(msg), strings.ToLower(hint)) {
 			return true
 		}
 	}

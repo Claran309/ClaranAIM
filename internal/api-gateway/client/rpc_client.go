@@ -4,14 +4,17 @@
 package client
 
 import (
+	"ClaranAIM/kitex_gen/admin/adminservice"
 	"ClaranAIM/kitex_gen/bot"
 	"ClaranAIM/kitex_gen/bot/botservice"
 	"ClaranAIM/kitex_gen/bot_runtime/botruntimeservice"
+	"ClaranAIM/kitex_gen/conversation_intelligence/conversationintelligenceservice"
 	"ClaranAIM/kitex_gen/file"
 	"ClaranAIM/kitex_gen/file/fileservice"
 	"ClaranAIM/kitex_gen/group"
 	"ClaranAIM/kitex_gen/group/groupservice"
 	"ClaranAIM/kitex_gen/knowledge/knowledgeservice"
+	"ClaranAIM/kitex_gen/mcp_gateway/mcpgatewayservice"
 	"ClaranAIM/kitex_gen/memory/memoryservice"
 	"ClaranAIM/kitex_gen/message"
 	"ClaranAIM/kitex_gen/message/historyservice"
@@ -20,6 +23,7 @@ import (
 	"ClaranAIM/kitex_gen/settings/settingsservice"
 	"ClaranAIM/kitex_gen/user"
 	"ClaranAIM/kitex_gen/user/userservice"
+	"ClaranAIM/kitex_gen/web_search/websearchservice"
 	"ClaranAIM/pkg/config"
 	"ClaranAIM/pkg/governance"
 	"log"
@@ -62,6 +66,14 @@ var (
 	KnowledgeClient knowledgeservice.Client
 	// SettingsClient 调用 settings-service，负责 LLM 预设、Prompt 和 Agent Skill 配置。
 	SettingsClient settingsservice.Client
+	// WebSearchClient 调用 web-search-service，负责一次性联网搜索增强。
+	WebSearchClient websearchservice.Client
+	// ConversationIntelligenceClient 调用 conversation-intelligence-service，负责聊天记录归档、摘要和候选记忆提炼。
+	ConversationIntelligenceClient conversationintelligenceservice.Client
+	// MCPGatewayClient 调用 mcp-gateway-service，负责 Agent 工具发现、调用和审计查询。
+	MCPGatewayClient mcpgatewayservice.Client
+	// AdminClient 调用 admin-service，负责管理后台聚合视图、系统公告和管理审计。
+	AdminClient adminservice.Client
 )
 
 // InitClients 初始化 api-gateway 到各内部 Kitex 服务的客户端。
@@ -169,6 +181,34 @@ func InitClients(etcdEndpoints []string, rpcCfg ...config.RPCGovernanceConfig) {
 		)
 		if err != nil {
 			log.Fatal("创建settings-service客户端失败:", err)
+		}
+
+		WebSearchClient, err = websearchservice.NewClient("web-search-service",
+			baseOptions...,
+		)
+		if err != nil {
+			log.Fatal("创建web-search-service客户端失败:", err)
+		}
+
+		ConversationIntelligenceClient, err = conversationintelligenceservice.NewClient("conversation-intelligence-service",
+			baseOptions...,
+		)
+		if err != nil {
+			log.Fatal("创建conversation-intelligence-service客户端失败:", err)
+		}
+
+		MCPGatewayClient, err = mcpgatewayservice.NewClient("mcp-gateway-service",
+			baseOptions...,
+		)
+		if err != nil {
+			log.Fatal("创建mcp-gateway-service客户端失败:", err)
+		}
+
+		AdminClient, err = adminservice.NewClient("admin-service",
+			baseOptions...,
+		)
+		if err != nil {
+			log.Fatal("创建admin-service客户端失败:", err)
 		}
 
 		log.Println("RPC客户端初始化成功")

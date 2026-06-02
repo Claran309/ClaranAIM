@@ -238,6 +238,20 @@ func (h *UserServiceImpl) BatchGetUserInfo(ctx context.Context, req *user.BatchG
 	return &user.BatchGetUserInfoResp{Success: true, Users: userList}, nil
 }
 
+// AdminListUsers 返回管理端用户列表。
+// 该 RPC 只提供只读运营视图；调用入口必须由 api-gateway 的 admin 分组做角色鉴权。
+func (h *UserServiceImpl) AdminListUsers(ctx context.Context, req *user.AdminListUsersReq) (resp *user.AdminListUsersResp, err error) {
+	users, total, err := h.svc.AdminListUsers(ctx, req.GetKeyword(), req.GetRole(), req.GetStatus(), req.GetIncludeSystem(), req.GetLimit(), req.GetOffset())
+	if err != nil {
+		return &user.AdminListUsersResp{Success: false, Msg: err.Error()}, nil
+	}
+	userList := make([]*user.User, 0, len(users))
+	for _, u := range users {
+		userList = append(userList, toRPCUser(u))
+	}
+	return &user.AdminListUsersResp{Success: true, Users: userList, Total: total, Msg: "获取成功"}, nil
+}
+
 // toRPCUser 将数据库模型裁剪为 Thrift DTO。
 // 这里不会暴露 Password，只保留前端资料页、好友列表和 Agent 用户化需要展示的字段。
 func toRPCUser(u model.User) *user.User {

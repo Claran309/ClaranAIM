@@ -364,6 +364,47 @@ func TestChatWithBotInjectsRecalledMemoryAndStoresRunSummary(t *testing.T) {
 	}
 }
 
+func TestInternalAgentUsesLatestDefaultProviderAtRuntime(t *testing.T) {
+	runtime := &fakeRuntimeClient{}
+	svc := NewAgentService(&fakeBotRepo{byID: &model.Bot{
+		ID:                  1,
+		Name:                "Agent",
+		Type:                "internal",
+		ModelName:           "old-model",
+		APIKey:              "old-key",
+		BaseURL:             "https://old.example/v1",
+		OwnerID:             1001,
+		IsActive:            true,
+		ContextMessageLimit: DefaultContextMessageLimit,
+		MemoryRecallLimit:   DefaultMemoryRecallLimit,
+	}}, &fakePermissionRepo{}, nil, &fakeBillingRepo{}, runtime, nil, "storage/agent/files")
+	svc.(*agentServiceImpl).SetDefaultLLM("new-key", "https://new.example/v1", "new-model")
+
+	if _, err := svc.ChatWithBot(context.Background(), 1, 1001, 33, "你好"); err != nil {
+		t.Fatalf("ChatWithBot returned error: %v", err)
+	}
+	if runtime.lastReq == nil || runtime.lastReq.Bot == nil {
+		t.Fatalf("runtime request missing: %#v", runtime.lastReq)
+	}
+	if runtime.lastReq.Bot.ApiKey != "new-key" || runtime.lastReq.Bot.BaseUrl != "https://new.example/v1" {
+		t.Fatalf("internal agent did not use latest default provider: %#v", runtime.lastReq.Bot)
+	}
+	if runtime.lastReq.Bot.ModelName != "old-model" {
+		t.Fatalf("explicit model should be kept, got %q", runtime.lastReq.Bot.ModelName)
+	}
+}
+
+func TestSummarizeAgentRunMemoryUsesTriggeredContentNotSystemEnvelope(t *testing.T) {
+	wrapped := "你是 ClaranAIM 中的原生 Agent 成员，本轮输入来自 IM 事件流。\n\n事件信息：\n- event_type: message.created\n\n当前触发内容：\n请分析这张图\n\n会话材料：\n- [2026] 用户1: 历史消息"
+	got := summarizeAgentRunMemory(wrapped, "图里是一段报错。")
+	if strings.Contains(got, "你是 ClaranAIM") || strings.Contains(got, "会话材料") {
+		t.Fatalf("summary leaked system envelope: %q", got)
+	}
+	if !strings.Contains(got, "请分析这张图") || !strings.Contains(got, "图里是一段报错") {
+		t.Fatalf("summary = %q, want triggered content and reply", got)
+	}
+}
+
 type fakeBotRepo struct {
 	created *model.Bot
 	byID    *model.Bot
@@ -547,4 +588,22 @@ func (s *fakeBotMemoryService) Recall(ctx context.Context, input memoryclient.Re
 func (s *fakeBotMemoryService) CreateMemory(ctx context.Context, input memoryclient.CreateMemoryInput) (*memoryclient.MemoryFact, error) {
 	s.created = append(s.created, input)
 	return &memoryclient.MemoryFact{ID: int64(len(s.created)), BotID: input.BotID, UserID: input.UserID, Scope: input.Scope, Type: input.Type, Content: input.Content}, nil
+}
+
+func (s *fakeBotMemoryService) ListMemories(ctx context.Context, viewerID int64, filter memoryclient.Filter) ([]memoryclient.MemoryFact, int64, error) {
+	out := make([]memoryclient.MemoryFact, 0, len(s.created))
+	for i, item := range s.created {
+		out = append(out, memoryclient.MemoryFact{
+			ID:             int64(i + 1),
+			BotID:          item.BotID,
+			UserID:         item.UserID,
+			ConversationID: item.ConversationID,
+			SessionID:      item.SessionID,
+			Scope:          item.Scope,
+			Type:           item.Type,
+			Content:        item.Content,
+			Enabled:        true,
+		})
+	}
+	return out, int64(len(out)), nil
 }

@@ -4,6 +4,7 @@
 package handler
 
 import (
+	"ClaranAIM/internal/group-service/model"
 	"ClaranAIM/internal/group-service/service"
 	"ClaranAIM/kitex_gen/group"
 	"context"
@@ -60,16 +61,7 @@ func (h *GroupServiceImpl) GetGroup(ctx context.Context, req *group.GetGroupReq)
 	}
 	return &group.GetGroupResp{
 		Success: true,
-		Group: &group.Group{
-			Id:           g.ID,
-			Name:         g.Name,
-			Avatar:       g.Avatar,
-			OwnerId:      g.OwnerID,
-			Announcement: g.Announcement,
-			IsPinned:     g.IsPinned,
-			CreatedAt:    g.CreatedAt.Format("2006-01-02 15:04:05"),
-			UpdatedAt:    g.UpdatedAt.Format("2006-01-02 15:04:05"),
-		},
+		Group:   toRPCGroup(*g),
 	}, nil
 }
 
@@ -83,16 +75,7 @@ func (h *GroupServiceImpl) GetUserGroups(ctx context.Context, req *group.GetUser
 
 	var list []*group.Group
 	for _, g := range groups {
-		list = append(list, &group.Group{
-			Id:           g.ID,
-			Name:         g.Name,
-			Avatar:       g.Avatar,
-			OwnerId:      g.OwnerID,
-			Announcement: g.Announcement,
-			IsPinned:     g.IsPinned,
-			CreatedAt:    g.CreatedAt.Format("2006-01-02 15:04:05"),
-			UpdatedAt:    g.UpdatedAt.Format("2006-01-02 15:04:05"),
-		})
+		list = append(list, toRPCGroup(g))
 	}
 	return &group.GetUserGroupsResp{Success: true, Groups: list}, nil
 }
@@ -206,4 +189,31 @@ func (h *GroupServiceImpl) PinGroup(ctx context.Context, req *group.PinGroupReq)
 		msg = "置顶成功"
 	}
 	return &group.PinGroupResp{Success: true, Msg: msg}, nil
+}
+
+// AdminListGroups 返回管理端全局群列表。
+// 该 RPC 不做角色判断，必须由 api-gateway 的 admin 分组保护。
+func (h *GroupServiceImpl) AdminListGroups(ctx context.Context, req *group.AdminListGroupsReq) (resp *group.AdminListGroupsResp, err error) {
+	groups, total, err := h.svc.AdminListGroups(ctx, req.GetKeyword(), req.GetOwnerId(), req.GetLimit(), req.GetOffset())
+	if err != nil {
+		return &group.AdminListGroupsResp{Success: false, Msg: err.Error()}, nil
+	}
+	list := make([]*group.Group, 0, len(groups))
+	for _, g := range groups {
+		list = append(list, toRPCGroup(g))
+	}
+	return &group.AdminListGroupsResp{Success: true, Groups: list, Total: total, Msg: "获取成功"}, nil
+}
+
+func toRPCGroup(g model.Group) *group.Group {
+	return &group.Group{
+		Id:           g.ID,
+		Name:         g.Name,
+		Avatar:       g.Avatar,
+		OwnerId:      g.OwnerID,
+		Announcement: g.Announcement,
+		IsPinned:     g.IsPinned,
+		CreatedAt:    g.CreatedAt.Format("2006-01-02 15:04:05"),
+		UpdatedAt:    g.UpdatedAt.Format("2006-01-02 15:04:05"),
+	}
 }

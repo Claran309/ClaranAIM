@@ -1399,6 +1399,118 @@ var fieldIDToName_PinGroupResp = map[int16]string{
 	2: "msg",
 }
 
+type AdminListGroupsReq struct {
+	Keyword string `thrift:"keyword,1" frugal:"1,default,string" json:"keyword"`
+	OwnerId int64  `thrift:"owner_id,2" frugal:"2,default,i64" json:"owner_id"`
+	Limit   int64  `thrift:"limit,3" frugal:"3,default,i64" json:"limit"`
+	Offset  int64  `thrift:"offset,4" frugal:"4,default,i64" json:"offset"`
+}
+
+func NewAdminListGroupsReq() *AdminListGroupsReq {
+	return &AdminListGroupsReq{}
+}
+
+func (p *AdminListGroupsReq) InitDefault() {
+}
+
+func (p *AdminListGroupsReq) GetKeyword() (v string) {
+	return p.Keyword
+}
+
+func (p *AdminListGroupsReq) GetOwnerId() (v int64) {
+	return p.OwnerId
+}
+
+func (p *AdminListGroupsReq) GetLimit() (v int64) {
+	return p.Limit
+}
+
+func (p *AdminListGroupsReq) GetOffset() (v int64) {
+	return p.Offset
+}
+func (p *AdminListGroupsReq) SetKeyword(val string) {
+	p.Keyword = val
+}
+func (p *AdminListGroupsReq) SetOwnerId(val int64) {
+	p.OwnerId = val
+}
+func (p *AdminListGroupsReq) SetLimit(val int64) {
+	p.Limit = val
+}
+func (p *AdminListGroupsReq) SetOffset(val int64) {
+	p.Offset = val
+}
+
+func (p *AdminListGroupsReq) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("AdminListGroupsReq(%+v)", *p)
+}
+
+var fieldIDToName_AdminListGroupsReq = map[int16]string{
+	1: "keyword",
+	2: "owner_id",
+	3: "limit",
+	4: "offset",
+}
+
+type AdminListGroupsResp struct {
+	Success bool     `thrift:"success,1" frugal:"1,default,bool" json:"success"`
+	Groups  []*Group `thrift:"groups,2" frugal:"2,default,list<Group>" json:"groups"`
+	Total   int64    `thrift:"total,3" frugal:"3,default,i64" json:"total"`
+	Msg     string   `thrift:"msg,4" frugal:"4,default,string" json:"msg"`
+}
+
+func NewAdminListGroupsResp() *AdminListGroupsResp {
+	return &AdminListGroupsResp{}
+}
+
+func (p *AdminListGroupsResp) InitDefault() {
+}
+
+func (p *AdminListGroupsResp) GetSuccess() (v bool) {
+	return p.Success
+}
+
+func (p *AdminListGroupsResp) GetGroups() (v []*Group) {
+	return p.Groups
+}
+
+func (p *AdminListGroupsResp) GetTotal() (v int64) {
+	return p.Total
+}
+
+func (p *AdminListGroupsResp) GetMsg() (v string) {
+	return p.Msg
+}
+func (p *AdminListGroupsResp) SetSuccess(val bool) {
+	p.Success = val
+}
+func (p *AdminListGroupsResp) SetGroups(val []*Group) {
+	p.Groups = val
+}
+func (p *AdminListGroupsResp) SetTotal(val int64) {
+	p.Total = val
+}
+func (p *AdminListGroupsResp) SetMsg(val string) {
+	p.Msg = val
+}
+
+func (p *AdminListGroupsResp) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("AdminListGroupsResp(%+v)", *p)
+}
+
+var fieldIDToName_AdminListGroupsResp = map[int16]string{
+	1: "success",
+	2: "groups",
+	3: "total",
+	4: "msg",
+}
+
 type GroupService interface {
 	CreateGroup(ctx context.Context, req *CreateGroupReq) (r *CreateGroupResp, err error)
 
@@ -1427,6 +1539,8 @@ type GroupService interface {
 	TransferOwner(ctx context.Context, req *TransferOwnerReq) (r *TransferOwnerResp, err error)
 
 	PinGroup(ctx context.Context, req *PinGroupReq) (r *PinGroupResp, err error)
+
+	AdminListGroups(ctx context.Context, req *AdminListGroupsReq) (r *AdminListGroupsResp, err error)
 }
 
 type GroupServiceCreateGroupArgs struct {
@@ -2490,5 +2604,81 @@ func (p *GroupServicePinGroupResult) String() string {
 }
 
 var fieldIDToName_GroupServicePinGroupResult = map[int16]string{
+	0: "success",
+}
+
+type GroupServiceAdminListGroupsArgs struct {
+	Req *AdminListGroupsReq `thrift:"req,1" frugal:"1,default,AdminListGroupsReq" json:"req"`
+}
+
+func NewGroupServiceAdminListGroupsArgs() *GroupServiceAdminListGroupsArgs {
+	return &GroupServiceAdminListGroupsArgs{}
+}
+
+func (p *GroupServiceAdminListGroupsArgs) InitDefault() {
+}
+
+var GroupServiceAdminListGroupsArgs_Req_DEFAULT *AdminListGroupsReq
+
+func (p *GroupServiceAdminListGroupsArgs) GetReq() (v *AdminListGroupsReq) {
+	if !p.IsSetReq() {
+		return GroupServiceAdminListGroupsArgs_Req_DEFAULT
+	}
+	return p.Req
+}
+func (p *GroupServiceAdminListGroupsArgs) SetReq(val *AdminListGroupsReq) {
+	p.Req = val
+}
+
+func (p *GroupServiceAdminListGroupsArgs) IsSetReq() bool {
+	return p.Req != nil
+}
+
+func (p *GroupServiceAdminListGroupsArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("GroupServiceAdminListGroupsArgs(%+v)", *p)
+}
+
+var fieldIDToName_GroupServiceAdminListGroupsArgs = map[int16]string{
+	1: "req",
+}
+
+type GroupServiceAdminListGroupsResult struct {
+	Success *AdminListGroupsResp `thrift:"success,0,optional" frugal:"0,optional,AdminListGroupsResp" json:"success,omitempty"`
+}
+
+func NewGroupServiceAdminListGroupsResult() *GroupServiceAdminListGroupsResult {
+	return &GroupServiceAdminListGroupsResult{}
+}
+
+func (p *GroupServiceAdminListGroupsResult) InitDefault() {
+}
+
+var GroupServiceAdminListGroupsResult_Success_DEFAULT *AdminListGroupsResp
+
+func (p *GroupServiceAdminListGroupsResult) GetSuccess() (v *AdminListGroupsResp) {
+	if !p.IsSetSuccess() {
+		return GroupServiceAdminListGroupsResult_Success_DEFAULT
+	}
+	return p.Success
+}
+func (p *GroupServiceAdminListGroupsResult) SetSuccess(x interface{}) {
+	p.Success = x.(*AdminListGroupsResp)
+}
+
+func (p *GroupServiceAdminListGroupsResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *GroupServiceAdminListGroupsResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("GroupServiceAdminListGroupsResult(%+v)", *p)
+}
+
+var fieldIDToName_GroupServiceAdminListGroupsResult = map[int16]string{
 	0: "success",
 }

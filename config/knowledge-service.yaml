@@ -1,6 +1,13 @@
 service:
   name: "knowledge-service"
-  address: "127.0.0.1:9013"
+  address: "127.0.0.1:9113"
+
+mysql:
+  host: "localhost"
+  port: 3306
+  user: "claran"
+  password: "chr070309"
+  database: "ClaranCloudDisk"
 
 etcd:
   endpoints: []
@@ -11,4 +18,3 @@ governance:
     circuit_breaker: true
     max_connections: 1000
     max_qps: 1000
-

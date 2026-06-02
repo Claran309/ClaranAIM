@@ -48,6 +48,27 @@ var serviceMethods = map[string]kitex.MethodInfo{
 		false,
 		kitex.WithStreamingMode(kitex.StreamingNone),
 	),
+	"CreateGraphReviewCandidate": kitex.NewMethodInfo(
+		createGraphReviewCandidateHandler,
+		newKnowledgeServiceCreateGraphReviewCandidateArgs,
+		newKnowledgeServiceCreateGraphReviewCandidateResult,
+		false,
+		kitex.WithStreamingMode(kitex.StreamingNone),
+	),
+	"ListGraphReviewCandidates": kitex.NewMethodInfo(
+		listGraphReviewCandidatesHandler,
+		newKnowledgeServiceListGraphReviewCandidatesArgs,
+		newKnowledgeServiceListGraphReviewCandidatesResult,
+		false,
+		kitex.WithStreamingMode(kitex.StreamingNone),
+	),
+	"ReviewGraphCandidate": kitex.NewMethodInfo(
+		reviewGraphCandidateHandler,
+		newKnowledgeServiceReviewGraphCandidateArgs,
+		newKnowledgeServiceReviewGraphCandidateResult,
+		false,
+		kitex.WithStreamingMode(kitex.StreamingNone),
+	),
 }
 
 var (
@@ -204,6 +225,60 @@ func newKnowledgeServiceGetPathResult() interface{} {
 	return knowledge.NewKnowledgeServiceGetPathResult()
 }
 
+func createGraphReviewCandidateHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
+	realArg := arg.(*knowledge.KnowledgeServiceCreateGraphReviewCandidateArgs)
+	realResult := result.(*knowledge.KnowledgeServiceCreateGraphReviewCandidateResult)
+	success, err := handler.(knowledge.KnowledgeService).CreateGraphReviewCandidate(ctx, realArg.Req)
+	if err != nil {
+		return err
+	}
+	realResult.Success = success
+	return nil
+}
+func newKnowledgeServiceCreateGraphReviewCandidateArgs() interface{} {
+	return knowledge.NewKnowledgeServiceCreateGraphReviewCandidateArgs()
+}
+
+func newKnowledgeServiceCreateGraphReviewCandidateResult() interface{} {
+	return knowledge.NewKnowledgeServiceCreateGraphReviewCandidateResult()
+}
+
+func listGraphReviewCandidatesHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
+	realArg := arg.(*knowledge.KnowledgeServiceListGraphReviewCandidatesArgs)
+	realResult := result.(*knowledge.KnowledgeServiceListGraphReviewCandidatesResult)
+	success, err := handler.(knowledge.KnowledgeService).ListGraphReviewCandidates(ctx, realArg.Req)
+	if err != nil {
+		return err
+	}
+	realResult.Success = success
+	return nil
+}
+func newKnowledgeServiceListGraphReviewCandidatesArgs() interface{} {
+	return knowledge.NewKnowledgeServiceListGraphReviewCandidatesArgs()
+}
+
+func newKnowledgeServiceListGraphReviewCandidatesResult() interface{} {
+	return knowledge.NewKnowledgeServiceListGraphReviewCandidatesResult()
+}
+
+func reviewGraphCandidateHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
+	realArg := arg.(*knowledge.KnowledgeServiceReviewGraphCandidateArgs)
+	realResult := result.(*knowledge.KnowledgeServiceReviewGraphCandidateResult)
+	success, err := handler.(knowledge.KnowledgeService).ReviewGraphCandidate(ctx, realArg.Req)
+	if err != nil {
+		return err
+	}
+	realResult.Success = success
+	return nil
+}
+func newKnowledgeServiceReviewGraphCandidateArgs() interface{} {
+	return knowledge.NewKnowledgeServiceReviewGraphCandidateArgs()
+}
+
+func newKnowledgeServiceReviewGraphCandidateResult() interface{} {
+	return knowledge.NewKnowledgeServiceReviewGraphCandidateResult()
+}
+
 type kClient struct {
 	c client.Client
 }
@@ -259,6 +334,36 @@ func (p *kClient) GetPath(ctx context.Context, req *knowledge.KnowledgePathReq) 
 	_args.Req = req
 	var _result knowledge.KnowledgeServiceGetPathResult
 	if err = p.c.Call(ctx, "GetPath", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
+
+func (p *kClient) CreateGraphReviewCandidate(ctx context.Context, req *knowledge.CreateGraphReviewCandidateReq) (r *knowledge.GraphReviewCandidateResp, err error) {
+	var _args knowledge.KnowledgeServiceCreateGraphReviewCandidateArgs
+	_args.Req = req
+	var _result knowledge.KnowledgeServiceCreateGraphReviewCandidateResult
+	if err = p.c.Call(ctx, "CreateGraphReviewCandidate", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
+
+func (p *kClient) ListGraphReviewCandidates(ctx context.Context, req *knowledge.ListGraphReviewCandidatesReq) (r *knowledge.ListGraphReviewCandidatesResp, err error) {
+	var _args knowledge.KnowledgeServiceListGraphReviewCandidatesArgs
+	_args.Req = req
+	var _result knowledge.KnowledgeServiceListGraphReviewCandidatesResult
+	if err = p.c.Call(ctx, "ListGraphReviewCandidates", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
+
+func (p *kClient) ReviewGraphCandidate(ctx context.Context, req *knowledge.ReviewGraphCandidateReq) (r *knowledge.GraphReviewCandidateResp, err error) {
+	var _args knowledge.KnowledgeServiceReviewGraphCandidateArgs
+	_args.Req = req
+	var _result knowledge.KnowledgeServiceReviewGraphCandidateResult
+	if err = p.c.Call(ctx, "ReviewGraphCandidate", &_args, &_result); err != nil {
 		return
 	}
 	return _result.GetSuccess(), nil

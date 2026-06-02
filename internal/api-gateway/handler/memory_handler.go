@@ -98,8 +98,8 @@ func (h *MemoryHandler) CreateMemory(ctx context.Context, c *app.RequestContext)
 		return
 	}
 	botID, err := parseOptionalMemoryNumber(req.BotID)
-	if err != nil || botID <= 0 {
-		response.BadRequest(c, "无效的Agent ID")
+	if err != nil || botID < 0 {
+		response.BadRequest(c, "无效的记忆归属")
 		return
 	}
 	targetUserID, err := parseOptionalMemoryNumber(req.UserID)
@@ -130,6 +130,7 @@ func (h *MemoryHandler) CreateMemory(ctx context.Context, c *app.RequestContext)
 		Enabled:        req.Enabled,
 		VectorStatus:   defaultMemoryVectorStatus(req.VectorStatus),
 		Confidence:     req.Confidence,
+		Importance:     req.Importance,
 	}
 	fact, err := h.svc.CreateMemory(ctx, input)
 	if err != nil {
@@ -162,6 +163,10 @@ func (h *MemoryHandler) UpdateMemory(ctx context.Context, c *app.RequestContext)
 	if req.Confidence > 0 {
 		confidence = &req.Confidence
 	}
+	var importance *float64
+	if req.Importance > 0 {
+		importance = &req.Importance
+	}
 	fact, err := h.svc.UpdateMemory(ctx, userID, memoryID, memoryclient.UpdateMemoryInput{
 		Scope:        req.Scope,
 		Type:         req.Type,
@@ -172,6 +177,7 @@ func (h *MemoryHandler) UpdateMemory(ctx context.Context, c *app.RequestContext)
 		Enabled:      req.Enabled,
 		VectorStatus: req.VectorStatus,
 		Confidence:   confidence,
+		Importance:   importance,
 	})
 	if err != nil {
 		response.BadRequest(c, err.Error())
@@ -201,6 +207,117 @@ func (h *MemoryHandler) DeleteMemory(ctx context.Context, c *app.RequestContext)
 	response.Success(c, map[string]interface{}{"success": true})
 }
 
+// ListCandidates 返回等待用户确认的候选记忆。
+func (h *MemoryHandler) ListCandidates(ctx context.Context, c *app.RequestContext) {
+	if !h.ensureService(c) {
+		return
+	}
+	userID, ok := requireCurrentUserID(c)
+	if !ok {
+		return
+	}
+	candidates, total, err := h.svc.ListCandidates(ctx, userID, memoryclient.CandidateFilter{
+		BotID:  parseInt64Query(c, "bot_id"),
+		UserID: parseInt64Query(c, "user_id"),
+		Status: strings.TrimSpace(c.DefaultQuery("status", "pending")),
+		Limit:  int(parseInt64Default(c.DefaultQuery("limit", "20"), 20)),
+		Offset: int(parseInt64Default(c.DefaultQuery("offset", "0"), 0)),
+	})
+	if err != nil {
+		response.Error(c, err.Error())
+		return
+	}
+	response.Success(c, map[string]interface{}{"success": true, "candidates": candidates, "total": total})
+}
+
+// CreateCandidate 允许调试或前端把抽取结果先写入 pending 候选区。
+func (h *MemoryHandler) CreateCandidate(ctx context.Context, c *app.RequestContext) {
+	if !h.ensureService(c) {
+		return
+	}
+	userID, ok := requireCurrentUserID(c)
+	if !ok {
+		return
+	}
+	var req memoryCandidateRequest
+	if err := bindMemoryJSON(c, &req); err != nil {
+		response.BadRequest(c, "参数错误")
+		return
+	}
+	botID, err := parseOptionalMemoryNumber(req.BotID)
+	if err != nil || botID < 0 {
+		response.BadRequest(c, "无效的记忆归属")
+		return
+	}
+	targetUserID := parseMemoryNumberOrZero(req.UserID)
+	if targetUserID == 0 {
+		targetUserID = userID
+	}
+	if targetUserID != userID {
+		response.Forbidden(c, "只能创建自己的候选记忆")
+		return
+	}
+	candidate, err := h.svc.CreateCandidate(ctx, memoryclient.CandidateInput{
+		BotID:              botID,
+		UserID:             targetUserID,
+		OwnerUserID:        userID,
+		GroupID:            parseMemoryNumberOrZero(req.GroupID),
+		ConversationID:     parseMemoryNumberOrZero(req.ConversationID),
+		SessionID:          strings.TrimSpace(req.SessionID),
+		Scope:              defaultMemoryScope(req.Scope),
+		Type:               defaultMemoryType(req.Type),
+		Title:              strings.TrimSpace(req.Title),
+		Content:            strings.TrimSpace(req.Content),
+		Source:             defaultMemorySource(req.Source),
+		Evidence:           strings.TrimSpace(req.Evidence),
+		Confidence:         req.Confidence,
+		Importance:         req.Importance,
+		ConflictMemoryIDs:  req.ConflictMemoryIDs,
+		ConflictResolution: strings.TrimSpace(req.ConflictResolution),
+	})
+	if err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	response.Success(c, map[string]interface{}{"success": true, "candidate": candidate})
+}
+
+// AcceptCandidate 将 pending 候选转成正式记忆。
+func (h *MemoryHandler) AcceptCandidate(ctx context.Context, c *app.RequestContext) {
+	h.handleCandidateAction(ctx, c, true)
+}
+
+// RejectCandidate 拒绝 pending 候选。
+func (h *MemoryHandler) RejectCandidate(ctx context.Context, c *app.RequestContext) {
+	h.handleCandidateAction(ctx, c, false)
+}
+
+func (h *MemoryHandler) handleCandidateAction(ctx context.Context, c *app.RequestContext, accept bool) {
+	if !h.ensureService(c) {
+		return
+	}
+	userID, ok := requireCurrentUserID(c)
+	if !ok {
+		return
+	}
+	candidateID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || candidateID <= 0 {
+		response.BadRequest(c, "无效的候选记忆ID")
+		return
+	}
+	var candidate *memoryclient.MemoryCandidate
+	if accept {
+		candidate, err = h.svc.AcceptCandidate(ctx, userID, candidateID)
+	} else {
+		candidate, err = h.svc.RejectCandidate(ctx, userID, candidateID)
+	}
+	if err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	response.Success(c, map[string]interface{}{"success": true, "candidate": candidate})
+}
+
 // memoryRequest 是前端创建/编辑记忆事实的请求体。
 // ID 字段使用 json.Number，避免雪花 ID 在浏览器和 Go 解码之间损失精度。
 type memoryRequest struct {
@@ -218,6 +335,25 @@ type memoryRequest struct {
 	Enabled        *bool       `json:"enabled"`
 	VectorStatus   string      `json:"vector_status"`
 	Confidence     float64     `json:"confidence"`
+	Importance     float64     `json:"importance"`
+}
+
+type memoryCandidateRequest struct {
+	BotID              json.Number `json:"bot_id"`
+	UserID             json.Number `json:"user_id"`
+	GroupID            json.Number `json:"group_id"`
+	ConversationID     json.Number `json:"conversation_id"`
+	SessionID          string      `json:"session_id"`
+	Scope              string      `json:"scope"`
+	Type               string      `json:"type"`
+	Title              string      `json:"title"`
+	Content            string      `json:"content"`
+	Source             string      `json:"source"`
+	Evidence           string      `json:"evidence"`
+	Confidence         float64     `json:"confidence"`
+	Importance         float64     `json:"importance"`
+	ConflictMemoryIDs  []int64     `json:"conflict_memory_ids"`
+	ConflictResolution string      `json:"conflict_resolution"`
 }
 
 // bindMemoryJSON 使用 UseNumber 解码，保护 bot_id、group_id 等大整数 ID。

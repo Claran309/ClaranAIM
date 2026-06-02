@@ -25,6 +25,7 @@ let agentMenuCloseTimer = null;
 let pendingAgentThinkingByConversation = {};
 let conversationParticipantCache = {};
 let conversationGroupCollapsed = JSON.parse(localStorage.getItem('claran_conversation_group_collapsed') || '{}');
+let lastOnlineSyncAt = 0;
 let friendGroupCollapsed = JSON.parse(localStorage.getItem('claran_friend_group_collapsed') || '{}');
 let agentContextSidebarVisible = false;
 let agentNativeStateByConversation = {};
@@ -36,6 +37,8 @@ let knowledgeGraphCache = { nodes: [], edges: [], communities: [], stats: {} };
 let knowledgeGraphInstance = null;
 let knowledgeGraphSelected = null;
 let knowledgePathSelection = { sourceID: 0, targetID: 0, path: null };
+let adminMCPTraceCache = [];
+let activeWorkspace = 'chat';
 const LOCAL_LOG_KEY = 'claran_frontend_logs';
 const LOCAL_LOG_LIMIT = 500;
 
@@ -109,8 +112,11 @@ window.addEventListener('unhandledrejection', event => {
 });
 
 document.addEventListener('click', event => {
-    if (!event.target.closest('.agent-menu-wrapper')) {
+    if (!event.target.closest('.agent-menu-wrapper') && !event.target.closest('.agent-item-menu')) {
         closeAgentItemMenus();
+    }
+    if (event.target.closest('.agent-item-menu button')) {
+        setTimeout(() => closeAgentItemMenus(), 0);
     }
     const target = event.target.closest('button,[onclick],a');
     if (!target) return;
@@ -139,6 +145,143 @@ function sameID(a, b) {
     return String(a) === String(b);
 }
 
+function workspaceFromHash() {
+    const raw = (location.hash || '#/chat').replace(/^#\/?/, '').split('?')[0].trim();
+    return raw || 'chat';
+}
+
+function workspaceTitle(name) {
+    return {
+        chat: '消息中心',
+        agents: 'Agent 工作台',
+        knowledge: '知识工作台',
+        memory: '记忆中心',
+        settings: '系统设置',
+        admin: '系统治理台',
+    }[name] || '消息中心';
+}
+
+function navigateWorkspace(name = 'chat') {
+    const target = name || 'chat';
+    if (location.hash !== `#/${target}`) {
+        location.hash = `#/${target}`;
+        return;
+    }
+    renderWorkspace(target);
+}
+
+function updateWorkspaceNavigation(name) {
+    document.querySelectorAll('.workspace-nav-item').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.workspace === name);
+    });
+}
+
+function setWorkspaceMode(name, { hideSidebar = true } = {}) {
+    activeWorkspace = name;
+    updateWorkspaceNavigation(name);
+    const mainLayout = document.querySelector('.main-layout');
+    const sidebar = document.querySelector('.sidebar');
+    const content = document.querySelector('.content');
+    if (mainLayout) mainLayout.dataset.workspace = name;
+    if (sidebar) sidebar.style.display = hideSidebar ? 'none' : 'flex';
+    if (content) content.classList.toggle('workspace-expanded', hideSidebar);
+}
+
+function activateChatWorkspaceForContent() {
+    activeWorkspace = 'chat';
+    updateWorkspaceNavigation('chat');
+    const mainLayout = document.querySelector('.main-layout');
+    const sidebar = document.querySelector('.sidebar');
+    const content = document.querySelector('.content');
+    if (mainLayout) mainLayout.dataset.workspace = 'chat';
+    if (sidebar) sidebar.style.display = 'flex';
+    if (content) content.classList.remove('workspace-expanded');
+    if (location.hash !== '#/chat') {
+        history.replaceState(null, '', '#/chat');
+    }
+}
+
+function activateStandaloneWorkspace(name) {
+    setWorkspaceMode(name, { hideSidebar: true });
+    if (location.hash !== `#/${name}`) {
+        history.replaceState(null, '', `#/${name}`);
+    }
+}
+
+function renderWorkspaceShell(name, eyebrow, title, subtitle, actionsHTML = '') {
+    const chat = document.getElementById('chat-area');
+    const welcome = document.getElementById('welcome-area');
+    if (chat) chat.style.display = 'none';
+    if (!welcome) return null;
+    welcome.style.display = 'flex';
+    welcome.innerHTML = `
+        <div class="workspace-page workspace-${escapeHTML(name)}">
+            <header class="workspace-page-header">
+                <div>
+                    <span class="eyebrow">${escapeHTML(eyebrow)}</span>
+                    <h2>${escapeHTML(title)}</h2>
+                    <p>${escapeHTML(subtitle)}</p>
+                </div>
+                ${actionsHTML ? `<div class="workspace-page-actions">${actionsHTML}</div>` : ''}
+            </header>
+            <div id="workspace-page-body" class="workspace-page-body workspace-fade-in"></div>
+        </div>
+    `;
+    return document.getElementById('workspace-page-body');
+}
+
+async function renderWorkspace(name = workspaceFromHash()) {
+    if (!currentUser) return;
+    if (name === 'admin' && currentUser.role !== 'admin') {
+        showToast('只有管理员可以打开治理台', 'warning');
+        name = 'chat';
+        if (location.hash !== '#/chat') {
+            location.hash = '#/chat';
+            return;
+        }
+    }
+    switch (name) {
+        case 'agents':
+            setWorkspaceMode('agents');
+            await showAgentWorkspace();
+            break;
+        case 'knowledge':
+            setWorkspaceMode('knowledge');
+            await showKnowledgeHomeWorkspace();
+            break;
+        case 'memory':
+            setWorkspaceMode('memory');
+            await showMemoryWorkspace();
+            break;
+        case 'settings':
+            setWorkspaceMode('settings');
+            await showSettingsWorkspace();
+            break;
+        case 'admin':
+            setWorkspaceMode('admin');
+            await showAdminWorkspace();
+            break;
+        case 'chat':
+        default:
+            setWorkspaceMode('chat', { hideSidebar: false });
+            showChatHome();
+            break;
+    }
+}
+
+function entityID(entity, ...fallbackKeys) {
+    if (entity === undefined || entity === null) return '';
+    if (typeof entity !== 'object') return String(entity);
+    const keys = ['id', 'Id', 'ID', 'job_id', 'JobId', 'trace_id', ...fallbackKeys];
+    for (const key of keys) {
+        const value = entity[key];
+        if (value !== undefined && value !== null && value !== '') {
+            return String(value);
+        }
+    }
+    return '';
+}
+
 function escapeRegExp(value) {
     return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -165,6 +308,22 @@ function toolPolicyLabel(policy) {
 
 function agentSourceLabel(type) {
     return type === 'custom' ? '自定义模型' : '系统模型';
+}
+
+function getBotDisplayName(bot) {
+    if (!bot) return '智能助手';
+    return bot.nickname || bot.name || bot.username || bot.display_name || `Agent ${bot.id || ''}`.trim();
+}
+
+function safeImageHTML(src, className = 'avatar-img') {
+    const url = String(src || '').trim();
+    if (!url) return '';
+    return `<img class="${escapeHTML(className)}" src="${escapeHTML(url)}" alt="" loading="lazy" referrerpolicy="no-referrer">`;
+}
+
+function renderAvatarHTML(src, fallback = 'A', extraClass = '') {
+    const content = src ? safeImageHTML(src) : escapeHTML(String(fallback || 'A').slice(0, 2).toUpperCase());
+    return `<div class="avatar ${escapeHTML(extraClass)}">${content}</div>`;
 }
 
 function llmUsageLabel(type) {
@@ -462,12 +621,44 @@ function setConversationHidden(conversationID, hidden) {
 }
 
 function makeMediaPayload(url, id, name) {
-    return [url || '', id || '', name || ''].map(part => encodeURIComponent(part)).join('|');
+    const payload = {
+        url: url || '',
+        id: id || '',
+        file_id: id || '',
+        name: name || '',
+    };
+    return JSON.stringify(payload);
+}
+
+function makeMediaPayloadWithMeta(url, id, name, file = null) {
+    const payload = {
+        url: url || '',
+        id: id || '',
+        file_id: id || '',
+        name: name || '',
+        content_type: file?.type || '',
+        size: file?.size || 0,
+    };
+    return JSON.stringify(payload);
 }
 
 function parseMediaPayload(content, tag) {
     const match = (content || '').match(new RegExp(`\\[${tag}\\]([\\s\\S]*?)\\[\\/${tag}\\]`));
     const raw = match ? match[1] : (content || '');
+    if (raw.trim().startsWith('{')) {
+        try {
+            const parsed = JSON.parse(raw);
+            return {
+                url: parsed.url || '',
+                id: parsed.id || parsed.file_id || '',
+                name: parsed.name || parsed.file_name || parsed.url?.split('/').pop() || '文件',
+                content_type: parsed.content_type || '',
+                size: parsed.size || 0,
+            };
+        } catch (err) {
+            console.warn('媒体消息JSON解析失败:', err);
+        }
+    }
     const parts = raw.split('|');
     if (parts.length >= 3) {
         return {
@@ -481,6 +672,15 @@ function parseMediaPayload(content, tag) {
         id: '',
         name: raw.split('/').pop() || '文件'
     };
+}
+
+function stripMediaTags(content) {
+    return String(content || '')
+        .replace(/\[(img|voice|file)\]([\s\S]*?)\[\/\1\]/g, (_, type, raw) => {
+            const media = parseMediaPayload(`[${type}]${raw}[/${type}]`, type);
+            return `[${type === 'img' ? '图片' : type === 'voice' ? '语音' : '文件'}] ${media.name || media.url || ''}`;
+        })
+        .replace(/<[^>]+>/g, ' ');
 }
 
 function resolveMediaURL(media) {
@@ -596,11 +796,13 @@ function getMessageByID(messageID) {
     return currentMessages.find(m => sameID(m.id || m.msg_id, messageID));
 }
 
-function renderCurrentMessages() {
+function renderCurrentMessages(scrollToBottom = true) {
     const msgList = document.getElementById('message-list');
     msgList.innerHTML = currentMessages.map(m => createMessageHTML(m)).join('');
     hydrateMedia(msgList);
-    msgList.scrollTop = msgList.scrollHeight;
+    if (scrollToBottom) {
+        msgList.scrollTop = msgList.scrollHeight;
+    }
     renderAgentNativeStatus();
     renderAgentContextSidebar();
 }
@@ -671,12 +873,18 @@ function toggleAgentContextSidebar(forceOpen = null) {
 }
 
 function summarizeVisibleMessagesForSidebar() {
-    const recent = currentMessages.slice(-8).filter(m => m && (m.content || m.msg_type));
+    const recent = currentMessages.slice(-10).filter(m => m && (m.content || m.msg_type));
     if (!recent.length) return '<div class="agent-context-empty">暂无可分析消息</div>';
     return recent.map(m => {
-        const name = getAgentBotByUserID(m.sender_id) ? getBotDisplayName(getAgentBotByUserID(m.sender_id)) : getUserName(m.sender_id);
-        const content = (m.content || `[${m.msg_type || '消息'}]`).replace(/\s+/g, ' ').slice(0, 90);
-        return `<li><strong>${escapeHTML(name)}</strong><span>${escapeHTML(content)}</span></li>`;
+        const agent = getAgentBotByUserID(m.sender_id);
+        const name = agent ? getBotDisplayName(agent) : getUserName(m.sender_id);
+        const content = stripMediaTags(m.content || `[${m.msg_type || '消息'}]`).replace(/\s+/g, ' ').slice(0, 110);
+        return `
+            <li>
+                <span class="agent-context-avatar">${escapeHTML((name || '?').slice(0, 1).toUpperCase())}</span>
+                <div><strong>${escapeHTML(name)}</strong><p>${escapeHTML(content)}</p></div>
+            </li>
+        `;
     }).join('');
 }
 
@@ -690,15 +898,22 @@ function renderAgentContextSidebar() {
     }
     const agents = getCurrentConversationAgents();
     const state = agentNativeStateByConversation[String(currentConversationID || '')] || { status: 'idle', detail: '等待事件触发或人工运行。' };
+    const statusLabel = agentNativeStatusLabel(state.status);
     side.style.display = 'flex';
     side.innerHTML = `
         <div class="agent-context-head">
-            <strong>Agent 上下文</strong>
-            <button type="button" onclick="toggleAgentContextSidebar(false)">×</button>
+            <div>
+                <span class="eyebrow">Context</span>
+                <strong>会话感知</strong>
+            </div>
+            <button type="button" aria-label="关闭上下文侧栏" onclick="toggleAgentContextSidebar(false)">×</button>
         </div>
-        <section>
-            <label>原生状态</label>
-            <p>${escapeHTML(agentNativeStatusLabel(state.status))} · ${escapeHTML(state.detail || '当前没有正在运行的 Agent 任务')}</p>
+        <section class="agent-context-status ${escapeHTML(state.status || 'idle')}">
+            <div class="agent-context-status-dot"></div>
+            <div>
+                <label>原生状态</label>
+                <p><strong>${escapeHTML(statusLabel)}</strong><span>${escapeHTML(state.detail || '当前没有正在运行的 Agent 任务')}</span></p>
+            </div>
         </section>
         <section>
             <label>会话 Agent</label>
@@ -715,6 +930,7 @@ function renderAgentContextSidebar() {
             <div class="agent-context-actions">
                 <button type="button" onclick="showAgentConversationTools()">总结/问答</button>
                 <button type="button" onclick="showMentionPicker()">@ Agent</button>
+                <button type="button" onclick="showMemoryManager('candidates')">候选记忆</button>
             </div>
         </section>
     `;
@@ -978,9 +1194,365 @@ function showToast(msg, type = 'info') {
     }, 2500);
 }
 
+function updateAdminConsoleEntry() {
+    const entry = document.getElementById('admin-console-entry');
+    const navEntry = document.getElementById('admin-workspace-nav');
+    const visible = currentUser && currentUser.role === 'admin';
+    if (entry) entry.style.display = visible ? '' : 'none';
+    if (navEntry) navEntry.style.display = visible ? '' : 'none';
+}
+
+function showChatHome() {
+    const chat = document.getElementById('chat-area');
+    const welcome = document.getElementById('welcome-area');
+    if (currentConversationID || currentBotID) {
+        if (welcome) welcome.style.display = 'none';
+        if (chat) chat.style.display = 'flex';
+        return;
+    }
+    if (chat) chat.style.display = 'none';
+    if (welcome) {
+        welcome.style.display = 'flex';
+        welcome.innerHTML = `
+            <div class="welcome-card">
+                <div class="welcome-orbit" aria-hidden="true">
+                    <span></span><span></span><span></span>
+                    <strong>AIM</strong>
+                </div>
+                <span class="eyebrow">Agent Native IM</span>
+                <h2>消息、Agent 和知识在同一个工作流里</h2>
+                <p>从左侧打开会话，或切换到上方工作台管理 Agent、知识库、记忆和系统配置。</p>
+                <div class="workspace-quick-grid">
+                    <button onclick="navigateWorkspace('agents')"><strong>Agent 工作台</strong><span>配置、运行、授权与 Skill</span></button>
+                    <button onclick="navigateWorkspace('knowledge')"><strong>知识工作台</strong><span>RAG、GraphRAG 和联网检索</span></button>
+                    <button onclick="navigateWorkspace('memory')"><strong>记忆中心</strong><span>长期记忆与候选确认</span></button>
+                </div>
+            </div>
+        `;
+    }
+}
+
+async function showAgentWorkspace() {
+    const body = renderWorkspaceShell(
+        'agents',
+        'Agent Operations',
+        'Agent 工作台',
+        '集中管理智能助手、运行任务、Skill、权限、触发规则和运行成本。',
+        `
+            <button class="btn-secondary" onclick="showSkillManager()">Skill 中心</button>
+            <button class="btn-secondary" onclick="showMemoryManager('candidates')">候选记忆</button>
+            <button class="btn-primary" onclick="showCreateBotForm()">创建 Agent</button>
+        `
+    );
+    if (!body) return;
+    body.innerHTML = `
+        <section class="workspace-hero-grid">
+            <button class="workspace-command-card" onclick="showCreateBotForm()">
+                <span>新建</span><strong>创建一个可入群、可私聊的 Agent</strong><small>绑定模型、工作目录和工具策略</small>
+            </button>
+            <button class="workspace-command-card" onclick="showSkillManager()">
+                <span>Skill</span><strong>维护 Agent 工作方法</strong><small>上传、编辑、摘要和注入 Skill</small>
+            </button>
+            <button class="workspace-command-card" onclick="showConversationIntelligencePanel()">
+                <span>归档</span><strong>从聊天中提炼摘要和候选记忆</strong><small>生成 summary / decision / task / topic</small>
+            </button>
+        </section>
+        <section class="workspace-section">
+            <div class="workspace-section-head">
+                <div><h3>我的 Agent</h3><p>点击卡片可进入独立对话，使用“管理”打开配置和权限。</p></div>
+                <button class="btn-small ghost" onclick="refreshAgentWorkspaceList()">刷新</button>
+            </div>
+            <div id="agent-workspace-list" class="agent-workspace-grid"><div class="empty-tip">加载中...</div></div>
+        </section>
+        <section class="workspace-section">
+            <div class="workspace-section-head">
+                <div><h3>待确认动作</h3><p>Agent 高风险动作会先进入确认流。</p></div>
+                <button class="btn-small ghost" onclick="loadAgentWorkspaceApprovals()">刷新</button>
+            </div>
+            <div id="agent-workspace-approvals" class="data-list"><div class="empty-tip">加载中...</div></div>
+        </section>
+    `;
+    await refreshAgentWorkspaceList();
+    await loadAgentWorkspaceApprovals();
+}
+
+async function showSkillWorkspace() {
+    const body = renderWorkspaceShell(
+        'skills',
+        'Agent Skills',
+        'Skill 中心',
+        '上传、编辑、摘要和注入 Agent 工作方法。Skill 会以文件夹形式保存，可用于全局或单个 Agent。',
+        `
+            <button class="btn-secondary" onclick="navigateWorkspace('agents')">返回 Agent</button>
+            <button class="btn-primary" onclick="uploadGlobalSkill()">上传 Skill</button>
+        `
+    );
+    if (!body) return;
+    body.innerHTML = `
+        <section class="workspace-section skill-workspace-panel">
+            <div class="workspace-section-head">
+                <div><h3>上传 Skill 包</h3><p>支持单个 SKILL.md、zip 或浏览器文件夹上传。上传后会提取摘要，并可在创建或编辑 Agent 时注入。</p></div>
+            </div>
+            <div class="skill-upload-board">
+                <div class="profile-form-grid">
+                    <div class="form-group">
+                        <label>Skill 名称</label>
+                        <input id="setting-skill-name" type="text" placeholder="例如：代码审查 / 资料总结">
+                    </div>
+                    <div class="form-group">
+                        <label>说明</label>
+                        <input id="setting-skill-desc" type="text" placeholder="这个 Skill 会给 Agent 增加什么能力">
+                    </div>
+                </div>
+                <div class="profile-form-grid">
+                    <label class="skill-drop-zone">
+                        <span>上传 SKILL.md 或 zip</span>
+                        <small>适合单文件或打包后的 Skill</small>
+                        <input id="setting-skill-file" type="file" accept=".md,.zip">
+                    </label>
+                    <label class="skill-drop-zone">
+                        <span>上传 Skill 文件夹</span>
+                        <small>保留子文件结构，入口为 SKILL.md</small>
+                        <input id="setting-skill-folder" type="file" webkitdirectory directory multiple>
+                    </label>
+                </div>
+                <label class="checkbox-row"><input id="setting-skill-default" type="checkbox"><span>设为默认全局 Skill</span></label>
+            </div>
+        </section>
+        <section class="workspace-section">
+            <div class="workspace-section-head">
+                <div><h3>全局 Skill</h3><p>这些 Skill 可被多个 Agent 复用，也可以复制目录给运行时检查。</p></div>
+                <button class="btn-small ghost" onclick="loadSkillManagerList()">刷新</button>
+            </div>
+            <div id="global-skill-list" class="data-list skill-list-expanded">加载中...</div>
+        </section>
+    `;
+    await loadSkillManagerList();
+}
+
+async function refreshAgentWorkspaceList() {
+    const list = document.getElementById('agent-workspace-list');
+    if (!list) return;
+    list.innerHTML = '<div class="empty-tip">加载 Agent...</div>';
+    const resp = await agentAPI.list();
+    if (!(resp && resp.code === 0 && resp.data?.bots)) {
+        list.innerHTML = `<div class="empty-tip">Agent 列表不可用<br><small>${escapeHTML(resp?.message || resp?.data?.msg || '')}</small></div>`;
+        return;
+    }
+    botCache = resp.data.bots || [];
+    agentUserIDToBot = {};
+    botCache.forEach(bot => {
+        if (bot.agent_user_id) {
+            agentUserIDToBot[String(bot.agent_user_id)] = bot;
+            userNickCache[bot.agent_user_id] = getBotDisplayName(bot);
+            if (bot.avatar) userAvatarCache[bot.agent_user_id] = bot.avatar;
+        }
+    });
+    if (!botCache.length) {
+        list.innerHTML = '<div class="empty-tip">暂无 Agent<br><small>先创建一个项目助手或会话助手。</small></div>';
+        return;
+    }
+    list.innerHTML = botCache.map(renderAgentWorkspaceCard).join('');
+    const sidebarList = document.getElementById('bot-list');
+    if (sidebarList) loadBotSidebar();
+}
+
+function renderAgentWorkspaceCard(bot) {
+    const name = getBotDisplayName(bot);
+    return `
+        <article class="agent-workspace-card">
+            <div class="agent-card-top">
+                ${renderAvatarHTML(bot.avatar, 'A', 'agent-avatar')}
+                <div>
+                    <strong>${escapeHTML(name)}</strong>
+                    <span>${escapeHTML(agentSourceLabel(bot.type))} · UID ${escapeHTML(String(bot.agent_user_id || '未绑定'))}</span>
+                </div>
+                <em class="${bot.is_active ? 'is-on' : 'is-off'}">${bot.is_active ? '可用' : '停用'}</em>
+            </div>
+            <p>${escapeHTML(bot.description || bot.signature || '这个 Agent 还没有说明。')}</p>
+            <div class="agent-card-meta">
+                <span>${escapeHTML(bot.model_name || '默认模型')}</span>
+                <span>${escapeHTML(toolPolicyLabel(bot.tool_policy || 'safe'))}</span>
+                <span>${escapeHTML(bot.workspace_root || '默认工作目录')}</span>
+            </div>
+            <div class="agent-card-actions">
+                <button class="btn-small" onclick="showAgentRunModal(${jsArg(bot.id)}, ${jsStringArg(name)})">运行</button>
+                <button class="btn-small ghost" onclick="chatWithBot(${jsArg(bot.id)})">对话</button>
+                <button class="btn-small ghost" onclick="showEditAgentForm(${jsArg(bot.id)})">配置</button>
+                <button class="btn-small ghost" onclick="showAgentPermissions(${jsArg(bot.id)}, ${jsStringArg(name)})">权限</button>
+            </div>
+        </article>
+    `;
+}
+
+async function loadAgentWorkspaceApprovals() {
+    const area = document.getElementById('agent-workspace-approvals');
+    if (!area) return;
+    const resp = await agentAPI.listApprovals();
+    if (!(resp && resp.code === 0)) {
+        area.innerHTML = `<div class="empty-tip">审批列表不可用<br><small>${escapeHTML(resp?.message || resp?.data?.msg || '')}</small></div>`;
+        return;
+    }
+    const approvals = resp.data?.approvals || [];
+    area.innerHTML = approvals.length ? approvals.slice(0, 6).map(item => `
+        <div class="data-row">
+            <div class="data-row-main">
+                <strong>${escapeHTML(item.title || item.action || 'Agent 审批')}</strong>
+                <span>${escapeHTML(item.status || 'pending')} · ${escapeHTML(item.created_at || '')}</span>
+            </div>
+            <div class="data-row-actions">
+                <button class="btn-small" onclick="agentAPI.confirmApproval(${jsArg(item.id)}, '前端确认').then(loadAgentWorkspaceApprovals)">通过</button>
+                <button class="btn-small danger-soft" onclick="agentAPI.rejectApproval(${jsArg(item.id)}).then(loadAgentWorkspaceApprovals)">拒绝</button>
+            </div>
+        </div>
+    `).join('') : '<div class="empty-tip">暂无待确认动作</div>';
+}
+
+async function showKnowledgeHomeWorkspace() {
+    const body = renderWorkspaceShell(
+        'knowledge',
+        'Knowledge Systems',
+        '知识工作台',
+        '管理 RAG 文档、GraphRAG 图谱、联网搜索和知识候选审核。',
+        `
+            <button class="btn-secondary" onclick="showWebSearchPanel()">联网搜索</button>
+            <button class="btn-secondary" onclick="showKnowledgeGraphWorkspace()">知识图谱</button>
+            <button class="btn-primary" onclick="showRAGWorkspace('ingest')">录入知识</button>
+        `
+    );
+    if (!body) return;
+    body.innerHTML = `
+        <section class="workspace-hero-grid">
+            <button class="workspace-command-card" onclick="showRAGWorkspace('search')">
+                <span>RAG</span><strong>检索项目知识</strong><small>Hybrid Search、Rerank、CRAG 与 Self-RAG</small>
+            </button>
+            <button class="workspace-command-card" onclick="showKnowledgeGraphWorkspace()">
+                <span>Graph</span><strong>查看知识图谱</strong><small>实体、关系、社区和证据来源</small>
+            </button>
+            <button class="workspace-command-card" onclick="showWebSearchPanel()">
+                <span>Web</span><strong>一次性联网增强</strong><small>搜索、抓正文、清洗相关段落</small>
+            </button>
+        </section>
+        <section class="workspace-section">
+            <div class="workspace-section-head">
+                <div><h3>最近知识文档</h3><p>上传 txt、Markdown、PDF、docx、图片和代码文件后会出现在这里。</p></div>
+                <button class="btn-small ghost" onclick="loadKnowledgeWorkspaceDocuments()">刷新</button>
+            </div>
+            <div id="knowledge-workspace-docs" class="data-list"><div class="empty-tip">加载中...</div></div>
+        </section>
+    `;
+    await loadKnowledgeWorkspaceDocuments();
+}
+
+async function loadKnowledgeWorkspaceDocuments() {
+    const area = document.getElementById('knowledge-workspace-docs');
+    if (!area) return;
+    const resp = await ragAPI.documents(30, 0);
+    if (!(resp && resp.code === 0 && resp.data?.success)) {
+        area.innerHTML = `<div class="empty-tip">知识文档不可用<br><small>${escapeHTML(resp?.message || resp?.data?.msg || '')}</small></div>`;
+        return;
+    }
+    const docs = resp.data.documents || [];
+    area.innerHTML = docs.length ? docs.map(doc => `
+        <div class="data-row">
+            <div class="data-row-main">
+                <strong>${escapeHTML(doc.title || doc.source || '知识文档')}</strong>
+                <span>${escapeHTML(doc.source || '')}</span>
+            </div>
+            <div class="data-row-meta">
+                <span>${escapeHTML(doc.visibility || 'private')}</span>
+                <span>${escapeHTML(doc.created_at || '')}</span>
+            </div>
+            <div class="data-row-actions">
+                <button class="btn-small ghost" onclick="showRAGWorkspace('search', ${jsStringArg(doc.title || doc.source || '')})">检索</button>
+            </div>
+        </div>
+    `).join('') : '<div class="empty-tip">暂无知识文档</div>';
+}
+
+async function showMemoryWorkspace() {
+    const body = renderWorkspaceShell(
+        'memory',
+        'Long-term Context',
+        '记忆中心',
+        '查看、确认、编辑和关闭长期记忆，让 Agent 只使用真正有价值的上下文。',
+        `
+            <button class="btn-secondary" onclick="showConversationIntelligencePanel()">会话归档</button>
+            <button class="btn-primary" onclick="showCreateMemoryForm()">新增记忆</button>
+        `
+    );
+    if (!body) return;
+    body.innerHTML = `
+        <div class="settings-tabs workspace-tabs">
+            <button id="memory-tab-facts" class="btn-small" onclick="switchMemoryManagerTab('facts')">正式记忆</button>
+            <button id="memory-tab-candidates" class="btn-small" onclick="switchMemoryManagerTab('candidates')">候选记忆</button>
+        </div>
+        <section id="memory-panel-facts" class="memory-panel workspace-section">
+            <div class="memory-toolbar">
+                <select id="memory-bot-filter" class="form-select">
+                    <option value="">全部归属</option>
+                    <option value="0">系统 / IM 原生</option>
+                    ${botCache.map(b => `<option value="${escapeHTML(String(b.id))}">${escapeHTML(getBotDisplayName(b))}</option>`).join('')}
+                </select>
+                <select id="memory-scope-filter" class="form-select">
+                    <option value="">全部范围</option>
+                    <option value="user">个人记忆</option>
+                    <option value="group">群画像</option>
+                    <option value="conversation">会话记忆</option>
+                    <option value="session">本次会话</option>
+                </select>
+                <button class="btn-small" onclick="loadMemoryList()">刷新</button>
+                <button class="btn-small" onclick="showCreateMemoryForm()">+ 新增</button>
+            </div>
+            <div id="memory-list" class="memory-list">加载中...</div>
+        </section>
+        <section id="memory-panel-candidates" class="memory-panel workspace-section" style="display:none;">
+            <div class="memory-toolbar">
+                <select id="memory-candidate-bot-filter" class="form-select">
+                    <option value="">全部归属</option>
+                    <option value="0">系统 / IM 原生</option>
+                    ${botCache.map(b => `<option value="${escapeHTML(String(b.id))}">${escapeHTML(getBotDisplayName(b))}</option>`).join('')}
+                </select>
+                <select id="memory-candidate-status-filter" class="form-select">
+                    <option value="pending">待确认</option>
+                    <option value="accepted">已接受</option>
+                    <option value="rejected">已拒绝</option>
+                    <option value="">全部状态</option>
+                </select>
+                <button class="btn-small" onclick="loadMemoryCandidates()">刷新</button>
+                <button class="btn-small" onclick="showCreateMemoryCandidateForm()">+ 新增候选</button>
+            </div>
+            <div id="memory-candidate-list" class="memory-list">加载中...</div>
+        </section>
+    `;
+    await switchMemoryManagerTab(showMemoryWorkspace.defaultTab || 'facts');
+    showMemoryWorkspace.defaultTab = 'facts';
+}
+
+async function showSettingsWorkspace() {
+    const body = renderWorkspaceShell(
+        'settings',
+        'Configuration',
+        '系统设置',
+        '配置 LLM 预设、Prompt 模板、远程 MCP Server 和工具接入。',
+        '<button class="btn-primary" onclick="renderLLMSettings()">新增模型预设</button>'
+    );
+    if (!body) return;
+    body.innerHTML = `
+        <div class="settings-tabs workspace-tabs">
+            <button class="btn-small active" data-settings-tab="llm" onclick="renderLLMSettings()">LLM 预设</button>
+            <button class="btn-small" data-settings-tab="prompt" onclick="renderPromptSettings()">Prompt</button>
+            <button class="btn-small" data-settings-tab="mcp" onclick="renderMCPSettings()">MCP 工具</button>
+        </div>
+        <div id="settings-content" class="settings-content workspace-section">加载中...</div>
+    `;
+    await renderLLMSettings();
+}
+
 let modalStack = [];
 
 function showModal(title, bodyHTML) {
+    closeAgentItemMenus();
     const overlay = document.getElementById('modal-overlay');
     if (overlay.style.display === 'flex') {
         modalStack.push({
@@ -989,7 +1561,9 @@ function showModal(title, bodyHTML) {
         });
     }
     document.getElementById('modal-title').textContent = title;
-    document.getElementById('modal-body').innerHTML = bodyHTML;
+    const body = document.getElementById('modal-body');
+    body.innerHTML = bodyHTML;
+    body.scrollTop = 0;
     overlay.style.display = 'flex';
 }
 
@@ -997,7 +1571,9 @@ function closeModal() {
     if (modalStack.length > 0) {
         const prev = modalStack.pop();
         document.getElementById('modal-title').textContent = prev.title;
-        document.getElementById('modal-body').innerHTML = prev.body;
+        const body = document.getElementById('modal-body');
+        body.innerHTML = prev.body;
+        body.scrollTop = 0;
     } else {
         document.getElementById('modal-overlay').style.display = 'none';
     }
@@ -1073,6 +1649,7 @@ async function logout() {
     }
     document.getElementById('user-status').textContent = '○ 离线';
     document.getElementById('user-status').className = 'user-status offline';
+    updateAdminConsoleEntry();
     document.getElementById('auth-page').classList.add('active');
     document.getElementById('main-page').classList.remove('active');
     showToast('已退出登录', 'info');
@@ -1102,6 +1679,7 @@ async function enterMainPage() {
         document.getElementById('user-status').textContent = '● 在线';
         document.getElementById('user-status').className = 'user-status online';
     }
+    updateAdminConsoleEntry();
 
     updateUnreadBadge();
     await loadGroups();
@@ -1109,6 +1687,86 @@ async function enterMainPage() {
     loadConversations();
     loadFriends();
     connectWS();
+    syncAfterOnline();
+    await renderWorkspace(workspaceFromHash());
+}
+
+async function syncAfterOnline() {
+    if (!currentUser || !currentUser.id) return;
+    const now = Date.now();
+    if (now - lastOnlineSyncAt < 3000) return;
+    lastOnlineSyncAt = now;
+    try {
+        const [syncResp, offlineResp, unreadResp] = await Promise.all([
+            messageAPI.sync(30),
+            messageAPI.offline(),
+            messageAPI.unreadCount(),
+        ]);
+        if (syncResp && syncResp.code === 0 && syncResp.data) {
+            applySyncPayload(syncResp.data);
+        }
+        const offlineMessages = offlineResp?.data?.messages || offlineResp?.data?.Messages || [];
+        if (Array.isArray(offlineMessages) && offlineMessages.length) {
+            const ids = offlineMessages.map(m => m.message_id || m.MessageId).filter(Boolean);
+            if (ids.length) {
+                await messageAPI.markOfflineRead(ids);
+            }
+        }
+        const count = unreadResp?.data?.count || unreadResp?.data?.Count || 0;
+        renderSyncStatus(count);
+        await loadConversations();
+    } catch (err) {
+        console.warn('上线同步失败:', err);
+        renderSyncStatus(0, '同步失败，稍后会自动重试');
+    }
+}
+
+function applySyncPayload(payload) {
+    const convs = payload.conversations || payload.Conversations || [];
+    if (Array.isArray(convs)) {
+        convs.forEach(c => {
+            if (!c) return;
+            if (c.participant_ids) conversationParticipantCache[String(c.conversation_id)] = c.participant_ids;
+            if (c.target_name) conversationNameCache[c.conversation_id] = c.target_name;
+            if (c.group_id) {
+                conversationGroupMap[c.conversation_id] = c.group_id;
+                groupConversationMap[c.group_id] = c.conversation_id;
+            }
+        });
+    }
+    const windows = payload.windows || payload.Windows || [];
+    windows.forEach(win => {
+        if (!win || !win.success) return;
+        const conversationID = win.conversation_id || win.ConversationId;
+        const messages = win.messages || win.Messages || [];
+        cacheMessages(conversationID, messages);
+        if (sameID(conversationID, currentConversationID) && Array.isArray(messages) && messages.length) {
+            currentMessages = mergeMessagesByIdentity(currentMessages, messages);
+            renderCurrentMessages(false);
+        }
+    });
+}
+
+function mergeMessagesByIdentity(existing = [], incoming = []) {
+    const byIdentity = new Map();
+    [...existing, ...incoming].forEach(raw => {
+        if (!raw) return;
+        const msg = { ...raw };
+        if (msg.msg_id && !msg.id) msg.id = msg.msg_id;
+        const identity = messageIdentity(msg) || `tmp:${msg.created_at || ''}:${msg.sender_id || ''}:${msg.content || ''}`;
+        byIdentity.set(identity, { ...(byIdentity.get(identity) || {}), ...msg });
+    });
+    return Array.from(byIdentity.values()).sort((a, b) => Number(a.id || 0) - Number(b.id || 0));
+}
+
+function renderSyncStatus(unreadCount = 0, text = '') {
+    const badge = document.getElementById('sync-status-badge');
+    if (!badge) return;
+    const message = text || (unreadCount > 0 ? `已同步 ${unreadCount} 条离线消息` : '已完成上线同步');
+    badge.textContent = message;
+    badge.classList.add('visible');
+    clearTimeout(renderSyncStatus._timer);
+    renderSyncStatus._timer = setTimeout(() => badge.classList.remove('visible'), 3600);
 }
 
 async function refreshAgentCache() {
@@ -1253,7 +1911,6 @@ function ragRouteLabel(value) {
         adaptive: '自适应',
         hybrid: '混合检索',
         graphrag: '知识图谱',
-        text_to_sql: 'Text-to-SQL',
         direct: '直接回答',
     }[value] || value || '自适应';
 }
@@ -1271,8 +1928,7 @@ function cragLabel(value) {
 }
 
 async function showRAGWorkspace(defaultTab = 'search', seedQuery = '') {
-    currentConversationID = null;
-    currentConversationType = '';
+    activateStandaloneWorkspace('knowledge');
     document.getElementById('chat-area').style.display = 'none';
     const welcome = document.getElementById('welcome-area');
     welcome.style.display = 'flex';
@@ -1296,7 +1952,6 @@ async function showRAGWorkspace(defaultTab = 'search', seedQuery = '') {
                         <option value="adaptive">自适应</option>
                         <option value="hybrid">混合检索</option>
                         <option value="graphrag">知识图谱</option>
-                        <option value="text_to_sql">Text-to-SQL</option>
                     </select>
                     <button class="btn-primary rag-run-btn" onclick="runRAGSearch()">检索</button>
                 </div>
@@ -1441,6 +2096,15 @@ function clearRAGIngestForm() {
         const el = document.getElementById(id);
         if (el) el.value = '';
     });
+    const fileInput = document.getElementById('rag-file-input');
+    if (fileInput) fileInput.value = '';
+    const visibility = document.getElementById('rag-visibility');
+    if (visibility) visibility.value = 'private';
+    const sourceType = document.getElementById('rag-source-type');
+    if (sourceType) sourceType.value = 'text';
+    const resultEl = document.getElementById('rag-ingest-result');
+    if (resultEl) resultEl.innerHTML = '<div class="empty-tip">表单已清空，可以重新录入或上传文件。</div>';
+    showToast('知识录入表单已清空', 'info');
 }
 
 async function runRAGSearch() {
@@ -1587,8 +2251,7 @@ const knowledgeTypeOptions = ['Service', 'DatabaseTable', 'EventTopic', 'API', '
 const knowledgeRelationOptions = ['CALLS', 'PUBLISHES', 'CONSUMES', 'STORES', 'OWNS', 'DEPENDS_ON', 'CONFIGURES', 'TRIGGERS', 'READS', 'WRITES', 'RELATED_TO'];
 
 async function showKnowledgeGraphWorkspace(seedQuery = '') {
-    currentConversationID = null;
-    currentConversationType = '';
+    activateStandaloneWorkspace('knowledge');
     document.getElementById('chat-area').style.display = 'none';
     const welcome = document.getElementById('welcome-area');
     welcome.style.display = 'flex';
@@ -1652,12 +2315,14 @@ async function showKnowledgeGraphWorkspace(seedQuery = '') {
                         <strong>选择节点或关系</strong>
                         <span>点击图中的实体可查看说明、相邻节点、相关关系和证据来源。</span>
                     </div>
+                    <div id="knowledge-review-panel" class="knowledge-review-panel"></div>
                 </aside>
             </section>
         </div>
     `;
     await loadKnowledgeSidebar();
     await loadKnowledgeGraph();
+    await loadKnowledgeReviewCandidates();
 }
 
 function toggleKnowledgeFilter(button) {
@@ -1896,6 +2561,7 @@ async function renderKnowledgeNodeDetail(nodeID) {
             <button class="btn-small ghost" onclick="loadKnowledgeNeighborhood(${jsStringArg(node.id)})">查看邻域</button>
             <button class="btn-small ghost" onclick="setKnowledgePathPoint('source', ${jsStringArg(node.id)})">设为起点</button>
             <button class="btn-small ghost" onclick="setKnowledgePathPoint('target', ${jsStringArg(node.id)})">设为终点</button>
+            <button class="btn-small" onclick="submitKnowledgeReviewCandidate('node', ${jsStringArg(node.id)})">提交审核</button>
         </div>
         <div class="knowledge-detail-section">
             <strong>相邻节点</strong>
@@ -1910,7 +2576,9 @@ async function renderKnowledgeNodeDetail(nodeID) {
                 </button>
             `).join('') : '<p>暂无关系</p>'}
         </div>
+        <div id="knowledge-review-panel" class="knowledge-review-panel"></div>
     `;
+    loadKnowledgeReviewCandidates();
 }
 
 async function renderKnowledgeEdgeDetail(edgeID) {
@@ -1940,11 +2608,16 @@ async function renderKnowledgeEdgeDetail(edgeID) {
             <strong>证据来源</strong>
             <pre class="knowledge-evidence">${escapeHTML(edge.evidence || '暂无证据')}</pre>
         </div>
+        <div class="knowledge-detail-actions">
+            <button class="btn-small" onclick="submitKnowledgeReviewCandidate('edge', ${jsStringArg(edge.id)})">提交审核</button>
+        </div>
         <div class="knowledge-detail-section two-cols">
             <button class="knowledge-neighbor" onclick="renderKnowledgeNodeDetail(${jsStringArg(detail.source?.id || 0)})">${escapeHTML(detail.source?.name || '源实体')}<span>${escapeHTML(detail.source?.type || '')}</span></button>
             <button class="knowledge-neighbor" onclick="renderKnowledgeNodeDetail(${jsStringArg(detail.target?.id || 0)})">${escapeHTML(detail.target?.name || '目标实体')}<span>${escapeHTML(detail.target?.type || '')}</span></button>
         </div>
+        <div id="knowledge-review-panel" class="knowledge-review-panel"></div>
     `;
+    loadKnowledgeReviewCandidates();
 }
 
 function renderKnowledgeEmptyDetail() {
@@ -1955,7 +2628,77 @@ function renderKnowledgeEmptyDetail() {
             <strong>没有可展示的实体</strong>
             <span>可以先录入项目文档，或清空实体类型 / 关系类型过滤条件。</span>
         </div>
+        <div id="knowledge-review-panel" class="knowledge-review-panel"></div>
     `;
+    loadKnowledgeReviewCandidates();
+}
+
+async function submitKnowledgeReviewCandidate(itemType, itemID) {
+    const reason = prompt('提交到图谱候选审核的原因：', '需要人工确认该图谱事实是否准确');
+    if (reason === null) return;
+    const resp = await knowledgeAPI.createReviewCandidate({
+        itemType,
+        itemID,
+        reason,
+        query: currentKnowledgeQueryOptions().query || '',
+    });
+    if (resp && resp.code === 0 && resp.data?.success) {
+        showToast('已提交图谱审核候选', 'success');
+        loadKnowledgeReviewCandidates();
+    } else {
+        showToast(resp?.message || resp?.data?.msg || '提交审核失败', 'error');
+    }
+}
+
+async function loadKnowledgeReviewCandidates() {
+    const panel = document.getElementById('knowledge-review-panel');
+    if (!panel) return;
+    panel.innerHTML = '<div class="empty-tip small">加载审核候选...</div>';
+    const resp = await knowledgeAPI.reviewCandidates({ limit: 20 });
+    if (!(resp && resp.code === 0 && resp.data?.success)) {
+        panel.innerHTML = `<div class="empty-tip small">审核候选不可用<br><small>${escapeHTML(resp?.message || resp?.data?.msg || '')}</small></div>`;
+        return;
+    }
+    const candidates = resp.data.candidates || [];
+    panel.innerHTML = `
+        <div class="knowledge-review-head">
+            <strong>图谱候选审核</strong>
+            <span>${candidates.length} / ${resp.data.total || candidates.length}</span>
+        </div>
+        ${candidates.length ? candidates.map(renderKnowledgeReviewCandidate).join('') : '<div class="empty-tip small">暂无候选</div>'}
+    `;
+}
+
+function renderKnowledgeReviewCandidate(item) {
+    const statusLabel = ({ pending: '待审核', approved: '已通过', rejected: '已拒绝' })[item.status] || item.status || '待审核';
+    const canReview = item.status === 'pending';
+    return `
+        <div class="knowledge-review-item">
+            <div>
+                <strong>${escapeHTML(item.name || '图谱事实')}</strong>
+                <span>${escapeHTML(item.item_type || '')} #${escapeHTML(String(item.item_id || ''))} · ${escapeHTML(statusLabel)}</span>
+                <p>${escapeHTML(item.reason || item.summary || '')}</p>
+            </div>
+            ${canReview ? `
+                <div class="knowledge-review-actions">
+                    <button class="btn-small" onclick="reviewKnowledgeCandidate(${jsArg(item.id)}, 'approve')">通过</button>
+                    <button class="btn-small danger-soft" onclick="reviewKnowledgeCandidate(${jsArg(item.id)}, 'reject')">拒绝</button>
+                </div>
+            ` : `<small>${escapeHTML(item.review_note || item.reviewed_at || '')}</small>`}
+        </div>
+    `;
+}
+
+async function reviewKnowledgeCandidate(id, action) {
+    const note = prompt(action === 'approve' ? '通过说明：' : '拒绝原因：', '');
+    if (note === null) return;
+    const resp = await knowledgeAPI.reviewCandidate({ id, action, note });
+    if (resp && resp.code === 0 && resp.data?.success) {
+        showToast('审核状态已更新', 'success');
+        loadKnowledgeReviewCandidates();
+    } else {
+        showToast(resp?.message || resp?.data?.msg || '审核失败', 'error');
+    }
 }
 
 function resetKnowledgeGraphView() {
@@ -2311,6 +3054,7 @@ async function resolveConversationName(conversationID, type) {
 }
 
 async function openConversation(conversationID, type, isDeletedGroup = false) {
+    activateChatWorkspaceForContent();
     const openSeq = ++conversationOpenSeq;
     botChatSeq++;
     const targetConversationID = conversationID;
@@ -2405,7 +3149,9 @@ async function openConversation(conversationID, type, isDeletedGroup = false) {
 
     if (resp && resp.code === 0 && resp.data && resp.data.messages) {
         const messages = resp.data.messages;
-        currentMessages = messages;
+        const cached = getCachedMessages(conversationID);
+        currentMessages = cached.length ? mergeMessagesByIdentity(cached, messages) : messages;
+        cacheMessages(conversationID, currentMessages);
         const senderIDs = [...new Set(messages.map(m => m.sender_id))];
         await resolveUserNames(senderIDs);
         if (openSeq !== conversationOpenSeq || !sameID(currentConversationID, targetConversationID) || currentBotID !== null) return;
@@ -2420,7 +3166,8 @@ async function openConversation(conversationID, type, isDeletedGroup = false) {
         }
         const refreshed = await messageAPI.getHistory(conversationID);
         if (refreshed && refreshed.code === 0 && refreshed.data && refreshed.data.messages) {
-            currentMessages = refreshed.data.messages;
+            currentMessages = mergeMessagesByIdentity(currentMessages, refreshed.data.messages);
+            cacheMessages(conversationID, currentMessages);
         }
         if (openSeq !== conversationOpenSeq || !sameID(currentConversationID, targetConversationID) || currentBotID !== null) return;
         renderCurrentMessages();
@@ -2541,6 +3288,7 @@ function appendMessage(m) {
     if (identity && currentMessages.some(item => messageIdentity(item) === identity)) {
         if (m.id || m.msg_id) {
             currentMessages = currentMessages.map(item => messageIdentity(item) === identity ? { ...item, ...m } : item);
+            cacheMessages(currentConversationID, currentMessages);
             renderCurrentMessages();
         }
         return;
@@ -2552,12 +3300,14 @@ function appendMessage(m) {
     if (m.sender_id && !userNickCache[m.sender_id]) {
         resolveUserNames([m.sender_id]).then(() => {
             currentMessages.push(m);
+            cacheMessages(currentConversationID, currentMessages);
             msgList.innerHTML += createMessageHTML(m);
             hydrateMedia(msgList);
             msgList.scrollTop = msgList.scrollHeight;
         });
     } else {
         currentMessages.push(m);
+        cacheMessages(currentConversationID, currentMessages);
         msgList.innerHTML += createMessageHTML(m);
         hydrateMedia(msgList);
         msgList.scrollTop = msgList.scrollHeight;
@@ -3939,7 +4689,7 @@ async function uploadAndSendFile() {
         if (file.type.startsWith('image/')) msgType = 'image';
         else if (file.type.startsWith('audio/')) msgType = 'voice';
 
-        const payload = makeMediaPayload(fileURL, fileID, file.name);
+        const payload = makeMediaPayloadWithMeta(fileURL, fileID, file.name, file);
         let content = payload;
         if (msgType === 'image') {
             content = `[img]${payload}[/img]`;
@@ -3999,7 +4749,7 @@ async function sendVoiceBlob(blob, durationMs) {
     const fileURL = uploadResp.data.file_url || '';
     const fileID = uploadResp.data.file_id || '';
     const name = `${formatRecordDuration(durationMs)} voice.${ext}`;
-    const payload = makeMediaPayload(fileURL, fileID, name);
+    const payload = makeMediaPayloadWithMeta(fileURL, fileID, name, file);
     const content = `[voice]${payload}[/voice]`;
     const sendConversationID = currentConversationID;
     const sendResp = await messageAPI.send(sendConversationID, content, 'voice');
@@ -4097,6 +4847,26 @@ function bindVoiceRecorder() {
     window.addEventListener('touchcancel', stopVoiceRecording, { passive: false });
 }
 
+async function analyzeImageOCR(fileID, fileName = '图片') {
+    if (!fileID) {
+        showToast('图片缺少 file_id，无法识别', 'warning');
+        return;
+    }
+    showModal(`图片识别 - ${escapeHTML(fileName)}`, '<div class="empty-tip">正在调用 OCR 识别图片内容...</div>');
+    const resp = await fileAPI.ocr(fileID);
+    if (resp && resp.code === 0 && resp.data?.success) {
+        document.getElementById('modal-body').innerHTML = `
+            <div class="agent-help-box">
+                <strong>OCR 识别结果</strong>
+                <p>这段文本来自图片解析，可复制给 Agent 继续分析；如果图片是复杂截图，结果可能需要人工校对。</p>
+            </div>
+            <div class="ocr-result-text">${renderMarkdownText(resp.data.text || '未识别到文本')}</div>
+        `;
+    } else {
+        document.getElementById('modal-body').innerHTML = `<div class="empty-tip">图片识别失败<br><small>${escapeHTML(resp?.message || resp?.data?.msg || '请检查 OCR 配置或稍后重试')}</small></div>`;
+    }
+}
+
 function renderMessageContent(content, msgType, options = {}) {
     if (msgType === 'broadcast') {
         return `<div class="broadcast-msg"><span class="broadcast-badge">广播</span><span>${options.markdown ? renderMarkdownText(content) : escapeHTML(content)}</span></div>`;
@@ -4106,7 +4876,7 @@ function renderMessageContent(content, msgType, options = {}) {
         const key = rememberMedia(media);
         const url = resolveMediaURL(media);
         const dataAttrs = media.id ? ` data-media-id="${escapeHTML(media.id)}" data-media-key="${escapeHTML(key)}" data-media-url="${escapeHTML(media.url || '')}" data-media-name="${escapeHTML(media.name || '')}"` : '';
-        return `<div class="image-msg-wrap"><img src="${escapeHTML(url)}"${dataAttrs} alt="${escapeHTML(media.name || '图片')}" class="chat-image" onclick="window.open(this.src,'_blank')" onerror="this.closest('.image-msg-wrap').querySelector('.media-error').style.display='inline';"><span class="media-error" style="display:none;">图片加载失败</span></div>`;
+        return `<div class="image-msg-wrap"><img src="${escapeHTML(url)}"${dataAttrs} alt="${escapeHTML(media.name || '图片')}" class="chat-image" onclick="window.open(this.src,'_blank')" onerror="this.closest('.image-msg-wrap').querySelector('.media-error').style.display='inline';"><span class="media-error" style="display:none;">图片加载失败</span>${media.id ? `<button type="button" class="image-ocr-btn" onclick="analyzeImageOCR(${jsStringArg(media.id)}, ${jsStringArg(media.name || '图片')})">识别图片</button>` : ''}</div>`;
     }
     if (msgType === 'voice' || (content && content.startsWith('[voice]'))) {
         const media = parseMediaPayload(content, 'voice');
@@ -4166,15 +4936,23 @@ function renderTextMessage(content) {
 async function showSystemSettings() {
     showModal('系统设置', `
         <div class="settings-tabs">
-            <button class="btn-small active" onclick="renderLLMSettings()">LLM 预设</button>
-            <button class="btn-small" onclick="renderPromptSettings()">Prompt</button>
+            <button class="btn-small active" data-settings-tab="llm" onclick="renderLLMSettings()">LLM 预设</button>
+            <button class="btn-small" data-settings-tab="prompt" onclick="renderPromptSettings()">Prompt</button>
+            <button class="btn-small" data-settings-tab="mcp" onclick="renderMCPSettings()">MCP 工具</button>
         </div>
         <div id="settings-content" class="settings-content">加载中...</div>
     `);
     await renderLLMSettings();
 }
 
+function activateSettingsTab(tab) {
+    document.querySelectorAll('.settings-tabs [data-settings-tab]').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.settingsTab === tab);
+    });
+}
+
 async function renderLLMSettings() {
+    activateSettingsTab('llm');
     const area = document.getElementById('settings-content');
     if (!area) return;
     area.innerHTML = '<div class="empty-tip">加载中...</div>';
@@ -4292,6 +5070,7 @@ async function deleteLLMSetting(id) {
 }
 
 async function renderPromptSettings() {
+    activateSettingsTab('prompt');
     const area = document.getElementById('settings-content');
     if (!area) return;
     const resp = await settingsAPI.listPrompts();
@@ -4319,6 +5098,318 @@ async function saveTranslationPrompt() {
     } else {
         showToast(resp?.message || resp?.data?.msg || '保存失败', 'error');
     }
+}
+
+async function renderMCPSettings() {
+    activateSettingsTab('mcp');
+    const area = document.getElementById('settings-content');
+    if (!area) return;
+    area.innerHTML = '<div class="empty-tip">加载中...</div>';
+    const resp = await settingsAPI.listMCPServers({ includeDisabled: true });
+    if (!resp || resp.code !== 0 || !resp.data?.success) {
+        area.innerHTML = `<div class="empty-tip">加载失败<br><small>${escapeHTML(resp?.message || resp?.data?.msg || '')}</small></div>`;
+        return;
+    }
+    const servers = resp.data.servers || [];
+    area.innerHTML = `
+        <div class="agent-help-box">
+            <strong>MCP 工具接入</strong>
+            <p>这里配置外部 MCP Server。Agent 会通过 mcp-gateway-service 发现工具并记录审计；低信任工具默认需要后续审批。stdio 当前只保存配置，不在服务端执行。</p>
+        </div>
+        <input id="setting-mcp-id" type="hidden" value="">
+        <div class="settings-list">
+            ${servers.length ? servers.map(renderMCPServerRow).join('') : '<div class="empty-tip">暂无外部 MCP Server</div>'}
+        </div>
+        <div class="settings-editor">
+            <h4>工具发现与审计</h4>
+            <div class="profile-form-grid">
+                <div class="form-group">
+                    <label>Agent ID</label>
+                    <input id="mcp-preview-agent-id" type="text" placeholder="为空则只看用户/全局工具">
+                </div>
+                <div class="form-group">
+                    <label>会话 ID</label>
+                    <input id="mcp-preview-conversation-id" type="text" placeholder="为空则不使用会话级配置">
+                </div>
+            </div>
+            <div class="btn-row">
+                <button class="btn-secondary" onclick="loadMCPToolsPreview()">查看可用工具</button>
+                <button class="btn-secondary" onclick="loadMCPTracePreview()">查看调用审计</button>
+            </div>
+            <div id="mcp-preview-panel" class="data-list compact-list"></div>
+        </div>
+        <div class="settings-editor">
+            <h4>新增 / 修改 MCP Server</h4>
+            <div class="profile-form-grid">
+                <div class="form-group">
+                    <label>名称</label>
+                    <input id="setting-mcp-name" type="text" placeholder="例如：GitHub MCP / 内部工单 MCP">
+                </div>
+                <div class="form-group">
+                    <label>作用域</label>
+                    <select id="setting-mcp-scope" class="form-select">
+                        <option value="global">全局</option>
+                        <option value="user">仅本人</option>
+                        <option value="agent">指定 Agent</option>
+                        <option value="conversation">指定会话</option>
+                    </select>
+                    <small class="form-hint">Agent/会话级配置需要填写对应 ID；全局和本人配置会自动注入当前用户的 Agent 运行。</small>
+                </div>
+                <div class="form-group">
+                    <label>Agent ID</label>
+                    <input id="setting-mcp-agent-id" type="text" placeholder="Agent 级或会话级必填">
+                </div>
+                <div class="form-group">
+                    <label>会话 ID</label>
+                    <input id="setting-mcp-conversation-id" type="text" placeholder="会话级必填">
+                </div>
+                <div class="form-group">
+                    <label>传输方式</label>
+                    <select id="setting-mcp-transport" class="form-select">
+                        <option value="streamable_http">Streamable HTTP / JSON-RPC</option>
+                        <option value="sse">SSE / JSON-RPC 兼容</option>
+                        <option value="stdio">stdio（仅保存，不执行）</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>信任级别</label>
+                    <select id="setting-mcp-trust" class="form-select">
+                        <option value="low">低信任，需要审批</option>
+                        <option value="normal">普通</option>
+                        <option value="high">高信任</option>
+                    </select>
+                </div>
+            </div>
+            <div class="form-group">
+                <label>Endpoint URL</label>
+                <input id="setting-mcp-endpoint" type="text" placeholder="https://example.com/mcp">
+            </div>
+            <div class="form-group">
+                <label>说明</label>
+                <input id="setting-mcp-desc" type="text" placeholder="这个 MCP Server 提供什么工具">
+            </div>
+            <div class="profile-form-grid">
+                <div class="form-group">
+                    <label>认证方式</label>
+                    <select id="setting-mcp-auth-type" class="form-select">
+                        <option value="bearer">Bearer Token</option>
+                        <option value="api_key">X-API-Key</option>
+                        <option value="basic">Basic</option>
+                        <option value="">无</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Secret</label>
+                    <input id="setting-mcp-secret" type="password" placeholder="留空则保留原密钥">
+                </div>
+            </div>
+            <div class="profile-form-grid">
+                <div class="form-group">
+                    <label>允许工具 JSON</label>
+                    <textarea id="setting-mcp-allow-tools" rows="3" placeholder='["search","read_file"]'></textarea>
+                    <small class="form-hint">为空表示不限制；建议生产环境配置 allowlist。</small>
+                </div>
+                <div class="form-group">
+                    <label>拒绝工具 JSON</label>
+                    <textarea id="setting-mcp-deny-tools" rows="3" placeholder='["delete_file","run_shell"]'></textarea>
+                </div>
+            </div>
+            <div class="profile-form-grid">
+                <div class="form-group">
+                    <label>Headers JSON</label>
+                    <textarea id="setting-mcp-headers" rows="3" placeholder='{"X-Workspace":"demo"}'></textarea>
+                </div>
+                <div class="form-group">
+                    <label>stdio Command / Args JSON</label>
+                    <input id="setting-mcp-command" type="text" placeholder="node / python / mcp-server">
+                    <textarea id="setting-mcp-args" rows="3" placeholder='["server.js"]'></textarea>
+                </div>
+            </div>
+            <label class="checkbox-row"><input id="setting-mcp-enabled" type="checkbox" checked><span>启用该 MCP Server</span></label>
+            <div class="btn-row">
+                <button class="btn-secondary" onclick="clearMCPSettingForm()">清空表单</button>
+                <button class="btn-primary" onclick="saveMCPSetting()">保存 MCP Server</button>
+            </div>
+        </div>
+    `;
+}
+
+function renderMCPServerRow(server) {
+    const enabledText = server.enabled ? '已启用' : '已停用';
+    const scopeText = mcpScopeLabel(server.scope);
+    const trustText = mcpTrustLabel(server.trust_level);
+    return `
+        <div class="data-row mcp-row ${server.enabled ? '' : 'disabled'}">
+            <div class="data-row-main">
+                <strong>${escapeHTML(server.name || '未命名 MCP')}</strong>
+                <span>${escapeHTML(server.description || server.endpoint_url || server.command || '暂无说明')}</span>
+            </div>
+            <div class="data-row-meta">
+                <span>${escapeHTML(scopeText)} · ${escapeHTML(server.transport || 'streamable_http')}</span>
+                <span>${escapeHTML(enabledText)} · ${escapeHTML(trustText)} · ${server.has_secret ? '已保存密钥' : '无密钥'}</span>
+            </div>
+            <div class="data-row-actions">
+                <button class="btn-small" onclick="fillMCPSettingForm(${jsStringArg(JSON.stringify(server).replace(/</g, '\\u003c'))})">编辑</button>
+                <button class="btn-small danger-soft" onclick="deleteMCPSetting(${jsArg(server.id)})">删除</button>
+            </div>
+        </div>
+    `;
+}
+
+async function loadMCPToolsPreview() {
+    const panel = document.getElementById('mcp-preview-panel');
+    if (!panel) return;
+    panel.innerHTML = '<div class="empty-tip">加载工具中...</div>';
+    const agentID = Number(document.getElementById('mcp-preview-agent-id')?.value || 0);
+    const conversationID = Number(document.getElementById('mcp-preview-conversation-id')?.value || 0);
+    const resp = await mcpAPI.tools({ agentID, conversationID });
+    const tools = resp?.data?.tools || [];
+    if (!(resp && resp.code === 0 && resp.data?.success)) {
+        panel.innerHTML = `<div class="empty-tip">${escapeHTML(resp?.message || resp?.data?.msg || '工具发现失败')}</div>`;
+        return;
+    }
+    panel.innerHTML = tools.length ? tools.map(tool => `
+        <div class="data-row">
+            <div class="data-row-main">
+                <strong>${escapeHTML(tool.name || '')}</strong>
+                <span>${escapeHTML(tool.description || '暂无说明')}</span>
+            </div>
+            <div class="data-row-meta">
+                <span>${escapeHTML(tool.source || '')} · ${escapeHTML(tool.server_name || '')}</span>
+                <span>${tool.requires_approval ? '需要审批' : '可直接调用'}</span>
+            </div>
+        </div>
+    `).join('') : '<div class="empty-tip">当前上下文没有可用 MCP 工具</div>';
+}
+
+async function loadMCPTracePreview() {
+    const panel = document.getElementById('mcp-preview-panel');
+    if (!panel) return;
+    panel.innerHTML = '<div class="empty-tip">加载审计中...</div>';
+    const agentID = Number(document.getElementById('mcp-preview-agent-id')?.value || 0);
+    const conversationID = Number(document.getElementById('mcp-preview-conversation-id')?.value || 0);
+    const resp = await mcpAPI.traces({ agentID, conversationID, limit: 20 });
+    const traces = resp?.data?.traces || [];
+    if (!(resp && resp.code === 0 && resp.data?.success)) {
+        panel.innerHTML = `<div class="empty-tip">${escapeHTML(resp?.message || resp?.data?.msg || '审计加载失败')}</div>`;
+        return;
+    }
+    panel.innerHTML = traces.length ? traces.map(trace => `
+        <div class="data-row">
+            <div class="data-row-main">
+                <strong>${escapeHTML(trace.tool_name || '')}</strong>
+                <span>${escapeHTML(trace.trace_id || '')}</span>
+            </div>
+            <div class="data-row-meta">
+                <span>${escapeHTML(trace.status || '')} · ${escapeHTML(trace.source || '')} · ${escapeHTML(trace.server_name || '')}</span>
+                <span>${escapeHTML(trace.created_at || '')}</span>
+            </div>
+        </div>
+    `).join('') : '<div class="empty-tip">暂无 MCP 工具调用审计</div>';
+}
+
+function fillMCPSettingForm(serverJSON) {
+    const server = JSON.parse(serverJSON);
+    document.getElementById('setting-mcp-id').value = server.id || '';
+    document.getElementById('setting-mcp-name').value = server.name || '';
+    document.getElementById('setting-mcp-desc').value = server.description || '';
+    document.getElementById('setting-mcp-scope').value = server.scope || 'user';
+    document.getElementById('setting-mcp-agent-id').value = server.agent_id || '';
+    document.getElementById('setting-mcp-conversation-id').value = server.conversation_id || '';
+    document.getElementById('setting-mcp-transport').value = server.transport || 'streamable_http';
+    document.getElementById('setting-mcp-trust').value = server.trust_level || 'low';
+    document.getElementById('setting-mcp-endpoint').value = server.endpoint_url || '';
+    document.getElementById('setting-mcp-auth-type').value = server.auth_type || 'bearer';
+    document.getElementById('setting-mcp-secret').value = '';
+    document.getElementById('setting-mcp-allow-tools').value = server.allow_tools_json || '';
+    document.getElementById('setting-mcp-deny-tools').value = server.deny_tools_json || '';
+    document.getElementById('setting-mcp-headers').value = server.headers_json || '';
+    document.getElementById('setting-mcp-command').value = server.command || '';
+    document.getElementById('setting-mcp-args').value = server.args_json || '';
+    document.getElementById('setting-mcp-enabled').checked = server.enabled !== false;
+}
+
+function clearMCPSettingForm() {
+    ['setting-mcp-id', 'setting-mcp-name', 'setting-mcp-desc', 'setting-mcp-agent-id', 'setting-mcp-conversation-id', 'setting-mcp-endpoint', 'setting-mcp-secret', 'setting-mcp-allow-tools', 'setting-mcp-deny-tools', 'setting-mcp-headers', 'setting-mcp-command', 'setting-mcp-args'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.value = '';
+    });
+    const scope = document.getElementById('setting-mcp-scope');
+    if (scope) scope.value = 'user';
+    const transport = document.getElementById('setting-mcp-transport');
+    if (transport) transport.value = 'streamable_http';
+    const trust = document.getElementById('setting-mcp-trust');
+    if (trust) trust.value = 'low';
+    const auth = document.getElementById('setting-mcp-auth-type');
+    if (auth) auth.value = 'bearer';
+    const enabled = document.getElementById('setting-mcp-enabled');
+    if (enabled) enabled.checked = true;
+}
+
+async function saveMCPSetting() {
+    const secret = document.getElementById('setting-mcp-secret')?.value || '';
+    const data = {
+        id: Number(document.getElementById('setting-mcp-id')?.value || 0),
+        name: document.getElementById('setting-mcp-name')?.value?.trim() || '',
+        description: document.getElementById('setting-mcp-desc')?.value?.trim() || '',
+        scope: document.getElementById('setting-mcp-scope')?.value || 'user',
+        agent_id: Number(document.getElementById('setting-mcp-agent-id')?.value || 0),
+        conversation_id: Number(document.getElementById('setting-mcp-conversation-id')?.value || 0),
+        transport: document.getElementById('setting-mcp-transport')?.value || 'streamable_http',
+        endpoint_url: document.getElementById('setting-mcp-endpoint')?.value?.trim() || '',
+        command: document.getElementById('setting-mcp-command')?.value?.trim() || '',
+        args_json: normalizeOptionalJSONText('setting-mcp-args'),
+        headers_json: normalizeOptionalJSONText('setting-mcp-headers'),
+        auth_type: document.getElementById('setting-mcp-auth-type')?.value || '',
+        secret,
+        secret_action: secret.trim() ? 'set' : 'keep',
+        enabled: document.getElementById('setting-mcp-enabled')?.checked !== false,
+        trust_level: document.getElementById('setting-mcp-trust')?.value || 'low',
+        allow_tools_json: normalizeOptionalJSONText('setting-mcp-allow-tools'),
+        deny_tools_json: normalizeOptionalJSONText('setting-mcp-deny-tools'),
+    };
+    if (!data.name) {
+        showToast('请填写 MCP 名称', 'warning');
+        return;
+    }
+    const resp = await settingsAPI.saveMCPServer(data);
+    if (resp && resp.code === 0 && resp.data?.success) {
+        showToast('MCP Server 已保存', 'success');
+        await renderMCPSettings();
+    } else {
+        showToast(resp?.message || resp?.data?.msg || '保存 MCP Server 失败', 'error');
+    }
+}
+
+async function deleteMCPSetting(id) {
+    if (!confirm('确定删除这个 MCP Server 配置？')) return;
+    const resp = await settingsAPI.deleteMCPServer(id);
+    if (resp && resp.code === 0 && resp.data?.success) {
+        showToast('MCP Server 已删除', 'success');
+        await renderMCPSettings();
+    } else {
+        showToast(resp?.message || resp?.data?.msg || '删除 MCP Server 失败', 'error');
+    }
+}
+
+function normalizeOptionalJSONText(id) {
+    const value = document.getElementById(id)?.value?.trim() || '';
+    if (!value) return '';
+    try {
+        JSON.parse(value);
+        return value;
+    } catch (err) {
+        showToast(`${id} 不是合法 JSON`, 'warning');
+        return value;
+    }
+}
+
+function mcpScopeLabel(scope) {
+    return ({ global: '全局', user: '仅本人', agent: '指定 Agent', conversation: '指定会话' })[scope] || scope || '仅本人';
+}
+
+function mcpTrustLabel(trust) {
+    return ({ low: '低信任', normal: '普通信任', high: '高信任' })[trust] || trust || '低信任';
 }
 
 async function renderSkillSettings() {
@@ -4382,47 +5473,7 @@ function renderSkillCard(skill) {
 }
 
 async function showSkillManager() {
-    showModal('Skill 管理', `
-        <div class="agent-help-box">
-            <strong>Agent Skill</strong>
-            <p>Skill 是给 Agent 注入的工作方法说明。上传后会提取摘要，创建或编辑 Agent 时可选择注入；也可以直接在这里修改 SKILL.md。</p>
-        </div>
-        <div class="skill-manager-layout">
-            <section class="settings-editor">
-                <h4>上传全局 Skill</h4>
-                <div class="profile-form-grid">
-                    <div class="form-group">
-                        <label>Skill 名称</label>
-                        <input id="setting-skill-name" type="text" placeholder="例如：代码审查 / 资料总结">
-                    </div>
-                    <div class="form-group">
-                        <label>说明</label>
-                        <input id="setting-skill-desc" type="text" placeholder="这个 Skill 会给 Agent 增加什么能力">
-                    </div>
-                </div>
-                <div class="profile-form-grid">
-                    <div class="form-group">
-                        <label>上传 SKILL.md 或 zip</label>
-                        <input id="setting-skill-file" type="file" accept=".md,.zip">
-                    </div>
-                    <div class="form-group">
-                        <label>或上传 Skill 文件夹</label>
-                        <input id="setting-skill-folder" type="file" webkitdirectory directory multiple>
-                    </div>
-                </div>
-                <label class="checkbox-row"><input id="setting-skill-default" type="checkbox"><span>设为默认全局 Skill</span></label>
-                <button class="btn-primary" onclick="uploadGlobalSkill()">上传 Skill</button>
-            </section>
-            <section>
-                <div class="memory-toolbar compact">
-                    <strong>全局 Skill</strong>
-                    <button class="btn-small" onclick="loadSkillManagerList()">刷新</button>
-                </div>
-                <div id="global-skill-list" class="data-list">加载中...</div>
-            </section>
-        </div>
-    `);
-    await loadSkillManagerList();
+    await showSkillWorkspace();
 }
 
 async function loadSkillManagerList() {
@@ -4534,6 +5585,7 @@ async function loadBotSidebar() {
     const list = document.getElementById('bot-list');
     const resp = await agentAPI.list();
     if (resp && resp.code === 0 && resp.data && resp.data.bots) {
+        cleanupDetachedAgentMenus();
         botCache = resp.data.bots;
         agentUserIDToBot = {};
         botCache.forEach(bot => {
@@ -4844,6 +5896,10 @@ function closeAgentItemMenus(exceptID = '') {
     });
 }
 
+function cleanupDetachedAgentMenus() {
+    document.querySelectorAll('body > .agent-item-menu').forEach(menu => menu.remove());
+}
+
 function toggleAgentItemMenu(menuID, triggerEl = null) {
     const menu = document.getElementById(menuID);
     if (!menu) return;
@@ -4867,6 +5923,33 @@ function toggleAgentItemMenu(menuID, triggerEl = null) {
     menu.style.top = `${preferredTop + menuHeight > window.innerHeight - 8 ? Math.max(8, fallbackTop) : preferredTop}px`;
 }
 
+async function copyText(text, successMessage = '已复制') {
+    const value = String(text || '').trim();
+    if (!value) {
+        showToast('没有可复制的内容', 'warning');
+        return;
+    }
+    try {
+        if (navigator.clipboard && window.isSecureContext) {
+            await navigator.clipboard.writeText(value);
+        } else {
+            const textarea = document.createElement('textarea');
+            textarea.value = value;
+            textarea.setAttribute('readonly', '');
+            textarea.style.position = 'fixed';
+            textarea.style.left = '-9999px';
+            document.body.appendChild(textarea);
+            textarea.select();
+            document.execCommand('copy');
+            textarea.remove();
+        }
+        showToast(successMessage, 'success');
+    } catch (err) {
+        writeLocalLog('warn', '复制文本失败', { message: err.message });
+        showToast('复制失败，请手动选择文本', 'warning');
+    }
+}
+
 function memoryScopeLabel(scope) {
     return {
         user: '个人记忆',
@@ -4884,34 +5967,50 @@ function memoryTypeLabel(type) {
         group_profile: '群背景',
         project_state: '项目状态',
         chat_summary: '聊天摘要',
-        agent_run_summary: '运行摘要'
+        agent_run_summary: '运行摘要',
+        learning_state: '学习状态',
+        repeated_issue: '反复困惑'
     }[type] || type || '事实';
 }
 
-async function showMemoryManager() {
-    showModal('记忆管理', `
-        <div class="agent-help-box">
-            <strong>个人可控记忆</strong>
-            <p>这里展示当前账号拥有的 Agent 记忆。表达习惯和用户画像默认只对本人可见，你可以随时修改、关闭或删除。</p>
-        </div>
-        <div class="memory-toolbar">
-            <select id="memory-bot-filter" class="form-select">
-                <option value="">全部助手</option>
-                ${botCache.map(b => `<option value="${escapeHTML(String(b.id))}">${escapeHTML(getBotDisplayName(b))}</option>`).join('')}
-            </select>
-            <select id="memory-scope-filter" class="form-select">
-                <option value="">全部范围</option>
-                <option value="user">个人记忆</option>
-                <option value="group">群画像</option>
-                <option value="conversation">会话记忆</option>
-                <option value="session">本次会话</option>
-            </select>
-            <button class="btn-small" onclick="loadMemoryList()">刷新</button>
-            <button class="btn-small" onclick="showCreateMemoryForm()">+ 新增</button>
-        </div>
-        <div id="memory-list" class="memory-list">加载中...</div>
-    `);
-    await loadMemoryList();
+function memoryOwnerLabel(botID) {
+    if (String(botID || '0') === '0') return '系统 / IM 原生';
+    const bot = botCache.find(b => sameID(b.id, botID));
+    return bot ? getBotDisplayName(bot) : `Agent ${botID}`;
+}
+
+function memoryStatusLabel(status) {
+    return { pending: '待确认', accepted: '已接受', rejected: '已拒绝' }[status] || status || '待确认';
+}
+
+function conversationArtifactLabel(type) {
+    return {
+        conversation_summary: '会话摘要',
+        decision: '决策',
+        task: '任务',
+        topic_chunk: '话题块',
+        quote: '关键表述',
+        memory_candidate: '候选记忆'
+    }[type] || type || '归档产物';
+}
+
+async function showMemoryManager(defaultTab = 'facts') {
+    showMemoryWorkspace.defaultTab = defaultTab || 'facts';
+    await showMemoryWorkspace();
+}
+
+async function switchMemoryManagerTab(tab) {
+    ['facts', 'candidates'].forEach(name => {
+        const panel = document.getElementById(`memory-panel-${name}`);
+        const btn = document.getElementById(`memory-tab-${name}`);
+        if (panel) panel.style.display = name === tab ? 'block' : 'none';
+        if (btn) btn.classList.toggle('active', name === tab);
+    });
+    if (tab === 'candidates') {
+        await loadMemoryCandidates();
+    } else {
+        await loadMemoryList();
+    }
 }
 
 async function loadMemoryList() {
@@ -4931,7 +6030,6 @@ async function loadMemoryList() {
         return;
     }
     list.innerHTML = memories.map(m => {
-        const bot = botCache.find(b => sameID(b.id, m.bot_id));
         return `
             <div class="data-row memory-row ${m.enabled ? '' : 'disabled'}">
                 <div class="data-row-main">
@@ -4940,7 +6038,7 @@ async function loadMemoryList() {
                 </div>
                 <div class="data-row-meta">
                     <span>${escapeHTML(memoryScopeLabel(m.scope))} · ${escapeHTML(memoryTypeLabel(m.type))}</span>
-                    <span>${escapeHTML(bot ? getBotDisplayName(bot) : ('Agent ' + m.bot_id))}</span>
+                    <span>${escapeHTML(memoryOwnerLabel(m.bot_id))}</span>
                     <span>${m.visibility === 'shared' ? '共享' : '仅自己可见'}</span>
                     <span>${m.enabled ? '已启用' : '已关闭'}</span>
                 </div>
@@ -4952,6 +6050,138 @@ async function loadMemoryList() {
             </div>
         `;
     }).join('');
+}
+
+async function loadMemoryCandidates() {
+    const list = document.getElementById('memory-candidate-list');
+    if (!list) return;
+    list.innerHTML = '<div class="empty-tip">加载中...</div>';
+    const botID = document.getElementById('memory-candidate-bot-filter')?.value || '';
+    const status = document.getElementById('memory-candidate-status-filter')?.value || '';
+    const resp = await memoryAPI.candidates({ bot_id: botID, status, limit: 80 });
+    if (!resp || resp.code !== 0 || !resp.data?.success) {
+        list.innerHTML = `<div class="empty-tip">加载失败<br><small>${escapeHTML(resp?.message || resp?.data?.msg || '')}</small></div>`;
+        return;
+    }
+    const candidates = resp.data.candidates || [];
+    if (!candidates.length) {
+        list.innerHTML = '<div class="empty-tip">暂无候选记忆<br><small>会话归档和 Agent 对话可以把长期有用的信息先放到这里。</small></div>';
+        return;
+    }
+    list.innerHTML = candidates.map(item => `
+        <div class="data-row memory-row ${item.status !== 'pending' ? 'disabled' : ''}">
+            <div class="data-row-main">
+                <strong>${escapeHTML(item.title || memoryTypeLabel(item.type))}</strong>
+                <span>${renderMarkdownText(item.content || '')}</span>
+                ${item.evidence ? `<small class="memory-evidence">证据：${escapeHTML(item.evidence)}</small>` : ''}
+            </div>
+            <div class="data-row-meta">
+                <span>${escapeHTML(memoryOwnerLabel(item.bot_id))}</span>
+                <span>${escapeHTML(memoryScopeLabel(item.scope))} · ${escapeHTML(memoryTypeLabel(item.type))}</span>
+                <span>${escapeHTML(memoryStatusLabel(item.status))}</span>
+                <span>置信 ${Number(item.confidence || 0).toFixed(2)}</span>
+            </div>
+            <div class="data-row-actions">
+                ${item.status === 'pending' ? `
+                    <button class="btn-small" onclick="acceptMemoryCandidate(${jsArg(item.id)})">接受</button>
+                    <button class="btn-small danger-soft" onclick="rejectMemoryCandidate(${jsArg(item.id)})">拒绝</button>
+                ` : `<span class="muted-small">${escapeHTML(memoryStatusLabel(item.status))}</span>`}
+            </div>
+        </div>
+    `).join('');
+}
+
+function showCreateMemoryCandidateForm() {
+    showModal('新增候选记忆', `
+        <div class="agent-help-box">
+            <strong>候选记忆不会立刻注入 Agent</strong>
+            <p>它会先进入待确认区，确认后才会成为正式长期记忆。</p>
+        </div>
+        <div class="profile-form-grid">
+            <div class="form-group">
+                <label>归属</label>
+                <select id="candidate-edit-bot" class="form-select">
+                    <option value="0">系统 / IM 原生</option>
+                    ${botCache.map(b => `<option value="${escapeHTML(String(b.id))}">${escapeHTML(getBotDisplayName(b))}</option>`).join('')}
+                </select>
+            </div>
+            <div class="form-group">
+                <label>范围</label>
+                <select id="candidate-edit-scope" class="form-select">
+                    ${['user','group','conversation','session'].map(v => `<option value="${v}">${memoryScopeLabel(v)}</option>`).join('')}
+                </select>
+            </div>
+            <div class="form-group">
+                <label>类型</label>
+                <select id="candidate-edit-type" class="form-select">
+                    ${['preference','speaking_style','long_term_goal','group_profile','project_state','chat_summary','agent_run_summary','learning_state','repeated_issue'].map(v => `<option value="${v}">${memoryTypeLabel(v)}</option>`).join('')}
+                </select>
+            </div>
+            <div class="form-group">
+                <label>来源</label>
+                <input id="candidate-edit-source" type="text" value="user_manual" placeholder="例如 conversation-intelligence">
+            </div>
+        </div>
+        <div class="form-group">
+            <label>标题</label>
+            <input id="candidate-edit-title" type="text" placeholder="例如：用户学习状态">
+        </div>
+        <div class="form-group">
+            <label>内容</label>
+            <textarea id="candidate-edit-content" rows="5" placeholder="写入一条待确认的长期事实"></textarea>
+        </div>
+        <div class="form-group">
+            <label>证据</label>
+            <textarea id="candidate-edit-evidence" rows="3" placeholder="可选：来源消息、摘要或判断依据"></textarea>
+        </div>
+        <div class="modal-actions">
+            <button class="btn-secondary" onclick="showMemoryManager('candidates')">返回</button>
+            <button class="btn-primary" onclick="saveMemoryCandidate()">创建候选</button>
+        </div>
+    `);
+}
+
+async function saveMemoryCandidate() {
+    const data = {
+        bot_id: apiID(document.getElementById('candidate-edit-bot').value),
+        scope: document.getElementById('candidate-edit-scope').value,
+        type: document.getElementById('candidate-edit-type').value,
+        source: document.getElementById('candidate-edit-source').value.trim() || 'user_manual',
+        title: document.getElementById('candidate-edit-title').value.trim(),
+        content: document.getElementById('candidate-edit-content').value.trim(),
+        evidence: document.getElementById('candidate-edit-evidence').value.trim(),
+    };
+    if (!data.content) {
+        showToast('候选记忆内容不能为空', 'warning');
+        return;
+    }
+    const resp = await memoryAPI.createCandidate(data);
+    if (resp && resp.code === 0 && resp.data?.success) {
+        showToast('候选记忆已创建', 'success');
+        await showMemoryManager('candidates');
+    } else {
+        showToast(resp?.message || resp?.data?.msg || '创建候选记忆失败', 'error');
+    }
+}
+
+async function acceptMemoryCandidate(id) {
+    const resp = await memoryAPI.acceptCandidate(id);
+    if (resp && resp.code === 0 && resp.data?.success) {
+        showToast('候选记忆已写入正式记忆', 'success');
+        await loadMemoryCandidates();
+    } else {
+        showToast(resp?.message || resp?.data?.msg || '接受候选记忆失败', 'error');
+    }
+}
+
+async function rejectMemoryCandidate(id) {
+    const resp = await memoryAPI.rejectCandidate(id);
+    if (resp && resp.code === 0 && resp.data?.success) {
+        showToast('候选记忆已拒绝', 'success');
+        await loadMemoryCandidates();
+    } else {
+        showToast(resp?.message || resp?.data?.msg || '拒绝候选记忆失败', 'error');
+    }
 }
 
 function showCreateMemoryForm() {
@@ -4973,6 +6203,7 @@ function showMemoryEditorModal(memory) {
             <div class="form-group">
                 <label>所属助手</label>
                 <select id="memory-edit-bot" class="form-select">
+                    <option value="0" ${String(memory?.bot_id || '0') === '0' ? 'selected' : ''}>系统 / IM 原生</option>
                     ${botCache.map(b => `<option value="${escapeHTML(String(b.id))}" ${sameID(b.id, memory?.bot_id) ? 'selected' : ''}>${escapeHTML(getBotDisplayName(b))}</option>`).join('')}
                 </select>
             </div>
@@ -4985,7 +6216,7 @@ function showMemoryEditorModal(memory) {
             <div class="form-group">
                 <label>类型</label>
                 <select id="memory-edit-type" class="form-select">
-                    ${['preference','speaking_style','long_term_goal','group_profile','project_state','chat_summary','agent_run_summary'].map(v => `<option value="${v}" ${memory?.type === v ? 'selected' : ''}>${memoryTypeLabel(v)}</option>`).join('')}
+                    ${['preference','speaking_style','long_term_goal','group_profile','project_state','chat_summary','agent_run_summary','learning_state','repeated_issue'].map(v => `<option value="${v}" ${memory?.type === v ? 'selected' : ''}>${memoryTypeLabel(v)}</option>`).join('')}
                 </select>
             </div>
             <div class="form-group">
@@ -5025,10 +6256,6 @@ async function saveMemoryFact(memoryID = 0) {
         content: document.getElementById('memory-edit-content').value.trim(),
         enabled: document.getElementById('memory-edit-enabled').checked,
     };
-    if (!data.bot_id || data.bot_id === '0') {
-        showToast('请选择所属助手', 'warning');
-        return;
-    }
     if (!data.content) {
         showToast('记忆内容不能为空', 'warning');
         return;
@@ -5061,6 +6288,754 @@ async function deleteMemoryFact(memoryID) {
     } else {
         showToast(resp?.message || resp?.data?.msg || '删除失败', 'error');
     }
+}
+
+function webSearchSourceRows(sources = []) {
+    if (!sources.length) return '<div class="empty-tip">没有可展示的网页来源。</div>';
+    return sources.map(src => `
+        <div class="data-row web-source-row">
+            <div class="data-row-main">
+                <strong>${escapeHTML(src.title || src.url || '未知来源')}</strong>
+                <span>${escapeHTML(src.snippet || '')}</span>
+                ${(src.passages || []).length ? `<div class="web-passages">${src.passages.map(p => `<p>${renderInlineMarkdown(p)}</p>`).join('')}</div>` : ''}
+            </div>
+            <div class="data-row-meta">
+                <span>${src.trusted ? '高可信' : '普通来源'}</span>
+                <span>${escapeHTML(src.fetch_status || src.source || '')}</span>
+                <span>score ${Number(src.score || 0).toFixed(2)}</span>
+            </div>
+            <div class="data-row-actions">
+                ${src.url ? `<a class="btn-small ghost-link" href="${escapeHTML(src.url)}" target="_blank" rel="noopener noreferrer">打开</a>` : ''}
+            </div>
+        </div>
+    `).join('');
+}
+
+function showWebSearchPanel(seedQuery = '') {
+    const body = renderWorkspaceShell(
+        'web-search',
+        'Web Search Augmentation',
+        '联网搜索增强',
+        '搜索可信网页、抓取正文、清洗相关段落，并把一次性上下文交给用户或 Agent。',
+        `
+            <button class="btn-secondary" onclick="showKnowledgeHomeWorkspace()">返回知识工作台</button>
+            <button class="btn-primary" onclick="runWebSearchAugment()">联网增强</button>
+        `
+    );
+    if (!body) return;
+    body.innerHTML = `
+        <section class="workspace-section web-search-page">
+            <div class="web-search-toolbar">
+                <input id="web-search-query" type="text" placeholder="输入需要查询的实时问题，例如：Milvus 最新 standalone 部署方式" value="${escapeHTML(seedQuery)}">
+                <select id="web-search-limit" class="form-select">
+                    <option value="5">5 条</option>
+                    <option value="8">8 条</option>
+                    <option value="10">10 条</option>
+                </select>
+                <button class="btn-secondary" onclick="runWebSearchOnly()">只搜索</button>
+                <button class="btn-primary" onclick="runWebSearchAugment()">联网增强</button>
+            </div>
+            <div class="web-search-note">
+                <strong>临时增强，不入库</strong>
+                <span>适合查实时版本、官方文档、价格、API 变更。结果会显示来源，默认不写入 Milvus 或长期记忆。</span>
+            </div>
+            <div id="web-search-result" class="data-list web-search-result">
+                <div class="empty-tip">输入问题后可查看搜索结果、正文片段和增强上下文。</div>
+            </div>
+        </section>
+    `;
+}
+
+async function runWebSearchOnly() {
+    const query = document.getElementById('web-search-query')?.value.trim();
+    const limit = Number(document.getElementById('web-search-limit')?.value || 5);
+    const area = document.getElementById('web-search-result');
+    if (!query) {
+        showToast('请输入搜索关键词', 'warning');
+        return;
+    }
+    area.innerHTML = '<div class="empty-tip">正在搜索...</div>';
+    const resp = await webSearchAPI.search(query, limit);
+    if (!(resp && resp.code === 0 && resp.data?.success)) {
+        area.innerHTML = `<div class="empty-tip">搜索失败<br><small>${escapeHTML(resp?.message || resp?.data?.msg || '')}</small></div>`;
+        return;
+    }
+    area.innerHTML = webSearchSourceRows(resp.data.results || []);
+}
+
+async function runWebSearchAugment() {
+    const query = document.getElementById('web-search-query')?.value.trim();
+    const limit = Number(document.getElementById('web-search-limit')?.value || 5);
+    const area = document.getElementById('web-search-result');
+    if (!query) {
+        showToast('请输入搜索问题', 'warning');
+        return;
+    }
+    area.innerHTML = '<div class="empty-tip">正在搜索并抓取网页正文...</div>';
+    const resp = await webSearchAPI.augment({ query, limit, max_fetch: Math.min(limit, 5), max_passages: 3 });
+    if (!(resp && resp.code === 0 && resp.data?.success)) {
+        area.innerHTML = `<div class="empty-tip">联网增强失败<br><small>${escapeHTML(resp?.message || resp?.data?.msg || '')}</small></div>`;
+        return;
+    }
+    area.innerHTML = `
+        <div class="web-answer-context">
+            <strong>可注入上下文</strong>
+            ${renderMarkdownText(resp.data.answer_context || '')}
+        </div>
+        ${webSearchSourceRows(resp.data.sources || [])}
+    `;
+}
+
+async function showConversationIntelligencePanel() {
+    const conversationID = currentConversationID || '';
+    showModal('会话智能归档', `
+        <div class="agent-help-box">
+            <strong>聊天记录 RAG 归档</strong>
+            <p>最近消息会被提炼成会话摘要、决策、任务、话题块和候选记忆。任务状态会显示调度、失败原因和可重试次数。</p>
+        </div>
+        <div class="conversation-intel-toolbar">
+            <input id="ci-conversation-id" type="text" placeholder="会话 ID" value="${escapeHTML(String(conversationID || ''))}">
+            <select id="ci-agent-id" class="form-select">
+                <option value="0">不绑定 Agent</option>
+                ${botCache.map(b => `<option value="${escapeHTML(String(b.id))}">${escapeHTML(getBotDisplayName(b))}</option>`).join('')}
+            </select>
+            <button class="btn-secondary" onclick="loadConversationArtifacts()">查看归档</button>
+            <button class="btn-secondary" onclick="loadConversationDigestJobs()">任务状态</button>
+            <button class="btn-primary" onclick="createAndProcessConversationDigest()">立即归档</button>
+        </div>
+        <div id="conversation-intel-job" class="rag-result"></div>
+        <div id="conversation-digest-job-list" class="data-list"></div>
+        <div id="conversation-artifact-list" class="data-list">
+            <div class="empty-tip">选择会话后可查看已有归档产物。</div>
+        </div>
+    `);
+    if (conversationID) {
+        await loadConversationDigestJobs();
+        await loadConversationArtifacts();
+    }
+}
+
+async function showAdminWorkspace() {
+    activateStandaloneWorkspace('admin');
+    document.getElementById('chat-area').style.display = 'none';
+    const welcome = document.getElementById('welcome-area');
+    welcome.style.display = 'flex';
+    welcome.innerHTML = `
+        <div class="workspace admin-console">
+            <div class="workspace-header admin-console-header">
+                <div>
+                    <span class="eyebrow">Admin Console</span>
+                    <h2>系统管理台</h2>
+                    <p>集中查看用户、群聊、媒体、Agent、知识审核、MCP 审计、系统公告和成本。</p>
+                </div>
+                <button class="btn-small ghost" onclick="renderAdminDashboard()">刷新</button>
+            </div>
+            <div class="admin-console-tabs">
+                <button class="active" data-admin-tab="dashboard" onclick="renderAdminDashboard()">总览</button>
+                <button data-admin-tab="users" onclick="renderAdminUsers()">用户</button>
+                <button data-admin-tab="groups" onclick="renderAdminGroups()">群聊</button>
+                <button data-admin-tab="media" onclick="renderAdminMedia()">媒体</button>
+                <button data-admin-tab="agents" onclick="renderAdminAgents()">Agent</button>
+                <button data-admin-tab="reviews" onclick="renderAdminKnowledgeCandidates()">审核</button>
+                <button data-admin-tab="mcp" onclick="renderAdminMCPAudit()">MCP</button>
+                <button data-admin-tab="notices" onclick="renderAdminNotices()">公告</button>
+                <button data-admin-tab="billing" onclick="renderAdminBilling()">成本</button>
+                <button data-admin-tab="audits" onclick="renderAdminAudits()">审计</button>
+            </div>
+            <div id="admin-workspace-content" class="admin-console-content">加载中...</div>
+        </div>
+    `;
+    await renderAdminDashboard();
+}
+
+function activateAdminTab(tab) {
+    document.querySelectorAll('[data-admin-tab]').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.adminTab === tab);
+    });
+}
+
+async function renderAdminMedia() {
+    activateAdminTab('media');
+    const area = document.getElementById('admin-workspace-content');
+    if (!area) return;
+    area.innerHTML = '<div class="empty-tip">加载媒体文件...</div>';
+    const resp = await adminAPI.files({ limit: '80' });
+    const files = resp?.data?.files || resp?.data?.Files || [];
+    if (!(resp && resp.code === 0) || !Array.isArray(files)) {
+        area.innerHTML = `<div class="empty-tip">媒体文件不可用<br><small>${escapeHTML(resp?.message || resp?.data?.msg || '')}</small></div>`;
+        return;
+    }
+    area.innerHTML = `
+        <div class="admin-grid">
+            ${files.length ? files.map(renderAdminFileItem).join('') : '<div class="empty-tip">暂无文件</div>'}
+        </div>
+    `;
+}
+
+async function renderAdminDashboard() {
+    activateAdminTab('dashboard');
+    const area = document.getElementById('admin-workspace-content');
+    if (!area) return;
+    area.innerHTML = '<div class="empty-tip">加载系统总览...</div>';
+    const resp = await adminAPI.dashboard();
+    if (!(resp && resp.code === 0 && resp.data?.success)) {
+        area.innerHTML = `<div class="empty-tip">总览不可用<br><small>${escapeHTML(resp?.message || resp?.data?.msg || '')}</small></div>`;
+        return;
+    }
+    const metrics = resp.data.metrics || [];
+    const notices = resp.data.notices || [];
+    const audits = resp.data.recent_audits || [];
+    area.innerHTML = `
+        <div class="admin-metric-grid">
+            ${metrics.map(m => `
+                <div class="admin-metric">
+                    <span>${escapeHTML(m.label || m.key)}</span>
+                    <strong>${escapeHTML(String(m.value || '0'))}</strong>
+                    <small>${escapeHTML(m.hint || '')}</small>
+                </div>
+            `).join('')}
+        </div>
+        <div class="admin-two-col">
+            <section>
+                <h3>近期公告</h3>
+                ${notices.length ? notices.map(renderAdminNoticeRow).join('') : '<div class="empty-tip small">暂无公告</div>'}
+            </section>
+            <section>
+                <h3>管理审计</h3>
+                ${audits.length ? audits.map(renderAdminAuditRow).join('') : '<div class="empty-tip small">暂无审计记录</div>'}
+            </section>
+        </div>
+    `;
+}
+
+async function renderAdminUsers() {
+    activateAdminTab('users');
+    const area = document.getElementById('admin-workspace-content');
+    if (!area) return;
+    area.innerHTML = adminFilterBar('admin-user-keyword', '搜索用户名、昵称、邮箱或手机号', 'renderAdminUsersList') + '<div id="admin-user-list" class="admin-table-wrap"></div>';
+    await renderAdminUsersList();
+}
+
+async function renderAdminUsersList() {
+    const keyword = document.getElementById('admin-user-keyword')?.value || '';
+    const resp = await adminAPI.users({ keyword, include_system: 'true', limit: '80' });
+    const list = document.getElementById('admin-user-list');
+    if (!list) return;
+    if (!(resp && resp.code === 0 && resp.data?.success)) {
+        list.innerHTML = `<div class="empty-tip">用户列表不可用<br><small>${escapeHTML(resp?.message || resp?.data?.msg || '')}</small></div>`;
+        return;
+    }
+    const users = resp?.data?.users || [];
+    list.innerHTML = renderAdminTable(['用户', '角色', '状态', '系统用户', '创建时间'], users.map(u => [
+        `<strong>${escapeHTML(u.nickname || u.username || '')}</strong><small>#${escapeHTML(entityID(u))} · ${escapeHTML(u.username || '')}</small>`,
+        escapeHTML(u.role || 'user'),
+        escapeHTML(u.status || ''),
+        u.is_system ? '是' : '否',
+        escapeHTML(u.created_at || ''),
+    ]), resp?.data?.total);
+}
+
+async function renderAdminGroups() {
+    activateAdminTab('groups');
+    const area = document.getElementById('admin-workspace-content');
+    if (!area) return;
+    area.innerHTML = adminFilterBar('admin-group-keyword', '搜索群名或公告', 'renderAdminGroupsList') + '<div id="admin-group-list" class="admin-table-wrap"></div>';
+    await renderAdminGroupsList();
+}
+
+async function renderAdminGroupsList() {
+    const keyword = document.getElementById('admin-group-keyword')?.value || '';
+    const resp = await adminAPI.groups({ keyword, limit: '80' });
+    const list = document.getElementById('admin-group-list');
+    if (!list) return;
+    if (!(resp && resp.code === 0 && resp.data?.success)) {
+        list.innerHTML = `<div class="empty-tip">群聊列表不可用<br><small>${escapeHTML(resp?.message || resp?.data?.msg || '')}</small></div>`;
+        return;
+    }
+    const groups = resp?.data?.groups || [];
+    list.innerHTML = renderAdminTable(['群聊', '群主', '公告', '创建时间'], groups.map(g => [
+        `<strong>${escapeHTML(g.name || '')}</strong><small>#${escapeHTML(entityID(g))}</small>`,
+        escapeHTML(String(g.owner_id || '')),
+        escapeHTML((g.announcement || '').slice(0, 80)),
+        escapeHTML(g.created_at || ''),
+    ]), resp?.data?.total);
+}
+
+async function renderAdminAgents() {
+    activateAdminTab('agents');
+    const area = document.getElementById('admin-workspace-content');
+    if (!area) return;
+    area.innerHTML = '<div class="empty-tip">加载 Agent...</div>';
+    const resp = await adminAPI.agents({ limit: '100' });
+    if (!(resp && resp.code === 0 && resp.data?.success)) {
+        area.innerHTML = `<div class="empty-tip">Agent 列表不可用<br><small>${escapeHTML(resp?.message || resp?.data?.msg || '')}</small></div>`;
+        return;
+    }
+    const agents = resp?.data?.agents || [];
+    area.innerHTML = renderAdminTable(['Agent', '模型', '创建者', '状态', '工具策略'], agents.map(a => [
+        `<strong>${escapeHTML(a.name || '')}</strong><small>#${escapeHTML(entityID(a))} · user ${escapeHTML(String(a.agent_user_id || ''))}</small>`,
+        escapeHTML(a.model_name || ''),
+        escapeHTML(String(a.owner_id || '')),
+        a.is_active ? '启用' : '停用',
+        escapeHTML(a.tool_policy || ''),
+    ]), resp?.data?.total);
+}
+
+function renderAdminFileItem(file) {
+    const id = file.id || file.file_id;
+    const name = file.file_name || file.name || `文件 #${id}`;
+    const type = file.file_type || file.type || '';
+    const preview = id ? fileAPI.previewURL(id) : '';
+    const previewHTML = type === 'image'
+        ? `<img src="${escapeHTML(preview)}" alt="${escapeHTML(name)}">`
+        : (type === 'voice' || type === 'audio'
+            ? `<audio controls preload="metadata" src="${escapeHTML(preview)}"></audio>`
+            : `<div class="admin-file-icon">${escapeHTML((type || 'FILE').toUpperCase())}</div>`);
+    return `
+        <div class="admin-file-card">
+            <div class="admin-file-preview">${previewHTML}</div>
+            <strong title="${escapeHTML(name)}">${escapeHTML(name)}</strong>
+            <span>${escapeHTML(type || 'file')} · ${escapeHTML(String(file.size || file.file_size || ''))}</span>
+            <div class="btn-row">
+                <button class="btn-small ghost" onclick="window.open(${jsStringArg(preview)}, '_blank')">预览</button>
+                <button class="btn-small ghost" onclick="downloadMedia(${jsStringArg(id)}, ${jsStringArg(name)}, '')">下载</button>
+            </div>
+        </div>
+    `;
+}
+
+async function renderAdminAgentApprovals() {
+    activateAdminTab('agent');
+    const area = document.getElementById('admin-workspace-content');
+    if (!area) return;
+    area.innerHTML = '<div class="empty-tip">加载 Agent 审批...</div>';
+    const resp = await agentAPI.listApprovals();
+    const approvals = resp?.data?.approvals || [];
+    area.innerHTML = approvals.length ? approvals.map(item => `
+        <div class="data-row">
+            <div>
+                <strong>${escapeHTML(item.title || item.action || 'Agent 审批')}</strong>
+                <span>${escapeHTML(item.status || 'pending')} · ${escapeHTML(item.created_at || '')}</span>
+            </div>
+            <div class="btn-row">
+                <button class="btn-small" onclick="agentAPI.confirmApproval(${jsArg(item.id)}, '治理台通过').then(renderAdminAgentApprovals)">通过</button>
+                <button class="btn-small danger-soft" onclick="agentAPI.rejectApproval(${jsArg(item.id)}).then(renderAdminAgentApprovals)">拒绝</button>
+            </div>
+        </div>
+    `).join('') : '<div class="empty-tip">暂无 Agent 审批</div>';
+}
+
+async function renderAdminKnowledgeCandidates() {
+    activateAdminTab('reviews');
+    const area = document.getElementById('admin-workspace-content');
+    if (!area) return;
+    area.innerHTML = '<div class="empty-tip">加载知识候选...</div>';
+    const resp = await adminAPI.reviews({ source: 'all', status: 'pending', limit: '80' });
+    if (!(resp && resp.code === 0 && resp.data?.success)) {
+        area.innerHTML = `<div class="empty-tip">审核候选不可用<br><small>${escapeHTML(resp?.message || resp?.data?.msg || '')}</small></div>`;
+        return;
+    }
+    const items = resp?.data?.items || [];
+    area.innerHTML = `
+        <h3>待审核候选</h3>
+        ${items.length ? items.map(item => `
+            <div class="data-row">
+                <div><strong>${escapeHTML(item.title || '候选')}</strong><span>${escapeHTML(item.source || '')} · ${escapeHTML(item.content || '')}</span></div>
+                <div class="btn-row">
+                    <button class="btn-small" onclick="adminReviewAction(${jsArg(item.source)}, ${jsArg(entityID(item))}, 'approve')">通过</button>
+                    <button class="btn-small danger-soft" onclick="adminReviewAction(${jsArg(item.source)}, ${jsArg(entityID(item))}, 'reject')">拒绝</button>
+                </div>
+            </div>
+        `).join('') : '<div class="empty-tip small">暂无待审候选</div>'}
+    `;
+}
+
+async function adminReviewAction(source, id, action) {
+    const note = prompt(action === 'approve' ? '通过说明：' : '拒绝原因：', '');
+    if (note === null) return;
+    const resp = await adminAPI.reviewAction({ source, item_id: id, action, note });
+    if (resp && resp.code === 0 && resp.data?.success) {
+        showToast('审核完成', 'success');
+        renderAdminKnowledgeCandidates();
+    } else {
+        showToast(resp?.message || resp?.data?.msg || '审核失败', 'error');
+    }
+}
+
+async function renderAdminMCPAudit() {
+    activateAdminTab('mcp');
+    const area = document.getElementById('admin-workspace-content');
+    if (!area) return;
+    area.innerHTML = '<div class="empty-tip">加载 MCP 审计...</div>';
+    const resp = await adminAPI.mcpTraces({ limit: '80' });
+    if (!(resp && resp.code === 0 && resp.data?.success)) {
+        adminMCPTraceCache = [];
+        area.innerHTML = `<div class="empty-tip">MCP 审计不可用<br><small>${escapeHTML(resp?.message || resp?.data?.msg || '')}</small></div>`;
+        return;
+    }
+    const traces = resp?.data?.traces || [];
+    adminMCPTraceCache = Array.isArray(traces) ? traces : [];
+    area.innerHTML = adminMCPTraceCache.length ? adminMCPTraceCache.map((trace, index) => `
+        <div class="data-row">
+            <div>
+                <strong>${escapeHTML(trace.tool_name || 'MCP Tool')}</strong>
+                <span>${escapeHTML(trace.status || '')} · user ${escapeHTML(String(trace.user_id || ''))} · ${escapeHTML(trace.created_at || '')}</span>
+            </div>
+            <button class="btn-small ghost" onclick="showAdminMCPTraceDetail(${index})">详情</button>
+        </div>
+    `).join('') : '<div class="empty-tip">暂无 MCP 调用审计</div>';
+}
+
+async function renderAdminNotices() {
+    activateAdminTab('notices');
+    const area = document.getElementById('admin-workspace-content');
+    if (!area) return;
+    area.innerHTML = `
+        <div class="admin-notice-editor">
+            <input id="admin-notice-title" placeholder="公告标题">
+            <select id="admin-notice-level">
+                <option value="info">普通</option>
+                <option value="warning">提醒</option>
+                <option value="critical">重要</option>
+            </select>
+            <textarea id="admin-notice-content" rows="4" placeholder="公告内容"></textarea>
+            <button class="btn-primary" onclick="saveAdminNotice()">发布公告</button>
+        </div>
+        <div id="admin-notice-list"></div>
+    `;
+    await loadAdminNotices();
+}
+
+async function saveAdminNotice() {
+    const resp = await adminAPI.saveNotice({
+        title: document.getElementById('admin-notice-title')?.value || '',
+        content: document.getElementById('admin-notice-content')?.value || '',
+        level: document.getElementById('admin-notice-level')?.value || 'info',
+        audience: 'all',
+        enabled: true,
+    });
+    if (resp && resp.code === 0 && resp.data?.success) {
+        showToast('公告已发布', 'success');
+        renderAdminNotices();
+    } else {
+        showToast(resp?.message || resp?.data?.msg || '发布失败', 'error');
+    }
+}
+
+async function loadAdminNotices() {
+    const resp = await adminAPI.notices({ include_disabled: 'true', limit: '50' });
+    const list = document.getElementById('admin-notice-list');
+    if (!list) return;
+    if (!(resp && resp.code === 0 && resp.data?.success)) {
+        list.innerHTML = `<div class="empty-tip">公告列表不可用<br><small>${escapeHTML(resp?.message || resp?.data?.msg || '')}</small></div>`;
+        return;
+    }
+    const notices = resp?.data?.notices || [];
+    list.innerHTML = notices.length ? notices.map(renderAdminNoticeRow).join('') : '<div class="empty-tip small">暂无公告</div>';
+}
+
+async function renderAdminBilling() {
+    activateAdminTab('billing');
+    const area = document.getElementById('admin-workspace-content');
+    if (!area) return;
+    area.innerHTML = '<div class="empty-tip">加载成本记录...</div>';
+    const resp = await adminAPI.billing({ limit: '80' });
+    if (!(resp && resp.code === 0 && resp.data?.success)) {
+        area.innerHTML = `<div class="empty-tip">成本记录不可用<br><small>${escapeHTML(resp?.message || resp?.data?.msg || '')}</small></div>`;
+        return;
+    }
+    const records = resp?.data?.records || [];
+    area.innerHTML = `
+        <div class="admin-cost-summary">当前页成本 ¥${Number(resp?.data?.total_cost || 0).toFixed(6)} · 总数 ${resp?.data?.total || records.length}</div>
+        ${renderAdminTable(['Agent', '用户', 'Token', '费用', '模型', '时间'], records.map(r => [
+            escapeHTML(String(r.bot_id || '')),
+            escapeHTML(String(r.user_id || '')),
+            `${r.input_tokens || 0} / ${r.output_tokens || 0}`,
+            `¥${Number(r.cost || 0).toFixed(6)}`,
+            escapeHTML(r.model_name || ''),
+            escapeHTML(r.created_at || ''),
+        ]))}
+    `;
+}
+
+async function renderAdminAudits() {
+    activateAdminTab('audits');
+    const area = document.getElementById('admin-workspace-content');
+    if (!area) return;
+    area.innerHTML = '<div class="empty-tip">加载管理审计...</div>';
+    const resp = await adminAPI.audits({ limit: '80' });
+    if (!(resp && resp.code === 0 && resp.data?.success)) {
+        area.innerHTML = `<div class="empty-tip">管理审计不可用<br><small>${escapeHTML(resp?.message || resp?.data?.msg || '')}</small></div>`;
+        return;
+    }
+    const logs = resp?.data?.logs || [];
+    area.innerHTML = logs.length ? logs.map(renderAdminAuditRow).join('') : '<div class="empty-tip small">暂无审计记录</div>';
+}
+
+function renderAdminNoticeRow(item) {
+    return `
+        <div class="data-row admin-notice-row">
+            <div><strong>${escapeHTML(item.title || '')}</strong><span>${escapeHTML(item.level || 'info')} · ${escapeHTML(item.audience || 'all')} · ${escapeHTML(item.created_at || '')}</span></div>
+            <p>${escapeHTML(item.content || '')}</p>
+        </div>
+    `;
+}
+
+function renderAdminAuditRow(item) {
+    return `
+        <div class="data-row">
+            <div><strong>${escapeHTML(item.action || '')}</strong><span>${escapeHTML(item.target_type || '')} #${escapeHTML(item.target_id || '')} · ${escapeHTML(item.created_at || '')}</span></div>
+            <small>${escapeHTML(item.detail || '')}</small>
+        </div>
+    `;
+}
+
+function showAdminMCPTraceDetail(index) {
+    const trace = adminMCPTraceCache[index];
+    if (!trace) {
+        showToast('MCP 审计记录不存在', 'warning');
+        return;
+    }
+    showModal('MCP 调用审计', `
+        <div class="trace-detail-grid">
+            <label>Trace ID</label><span>${escapeHTML(String(trace.trace_id || trace.id || ''))}</span>
+            <label>用户</label><span>${escapeHTML(String(trace.user_id || ''))}</span>
+            <label>Agent</label><span>${escapeHTML(String(trace.agent_id || ''))}</span>
+            <label>会话</label><span>${escapeHTML(String(trace.conversation_id || ''))}</span>
+            <label>工具</label><span>${escapeHTML(trace.tool_name || '')}</span>
+            <label>来源</label><span>${escapeHTML([trace.source, trace.server_name].filter(Boolean).join(' / '))}</span>
+            <label>状态</label><span>${escapeHTML(trace.status || '')}</span>
+            <label>耗时</label><span>${escapeHTML(String(trace.latency_ms || 0))} ms</span>
+            <label>时间</label><span>${escapeHTML(trace.created_at || '')}</span>
+        </div>
+        ${trace.error_message ? `<h4>错误信息</h4><pre class="trace-json">${escapeHTML(trace.error_message)}</pre>` : ''}
+        <div class="empty-tip small">当前 MCP 审计表保存调用摘要；请求参数和工具返回正文未持久化，避免在管理台泄露敏感内容。</div>
+    `);
+}
+
+function adminFilterBar(inputID, placeholder, fnName) {
+    return `
+        <div class="admin-filter-bar">
+            <input id="${inputID}" placeholder="${escapeHTML(placeholder)}" onkeydown="if(event.key==='Enter') ${fnName}()">
+            <button class="btn-small" onclick="${fnName}()">搜索</button>
+        </div>
+    `;
+}
+
+function renderAdminTable(headers, rows, total = null) {
+    if (!rows.length) return '<div class="empty-tip small">暂无数据</div>';
+    return `
+        ${total !== null && total !== undefined ? `<div class="admin-table-total">共 ${total} 条</div>` : ''}
+        <table class="admin-table">
+            <thead><tr>${headers.map(h => `<th>${escapeHTML(h)}</th>`).join('')}</tr></thead>
+            <tbody>
+                ${rows.map(row => `<tr>${row.map(cell => `<td>${cell}</td>`).join('')}</tr>`).join('')}
+            </tbody>
+        </table>
+    `;
+}
+
+async function showMCPTraceDetail(traceID) {
+    if (!traceID) {
+        showToast('缺少 MCP trace_id', 'warning');
+        return;
+    }
+    showModal('MCP 调用详情', '<div class="empty-tip">正在读取审计详情...</div>');
+    const resp = await mcpAPI.trace(traceID);
+    const trace = resp?.data?.trace || resp?.data || {};
+    if (!(resp && resp.code === 0) || !Object.keys(trace).length) {
+        document.getElementById('modal-body').innerHTML = `
+            <div class="empty-tip">读取失败<br><small>${escapeHTML(resp?.message || resp?.data?.msg || '')}</small></div>
+        `;
+        return;
+    }
+    document.getElementById('modal-body').innerHTML = `
+        <div class="trace-detail-grid">
+            <label>Trace ID</label><span>${escapeHTML(String(trace.trace_id || trace.id || traceID))}</span>
+            <label>工具</label><span>${escapeHTML(trace.tool_name || trace.tool || '')}</span>
+            <label>状态</label><span>${escapeHTML(trace.status || '')}</span>
+            <label>耗时</label><span>${escapeHTML(String(trace.duration_ms || trace.latency_ms || ''))} ms</span>
+            <label>创建时间</label><span>${escapeHTML(trace.created_at || '')}</span>
+        </div>
+        <h4>请求参数</h4>
+        <pre class="trace-json">${escapeHTML(formatTraceJSON(trace.arguments_json || trace.arguments || trace.request || {}))}</pre>
+        <h4>执行结果</h4>
+        <pre class="trace-json">${escapeHTML(formatTraceJSON(trace.result_json || trace.result || trace.response || trace.error || {}))}</pre>
+    `;
+}
+
+function formatTraceJSON(value) {
+    if (typeof value === 'string') {
+        try {
+            return JSON.stringify(JSON.parse(value), null, 2);
+        } catch (_) {
+            return value;
+        }
+    }
+    return JSON.stringify(value || {}, null, 2);
+}
+
+async function createAndProcessConversationDigest() {
+    const conversationID = document.getElementById('ci-conversation-id')?.value.trim();
+    const agentID = document.getElementById('ci-agent-id')?.value || '0';
+    const jobArea = document.getElementById('conversation-intel-job');
+    if (!conversationID) {
+        showToast('请输入会话 ID', 'warning');
+        return;
+    }
+    jobArea.innerHTML = '<div class="empty-tip">正在创建归档任务...</div>';
+    const createResp = await conversationIntelligenceAPI.createJob({
+        conversation_id: apiID(conversationID),
+        agent_id: apiID(agentID),
+        reason: 'frontend_manual',
+    });
+    if (!(createResp && createResp.code === 0 && createResp.data?.success)) {
+        jobArea.innerHTML = `<div class="rag-status-line error">${escapeHTML(createResp?.message || createResp?.data?.msg || '创建任务失败')}</div>`;
+        return;
+    }
+    const job = createResp.data.job || {};
+    const jobID = entityID(job);
+    if (!jobID) {
+        jobArea.innerHTML = '<div class="rag-status-line error">任务已创建，但响应中缺少任务 ID，无法继续处理。</div>';
+        await loadConversationDigestJobs();
+        return;
+    }
+    jobArea.innerHTML = `<div class="rag-status-line">任务已创建 #${escapeHTML(jobID)}，正在处理...</div>`;
+    const processResp = await conversationIntelligenceAPI.processJob(jobID);
+    if (!(processResp && processResp.code === 0 && processResp.data?.success)) {
+        jobArea.innerHTML = `<div class="rag-status-line error">${escapeHTML(processResp?.message || processResp?.data?.msg || '处理任务失败')}</div>`;
+        return;
+    }
+    const doneJob = processResp.data.job || {};
+    jobArea.innerHTML = `<div class="rag-status-line success">归档完成：消息 ${doneJob.message_count || 0}，有效 ${doneJob.valuable_count || 0}，状态 ${escapeHTML(doneJob.status || '')}</div>`;
+    renderConversationArtifacts(processResp.data.artifacts || []);
+    await loadConversationDigestJobs();
+}
+
+async function loadConversationDigestJobs() {
+    const conversationID = document.getElementById('ci-conversation-id')?.value.trim();
+    const list = document.getElementById('conversation-digest-job-list');
+    if (!list) return;
+    list.innerHTML = '<div class="empty-tip">正在读取归档任务...</div>';
+    const params = { limit: 50 };
+    if (conversationID) params.conversation_id = conversationID;
+    const resp = await conversationIntelligenceAPI.jobs(params);
+    if (!(resp && resp.code === 0 && resp.data?.success)) {
+        list.innerHTML = `<div class="empty-tip">任务读取失败<br><small>${escapeHTML(resp?.message || resp?.data?.msg || '')}</small></div>`;
+        return;
+    }
+    renderConversationDigestJobs(resp.data.jobs || []);
+}
+
+function renderConversationDigestJobs(jobs = []) {
+    const list = document.getElementById('conversation-digest-job-list');
+    if (!list) return;
+    if (!jobs.length) {
+        list.innerHTML = '<div class="empty-tip">暂无归档任务</div>';
+        return;
+    }
+    const counts = jobs.reduce((acc, job) => {
+        const status = job.status || 'unknown';
+        acc[status] = (acc[status] || 0) + 1;
+        return acc;
+    }, {});
+    const summary = Object.entries(counts).map(([status, count]) => `${conversationJobStatusLabel(status)} ${count}`).join(' · ');
+    list.innerHTML = `
+        <div class="rag-status-line">${escapeHTML(summary)}</div>
+        ${jobs.map(job => `
+            <div class="data-row conversation-job-row">
+                <div class="data-row-main">
+                    <strong>#${escapeHTML(entityID(job))} · ${escapeHTML(conversationJobStatusLabel(job.status))}</strong>
+                    <span>会话 ${escapeHTML(String(job.conversation_id || ''))} · 消息 ${job.message_count || 0} / 有效 ${job.valuable_count || 0}</span>
+                    ${job.error_message ? `<small class="memory-evidence">失败原因：${escapeHTML(job.error_message)}</small>` : ''}
+                    ${job.next_run_at ? `<small class="memory-evidence">下次自动重试：${escapeHTML(formatDateTime(job.next_run_at))}</small>` : ''}
+                </div>
+                <div class="data-row-meta">
+                    <span>重试 ${job.retry_count || 0}/${job.max_retries || 0}</span>
+                    ${job.completed_at ? `<span>${escapeHTML(formatDateTime(job.completed_at))}</span>` : ''}
+                </div>
+                <div class="data-row-actions">
+                    ${job.status === 'failed' ? `<button class="btn-small" onclick="retryConversationDigestJob(${jsArg(entityID(job))})">重试</button>` : ''}
+                </div>
+            </div>
+        `).join('')}
+    `;
+}
+
+function conversationJobStatusLabel(status) {
+    return {
+        pending: '待处理',
+        processing: '处理中',
+        completed: '已完成',
+        skipped: '已跳过',
+        failed: '失败',
+    }[status] || status || '未知';
+}
+
+function formatDateTime(value) {
+    if (!value) return '';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+        return String(value);
+    }
+    return date.toLocaleString('zh-CN', { hour12: false });
+}
+
+async function retryConversationDigestJob(jobID) {
+    const area = document.getElementById('conversation-intel-job');
+    if (area) area.innerHTML = `<div class="rag-status-line">正在重试归档任务 #${escapeHTML(String(jobID))}...</div>`;
+    const resp = await conversationIntelligenceAPI.retryJob(jobID);
+    if (!(resp && resp.code === 0 && resp.data?.success)) {
+        if (area) area.innerHTML = `<div class="rag-status-line error">${escapeHTML(resp?.message || resp?.data?.msg || '重试失败')}</div>`;
+        await loadConversationDigestJobs();
+        return;
+    }
+    const job = resp.data.job || {};
+    if (area) area.innerHTML = `<div class="rag-status-line success">重试完成：状态 ${escapeHTML(conversationJobStatusLabel(job.status))}</div>`;
+    renderConversationArtifacts(resp.data.artifacts || []);
+    await loadConversationDigestJobs();
+}
+
+async function loadConversationArtifacts() {
+    const conversationID = document.getElementById('ci-conversation-id')?.value.trim();
+    const list = document.getElementById('conversation-artifact-list');
+    if (!list) return;
+    if (!conversationID) {
+        list.innerHTML = '<div class="empty-tip">请输入会话 ID</div>';
+        return;
+    }
+    list.innerHTML = '<div class="empty-tip">正在读取归档产物...</div>';
+    const resp = await conversationIntelligenceAPI.artifacts({ conversation_id: conversationID, limit: 80 });
+    if (!(resp && resp.code === 0 && resp.data?.success)) {
+        list.innerHTML = `<div class="empty-tip">读取失败<br><small>${escapeHTML(resp?.message || resp?.data?.msg || '')}</small></div>`;
+        return;
+    }
+    renderConversationArtifacts(resp.data.artifacts || []);
+}
+
+function renderConversationArtifacts(artifacts = []) {
+    const list = document.getElementById('conversation-artifact-list');
+    if (!list) return;
+    if (!artifacts.length) {
+        list.innerHTML = '<div class="empty-tip">暂无归档产物<br><small>当前窗口可能没有足够有价值的消息，或服务还未处理。</small></div>';
+        return;
+    }
+    list.innerHTML = artifacts.map(item => `
+        <div class="data-row conversation-artifact-row">
+            <div class="data-row-main">
+                <strong>${escapeHTML(item.title || conversationArtifactLabel(item.type))}</strong>
+                <span>${renderMarkdownText(item.content || '')}</span>
+                ${item.source_message_ids?.length ? `<small class="memory-evidence">来源消息：${item.source_message_ids.map(escapeHTML).join(', ')}</small>` : ''}
+            </div>
+            <div class="data-row-meta">
+                <span>${escapeHTML(conversationArtifactLabel(item.type))}</span>
+                <span>置信 ${Number(item.confidence || 0).toFixed(2)}</span>
+            </div>
+            <div class="data-row-actions">
+                ${item.type === 'memory_candidate' ? `<button class="btn-small" onclick="showMemoryManager('candidates')">去确认</button>` : ''}
+            </div>
+        </div>
+    `).join('');
 }
 
 async function addAgentFriend(botID, botName) {
@@ -5924,6 +7899,7 @@ let botThinkingID = null;
 let botPendingReplies = {};
 
 function chatWithBot(botID) {
+    activateChatWorkspaceForContent();
     closeModal();
     conversationOpenSeq++;
     botChatSeq++;
@@ -6119,6 +8095,12 @@ async function loadBotBilling(botID) {
         area.innerHTML = '<div class="empty-tip">加载失败</div>';
     }
 }
+
+window.addEventListener('hashchange', () => {
+    if (token && currentUser) {
+        renderWorkspace(workspaceFromHash());
+    }
+});
 
 window.onload = function () {
     bindVoiceRecorder();

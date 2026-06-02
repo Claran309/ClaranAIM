@@ -493,6 +493,10 @@ func (c *fakeGroupClient) PinGroup(ctx context.Context, req *group.PinGroupReq, 
 	return nil, nil
 }
 
+func (c *fakeGroupClient) AdminListGroups(ctx context.Context, req *group.AdminListGroupsReq, callOptions ...callopt.Option) (*group.AdminListGroupsResp, error) {
+	return &group.AdminListGroupsResp{Success: true}, nil
+}
+
 func TestCreateConversationRejectsGroupWithoutGroupID(t *testing.T) {
 	svc := &messageServiceImpl{repo: newFakeMessageRepo()}
 
@@ -749,6 +753,31 @@ func TestSendMediaMessagePublishesAgentNativeIMEvent(t *testing.T) {
 	}
 	if len(payload.ParticipantIDs) != 3 || len(payload.Permission.VisibleUserIDs) != 3 {
 		t.Fatalf("permission context missing participants: %#v", payload)
+	}
+}
+
+func TestSendImageMessageParsesWrappedJSONAttachment(t *testing.T) {
+	repo := newFakeMessageRepo()
+	svc := &messageServiceImpl{repo: repo}
+	conv, err := svc.CreateConversation(context.Background(), "group", []int64{1, 2, 2001}, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = svc.SendMessage(context.Background(), conv.ID, 1, `[img]{"id":"3001","file_id":"3001","name":"error.png","url":"/files/3001","content_type":"image/png","size":12345}[/img]`, "image")
+	if err != nil {
+		t.Fatalf("SendMessage returned error: %v", err)
+	}
+	envelope, err := repo.outbox[1].Envelope()
+	if err != nil {
+		t.Fatalf("outbox envelope decode failed: %v", err)
+	}
+	payload, err := events.DecodePayload[events.IMEventPayload](envelope)
+	if err != nil {
+		t.Fatalf("decode payload: %v", err)
+	}
+	if len(payload.AttachmentRefs) != 1 || payload.AttachmentRefs[0].FileID != 3001 || payload.AttachmentRefs[0].ContentType != "image/png" {
+		t.Fatalf("attachment refs = %#v, want wrapped image JSON attachment", payload.AttachmentRefs)
 	}
 }
 

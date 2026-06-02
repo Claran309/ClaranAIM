@@ -1,0 +1,20 @@
+service:
+  name: "admin-service"
+  address: "127.0.0.1:9017"
+
+mysql:
+  host: "localhost"
+  port: 3306
+  user: "claran"
+  password: "chr070309"
+  database: "ClaranCloudDisk"
+
+etcd:
+  endpoints: []
+
+governance:
+  rpc:
+    timeout_ms: 10000
+    circuit_breaker: true
+    max_connections: 1000
+    max_qps: 1000

@@ -34,6 +34,7 @@ type GroupService interface {
 	CheckMember(ctx context.Context, groupID, userID int64) (bool, string, error)
 	TransferOwner(ctx context.Context, groupID, operatorID, newOwnerID int64) error
 	PinGroup(ctx context.Context, groupID, operatorID int64, isPinned bool) error
+	AdminListGroups(ctx context.Context, keyword string, ownerID, limit, offset int64) ([]model.Group, int64, error)
 }
 
 // groupServiceImpl 串联群组仓储和可选 Redis。
@@ -283,6 +284,12 @@ func (s *groupServiceImpl) GetUserGroups(ctx context.Context, userID int64) ([]m
 	}
 
 	return groups, nil
+}
+
+// AdminListGroups 为 admin-service 提供全局群运营列表。
+// 该方法只读，不绕过普通群管理接口执行写操作。
+func (s *groupServiceImpl) AdminListGroups(ctx context.Context, keyword string, ownerID, limit, offset int64) ([]model.Group, int64, error) {
+	return s.repo.AdminListGroups(ctx, keyword, ownerID, limit, offset)
 }
 
 // InviteMember 邀请成员加入群组

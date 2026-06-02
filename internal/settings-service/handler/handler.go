@@ -129,6 +129,7 @@ func (h *SettingsServiceImpl) SaveSkill(ctx context.Context, req *settings.SaveS
 		Files:       toClientSkillFiles(req.Files),
 		IsDefault:   req.IsDefault,
 		Enabled:     optionalBool(req.Enabled, req.EnabledSet),
+		Username:    req.Username,
 	})
 	if err != nil {
 		return &settings.SaveSkillResp{Success: false, Msg: err.Error()}, nil
@@ -169,6 +170,61 @@ func (h *SettingsServiceImpl) DeleteSkill(ctx context.Context, req *settings.Del
 		return &settings.DeleteSkillResp{Success: false, Msg: err.Error()}, nil
 	}
 	return &settings.DeleteSkillResp{Success: true, Msg: "删除成功"}, nil
+}
+
+// SaveMCPServer 保存用户外部 MCP Server 配置。
+func (h *SettingsServiceImpl) SaveMCPServer(ctx context.Context, req *settings.SaveMCPServerReq) (*settings.SaveMCPServerResp, error) {
+	server, err := h.svc.SaveMCPServer(ctx, req.UserId, settingsclient.SaveMCPServerInput{
+		ID:             req.Id,
+		AgentID:        req.AgentId,
+		ConversationID: req.ConversationId,
+		Scope:          req.Scope,
+		Name:           req.Name,
+		Description:    req.Description,
+		Transport:      req.Transport,
+		EndpointURL:    req.EndpointUrl,
+		Command:        req.Command,
+		ArgsJSON:       req.ArgsJson,
+		EnvJSON:        req.EnvJson,
+		HeadersJSON:    req.HeadersJson,
+		AuthType:       req.AuthType,
+		Secret:         req.Secret,
+		SecretAction:   req.SecretAction,
+		Enabled:        optionalBool(req.Enabled, req.EnabledSet),
+		TrustLevel:     req.TrustLevel,
+		AllowToolsJSON: req.AllowToolsJson,
+		DenyToolsJSON:  req.DenyToolsJson,
+	})
+	if err != nil {
+		return &settings.SaveMCPServerResp{Success: false, Msg: err.Error()}, nil
+	}
+	return &settings.SaveMCPServerResp{Success: true, Server: toRPCMCPServer(server)}, nil
+}
+
+// ListMCPServers 返回用户配置的 MCP Server 列表，Secret 不回显。
+func (h *SettingsServiceImpl) ListMCPServers(ctx context.Context, req *settings.ListMCPServersReq) (*settings.ListMCPServersResp, error) {
+	servers, err := h.svc.ListMCPServers(ctx, req.UserId, req.Scope, req.AgentId, req.ConversationId, req.IncludeDisabled)
+	if err != nil {
+		return &settings.ListMCPServersResp{Success: false, Msg: err.Error()}, nil
+	}
+	return &settings.ListMCPServersResp{Success: true, Servers: toRPCMCPServers(servers)}, nil
+}
+
+// ResolveMCPServers 返回某次 Agent 运行可用的 MCP 配置，服务间调用可携带 Secret。
+func (h *SettingsServiceImpl) ResolveMCPServers(ctx context.Context, req *settings.ResolveMCPServersReq) (*settings.ResolveMCPServersResp, error) {
+	servers, err := h.svc.ResolveMCPServers(ctx, req.UserId, req.AgentId, req.ConversationId)
+	if err != nil {
+		return &settings.ResolveMCPServersResp{Success: false, Msg: err.Error()}, nil
+	}
+	return &settings.ResolveMCPServersResp{Success: true, Servers: toRPCMCPServers(servers)}, nil
+}
+
+// DeleteMCPServer 删除当前用户拥有的 MCP Server 配置。
+func (h *SettingsServiceImpl) DeleteMCPServer(ctx context.Context, req *settings.DeleteMCPServerReq) (*settings.DeleteMCPServerResp, error) {
+	if err := h.svc.DeleteMCPServer(ctx, req.UserId, req.ServerId); err != nil {
+		return &settings.DeleteMCPServerResp{Success: false, Msg: err.Error()}, nil
+	}
+	return &settings.DeleteMCPServerResp{Success: true, Msg: "删除成功"}, nil
 }
 
 func toRPCLLMProfile(profile *settingsclient.LLMProfile) *settings.LLMProfile {
@@ -254,6 +310,42 @@ func toRPCAgentSkills(skills []settingsclient.AgentSkill) []*settings.AgentSkill
 	out := make([]*settings.AgentSkill, 0, len(skills))
 	for i := range skills {
 		out = append(out, toRPCAgentSkill(&skills[i]))
+	}
+	return out
+}
+
+func toRPCMCPServer(server *settingsclient.MCPServerConfig) *settings.MCPServerConfig {
+	if server == nil {
+		return nil
+	}
+	return &settings.MCPServerConfig{
+		Id:             server.ID,
+		OwnerId:        server.OwnerID,
+		AgentId:        server.AgentID,
+		ConversationId: server.ConversationID,
+		Scope:          server.Scope,
+		Name:           server.Name,
+		Description:    server.Description,
+		Transport:      server.Transport,
+		EndpointUrl:    server.EndpointURL,
+		Command:        server.Command,
+		ArgsJson:       server.ArgsJSON,
+		EnvJson:        server.EnvJSON,
+		HeadersJson:    server.HeadersJSON,
+		AuthType:       server.AuthType,
+		Enabled:        server.Enabled,
+		TrustLevel:     server.TrustLevel,
+		AllowToolsJson: server.AllowToolsJSON,
+		DenyToolsJson:  server.DenyToolsJSON,
+		HasSecret:      server.HasSecret,
+		Secret:         server.Secret,
+	}
+}
+
+func toRPCMCPServers(servers []settingsclient.MCPServerConfig) []*settings.MCPServerConfig {
+	out := make([]*settings.MCPServerConfig, 0, len(servers))
+	for i := range servers {
+		out = append(out, toRPCMCPServer(&servers[i]))
 	}
 	return out
 }

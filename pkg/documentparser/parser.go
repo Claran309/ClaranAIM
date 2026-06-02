@@ -134,7 +134,7 @@ func (p *GLMLayoutOCRProvider) ExtractText(ctx context.Context, filename, conten
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", fmt.Errorf("OCR接口返回状态码%d", resp.StatusCode)
+		return "", formatOCRError(resp.StatusCode)
 	}
 	var decoded interface{}
 	if err := json.NewDecoder(resp.Body).Decode(&decoded); err != nil {
@@ -145,6 +145,19 @@ func (p *GLMLayoutOCRProvider) ExtractText(ctx context.Context, filename, conten
 		return "", errors.New("OCR接口未返回有效文本")
 	}
 	return text, nil
+}
+
+func formatOCRError(statusCode int) error {
+	switch statusCode {
+	case http.StatusTooManyRequests:
+		return errors.New("OCR服务当前限流或资源包额度不足，请稍后重试，或先上传可复制文本PDF/文本文件")
+	case http.StatusUnauthorized, http.StatusForbidden:
+		return errors.New("OCR服务鉴权失败，请检查 DOCUMENT_OCR_API_KEY 是否正确")
+	case http.StatusRequestEntityTooLarge:
+		return errors.New("OCR文件过大，请压缩图片或拆分文档后重试")
+	default:
+		return fmt.Errorf("OCR接口返回状态码%d", statusCode)
+	}
 }
 
 func inferSourceType(filename, contentType string) string {

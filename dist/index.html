@@ -47,6 +47,32 @@
 
     <div id="main-page" class="page">
         <div class="main-layout">
+            <nav class="workspace-nav" aria-label="主工作区导航">
+                <button class="workspace-nav-item active" data-workspace="chat" onclick="navigateWorkspace('chat')" title="聊天">
+                    <span class="workspace-nav-icon">IM</span>
+                    <span>聊天</span>
+                </button>
+                <button class="workspace-nav-item" data-workspace="agents" onclick="navigateWorkspace('agents')" title="智能助手">
+                    <span class="workspace-nav-icon">A</span>
+                    <span>助手</span>
+                </button>
+                <button class="workspace-nav-item" data-workspace="knowledge" onclick="navigateWorkspace('knowledge')" title="知识库">
+                    <span class="workspace-nav-icon">K</span>
+                    <span>知识</span>
+                </button>
+                <button class="workspace-nav-item" data-workspace="memory" onclick="navigateWorkspace('memory')" title="记忆">
+                    <span class="workspace-nav-icon">M</span>
+                    <span>记忆</span>
+                </button>
+                <button class="workspace-nav-item" data-workspace="settings" onclick="navigateWorkspace('settings')" title="系统设置">
+                    <span class="workspace-nav-icon">S</span>
+                    <span>设置</span>
+                </button>
+                <button id="admin-workspace-nav" class="workspace-nav-item" data-workspace="admin" onclick="navigateWorkspace('admin')" title="治理台" style="display:none">
+                    <span class="workspace-nav-icon">G</span>
+                    <span>治理</span>
+                </button>
+            </nav>
             <div class="sidebar">
                 <div class="user-info" onclick="showUserProfile()">
                     <div class="avatar" id="user-avatar">U</div>
@@ -57,7 +83,7 @@
                     <button class="btn-icon logout-btn" onclick="event.stopPropagation();logout()" title="退出登录">
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
                     </button>
-                    <button class="btn-icon settings-btn" onclick="event.stopPropagation();showSystemSettings()" title="系统设置">⚙</button>
+                    <button class="btn-icon settings-btn" onclick="event.stopPropagation();navigateWorkspace('settings')" title="系统设置">⚙</button>
                 </div>
                 <div class="sidebar-tabs">
                     <button class="sidebar-tab active" onclick="switchSidebar('conversations', this)">
@@ -98,7 +124,9 @@
                     </div>
                     <div class="panel-subactions">
                         <button class="btn-small ghost" onclick="showMemoryManager()">记忆管理</button>
+                        <button class="btn-small ghost" onclick="showConversationIntelligencePanel()">会话归档</button>
                         <button class="btn-small ghost" onclick="showSkillManager()">Skill 管理</button>
+                        <button id="admin-console-entry" class="btn-small ghost" onclick="navigateWorkspace('admin')" style="display:none">治理台</button>
                     </div>
                     <div id="bot-list" class="list-container"></div>
                 </div>
@@ -109,6 +137,7 @@
                     </div>
                     <div class="panel-subactions">
                         <button class="btn-small ghost" onclick="showRAGWorkspace('ingest')">录入知识</button>
+                        <button class="btn-small ghost" onclick="showWebSearchPanel()">联网搜索</button>
                         <button class="btn-small ghost" onclick="showKnowledgeGraphWorkspace()">知识图谱</button>
                     </div>
                     <div id="knowledge-list" class="list-container"></div>
@@ -121,6 +150,7 @@
                         <div class="chat-header-left">
                             <span id="chat-title">会话</span>
                             <span id="chat-type-badge" class="chat-type-badge"></span>
+                            <span id="sync-status-badge" class="sync-status-badge"></span>
                         </div>
                         <div class="chat-header-right">
                             <button class="btn-icon" onclick="showSearchMessages()" title="搜索消息">
@@ -140,6 +170,8 @@
                                     <div class="dropdown-item" onclick="showConversationInfo()">会话详情</div>
                                     <div id="menu-group-manage" class="dropdown-item" onclick="showGroupManageFromMenu()" style="display:none;">群管理</div>
                                     <div id="menu-group-members" class="dropdown-item" onclick="showGroupMembersFromMenu()" style="display:none;">群成员</div>
+                                    <div class="dropdown-item" onclick="showConversationIntelligencePanel()">会话归档</div>
+                                    <div class="dropdown-item" onclick="showWebSearchPanel()">联网搜索</div>
                                     <div class="dropdown-item" onclick="pinConversation()">置顶会话</div>
                                     <div class="dropdown-item" onclick="clearCurrentConversationMessages()">清空当前消息</div>
                                 </div>

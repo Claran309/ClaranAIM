@@ -75,3 +75,24 @@ service:
 		t.Fatalf("second DTM msg-core service url = %q, want http://127.0.0.1:9103", secondCfg.DTM.MsgCoreServiceURL)
 	}
 }
+
+func TestLoadSettingsSecretKeyFromEnvironment(t *testing.T) {
+	t.Setenv("SETTINGS_SECRET_KEY", "settings-secret-for-test")
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.yaml")
+	if err := os.WriteFile(path, []byte(`
+service:
+  name: settings-service
+  address: "127.0.0.1:9009"
+`), 0o644); err != nil {
+		t.Fatalf("write settings config: %v", err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if cfg.Settings.SecretKey != "settings-secret-for-test" {
+		t.Fatalf("settings secret key = %q", cfg.Settings.SecretKey)
+	}
+}

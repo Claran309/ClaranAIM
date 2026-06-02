@@ -314,14 +314,14 @@ func (r *botRepositoryImpl) DeleteBot(ctx context.Context, id int64) error {
 
 // GetBotByAgentUserID 根据 Agent 系统用户 ID 查询绑定的 Agent 配置。
 func (r *botRepositoryImpl) GetBotByAgentUserID(ctx context.Context, agentUserID int64) (*model.Bot, error) {
-	var bot model.Bot
-	if err := r.db.WithContext(ctx).Where("agent_user_id = ?", agentUserID).First(&bot).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
-			return nil, nil
-		}
+	var bots []model.Bot
+	if err := r.db.WithContext(ctx).Where("agent_user_id = ?", agentUserID).Limit(1).Find(&bots).Error; err != nil {
 		return nil, err
 	}
-	return &bot, nil
+	if len(bots) == 0 {
+		return nil, nil
+	}
+	return &bots[0], nil
 }
 
 // PermissionRepository 保存每个 Agent 的协作者角色。

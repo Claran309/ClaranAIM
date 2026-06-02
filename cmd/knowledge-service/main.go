@@ -1,6 +1,7 @@
 package main
 
 import (
+	knowledgedao "ClaranAIM/internal/knowledge-service/dao"
 	knowledgehandler "ClaranAIM/internal/knowledge-service/handler"
 	knowledgesvc "ClaranAIM/internal/knowledge-service/service"
 	"ClaranAIM/kitex_gen/knowledge/knowledgeservice"
@@ -44,8 +45,13 @@ func main() {
 	if err != nil {
 		logger.Fatal("创建rag-service客户端失败", "error", err)
 	}
+	db, err := knowledgedao.InitDB(cfg.MySQL.DSN)
+	if err != nil {
+		logger.Fatal("初始化knowledge-service数据库失败", "error", err)
+	}
 	knowledgeService := knowledgesvc.NewKnowledgeService(
 		knowledgeclient.NewRAGSource(ragclient.NewRPCClient(ragRPCClient)),
+		knowledgedao.NewRepository(db),
 	)
 
 	registry, err := etcd.NewEtcdRegistry(cfg.Etcd.Endpoints)

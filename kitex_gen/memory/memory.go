@@ -5,29 +5,35 @@ package memory
 import (
 	"context"
 	"fmt"
-	"strings"
 )
 
 type MemoryFact struct {
-	Id             int64   `thrift:"id,1" frugal:"1,default,i64" json:"id"`
-	BotId          int64   `thrift:"bot_id,2" frugal:"2,default,i64" json:"bot_id"`
-	UserId         int64   `thrift:"user_id,3" frugal:"3,default,i64" json:"user_id"`
-	OwnerUserId    int64   `thrift:"owner_user_id,4" frugal:"4,default,i64" json:"owner_user_id"`
-	GroupId        int64   `thrift:"group_id,5" frugal:"5,default,i64" json:"group_id"`
-	ConversationId int64   `thrift:"conversation_id,6" frugal:"6,default,i64" json:"conversation_id"`
-	SessionId      string  `thrift:"session_id,7" frugal:"7,default,string" json:"session_id"`
-	Scope          string  `thrift:"scope,8" frugal:"8,default,string" json:"scope"`
-	Type           string  `thrift:"type,9" frugal:"9,default,string" json:"type"`
-	Title          string  `thrift:"title,10" frugal:"10,default,string" json:"title"`
-	Content        string  `thrift:"content,11" frugal:"11,default,string" json:"content"`
-	Source         string  `thrift:"source,12" frugal:"12,default,string" json:"source"`
-	Visibility     string  `thrift:"visibility,13" frugal:"13,default,string" json:"visibility"`
-	Enabled        bool    `thrift:"enabled,14" frugal:"14,default,bool" json:"enabled"`
-	VectorStatus   string  `thrift:"vector_status,15" frugal:"15,default,string" json:"vector_status"`
-	EmbeddingRef   string  `thrift:"embedding_ref,16" frugal:"16,default,string" json:"embedding_ref"`
-	Confidence     float64 `thrift:"confidence,17" frugal:"17,default,double" json:"confidence"`
-	CreatedAt      string  `thrift:"created_at,18" frugal:"18,default,string" json:"created_at"`
-	UpdatedAt      string  `thrift:"updated_at,19" frugal:"19,default,string" json:"updated_at"`
+	Id               int64   `thrift:"id,1" frugal:"1,default,i64" json:"id"`
+	BotId            int64   `thrift:"bot_id,2" frugal:"2,default,i64" json:"bot_id"`
+	UserId           int64   `thrift:"user_id,3" frugal:"3,default,i64" json:"user_id"`
+	OwnerUserId      int64   `thrift:"owner_user_id,4" frugal:"4,default,i64" json:"owner_user_id"`
+	GroupId          int64   `thrift:"group_id,5" frugal:"5,default,i64" json:"group_id"`
+	ConversationId   int64   `thrift:"conversation_id,6" frugal:"6,default,i64" json:"conversation_id"`
+	SessionId        string  `thrift:"session_id,7" frugal:"7,default,string" json:"session_id"`
+	Scope            string  `thrift:"scope,8" frugal:"8,default,string" json:"scope"`
+	Type             string  `thrift:"type,9" frugal:"9,default,string" json:"type"`
+	Title            string  `thrift:"title,10" frugal:"10,default,string" json:"title"`
+	Content          string  `thrift:"content,11" frugal:"11,default,string" json:"content"`
+	Source           string  `thrift:"source,12" frugal:"12,default,string" json:"source"`
+	Visibility       string  `thrift:"visibility,13" frugal:"13,default,string" json:"visibility"`
+	Enabled          bool    `thrift:"enabled,14" frugal:"14,default,bool" json:"enabled"`
+	VectorStatus     string  `thrift:"vector_status,15" frugal:"15,default,string" json:"vector_status"`
+	EmbeddingRef     string  `thrift:"embedding_ref,16" frugal:"16,default,string" json:"embedding_ref"`
+	Confidence       float64 `thrift:"confidence,17" frugal:"17,default,double" json:"confidence"`
+	Importance       float64 `thrift:"importance,18" frugal:"18,default,double" json:"importance"`
+	VectorScore      float64 `thrift:"vector_score,19" frugal:"19,default,double" json:"vector_score"`
+	FinalScore       float64 `thrift:"final_score,20" frugal:"20,default,double" json:"final_score"`
+	ScoreReason      string  `thrift:"score_reason,21" frugal:"21,default,string" json:"score_reason"`
+	ExpiredAt        string  `thrift:"expired_at,22" frugal:"22,default,string" json:"expired_at"`
+	SupersededBy     int64   `thrift:"superseded_by,23" frugal:"23,default,i64" json:"superseded_by"`
+	PreviousMemoryId int64   `thrift:"previous_memory_id,24" frugal:"24,default,i64" json:"previous_memory_id"`
+	CreatedAt        string  `thrift:"created_at,25" frugal:"25,default,string" json:"created_at"`
+	UpdatedAt        string  `thrift:"updated_at,26" frugal:"26,default,string" json:"updated_at"`
 }
 
 func NewMemoryFact() *MemoryFact {
@@ -105,6 +111,34 @@ func (p *MemoryFact) GetConfidence() (v float64) {
 	return p.Confidence
 }
 
+func (p *MemoryFact) GetImportance() (v float64) {
+	return p.Importance
+}
+
+func (p *MemoryFact) GetVectorScore() (v float64) {
+	return p.VectorScore
+}
+
+func (p *MemoryFact) GetFinalScore() (v float64) {
+	return p.FinalScore
+}
+
+func (p *MemoryFact) GetScoreReason() (v string) {
+	return p.ScoreReason
+}
+
+func (p *MemoryFact) GetExpiredAt() (v string) {
+	return p.ExpiredAt
+}
+
+func (p *MemoryFact) GetSupersededBy() (v int64) {
+	return p.SupersededBy
+}
+
+func (p *MemoryFact) GetPreviousMemoryId() (v int64) {
+	return p.PreviousMemoryId
+}
+
 func (p *MemoryFact) GetCreatedAt() (v string) {
 	return p.CreatedAt
 }
@@ -163,6 +197,27 @@ func (p *MemoryFact) SetEmbeddingRef(val string) {
 func (p *MemoryFact) SetConfidence(val float64) {
 	p.Confidence = val
 }
+func (p *MemoryFact) SetImportance(val float64) {
+	p.Importance = val
+}
+func (p *MemoryFact) SetVectorScore(val float64) {
+	p.VectorScore = val
+}
+func (p *MemoryFact) SetFinalScore(val float64) {
+	p.FinalScore = val
+}
+func (p *MemoryFact) SetScoreReason(val string) {
+	p.ScoreReason = val
+}
+func (p *MemoryFact) SetExpiredAt(val string) {
+	p.ExpiredAt = val
+}
+func (p *MemoryFact) SetSupersededBy(val int64) {
+	p.SupersededBy = val
+}
+func (p *MemoryFact) SetPreviousMemoryId(val int64) {
+	p.PreviousMemoryId = val
+}
 func (p *MemoryFact) SetCreatedAt(val string) {
 	p.CreatedAt = val
 }
@@ -175,206 +230,6 @@ func (p *MemoryFact) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("MemoryFact(%+v)", *p)
-}
-
-func (p *MemoryFact) DeepEqual(ano *MemoryFact) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Id) {
-		return false
-	}
-	if !p.Field2DeepEqual(ano.BotId) {
-		return false
-	}
-	if !p.Field3DeepEqual(ano.UserId) {
-		return false
-	}
-	if !p.Field4DeepEqual(ano.OwnerUserId) {
-		return false
-	}
-	if !p.Field5DeepEqual(ano.GroupId) {
-		return false
-	}
-	if !p.Field6DeepEqual(ano.ConversationId) {
-		return false
-	}
-	if !p.Field7DeepEqual(ano.SessionId) {
-		return false
-	}
-	if !p.Field8DeepEqual(ano.Scope) {
-		return false
-	}
-	if !p.Field9DeepEqual(ano.Type) {
-		return false
-	}
-	if !p.Field10DeepEqual(ano.Title) {
-		return false
-	}
-	if !p.Field11DeepEqual(ano.Content) {
-		return false
-	}
-	if !p.Field12DeepEqual(ano.Source) {
-		return false
-	}
-	if !p.Field13DeepEqual(ano.Visibility) {
-		return false
-	}
-	if !p.Field14DeepEqual(ano.Enabled) {
-		return false
-	}
-	if !p.Field15DeepEqual(ano.VectorStatus) {
-		return false
-	}
-	if !p.Field16DeepEqual(ano.EmbeddingRef) {
-		return false
-	}
-	if !p.Field17DeepEqual(ano.Confidence) {
-		return false
-	}
-	if !p.Field18DeepEqual(ano.CreatedAt) {
-		return false
-	}
-	if !p.Field19DeepEqual(ano.UpdatedAt) {
-		return false
-	}
-	return true
-}
-
-func (p *MemoryFact) Field1DeepEqual(src int64) bool {
-
-	if p.Id != src {
-		return false
-	}
-	return true
-}
-func (p *MemoryFact) Field2DeepEqual(src int64) bool {
-
-	if p.BotId != src {
-		return false
-	}
-	return true
-}
-func (p *MemoryFact) Field3DeepEqual(src int64) bool {
-
-	if p.UserId != src {
-		return false
-	}
-	return true
-}
-func (p *MemoryFact) Field4DeepEqual(src int64) bool {
-
-	if p.OwnerUserId != src {
-		return false
-	}
-	return true
-}
-func (p *MemoryFact) Field5DeepEqual(src int64) bool {
-
-	if p.GroupId != src {
-		return false
-	}
-	return true
-}
-func (p *MemoryFact) Field6DeepEqual(src int64) bool {
-
-	if p.ConversationId != src {
-		return false
-	}
-	return true
-}
-func (p *MemoryFact) Field7DeepEqual(src string) bool {
-
-	if strings.Compare(p.SessionId, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *MemoryFact) Field8DeepEqual(src string) bool {
-
-	if strings.Compare(p.Scope, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *MemoryFact) Field9DeepEqual(src string) bool {
-
-	if strings.Compare(p.Type, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *MemoryFact) Field10DeepEqual(src string) bool {
-
-	if strings.Compare(p.Title, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *MemoryFact) Field11DeepEqual(src string) bool {
-
-	if strings.Compare(p.Content, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *MemoryFact) Field12DeepEqual(src string) bool {
-
-	if strings.Compare(p.Source, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *MemoryFact) Field13DeepEqual(src string) bool {
-
-	if strings.Compare(p.Visibility, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *MemoryFact) Field14DeepEqual(src bool) bool {
-
-	if p.Enabled != src {
-		return false
-	}
-	return true
-}
-func (p *MemoryFact) Field15DeepEqual(src string) bool {
-
-	if strings.Compare(p.VectorStatus, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *MemoryFact) Field16DeepEqual(src string) bool {
-
-	if strings.Compare(p.EmbeddingRef, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *MemoryFact) Field17DeepEqual(src float64) bool {
-
-	if p.Confidence != src {
-		return false
-	}
-	return true
-}
-func (p *MemoryFact) Field18DeepEqual(src string) bool {
-
-	if strings.Compare(p.CreatedAt, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *MemoryFact) Field19DeepEqual(src string) bool {
-
-	if strings.Compare(p.UpdatedAt, src) != 0 {
-		return false
-	}
-	return true
 }
 
 var fieldIDToName_MemoryFact = map[int16]string{
@@ -395,28 +250,37 @@ var fieldIDToName_MemoryFact = map[int16]string{
 	15: "vector_status",
 	16: "embedding_ref",
 	17: "confidence",
-	18: "created_at",
-	19: "updated_at",
+	18: "importance",
+	19: "vector_score",
+	20: "final_score",
+	21: "score_reason",
+	22: "expired_at",
+	23: "superseded_by",
+	24: "previous_memory_id",
+	25: "created_at",
+	26: "updated_at",
 }
 
 type CreateMemoryReq struct {
-	BotId          int64   `thrift:"bot_id,1" frugal:"1,default,i64" json:"bot_id"`
-	UserId         int64   `thrift:"user_id,2" frugal:"2,default,i64" json:"user_id"`
-	OwnerUserId    int64   `thrift:"owner_user_id,3" frugal:"3,default,i64" json:"owner_user_id"`
-	GroupId        int64   `thrift:"group_id,4" frugal:"4,default,i64" json:"group_id"`
-	ConversationId int64   `thrift:"conversation_id,5" frugal:"5,default,i64" json:"conversation_id"`
-	SessionId      string  `thrift:"session_id,6" frugal:"6,default,string" json:"session_id"`
-	Scope          string  `thrift:"scope,7" frugal:"7,default,string" json:"scope"`
-	Type           string  `thrift:"type,8" frugal:"8,default,string" json:"type"`
-	Title          string  `thrift:"title,9" frugal:"9,default,string" json:"title"`
-	Content        string  `thrift:"content,10" frugal:"10,default,string" json:"content"`
-	Source         string  `thrift:"source,11" frugal:"11,default,string" json:"source"`
-	Visibility     string  `thrift:"visibility,12" frugal:"12,default,string" json:"visibility"`
-	Enabled        bool    `thrift:"enabled,13" frugal:"13,default,bool" json:"enabled"`
-	EnabledSet     bool    `thrift:"enabled_set,14" frugal:"14,default,bool" json:"enabled_set"`
-	VectorStatus   string  `thrift:"vector_status,15" frugal:"15,default,string" json:"vector_status"`
-	EmbeddingRef   string  `thrift:"embedding_ref,16" frugal:"16,default,string" json:"embedding_ref"`
-	Confidence     float64 `thrift:"confidence,17" frugal:"17,default,double" json:"confidence"`
+	BotId            int64   `thrift:"bot_id,1" frugal:"1,default,i64" json:"bot_id"`
+	UserId           int64   `thrift:"user_id,2" frugal:"2,default,i64" json:"user_id"`
+	OwnerUserId      int64   `thrift:"owner_user_id,3" frugal:"3,default,i64" json:"owner_user_id"`
+	GroupId          int64   `thrift:"group_id,4" frugal:"4,default,i64" json:"group_id"`
+	ConversationId   int64   `thrift:"conversation_id,5" frugal:"5,default,i64" json:"conversation_id"`
+	SessionId        string  `thrift:"session_id,6" frugal:"6,default,string" json:"session_id"`
+	Scope            string  `thrift:"scope,7" frugal:"7,default,string" json:"scope"`
+	Type             string  `thrift:"type,8" frugal:"8,default,string" json:"type"`
+	Title            string  `thrift:"title,9" frugal:"9,default,string" json:"title"`
+	Content          string  `thrift:"content,10" frugal:"10,default,string" json:"content"`
+	Source           string  `thrift:"source,11" frugal:"11,default,string" json:"source"`
+	Visibility       string  `thrift:"visibility,12" frugal:"12,default,string" json:"visibility"`
+	Enabled          bool    `thrift:"enabled,13" frugal:"13,default,bool" json:"enabled"`
+	EnabledSet       bool    `thrift:"enabled_set,14" frugal:"14,default,bool" json:"enabled_set"`
+	VectorStatus     string  `thrift:"vector_status,15" frugal:"15,default,string" json:"vector_status"`
+	EmbeddingRef     string  `thrift:"embedding_ref,16" frugal:"16,default,string" json:"embedding_ref"`
+	Confidence       float64 `thrift:"confidence,17" frugal:"17,default,double" json:"confidence"`
+	Importance       float64 `thrift:"importance,18" frugal:"18,default,double" json:"importance"`
+	PreviousMemoryId int64   `thrift:"previous_memory_id,19" frugal:"19,default,i64" json:"previous_memory_id"`
 }
 
 func NewCreateMemoryReq() *CreateMemoryReq {
@@ -493,6 +357,14 @@ func (p *CreateMemoryReq) GetEmbeddingRef() (v string) {
 func (p *CreateMemoryReq) GetConfidence() (v float64) {
 	return p.Confidence
 }
+
+func (p *CreateMemoryReq) GetImportance() (v float64) {
+	return p.Importance
+}
+
+func (p *CreateMemoryReq) GetPreviousMemoryId() (v int64) {
+	return p.PreviousMemoryId
+}
 func (p *CreateMemoryReq) SetBotId(val int64) {
 	p.BotId = val
 }
@@ -544,192 +416,18 @@ func (p *CreateMemoryReq) SetEmbeddingRef(val string) {
 func (p *CreateMemoryReq) SetConfidence(val float64) {
 	p.Confidence = val
 }
+func (p *CreateMemoryReq) SetImportance(val float64) {
+	p.Importance = val
+}
+func (p *CreateMemoryReq) SetPreviousMemoryId(val int64) {
+	p.PreviousMemoryId = val
+}
 
 func (p *CreateMemoryReq) String() string {
 	if p == nil {
 		return "<nil>"
 	}
 	return fmt.Sprintf("CreateMemoryReq(%+v)", *p)
-}
-
-func (p *CreateMemoryReq) DeepEqual(ano *CreateMemoryReq) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.BotId) {
-		return false
-	}
-	if !p.Field2DeepEqual(ano.UserId) {
-		return false
-	}
-	if !p.Field3DeepEqual(ano.OwnerUserId) {
-		return false
-	}
-	if !p.Field4DeepEqual(ano.GroupId) {
-		return false
-	}
-	if !p.Field5DeepEqual(ano.ConversationId) {
-		return false
-	}
-	if !p.Field6DeepEqual(ano.SessionId) {
-		return false
-	}
-	if !p.Field7DeepEqual(ano.Scope) {
-		return false
-	}
-	if !p.Field8DeepEqual(ano.Type) {
-		return false
-	}
-	if !p.Field9DeepEqual(ano.Title) {
-		return false
-	}
-	if !p.Field10DeepEqual(ano.Content) {
-		return false
-	}
-	if !p.Field11DeepEqual(ano.Source) {
-		return false
-	}
-	if !p.Field12DeepEqual(ano.Visibility) {
-		return false
-	}
-	if !p.Field13DeepEqual(ano.Enabled) {
-		return false
-	}
-	if !p.Field14DeepEqual(ano.EnabledSet) {
-		return false
-	}
-	if !p.Field15DeepEqual(ano.VectorStatus) {
-		return false
-	}
-	if !p.Field16DeepEqual(ano.EmbeddingRef) {
-		return false
-	}
-	if !p.Field17DeepEqual(ano.Confidence) {
-		return false
-	}
-	return true
-}
-
-func (p *CreateMemoryReq) Field1DeepEqual(src int64) bool {
-
-	if p.BotId != src {
-		return false
-	}
-	return true
-}
-func (p *CreateMemoryReq) Field2DeepEqual(src int64) bool {
-
-	if p.UserId != src {
-		return false
-	}
-	return true
-}
-func (p *CreateMemoryReq) Field3DeepEqual(src int64) bool {
-
-	if p.OwnerUserId != src {
-		return false
-	}
-	return true
-}
-func (p *CreateMemoryReq) Field4DeepEqual(src int64) bool {
-
-	if p.GroupId != src {
-		return false
-	}
-	return true
-}
-func (p *CreateMemoryReq) Field5DeepEqual(src int64) bool {
-
-	if p.ConversationId != src {
-		return false
-	}
-	return true
-}
-func (p *CreateMemoryReq) Field6DeepEqual(src string) bool {
-
-	if strings.Compare(p.SessionId, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *CreateMemoryReq) Field7DeepEqual(src string) bool {
-
-	if strings.Compare(p.Scope, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *CreateMemoryReq) Field8DeepEqual(src string) bool {
-
-	if strings.Compare(p.Type, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *CreateMemoryReq) Field9DeepEqual(src string) bool {
-
-	if strings.Compare(p.Title, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *CreateMemoryReq) Field10DeepEqual(src string) bool {
-
-	if strings.Compare(p.Content, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *CreateMemoryReq) Field11DeepEqual(src string) bool {
-
-	if strings.Compare(p.Source, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *CreateMemoryReq) Field12DeepEqual(src string) bool {
-
-	if strings.Compare(p.Visibility, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *CreateMemoryReq) Field13DeepEqual(src bool) bool {
-
-	if p.Enabled != src {
-		return false
-	}
-	return true
-}
-func (p *CreateMemoryReq) Field14DeepEqual(src bool) bool {
-
-	if p.EnabledSet != src {
-		return false
-	}
-	return true
-}
-func (p *CreateMemoryReq) Field15DeepEqual(src string) bool {
-
-	if strings.Compare(p.VectorStatus, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *CreateMemoryReq) Field16DeepEqual(src string) bool {
-
-	if strings.Compare(p.EmbeddingRef, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *CreateMemoryReq) Field17DeepEqual(src float64) bool {
-
-	if p.Confidence != src {
-		return false
-	}
-	return true
 }
 
 var fieldIDToName_CreateMemoryReq = map[int16]string{
@@ -750,6 +448,8 @@ var fieldIDToName_CreateMemoryReq = map[int16]string{
 	15: "vector_status",
 	16: "embedding_ref",
 	17: "confidence",
+	18: "importance",
+	19: "previous_memory_id",
 }
 
 type CreateMemoryResp struct {
@@ -800,46 +500,6 @@ func (p *CreateMemoryResp) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("CreateMemoryResp(%+v)", *p)
-}
-
-func (p *CreateMemoryResp) DeepEqual(ano *CreateMemoryResp) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Success) {
-		return false
-	}
-	if !p.Field2DeepEqual(ano.Memory) {
-		return false
-	}
-	if !p.Field3DeepEqual(ano.Msg) {
-		return false
-	}
-	return true
-}
-
-func (p *CreateMemoryResp) Field1DeepEqual(src bool) bool {
-
-	if p.Success != src {
-		return false
-	}
-	return true
-}
-func (p *CreateMemoryResp) Field2DeepEqual(src *MemoryFact) bool {
-
-	if !p.Memory.DeepEqual(src) {
-		return false
-	}
-	return true
-}
-func (p *CreateMemoryResp) Field3DeepEqual(src string) bool {
-
-	if strings.Compare(p.Msg, src) != 0 {
-		return false
-	}
-	return true
 }
 
 var fieldIDToName_CreateMemoryResp = map[int16]string{
@@ -953,138 +613,6 @@ func (p *MemoryFilter) String() string {
 	return fmt.Sprintf("MemoryFilter(%+v)", *p)
 }
 
-func (p *MemoryFilter) DeepEqual(ano *MemoryFilter) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.BotId) {
-		return false
-	}
-	if !p.Field2DeepEqual(ano.UserId) {
-		return false
-	}
-	if !p.Field3DeepEqual(ano.OwnerUserId) {
-		return false
-	}
-	if !p.Field4DeepEqual(ano.GroupId) {
-		return false
-	}
-	if !p.Field5DeepEqual(ano.ConversationId) {
-		return false
-	}
-	if !p.Field6DeepEqual(ano.SessionId) {
-		return false
-	}
-	if !p.Field7DeepEqual(ano.Scopes) {
-		return false
-	}
-	if !p.Field8DeepEqual(ano.Types) {
-		return false
-	}
-	if !p.Field9DeepEqual(ano.IncludeDisabled) {
-		return false
-	}
-	if !p.Field10DeepEqual(ano.Limit) {
-		return false
-	}
-	if !p.Field11DeepEqual(ano.Offset) {
-		return false
-	}
-	return true
-}
-
-func (p *MemoryFilter) Field1DeepEqual(src int64) bool {
-
-	if p.BotId != src {
-		return false
-	}
-	return true
-}
-func (p *MemoryFilter) Field2DeepEqual(src int64) bool {
-
-	if p.UserId != src {
-		return false
-	}
-	return true
-}
-func (p *MemoryFilter) Field3DeepEqual(src int64) bool {
-
-	if p.OwnerUserId != src {
-		return false
-	}
-	return true
-}
-func (p *MemoryFilter) Field4DeepEqual(src int64) bool {
-
-	if p.GroupId != src {
-		return false
-	}
-	return true
-}
-func (p *MemoryFilter) Field5DeepEqual(src int64) bool {
-
-	if p.ConversationId != src {
-		return false
-	}
-	return true
-}
-func (p *MemoryFilter) Field6DeepEqual(src string) bool {
-
-	if strings.Compare(p.SessionId, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *MemoryFilter) Field7DeepEqual(src []string) bool {
-
-	if len(p.Scopes) != len(src) {
-		return false
-	}
-	for i, v := range p.Scopes {
-		_src := src[i]
-		if strings.Compare(v, _src) != 0 {
-			return false
-		}
-	}
-	return true
-}
-func (p *MemoryFilter) Field8DeepEqual(src []string) bool {
-
-	if len(p.Types) != len(src) {
-		return false
-	}
-	for i, v := range p.Types {
-		_src := src[i]
-		if strings.Compare(v, _src) != 0 {
-			return false
-		}
-	}
-	return true
-}
-func (p *MemoryFilter) Field9DeepEqual(src bool) bool {
-
-	if p.IncludeDisabled != src {
-		return false
-	}
-	return true
-}
-func (p *MemoryFilter) Field10DeepEqual(src int64) bool {
-
-	if p.Limit != src {
-		return false
-	}
-	return true
-}
-func (p *MemoryFilter) Field11DeepEqual(src int64) bool {
-
-	if p.Offset != src {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_MemoryFilter = map[int16]string{
 	1:  "bot_id",
 	2:  "user_id",
@@ -1141,36 +669,6 @@ func (p *ListMemoriesReq) String() string {
 	return fmt.Sprintf("ListMemoriesReq(%+v)", *p)
 }
 
-func (p *ListMemoriesReq) DeepEqual(ano *ListMemoriesReq) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.ViewerId) {
-		return false
-	}
-	if !p.Field2DeepEqual(ano.Filter) {
-		return false
-	}
-	return true
-}
-
-func (p *ListMemoriesReq) Field1DeepEqual(src int64) bool {
-
-	if p.ViewerId != src {
-		return false
-	}
-	return true
-}
-func (p *ListMemoriesReq) Field2DeepEqual(src *MemoryFilter) bool {
-
-	if !p.Filter.DeepEqual(src) {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_ListMemoriesReq = map[int16]string{
 	1: "viewer_id",
 	2: "filter",
@@ -1225,62 +723,6 @@ func (p *ListMemoriesResp) String() string {
 	return fmt.Sprintf("ListMemoriesResp(%+v)", *p)
 }
 
-func (p *ListMemoriesResp) DeepEqual(ano *ListMemoriesResp) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Success) {
-		return false
-	}
-	if !p.Field2DeepEqual(ano.Memories) {
-		return false
-	}
-	if !p.Field3DeepEqual(ano.Total) {
-		return false
-	}
-	if !p.Field4DeepEqual(ano.Msg) {
-		return false
-	}
-	return true
-}
-
-func (p *ListMemoriesResp) Field1DeepEqual(src bool) bool {
-
-	if p.Success != src {
-		return false
-	}
-	return true
-}
-func (p *ListMemoriesResp) Field2DeepEqual(src []*MemoryFact) bool {
-
-	if len(p.Memories) != len(src) {
-		return false
-	}
-	for i, v := range p.Memories {
-		_src := src[i]
-		if !v.DeepEqual(_src) {
-			return false
-		}
-	}
-	return true
-}
-func (p *ListMemoriesResp) Field3DeepEqual(src int64) bool {
-
-	if p.Total != src {
-		return false
-	}
-	return true
-}
-func (p *ListMemoriesResp) Field4DeepEqual(src string) bool {
-
-	if strings.Compare(p.Msg, src) != 0 {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_ListMemoriesResp = map[int16]string{
 	1: "success",
 	2: "memories",
@@ -1289,12 +731,16 @@ var fieldIDToName_ListMemoriesResp = map[int16]string{
 }
 
 type RecallReq struct {
-	BotId          int64  `thrift:"bot_id,1" frugal:"1,default,i64" json:"bot_id"`
-	UserId         int64  `thrift:"user_id,2" frugal:"2,default,i64" json:"user_id"`
-	GroupId        int64  `thrift:"group_id,3" frugal:"3,default,i64" json:"group_id"`
-	ConversationId int64  `thrift:"conversation_id,4" frugal:"4,default,i64" json:"conversation_id"`
-	SessionId      string `thrift:"session_id,5" frugal:"5,default,string" json:"session_id"`
-	Limit          int64  `thrift:"limit,6" frugal:"6,default,i64" json:"limit"`
+	BotId            int64   `thrift:"bot_id,1" frugal:"1,default,i64" json:"bot_id"`
+	UserId           int64   `thrift:"user_id,2" frugal:"2,default,i64" json:"user_id"`
+	GroupId          int64   `thrift:"group_id,3" frugal:"3,default,i64" json:"group_id"`
+	ConversationId   int64   `thrift:"conversation_id,4" frugal:"4,default,i64" json:"conversation_id"`
+	SessionId        string  `thrift:"session_id,5" frugal:"5,default,string" json:"session_id"`
+	Limit            int64   `thrift:"limit,6" frugal:"6,default,i64" json:"limit"`
+	Query            string  `thrift:"query,7" frugal:"7,default,string" json:"query"`
+	MinScore         float64 `thrift:"min_score,8" frugal:"8,default,double" json:"min_score"`
+	VectorCandidateK int64   `thrift:"vector_candidate_k,9" frugal:"9,default,i64" json:"vector_candidate_k"`
+	UseLlmFilter     bool    `thrift:"use_llm_filter,10" frugal:"10,default,bool" json:"use_llm_filter"`
 }
 
 func NewRecallReq() *RecallReq {
@@ -1327,6 +773,22 @@ func (p *RecallReq) GetSessionId() (v string) {
 func (p *RecallReq) GetLimit() (v int64) {
 	return p.Limit
 }
+
+func (p *RecallReq) GetQuery() (v string) {
+	return p.Query
+}
+
+func (p *RecallReq) GetMinScore() (v float64) {
+	return p.MinScore
+}
+
+func (p *RecallReq) GetVectorCandidateK() (v int64) {
+	return p.VectorCandidateK
+}
+
+func (p *RecallReq) GetUseLlmFilter() (v bool) {
+	return p.UseLlmFilter
+}
 func (p *RecallReq) SetBotId(val int64) {
 	p.BotId = val
 }
@@ -1345,6 +807,18 @@ func (p *RecallReq) SetSessionId(val string) {
 func (p *RecallReq) SetLimit(val int64) {
 	p.Limit = val
 }
+func (p *RecallReq) SetQuery(val string) {
+	p.Query = val
+}
+func (p *RecallReq) SetMinScore(val float64) {
+	p.MinScore = val
+}
+func (p *RecallReq) SetVectorCandidateK(val int64) {
+	p.VectorCandidateK = val
+}
+func (p *RecallReq) SetUseLlmFilter(val bool) {
+	p.UseLlmFilter = val
+}
 
 func (p *RecallReq) String() string {
 	if p == nil {
@@ -1353,83 +827,17 @@ func (p *RecallReq) String() string {
 	return fmt.Sprintf("RecallReq(%+v)", *p)
 }
 
-func (p *RecallReq) DeepEqual(ano *RecallReq) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.BotId) {
-		return false
-	}
-	if !p.Field2DeepEqual(ano.UserId) {
-		return false
-	}
-	if !p.Field3DeepEqual(ano.GroupId) {
-		return false
-	}
-	if !p.Field4DeepEqual(ano.ConversationId) {
-		return false
-	}
-	if !p.Field5DeepEqual(ano.SessionId) {
-		return false
-	}
-	if !p.Field6DeepEqual(ano.Limit) {
-		return false
-	}
-	return true
-}
-
-func (p *RecallReq) Field1DeepEqual(src int64) bool {
-
-	if p.BotId != src {
-		return false
-	}
-	return true
-}
-func (p *RecallReq) Field2DeepEqual(src int64) bool {
-
-	if p.UserId != src {
-		return false
-	}
-	return true
-}
-func (p *RecallReq) Field3DeepEqual(src int64) bool {
-
-	if p.GroupId != src {
-		return false
-	}
-	return true
-}
-func (p *RecallReq) Field4DeepEqual(src int64) bool {
-
-	if p.ConversationId != src {
-		return false
-	}
-	return true
-}
-func (p *RecallReq) Field5DeepEqual(src string) bool {
-
-	if strings.Compare(p.SessionId, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *RecallReq) Field6DeepEqual(src int64) bool {
-
-	if p.Limit != src {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_RecallReq = map[int16]string{
-	1: "bot_id",
-	2: "user_id",
-	3: "group_id",
-	4: "conversation_id",
-	5: "session_id",
-	6: "limit",
+	1:  "bot_id",
+	2:  "user_id",
+	3:  "group_id",
+	4:  "conversation_id",
+	5:  "session_id",
+	6:  "limit",
+	7:  "query",
+	8:  "min_score",
+	9:  "vector_candidate_k",
+	10: "use_llm_filter",
 }
 
 type RecallResp struct {
@@ -1481,62 +889,6 @@ func (p *RecallResp) String() string {
 	return fmt.Sprintf("RecallResp(%+v)", *p)
 }
 
-func (p *RecallResp) DeepEqual(ano *RecallResp) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Success) {
-		return false
-	}
-	if !p.Field2DeepEqual(ano.Facts) {
-		return false
-	}
-	if !p.Field3DeepEqual(ano.ContextText) {
-		return false
-	}
-	if !p.Field4DeepEqual(ano.Msg) {
-		return false
-	}
-	return true
-}
-
-func (p *RecallResp) Field1DeepEqual(src bool) bool {
-
-	if p.Success != src {
-		return false
-	}
-	return true
-}
-func (p *RecallResp) Field2DeepEqual(src []*MemoryFact) bool {
-
-	if len(p.Facts) != len(src) {
-		return false
-	}
-	for i, v := range p.Facts {
-		_src := src[i]
-		if !v.DeepEqual(_src) {
-			return false
-		}
-	}
-	return true
-}
-func (p *RecallResp) Field3DeepEqual(src string) bool {
-
-	if strings.Compare(p.ContextText, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *RecallResp) Field4DeepEqual(src string) bool {
-
-	if strings.Compare(p.Msg, src) != 0 {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_RecallResp = map[int16]string{
 	1: "success",
 	2: "facts",
@@ -1559,6 +911,8 @@ type UpdateMemoryReq struct {
 	EmbeddingRef  string  `thrift:"embedding_ref,12" frugal:"12,default,string" json:"embedding_ref"`
 	Confidence    float64 `thrift:"confidence,13" frugal:"13,default,double" json:"confidence"`
 	ConfidenceSet bool    `thrift:"confidence_set,14" frugal:"14,default,bool" json:"confidence_set"`
+	Importance    float64 `thrift:"importance,15" frugal:"15,default,double" json:"importance"`
+	ImportanceSet bool    `thrift:"importance_set,16" frugal:"16,default,bool" json:"importance_set"`
 }
 
 func NewUpdateMemoryReq() *UpdateMemoryReq {
@@ -1623,6 +977,14 @@ func (p *UpdateMemoryReq) GetConfidence() (v float64) {
 func (p *UpdateMemoryReq) GetConfidenceSet() (v bool) {
 	return p.ConfidenceSet
 }
+
+func (p *UpdateMemoryReq) GetImportance() (v float64) {
+	return p.Importance
+}
+
+func (p *UpdateMemoryReq) GetImportanceSet() (v bool) {
+	return p.ImportanceSet
+}
 func (p *UpdateMemoryReq) SetViewerId(val int64) {
 	p.ViewerId = val
 }
@@ -1665,162 +1027,18 @@ func (p *UpdateMemoryReq) SetConfidence(val float64) {
 func (p *UpdateMemoryReq) SetConfidenceSet(val bool) {
 	p.ConfidenceSet = val
 }
+func (p *UpdateMemoryReq) SetImportance(val float64) {
+	p.Importance = val
+}
+func (p *UpdateMemoryReq) SetImportanceSet(val bool) {
+	p.ImportanceSet = val
+}
 
 func (p *UpdateMemoryReq) String() string {
 	if p == nil {
 		return "<nil>"
 	}
 	return fmt.Sprintf("UpdateMemoryReq(%+v)", *p)
-}
-
-func (p *UpdateMemoryReq) DeepEqual(ano *UpdateMemoryReq) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.ViewerId) {
-		return false
-	}
-	if !p.Field2DeepEqual(ano.MemoryId) {
-		return false
-	}
-	if !p.Field3DeepEqual(ano.Scope) {
-		return false
-	}
-	if !p.Field4DeepEqual(ano.Type) {
-		return false
-	}
-	if !p.Field5DeepEqual(ano.Title) {
-		return false
-	}
-	if !p.Field6DeepEqual(ano.Content) {
-		return false
-	}
-	if !p.Field7DeepEqual(ano.Source) {
-		return false
-	}
-	if !p.Field8DeepEqual(ano.Visibility) {
-		return false
-	}
-	if !p.Field9DeepEqual(ano.Enabled) {
-		return false
-	}
-	if !p.Field10DeepEqual(ano.EnabledSet) {
-		return false
-	}
-	if !p.Field11DeepEqual(ano.VectorStatus) {
-		return false
-	}
-	if !p.Field12DeepEqual(ano.EmbeddingRef) {
-		return false
-	}
-	if !p.Field13DeepEqual(ano.Confidence) {
-		return false
-	}
-	if !p.Field14DeepEqual(ano.ConfidenceSet) {
-		return false
-	}
-	return true
-}
-
-func (p *UpdateMemoryReq) Field1DeepEqual(src int64) bool {
-
-	if p.ViewerId != src {
-		return false
-	}
-	return true
-}
-func (p *UpdateMemoryReq) Field2DeepEqual(src int64) bool {
-
-	if p.MemoryId != src {
-		return false
-	}
-	return true
-}
-func (p *UpdateMemoryReq) Field3DeepEqual(src string) bool {
-
-	if strings.Compare(p.Scope, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *UpdateMemoryReq) Field4DeepEqual(src string) bool {
-
-	if strings.Compare(p.Type, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *UpdateMemoryReq) Field5DeepEqual(src string) bool {
-
-	if strings.Compare(p.Title, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *UpdateMemoryReq) Field6DeepEqual(src string) bool {
-
-	if strings.Compare(p.Content, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *UpdateMemoryReq) Field7DeepEqual(src string) bool {
-
-	if strings.Compare(p.Source, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *UpdateMemoryReq) Field8DeepEqual(src string) bool {
-
-	if strings.Compare(p.Visibility, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *UpdateMemoryReq) Field9DeepEqual(src bool) bool {
-
-	if p.Enabled != src {
-		return false
-	}
-	return true
-}
-func (p *UpdateMemoryReq) Field10DeepEqual(src bool) bool {
-
-	if p.EnabledSet != src {
-		return false
-	}
-	return true
-}
-func (p *UpdateMemoryReq) Field11DeepEqual(src string) bool {
-
-	if strings.Compare(p.VectorStatus, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *UpdateMemoryReq) Field12DeepEqual(src string) bool {
-
-	if strings.Compare(p.EmbeddingRef, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *UpdateMemoryReq) Field13DeepEqual(src float64) bool {
-
-	if p.Confidence != src {
-		return false
-	}
-	return true
-}
-func (p *UpdateMemoryReq) Field14DeepEqual(src bool) bool {
-
-	if p.ConfidenceSet != src {
-		return false
-	}
-	return true
 }
 
 var fieldIDToName_UpdateMemoryReq = map[int16]string{
@@ -1838,6 +1056,8 @@ var fieldIDToName_UpdateMemoryReq = map[int16]string{
 	12: "embedding_ref",
 	13: "confidence",
 	14: "confidence_set",
+	15: "importance",
+	16: "importance_set",
 }
 
 type UpdateMemoryResp struct {
@@ -1890,46 +1110,6 @@ func (p *UpdateMemoryResp) String() string {
 	return fmt.Sprintf("UpdateMemoryResp(%+v)", *p)
 }
 
-func (p *UpdateMemoryResp) DeepEqual(ano *UpdateMemoryResp) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Success) {
-		return false
-	}
-	if !p.Field2DeepEqual(ano.Memory) {
-		return false
-	}
-	if !p.Field3DeepEqual(ano.Msg) {
-		return false
-	}
-	return true
-}
-
-func (p *UpdateMemoryResp) Field1DeepEqual(src bool) bool {
-
-	if p.Success != src {
-		return false
-	}
-	return true
-}
-func (p *UpdateMemoryResp) Field2DeepEqual(src *MemoryFact) bool {
-
-	if !p.Memory.DeepEqual(src) {
-		return false
-	}
-	return true
-}
-func (p *UpdateMemoryResp) Field3DeepEqual(src string) bool {
-
-	if strings.Compare(p.Msg, src) != 0 {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_UpdateMemoryResp = map[int16]string{
 	1: "success",
 	2: "memory",
@@ -1967,36 +1147,6 @@ func (p *DeleteMemoryReq) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("DeleteMemoryReq(%+v)", *p)
-}
-
-func (p *DeleteMemoryReq) DeepEqual(ano *DeleteMemoryReq) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.ViewerId) {
-		return false
-	}
-	if !p.Field2DeepEqual(ano.MemoryId) {
-		return false
-	}
-	return true
-}
-
-func (p *DeleteMemoryReq) Field1DeepEqual(src int64) bool {
-
-	if p.ViewerId != src {
-		return false
-	}
-	return true
-}
-func (p *DeleteMemoryReq) Field2DeepEqual(src int64) bool {
-
-	if p.MemoryId != src {
-		return false
-	}
-	return true
 }
 
 var fieldIDToName_DeleteMemoryReq = map[int16]string{
@@ -2037,39 +1187,700 @@ func (p *DeleteMemoryResp) String() string {
 	return fmt.Sprintf("DeleteMemoryResp(%+v)", *p)
 }
 
-func (p *DeleteMemoryResp) DeepEqual(ano *DeleteMemoryResp) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Success) {
-		return false
-	}
-	if !p.Field2DeepEqual(ano.Msg) {
-		return false
-	}
-	return true
-}
-
-func (p *DeleteMemoryResp) Field1DeepEqual(src bool) bool {
-
-	if p.Success != src {
-		return false
-	}
-	return true
-}
-func (p *DeleteMemoryResp) Field2DeepEqual(src string) bool {
-
-	if strings.Compare(p.Msg, src) != 0 {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_DeleteMemoryResp = map[int16]string{
 	1: "success",
 	2: "msg",
+}
+
+type MemoryCandidate struct {
+	Id                 int64   `thrift:"id,1" frugal:"1,default,i64" json:"id"`
+	BotId              int64   `thrift:"bot_id,2" frugal:"2,default,i64" json:"bot_id"`
+	UserId             int64   `thrift:"user_id,3" frugal:"3,default,i64" json:"user_id"`
+	OwnerUserId        int64   `thrift:"owner_user_id,4" frugal:"4,default,i64" json:"owner_user_id"`
+	GroupId            int64   `thrift:"group_id,5" frugal:"5,default,i64" json:"group_id"`
+	ConversationId     int64   `thrift:"conversation_id,6" frugal:"6,default,i64" json:"conversation_id"`
+	SessionId          string  `thrift:"session_id,7" frugal:"7,default,string" json:"session_id"`
+	Scope              string  `thrift:"scope,8" frugal:"8,default,string" json:"scope"`
+	Type               string  `thrift:"type,9" frugal:"9,default,string" json:"type"`
+	Title              string  `thrift:"title,10" frugal:"10,default,string" json:"title"`
+	Content            string  `thrift:"content,11" frugal:"11,default,string" json:"content"`
+	Source             string  `thrift:"source,12" frugal:"12,default,string" json:"source"`
+	Evidence           string  `thrift:"evidence,13" frugal:"13,default,string" json:"evidence"`
+	Confidence         float64 `thrift:"confidence,14" frugal:"14,default,double" json:"confidence"`
+	Importance         float64 `thrift:"importance,15" frugal:"15,default,double" json:"importance"`
+	Status             string  `thrift:"status,16" frugal:"16,default,string" json:"status"`
+	ConflictMemoryIds  []int64 `thrift:"conflict_memory_ids,17" frugal:"17,default,list<i64>" json:"conflict_memory_ids"`
+	ConflictResolution string  `thrift:"conflict_resolution,18" frugal:"18,default,string" json:"conflict_resolution"`
+	AcceptedMemoryId   int64   `thrift:"accepted_memory_id,19" frugal:"19,default,i64" json:"accepted_memory_id"`
+	CreatedAt          string  `thrift:"created_at,20" frugal:"20,default,string" json:"created_at"`
+	UpdatedAt          string  `thrift:"updated_at,21" frugal:"21,default,string" json:"updated_at"`
+}
+
+func NewMemoryCandidate() *MemoryCandidate {
+	return &MemoryCandidate{}
+}
+
+func (p *MemoryCandidate) InitDefault() {
+}
+
+func (p *MemoryCandidate) GetId() (v int64) {
+	return p.Id
+}
+
+func (p *MemoryCandidate) GetBotId() (v int64) {
+	return p.BotId
+}
+
+func (p *MemoryCandidate) GetUserId() (v int64) {
+	return p.UserId
+}
+
+func (p *MemoryCandidate) GetOwnerUserId() (v int64) {
+	return p.OwnerUserId
+}
+
+func (p *MemoryCandidate) GetGroupId() (v int64) {
+	return p.GroupId
+}
+
+func (p *MemoryCandidate) GetConversationId() (v int64) {
+	return p.ConversationId
+}
+
+func (p *MemoryCandidate) GetSessionId() (v string) {
+	return p.SessionId
+}
+
+func (p *MemoryCandidate) GetScope() (v string) {
+	return p.Scope
+}
+
+func (p *MemoryCandidate) GetType() (v string) {
+	return p.Type
+}
+
+func (p *MemoryCandidate) GetTitle() (v string) {
+	return p.Title
+}
+
+func (p *MemoryCandidate) GetContent() (v string) {
+	return p.Content
+}
+
+func (p *MemoryCandidate) GetSource() (v string) {
+	return p.Source
+}
+
+func (p *MemoryCandidate) GetEvidence() (v string) {
+	return p.Evidence
+}
+
+func (p *MemoryCandidate) GetConfidence() (v float64) {
+	return p.Confidence
+}
+
+func (p *MemoryCandidate) GetImportance() (v float64) {
+	return p.Importance
+}
+
+func (p *MemoryCandidate) GetStatus() (v string) {
+	return p.Status
+}
+
+func (p *MemoryCandidate) GetConflictMemoryIds() (v []int64) {
+	return p.ConflictMemoryIds
+}
+
+func (p *MemoryCandidate) GetConflictResolution() (v string) {
+	return p.ConflictResolution
+}
+
+func (p *MemoryCandidate) GetAcceptedMemoryId() (v int64) {
+	return p.AcceptedMemoryId
+}
+
+func (p *MemoryCandidate) GetCreatedAt() (v string) {
+	return p.CreatedAt
+}
+
+func (p *MemoryCandidate) GetUpdatedAt() (v string) {
+	return p.UpdatedAt
+}
+func (p *MemoryCandidate) SetId(val int64) {
+	p.Id = val
+}
+func (p *MemoryCandidate) SetBotId(val int64) {
+	p.BotId = val
+}
+func (p *MemoryCandidate) SetUserId(val int64) {
+	p.UserId = val
+}
+func (p *MemoryCandidate) SetOwnerUserId(val int64) {
+	p.OwnerUserId = val
+}
+func (p *MemoryCandidate) SetGroupId(val int64) {
+	p.GroupId = val
+}
+func (p *MemoryCandidate) SetConversationId(val int64) {
+	p.ConversationId = val
+}
+func (p *MemoryCandidate) SetSessionId(val string) {
+	p.SessionId = val
+}
+func (p *MemoryCandidate) SetScope(val string) {
+	p.Scope = val
+}
+func (p *MemoryCandidate) SetType(val string) {
+	p.Type = val
+}
+func (p *MemoryCandidate) SetTitle(val string) {
+	p.Title = val
+}
+func (p *MemoryCandidate) SetContent(val string) {
+	p.Content = val
+}
+func (p *MemoryCandidate) SetSource(val string) {
+	p.Source = val
+}
+func (p *MemoryCandidate) SetEvidence(val string) {
+	p.Evidence = val
+}
+func (p *MemoryCandidate) SetConfidence(val float64) {
+	p.Confidence = val
+}
+func (p *MemoryCandidate) SetImportance(val float64) {
+	p.Importance = val
+}
+func (p *MemoryCandidate) SetStatus(val string) {
+	p.Status = val
+}
+func (p *MemoryCandidate) SetConflictMemoryIds(val []int64) {
+	p.ConflictMemoryIds = val
+}
+func (p *MemoryCandidate) SetConflictResolution(val string) {
+	p.ConflictResolution = val
+}
+func (p *MemoryCandidate) SetAcceptedMemoryId(val int64) {
+	p.AcceptedMemoryId = val
+}
+func (p *MemoryCandidate) SetCreatedAt(val string) {
+	p.CreatedAt = val
+}
+func (p *MemoryCandidate) SetUpdatedAt(val string) {
+	p.UpdatedAt = val
+}
+
+func (p *MemoryCandidate) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("MemoryCandidate(%+v)", *p)
+}
+
+var fieldIDToName_MemoryCandidate = map[int16]string{
+	1:  "id",
+	2:  "bot_id",
+	3:  "user_id",
+	4:  "owner_user_id",
+	5:  "group_id",
+	6:  "conversation_id",
+	7:  "session_id",
+	8:  "scope",
+	9:  "type",
+	10: "title",
+	11: "content",
+	12: "source",
+	13: "evidence",
+	14: "confidence",
+	15: "importance",
+	16: "status",
+	17: "conflict_memory_ids",
+	18: "conflict_resolution",
+	19: "accepted_memory_id",
+	20: "created_at",
+	21: "updated_at",
+}
+
+type CreateCandidateReq struct {
+	BotId              int64   `thrift:"bot_id,1" frugal:"1,default,i64" json:"bot_id"`
+	UserId             int64   `thrift:"user_id,2" frugal:"2,default,i64" json:"user_id"`
+	OwnerUserId        int64   `thrift:"owner_user_id,3" frugal:"3,default,i64" json:"owner_user_id"`
+	GroupId            int64   `thrift:"group_id,4" frugal:"4,default,i64" json:"group_id"`
+	ConversationId     int64   `thrift:"conversation_id,5" frugal:"5,default,i64" json:"conversation_id"`
+	SessionId          string  `thrift:"session_id,6" frugal:"6,default,string" json:"session_id"`
+	Scope              string  `thrift:"scope,7" frugal:"7,default,string" json:"scope"`
+	Type               string  `thrift:"type,8" frugal:"8,default,string" json:"type"`
+	Title              string  `thrift:"title,9" frugal:"9,default,string" json:"title"`
+	Content            string  `thrift:"content,10" frugal:"10,default,string" json:"content"`
+	Source             string  `thrift:"source,11" frugal:"11,default,string" json:"source"`
+	Evidence           string  `thrift:"evidence,12" frugal:"12,default,string" json:"evidence"`
+	Confidence         float64 `thrift:"confidence,13" frugal:"13,default,double" json:"confidence"`
+	Importance         float64 `thrift:"importance,14" frugal:"14,default,double" json:"importance"`
+	ConflictMemoryIds  []int64 `thrift:"conflict_memory_ids,15" frugal:"15,default,list<i64>" json:"conflict_memory_ids"`
+	ConflictResolution string  `thrift:"conflict_resolution,16" frugal:"16,default,string" json:"conflict_resolution"`
+}
+
+func NewCreateCandidateReq() *CreateCandidateReq {
+	return &CreateCandidateReq{}
+}
+
+func (p *CreateCandidateReq) InitDefault() {
+}
+
+func (p *CreateCandidateReq) GetBotId() (v int64) {
+	return p.BotId
+}
+
+func (p *CreateCandidateReq) GetUserId() (v int64) {
+	return p.UserId
+}
+
+func (p *CreateCandidateReq) GetOwnerUserId() (v int64) {
+	return p.OwnerUserId
+}
+
+func (p *CreateCandidateReq) GetGroupId() (v int64) {
+	return p.GroupId
+}
+
+func (p *CreateCandidateReq) GetConversationId() (v int64) {
+	return p.ConversationId
+}
+
+func (p *CreateCandidateReq) GetSessionId() (v string) {
+	return p.SessionId
+}
+
+func (p *CreateCandidateReq) GetScope() (v string) {
+	return p.Scope
+}
+
+func (p *CreateCandidateReq) GetType() (v string) {
+	return p.Type
+}
+
+func (p *CreateCandidateReq) GetTitle() (v string) {
+	return p.Title
+}
+
+func (p *CreateCandidateReq) GetContent() (v string) {
+	return p.Content
+}
+
+func (p *CreateCandidateReq) GetSource() (v string) {
+	return p.Source
+}
+
+func (p *CreateCandidateReq) GetEvidence() (v string) {
+	return p.Evidence
+}
+
+func (p *CreateCandidateReq) GetConfidence() (v float64) {
+	return p.Confidence
+}
+
+func (p *CreateCandidateReq) GetImportance() (v float64) {
+	return p.Importance
+}
+
+func (p *CreateCandidateReq) GetConflictMemoryIds() (v []int64) {
+	return p.ConflictMemoryIds
+}
+
+func (p *CreateCandidateReq) GetConflictResolution() (v string) {
+	return p.ConflictResolution
+}
+func (p *CreateCandidateReq) SetBotId(val int64) {
+	p.BotId = val
+}
+func (p *CreateCandidateReq) SetUserId(val int64) {
+	p.UserId = val
+}
+func (p *CreateCandidateReq) SetOwnerUserId(val int64) {
+	p.OwnerUserId = val
+}
+func (p *CreateCandidateReq) SetGroupId(val int64) {
+	p.GroupId = val
+}
+func (p *CreateCandidateReq) SetConversationId(val int64) {
+	p.ConversationId = val
+}
+func (p *CreateCandidateReq) SetSessionId(val string) {
+	p.SessionId = val
+}
+func (p *CreateCandidateReq) SetScope(val string) {
+	p.Scope = val
+}
+func (p *CreateCandidateReq) SetType(val string) {
+	p.Type = val
+}
+func (p *CreateCandidateReq) SetTitle(val string) {
+	p.Title = val
+}
+func (p *CreateCandidateReq) SetContent(val string) {
+	p.Content = val
+}
+func (p *CreateCandidateReq) SetSource(val string) {
+	p.Source = val
+}
+func (p *CreateCandidateReq) SetEvidence(val string) {
+	p.Evidence = val
+}
+func (p *CreateCandidateReq) SetConfidence(val float64) {
+	p.Confidence = val
+}
+func (p *CreateCandidateReq) SetImportance(val float64) {
+	p.Importance = val
+}
+func (p *CreateCandidateReq) SetConflictMemoryIds(val []int64) {
+	p.ConflictMemoryIds = val
+}
+func (p *CreateCandidateReq) SetConflictResolution(val string) {
+	p.ConflictResolution = val
+}
+
+func (p *CreateCandidateReq) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("CreateCandidateReq(%+v)", *p)
+}
+
+var fieldIDToName_CreateCandidateReq = map[int16]string{
+	1:  "bot_id",
+	2:  "user_id",
+	3:  "owner_user_id",
+	4:  "group_id",
+	5:  "conversation_id",
+	6:  "session_id",
+	7:  "scope",
+	8:  "type",
+	9:  "title",
+	10: "content",
+	11: "source",
+	12: "evidence",
+	13: "confidence",
+	14: "importance",
+	15: "conflict_memory_ids",
+	16: "conflict_resolution",
+}
+
+type CandidateFilter struct {
+	BotId  int64  `thrift:"bot_id,1" frugal:"1,default,i64" json:"bot_id"`
+	UserId int64  `thrift:"user_id,2" frugal:"2,default,i64" json:"user_id"`
+	Status string `thrift:"status,3" frugal:"3,default,string" json:"status"`
+	Limit  int64  `thrift:"limit,4" frugal:"4,default,i64" json:"limit"`
+	Offset int64  `thrift:"offset,5" frugal:"5,default,i64" json:"offset"`
+}
+
+func NewCandidateFilter() *CandidateFilter {
+	return &CandidateFilter{}
+}
+
+func (p *CandidateFilter) InitDefault() {
+}
+
+func (p *CandidateFilter) GetBotId() (v int64) {
+	return p.BotId
+}
+
+func (p *CandidateFilter) GetUserId() (v int64) {
+	return p.UserId
+}
+
+func (p *CandidateFilter) GetStatus() (v string) {
+	return p.Status
+}
+
+func (p *CandidateFilter) GetLimit() (v int64) {
+	return p.Limit
+}
+
+func (p *CandidateFilter) GetOffset() (v int64) {
+	return p.Offset
+}
+func (p *CandidateFilter) SetBotId(val int64) {
+	p.BotId = val
+}
+func (p *CandidateFilter) SetUserId(val int64) {
+	p.UserId = val
+}
+func (p *CandidateFilter) SetStatus(val string) {
+	p.Status = val
+}
+func (p *CandidateFilter) SetLimit(val int64) {
+	p.Limit = val
+}
+func (p *CandidateFilter) SetOffset(val int64) {
+	p.Offset = val
+}
+
+func (p *CandidateFilter) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("CandidateFilter(%+v)", *p)
+}
+
+var fieldIDToName_CandidateFilter = map[int16]string{
+	1: "bot_id",
+	2: "user_id",
+	3: "status",
+	4: "limit",
+	5: "offset",
+}
+
+type CreateCandidateResp struct {
+	Success   bool             `thrift:"success,1" frugal:"1,default,bool" json:"success"`
+	Candidate *MemoryCandidate `thrift:"candidate,2" frugal:"2,default,MemoryCandidate" json:"candidate"`
+	Msg       string           `thrift:"msg,3" frugal:"3,default,string" json:"msg"`
+}
+
+func NewCreateCandidateResp() *CreateCandidateResp {
+	return &CreateCandidateResp{}
+}
+
+func (p *CreateCandidateResp) InitDefault() {
+}
+
+func (p *CreateCandidateResp) GetSuccess() (v bool) {
+	return p.Success
+}
+
+var CreateCandidateResp_Candidate_DEFAULT *MemoryCandidate
+
+func (p *CreateCandidateResp) GetCandidate() (v *MemoryCandidate) {
+	if !p.IsSetCandidate() {
+		return CreateCandidateResp_Candidate_DEFAULT
+	}
+	return p.Candidate
+}
+
+func (p *CreateCandidateResp) GetMsg() (v string) {
+	return p.Msg
+}
+func (p *CreateCandidateResp) SetSuccess(val bool) {
+	p.Success = val
+}
+func (p *CreateCandidateResp) SetCandidate(val *MemoryCandidate) {
+	p.Candidate = val
+}
+func (p *CreateCandidateResp) SetMsg(val string) {
+	p.Msg = val
+}
+
+func (p *CreateCandidateResp) IsSetCandidate() bool {
+	return p.Candidate != nil
+}
+
+func (p *CreateCandidateResp) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("CreateCandidateResp(%+v)", *p)
+}
+
+var fieldIDToName_CreateCandidateResp = map[int16]string{
+	1: "success",
+	2: "candidate",
+	3: "msg",
+}
+
+type ListCandidatesReq struct {
+	ViewerId int64            `thrift:"viewer_id,1" frugal:"1,default,i64" json:"viewer_id"`
+	Filter   *CandidateFilter `thrift:"filter,2" frugal:"2,default,CandidateFilter" json:"filter"`
+}
+
+func NewListCandidatesReq() *ListCandidatesReq {
+	return &ListCandidatesReq{}
+}
+
+func (p *ListCandidatesReq) InitDefault() {
+}
+
+func (p *ListCandidatesReq) GetViewerId() (v int64) {
+	return p.ViewerId
+}
+
+var ListCandidatesReq_Filter_DEFAULT *CandidateFilter
+
+func (p *ListCandidatesReq) GetFilter() (v *CandidateFilter) {
+	if !p.IsSetFilter() {
+		return ListCandidatesReq_Filter_DEFAULT
+	}
+	return p.Filter
+}
+func (p *ListCandidatesReq) SetViewerId(val int64) {
+	p.ViewerId = val
+}
+func (p *ListCandidatesReq) SetFilter(val *CandidateFilter) {
+	p.Filter = val
+}
+
+func (p *ListCandidatesReq) IsSetFilter() bool {
+	return p.Filter != nil
+}
+
+func (p *ListCandidatesReq) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("ListCandidatesReq(%+v)", *p)
+}
+
+var fieldIDToName_ListCandidatesReq = map[int16]string{
+	1: "viewer_id",
+	2: "filter",
+}
+
+type ListCandidatesResp struct {
+	Success    bool               `thrift:"success,1" frugal:"1,default,bool" json:"success"`
+	Candidates []*MemoryCandidate `thrift:"candidates,2" frugal:"2,default,list<MemoryCandidate>" json:"candidates"`
+	Total      int64              `thrift:"total,3" frugal:"3,default,i64" json:"total"`
+	Msg        string             `thrift:"msg,4" frugal:"4,default,string" json:"msg"`
+}
+
+func NewListCandidatesResp() *ListCandidatesResp {
+	return &ListCandidatesResp{}
+}
+
+func (p *ListCandidatesResp) InitDefault() {
+}
+
+func (p *ListCandidatesResp) GetSuccess() (v bool) {
+	return p.Success
+}
+
+func (p *ListCandidatesResp) GetCandidates() (v []*MemoryCandidate) {
+	return p.Candidates
+}
+
+func (p *ListCandidatesResp) GetTotal() (v int64) {
+	return p.Total
+}
+
+func (p *ListCandidatesResp) GetMsg() (v string) {
+	return p.Msg
+}
+func (p *ListCandidatesResp) SetSuccess(val bool) {
+	p.Success = val
+}
+func (p *ListCandidatesResp) SetCandidates(val []*MemoryCandidate) {
+	p.Candidates = val
+}
+func (p *ListCandidatesResp) SetTotal(val int64) {
+	p.Total = val
+}
+func (p *ListCandidatesResp) SetMsg(val string) {
+	p.Msg = val
+}
+
+func (p *ListCandidatesResp) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("ListCandidatesResp(%+v)", *p)
+}
+
+var fieldIDToName_ListCandidatesResp = map[int16]string{
+	1: "success",
+	2: "candidates",
+	3: "total",
+	4: "msg",
+}
+
+type CandidateActionReq struct {
+	ViewerId    int64 `thrift:"viewer_id,1" frugal:"1,default,i64" json:"viewer_id"`
+	CandidateId int64 `thrift:"candidate_id,2" frugal:"2,default,i64" json:"candidate_id"`
+}
+
+func NewCandidateActionReq() *CandidateActionReq {
+	return &CandidateActionReq{}
+}
+
+func (p *CandidateActionReq) InitDefault() {
+}
+
+func (p *CandidateActionReq) GetViewerId() (v int64) {
+	return p.ViewerId
+}
+
+func (p *CandidateActionReq) GetCandidateId() (v int64) {
+	return p.CandidateId
+}
+func (p *CandidateActionReq) SetViewerId(val int64) {
+	p.ViewerId = val
+}
+func (p *CandidateActionReq) SetCandidateId(val int64) {
+	p.CandidateId = val
+}
+
+func (p *CandidateActionReq) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("CandidateActionReq(%+v)", *p)
+}
+
+var fieldIDToName_CandidateActionReq = map[int16]string{
+	1: "viewer_id",
+	2: "candidate_id",
+}
+
+type CandidateActionResp struct {
+	Success   bool             `thrift:"success,1" frugal:"1,default,bool" json:"success"`
+	Candidate *MemoryCandidate `thrift:"candidate,2" frugal:"2,default,MemoryCandidate" json:"candidate"`
+	Msg       string           `thrift:"msg,3" frugal:"3,default,string" json:"msg"`
+}
+
+func NewCandidateActionResp() *CandidateActionResp {
+	return &CandidateActionResp{}
+}
+
+func (p *CandidateActionResp) InitDefault() {
+}
+
+func (p *CandidateActionResp) GetSuccess() (v bool) {
+	return p.Success
+}
+
+var CandidateActionResp_Candidate_DEFAULT *MemoryCandidate
+
+func (p *CandidateActionResp) GetCandidate() (v *MemoryCandidate) {
+	if !p.IsSetCandidate() {
+		return CandidateActionResp_Candidate_DEFAULT
+	}
+	return p.Candidate
+}
+
+func (p *CandidateActionResp) GetMsg() (v string) {
+	return p.Msg
+}
+func (p *CandidateActionResp) SetSuccess(val bool) {
+	p.Success = val
+}
+func (p *CandidateActionResp) SetCandidate(val *MemoryCandidate) {
+	p.Candidate = val
+}
+func (p *CandidateActionResp) SetMsg(val string) {
+	p.Msg = val
+}
+
+func (p *CandidateActionResp) IsSetCandidate() bool {
+	return p.Candidate != nil
+}
+
+func (p *CandidateActionResp) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("CandidateActionResp(%+v)", *p)
+}
+
+var fieldIDToName_CandidateActionResp = map[int16]string{
+	1: "success",
+	2: "candidate",
+	3: "msg",
 }
 
 type MemoryService interface {
@@ -2082,6 +1893,14 @@ type MemoryService interface {
 	UpdateMemory(ctx context.Context, req *UpdateMemoryReq) (r *UpdateMemoryResp, err error)
 
 	DeleteMemory(ctx context.Context, req *DeleteMemoryReq) (r *DeleteMemoryResp, err error)
+
+	CreateCandidate(ctx context.Context, req *CreateCandidateReq) (r *CreateCandidateResp, err error)
+
+	ListCandidates(ctx context.Context, req *ListCandidatesReq) (r *ListCandidatesResp, err error)
+
+	AcceptCandidate(ctx context.Context, req *CandidateActionReq) (r *CandidateActionResp, err error)
+
+	RejectCandidate(ctx context.Context, req *CandidateActionReq) (r *CandidateActionResp, err error)
 }
 
 type MemoryServiceCreateMemoryArgs struct {
@@ -2116,26 +1935,6 @@ func (p *MemoryServiceCreateMemoryArgs) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("MemoryServiceCreateMemoryArgs(%+v)", *p)
-}
-
-func (p *MemoryServiceCreateMemoryArgs) DeepEqual(ano *MemoryServiceCreateMemoryArgs) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Req) {
-		return false
-	}
-	return true
-}
-
-func (p *MemoryServiceCreateMemoryArgs) Field1DeepEqual(src *CreateMemoryReq) bool {
-
-	if !p.Req.DeepEqual(src) {
-		return false
-	}
-	return true
 }
 
 var fieldIDToName_MemoryServiceCreateMemoryArgs = map[int16]string{
@@ -2176,26 +1975,6 @@ func (p *MemoryServiceCreateMemoryResult) String() string {
 	return fmt.Sprintf("MemoryServiceCreateMemoryResult(%+v)", *p)
 }
 
-func (p *MemoryServiceCreateMemoryResult) DeepEqual(ano *MemoryServiceCreateMemoryResult) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field0DeepEqual(ano.Success) {
-		return false
-	}
-	return true
-}
-
-func (p *MemoryServiceCreateMemoryResult) Field0DeepEqual(src *CreateMemoryResp) bool {
-
-	if !p.Success.DeepEqual(src) {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_MemoryServiceCreateMemoryResult = map[int16]string{
 	0: "success",
 }
@@ -2232,26 +2011,6 @@ func (p *MemoryServiceListMemoriesArgs) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("MemoryServiceListMemoriesArgs(%+v)", *p)
-}
-
-func (p *MemoryServiceListMemoriesArgs) DeepEqual(ano *MemoryServiceListMemoriesArgs) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Req) {
-		return false
-	}
-	return true
-}
-
-func (p *MemoryServiceListMemoriesArgs) Field1DeepEqual(src *ListMemoriesReq) bool {
-
-	if !p.Req.DeepEqual(src) {
-		return false
-	}
-	return true
 }
 
 var fieldIDToName_MemoryServiceListMemoriesArgs = map[int16]string{
@@ -2292,26 +2051,6 @@ func (p *MemoryServiceListMemoriesResult) String() string {
 	return fmt.Sprintf("MemoryServiceListMemoriesResult(%+v)", *p)
 }
 
-func (p *MemoryServiceListMemoriesResult) DeepEqual(ano *MemoryServiceListMemoriesResult) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field0DeepEqual(ano.Success) {
-		return false
-	}
-	return true
-}
-
-func (p *MemoryServiceListMemoriesResult) Field0DeepEqual(src *ListMemoriesResp) bool {
-
-	if !p.Success.DeepEqual(src) {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_MemoryServiceListMemoriesResult = map[int16]string{
 	0: "success",
 }
@@ -2348,26 +2087,6 @@ func (p *MemoryServiceRecallArgs) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("MemoryServiceRecallArgs(%+v)", *p)
-}
-
-func (p *MemoryServiceRecallArgs) DeepEqual(ano *MemoryServiceRecallArgs) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Req) {
-		return false
-	}
-	return true
-}
-
-func (p *MemoryServiceRecallArgs) Field1DeepEqual(src *RecallReq) bool {
-
-	if !p.Req.DeepEqual(src) {
-		return false
-	}
-	return true
 }
 
 var fieldIDToName_MemoryServiceRecallArgs = map[int16]string{
@@ -2408,26 +2127,6 @@ func (p *MemoryServiceRecallResult) String() string {
 	return fmt.Sprintf("MemoryServiceRecallResult(%+v)", *p)
 }
 
-func (p *MemoryServiceRecallResult) DeepEqual(ano *MemoryServiceRecallResult) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field0DeepEqual(ano.Success) {
-		return false
-	}
-	return true
-}
-
-func (p *MemoryServiceRecallResult) Field0DeepEqual(src *RecallResp) bool {
-
-	if !p.Success.DeepEqual(src) {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_MemoryServiceRecallResult = map[int16]string{
 	0: "success",
 }
@@ -2464,26 +2163,6 @@ func (p *MemoryServiceUpdateMemoryArgs) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("MemoryServiceUpdateMemoryArgs(%+v)", *p)
-}
-
-func (p *MemoryServiceUpdateMemoryArgs) DeepEqual(ano *MemoryServiceUpdateMemoryArgs) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Req) {
-		return false
-	}
-	return true
-}
-
-func (p *MemoryServiceUpdateMemoryArgs) Field1DeepEqual(src *UpdateMemoryReq) bool {
-
-	if !p.Req.DeepEqual(src) {
-		return false
-	}
-	return true
 }
 
 var fieldIDToName_MemoryServiceUpdateMemoryArgs = map[int16]string{
@@ -2524,26 +2203,6 @@ func (p *MemoryServiceUpdateMemoryResult) String() string {
 	return fmt.Sprintf("MemoryServiceUpdateMemoryResult(%+v)", *p)
 }
 
-func (p *MemoryServiceUpdateMemoryResult) DeepEqual(ano *MemoryServiceUpdateMemoryResult) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field0DeepEqual(ano.Success) {
-		return false
-	}
-	return true
-}
-
-func (p *MemoryServiceUpdateMemoryResult) Field0DeepEqual(src *UpdateMemoryResp) bool {
-
-	if !p.Success.DeepEqual(src) {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_MemoryServiceUpdateMemoryResult = map[int16]string{
 	0: "success",
 }
@@ -2580,26 +2239,6 @@ func (p *MemoryServiceDeleteMemoryArgs) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("MemoryServiceDeleteMemoryArgs(%+v)", *p)
-}
-
-func (p *MemoryServiceDeleteMemoryArgs) DeepEqual(ano *MemoryServiceDeleteMemoryArgs) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Req) {
-		return false
-	}
-	return true
-}
-
-func (p *MemoryServiceDeleteMemoryArgs) Field1DeepEqual(src *DeleteMemoryReq) bool {
-
-	if !p.Req.DeepEqual(src) {
-		return false
-	}
-	return true
 }
 
 var fieldIDToName_MemoryServiceDeleteMemoryArgs = map[int16]string{
@@ -2640,26 +2279,310 @@ func (p *MemoryServiceDeleteMemoryResult) String() string {
 	return fmt.Sprintf("MemoryServiceDeleteMemoryResult(%+v)", *p)
 }
 
-func (p *MemoryServiceDeleteMemoryResult) DeepEqual(ano *MemoryServiceDeleteMemoryResult) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field0DeepEqual(ano.Success) {
-		return false
-	}
-	return true
-}
-
-func (p *MemoryServiceDeleteMemoryResult) Field0DeepEqual(src *DeleteMemoryResp) bool {
-
-	if !p.Success.DeepEqual(src) {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_MemoryServiceDeleteMemoryResult = map[int16]string{
+	0: "success",
+}
+
+type MemoryServiceCreateCandidateArgs struct {
+	Req *CreateCandidateReq `thrift:"req,1" frugal:"1,default,CreateCandidateReq" json:"req"`
+}
+
+func NewMemoryServiceCreateCandidateArgs() *MemoryServiceCreateCandidateArgs {
+	return &MemoryServiceCreateCandidateArgs{}
+}
+
+func (p *MemoryServiceCreateCandidateArgs) InitDefault() {
+}
+
+var MemoryServiceCreateCandidateArgs_Req_DEFAULT *CreateCandidateReq
+
+func (p *MemoryServiceCreateCandidateArgs) GetReq() (v *CreateCandidateReq) {
+	if !p.IsSetReq() {
+		return MemoryServiceCreateCandidateArgs_Req_DEFAULT
+	}
+	return p.Req
+}
+func (p *MemoryServiceCreateCandidateArgs) SetReq(val *CreateCandidateReq) {
+	p.Req = val
+}
+
+func (p *MemoryServiceCreateCandidateArgs) IsSetReq() bool {
+	return p.Req != nil
+}
+
+func (p *MemoryServiceCreateCandidateArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("MemoryServiceCreateCandidateArgs(%+v)", *p)
+}
+
+var fieldIDToName_MemoryServiceCreateCandidateArgs = map[int16]string{
+	1: "req",
+}
+
+type MemoryServiceCreateCandidateResult struct {
+	Success *CreateCandidateResp `thrift:"success,0,optional" frugal:"0,optional,CreateCandidateResp" json:"success,omitempty"`
+}
+
+func NewMemoryServiceCreateCandidateResult() *MemoryServiceCreateCandidateResult {
+	return &MemoryServiceCreateCandidateResult{}
+}
+
+func (p *MemoryServiceCreateCandidateResult) InitDefault() {
+}
+
+var MemoryServiceCreateCandidateResult_Success_DEFAULT *CreateCandidateResp
+
+func (p *MemoryServiceCreateCandidateResult) GetSuccess() (v *CreateCandidateResp) {
+	if !p.IsSetSuccess() {
+		return MemoryServiceCreateCandidateResult_Success_DEFAULT
+	}
+	return p.Success
+}
+func (p *MemoryServiceCreateCandidateResult) SetSuccess(x interface{}) {
+	p.Success = x.(*CreateCandidateResp)
+}
+
+func (p *MemoryServiceCreateCandidateResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *MemoryServiceCreateCandidateResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("MemoryServiceCreateCandidateResult(%+v)", *p)
+}
+
+var fieldIDToName_MemoryServiceCreateCandidateResult = map[int16]string{
+	0: "success",
+}
+
+type MemoryServiceListCandidatesArgs struct {
+	Req *ListCandidatesReq `thrift:"req,1" frugal:"1,default,ListCandidatesReq" json:"req"`
+}
+
+func NewMemoryServiceListCandidatesArgs() *MemoryServiceListCandidatesArgs {
+	return &MemoryServiceListCandidatesArgs{}
+}
+
+func (p *MemoryServiceListCandidatesArgs) InitDefault() {
+}
+
+var MemoryServiceListCandidatesArgs_Req_DEFAULT *ListCandidatesReq
+
+func (p *MemoryServiceListCandidatesArgs) GetReq() (v *ListCandidatesReq) {
+	if !p.IsSetReq() {
+		return MemoryServiceListCandidatesArgs_Req_DEFAULT
+	}
+	return p.Req
+}
+func (p *MemoryServiceListCandidatesArgs) SetReq(val *ListCandidatesReq) {
+	p.Req = val
+}
+
+func (p *MemoryServiceListCandidatesArgs) IsSetReq() bool {
+	return p.Req != nil
+}
+
+func (p *MemoryServiceListCandidatesArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("MemoryServiceListCandidatesArgs(%+v)", *p)
+}
+
+var fieldIDToName_MemoryServiceListCandidatesArgs = map[int16]string{
+	1: "req",
+}
+
+type MemoryServiceListCandidatesResult struct {
+	Success *ListCandidatesResp `thrift:"success,0,optional" frugal:"0,optional,ListCandidatesResp" json:"success,omitempty"`
+}
+
+func NewMemoryServiceListCandidatesResult() *MemoryServiceListCandidatesResult {
+	return &MemoryServiceListCandidatesResult{}
+}
+
+func (p *MemoryServiceListCandidatesResult) InitDefault() {
+}
+
+var MemoryServiceListCandidatesResult_Success_DEFAULT *ListCandidatesResp
+
+func (p *MemoryServiceListCandidatesResult) GetSuccess() (v *ListCandidatesResp) {
+	if !p.IsSetSuccess() {
+		return MemoryServiceListCandidatesResult_Success_DEFAULT
+	}
+	return p.Success
+}
+func (p *MemoryServiceListCandidatesResult) SetSuccess(x interface{}) {
+	p.Success = x.(*ListCandidatesResp)
+}
+
+func (p *MemoryServiceListCandidatesResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *MemoryServiceListCandidatesResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("MemoryServiceListCandidatesResult(%+v)", *p)
+}
+
+var fieldIDToName_MemoryServiceListCandidatesResult = map[int16]string{
+	0: "success",
+}
+
+type MemoryServiceAcceptCandidateArgs struct {
+	Req *CandidateActionReq `thrift:"req,1" frugal:"1,default,CandidateActionReq" json:"req"`
+}
+
+func NewMemoryServiceAcceptCandidateArgs() *MemoryServiceAcceptCandidateArgs {
+	return &MemoryServiceAcceptCandidateArgs{}
+}
+
+func (p *MemoryServiceAcceptCandidateArgs) InitDefault() {
+}
+
+var MemoryServiceAcceptCandidateArgs_Req_DEFAULT *CandidateActionReq
+
+func (p *MemoryServiceAcceptCandidateArgs) GetReq() (v *CandidateActionReq) {
+	if !p.IsSetReq() {
+		return MemoryServiceAcceptCandidateArgs_Req_DEFAULT
+	}
+	return p.Req
+}
+func (p *MemoryServiceAcceptCandidateArgs) SetReq(val *CandidateActionReq) {
+	p.Req = val
+}
+
+func (p *MemoryServiceAcceptCandidateArgs) IsSetReq() bool {
+	return p.Req != nil
+}
+
+func (p *MemoryServiceAcceptCandidateArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("MemoryServiceAcceptCandidateArgs(%+v)", *p)
+}
+
+var fieldIDToName_MemoryServiceAcceptCandidateArgs = map[int16]string{
+	1: "req",
+}
+
+type MemoryServiceAcceptCandidateResult struct {
+	Success *CandidateActionResp `thrift:"success,0,optional" frugal:"0,optional,CandidateActionResp" json:"success,omitempty"`
+}
+
+func NewMemoryServiceAcceptCandidateResult() *MemoryServiceAcceptCandidateResult {
+	return &MemoryServiceAcceptCandidateResult{}
+}
+
+func (p *MemoryServiceAcceptCandidateResult) InitDefault() {
+}
+
+var MemoryServiceAcceptCandidateResult_Success_DEFAULT *CandidateActionResp
+
+func (p *MemoryServiceAcceptCandidateResult) GetSuccess() (v *CandidateActionResp) {
+	if !p.IsSetSuccess() {
+		return MemoryServiceAcceptCandidateResult_Success_DEFAULT
+	}
+	return p.Success
+}
+func (p *MemoryServiceAcceptCandidateResult) SetSuccess(x interface{}) {
+	p.Success = x.(*CandidateActionResp)
+}
+
+func (p *MemoryServiceAcceptCandidateResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *MemoryServiceAcceptCandidateResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("MemoryServiceAcceptCandidateResult(%+v)", *p)
+}
+
+var fieldIDToName_MemoryServiceAcceptCandidateResult = map[int16]string{
+	0: "success",
+}
+
+type MemoryServiceRejectCandidateArgs struct {
+	Req *CandidateActionReq `thrift:"req,1" frugal:"1,default,CandidateActionReq" json:"req"`
+}
+
+func NewMemoryServiceRejectCandidateArgs() *MemoryServiceRejectCandidateArgs {
+	return &MemoryServiceRejectCandidateArgs{}
+}
+
+func (p *MemoryServiceRejectCandidateArgs) InitDefault() {
+}
+
+var MemoryServiceRejectCandidateArgs_Req_DEFAULT *CandidateActionReq
+
+func (p *MemoryServiceRejectCandidateArgs) GetReq() (v *CandidateActionReq) {
+	if !p.IsSetReq() {
+		return MemoryServiceRejectCandidateArgs_Req_DEFAULT
+	}
+	return p.Req
+}
+func (p *MemoryServiceRejectCandidateArgs) SetReq(val *CandidateActionReq) {
+	p.Req = val
+}
+
+func (p *MemoryServiceRejectCandidateArgs) IsSetReq() bool {
+	return p.Req != nil
+}
+
+func (p *MemoryServiceRejectCandidateArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("MemoryServiceRejectCandidateArgs(%+v)", *p)
+}
+
+var fieldIDToName_MemoryServiceRejectCandidateArgs = map[int16]string{
+	1: "req",
+}
+
+type MemoryServiceRejectCandidateResult struct {
+	Success *CandidateActionResp `thrift:"success,0,optional" frugal:"0,optional,CandidateActionResp" json:"success,omitempty"`
+}
+
+func NewMemoryServiceRejectCandidateResult() *MemoryServiceRejectCandidateResult {
+	return &MemoryServiceRejectCandidateResult{}
+}
+
+func (p *MemoryServiceRejectCandidateResult) InitDefault() {
+}
+
+var MemoryServiceRejectCandidateResult_Success_DEFAULT *CandidateActionResp
+
+func (p *MemoryServiceRejectCandidateResult) GetSuccess() (v *CandidateActionResp) {
+	if !p.IsSetSuccess() {
+		return MemoryServiceRejectCandidateResult_Success_DEFAULT
+	}
+	return p.Success
+}
+func (p *MemoryServiceRejectCandidateResult) SetSuccess(x interface{}) {
+	p.Success = x.(*CandidateActionResp)
+}
+
+func (p *MemoryServiceRejectCandidateResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *MemoryServiceRejectCandidateResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("MemoryServiceRejectCandidateResult(%+v)", *p)
+}
+
+var fieldIDToName_MemoryServiceRejectCandidateResult = map[int16]string{
 	0: "success",
 }

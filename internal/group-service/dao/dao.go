@@ -54,6 +54,7 @@ type GroupRepository interface {
 	PinGroup(ctx context.Context, groupID int64, isPinned bool) error
 	WithTransaction(ctx context.Context, fn func(tx GroupRepository) error) error
 	SaveOutboxEvent(ctx context.Context, event outbox.Event) error
+	AdminListGroups(ctx context.Context, keyword string, ownerID, limit, offset int64) ([]model.Group, int64, error)
 }
 
 // groupRepositoryImpl 基于 GORM 的 GroupRepository 实现
@@ -112,6 +113,30 @@ func (r *groupRepositoryImpl) GetUserGroups(ctx context.Context, userID int64) (
 		Where("group_members.user_id = ?", userID).
 		Find(&groups).Error
 	return groups, err
+}
+
+// AdminListGroups 是管理端全局群列表，不受当前用户成员关系限制。
+func (r *groupRepositoryImpl) AdminListGroups(ctx context.Context, keyword string, ownerID, limit, offset int64) ([]model.Group, int64, error) {
+	var groups []model.Group
+	var total int64
+	query := r.db.WithContext(ctx).Model(&model.Group{})
+	if keyword != "" {
+		query = query.Where("name LIKE ? OR announcement LIKE ?", "%"+keyword+"%", "%"+keyword+"%")
+	}
+	if ownerID > 0 {
+		query = query.Where("owner_id = ?", ownerID)
+	}
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	err := query.Order("created_at DESC, id DESC").Limit(int(limit)).Offset(int(offset)).Find(&groups).Error
+	return groups, total, err
 }
 
 // AddMember 添加群组成员记录

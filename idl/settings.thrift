@@ -142,6 +142,95 @@ struct AgentSkill {
     13: string content
 }
 
+struct MCPServerConfig {
+    1: i64 id
+    2: i64 owner_id
+    3: i64 agent_id
+    4: i64 conversation_id
+    5: string scope
+    6: string name
+    7: string description
+    8: string transport
+    9: string endpoint_url
+    10: string command
+    11: string args_json
+    12: string env_json
+    13: string headers_json
+    14: string auth_type
+    15: bool enabled
+    16: string trust_level
+    17: string allow_tools_json
+    18: string deny_tools_json
+    19: bool has_secret
+    20: string secret
+}
+
+struct SaveMCPServerReq {
+    1: i64 user_id
+    2: i64 id
+    3: i64 agent_id
+    4: i64 conversation_id
+    5: string scope
+    6: string name
+    7: string description
+    8: string transport
+    9: string endpoint_url
+    10: string command
+    11: string args_json
+    12: string env_json
+    13: string headers_json
+    14: string auth_type
+    15: string secret
+    16: string secret_action
+    17: bool enabled
+    18: bool enabled_set
+    19: string trust_level
+    20: string allow_tools_json
+    21: string deny_tools_json
+}
+
+struct SaveMCPServerResp {
+    1: bool success
+    2: MCPServerConfig server
+    3: string msg
+}
+
+struct ListMCPServersReq {
+    1: i64 user_id
+    2: string scope
+    3: i64 agent_id
+    4: i64 conversation_id
+    5: bool include_disabled
+}
+
+struct ListMCPServersResp {
+    1: bool success
+    2: list<MCPServerConfig> servers
+    3: string msg
+}
+
+struct ResolveMCPServersReq {
+    1: i64 user_id
+    2: i64 agent_id
+    3: i64 conversation_id
+}
+
+struct ResolveMCPServersResp {
+    1: bool success
+    2: list<MCPServerConfig> servers
+    3: string msg
+}
+
+struct DeleteMCPServerReq {
+    1: i64 user_id
+    2: i64 server_id
+}
+
+struct DeleteMCPServerResp {
+    1: bool success
+    2: string msg
+}
+
 struct SaveSkillReq {
     1: i64 user_id
     2: i64 id
@@ -155,6 +244,7 @@ struct SaveSkillReq {
     10: bool is_default
     11: bool enabled
     12: bool enabled_set
+    13: string username
 }
 
 struct SaveSkillResp {
@@ -223,4 +313,8 @@ service SettingsService {
     GetSkillResp GetSkill(1: GetSkillReq req)
     UpdateSkillContentResp UpdateSkillContent(1: UpdateSkillContentReq req)
     DeleteSkillResp DeleteSkill(1: DeleteSkillReq req)
+    SaveMCPServerResp SaveMCPServer(1: SaveMCPServerReq req)
+    ListMCPServersResp ListMCPServers(1: ListMCPServersReq req)
+    ResolveMCPServersResp ResolveMCPServers(1: ResolveMCPServersReq req)
+    DeleteMCPServerResp DeleteMCPServer(1: DeleteMCPServerReq req)
 }

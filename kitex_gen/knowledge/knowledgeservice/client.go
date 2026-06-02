@@ -16,6 +16,9 @@ type Client interface {
 	GetEdgeDetail(ctx context.Context, req *knowledge.KnowledgeEdgeDetailReq, callOptions ...callopt.Option) (r *knowledge.KnowledgeEdgeDetailResp, err error)
 	GetNeighborhood(ctx context.Context, req *knowledge.KnowledgeNeighborhoodReq, callOptions ...callopt.Option) (r *knowledge.KnowledgeGraphResp, err error)
 	GetPath(ctx context.Context, req *knowledge.KnowledgePathReq, callOptions ...callopt.Option) (r *knowledge.KnowledgePathResp, err error)
+	CreateGraphReviewCandidate(ctx context.Context, req *knowledge.CreateGraphReviewCandidateReq, callOptions ...callopt.Option) (r *knowledge.GraphReviewCandidateResp, err error)
+	ListGraphReviewCandidates(ctx context.Context, req *knowledge.ListGraphReviewCandidatesReq, callOptions ...callopt.Option) (r *knowledge.ListGraphReviewCandidatesResp, err error)
+	ReviewGraphCandidate(ctx context.Context, req *knowledge.ReviewGraphCandidateReq, callOptions ...callopt.Option) (r *knowledge.GraphReviewCandidateResp, err error)
 }
 
 // NewClient creates a client for the service defined in IDL.
@@ -70,4 +73,19 @@ func (p *kKnowledgeServiceClient) GetNeighborhood(ctx context.Context, req *know
 func (p *kKnowledgeServiceClient) GetPath(ctx context.Context, req *knowledge.KnowledgePathReq, callOptions ...callopt.Option) (r *knowledge.KnowledgePathResp, err error) {
 	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
 	return p.kClient.GetPath(ctx, req)
+}
+
+func (p *kKnowledgeServiceClient) CreateGraphReviewCandidate(ctx context.Context, req *knowledge.CreateGraphReviewCandidateReq, callOptions ...callopt.Option) (r *knowledge.GraphReviewCandidateResp, err error) {
+	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
+	return p.kClient.CreateGraphReviewCandidate(ctx, req)
+}
+
+func (p *kKnowledgeServiceClient) ListGraphReviewCandidates(ctx context.Context, req *knowledge.ListGraphReviewCandidatesReq, callOptions ...callopt.Option) (r *knowledge.ListGraphReviewCandidatesResp, err error) {
+	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
+	return p.kClient.ListGraphReviewCandidates(ctx, req)
+}
+
+func (p *kKnowledgeServiceClient) ReviewGraphCandidate(ctx context.Context, req *knowledge.ReviewGraphCandidateReq, callOptions ...callopt.Option) (r *knowledge.GraphReviewCandidateResp, err error) {
+	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
+	return p.kClient.ReviewGraphCandidate(ctx, req)
 }

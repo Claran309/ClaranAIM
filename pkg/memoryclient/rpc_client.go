@@ -21,23 +21,25 @@ func NewRPCClient(client memoryservice.Client) *RPCClient {
 // CreateMemory 写入一条事实记忆。
 func (c *RPCClient) CreateMemory(ctx context.Context, input CreateMemoryInput) (*MemoryFact, error) {
 	resp, err := c.client.CreateMemory(ctx, &memory.CreateMemoryReq{
-		BotId:          input.BotID,
-		UserId:         input.UserID,
-		OwnerUserId:    input.OwnerUserID,
-		GroupId:        input.GroupID,
-		ConversationId: input.ConversationID,
-		SessionId:      input.SessionID,
-		Scope:          input.Scope,
-		Type:           input.Type,
-		Title:          input.Title,
-		Content:        input.Content,
-		Source:         input.Source,
-		Visibility:     input.Visibility,
-		Enabled:        boolValue(input.Enabled, true),
-		EnabledSet:     input.Enabled != nil,
-		VectorStatus:   input.VectorStatus,
-		EmbeddingRef:   input.EmbeddingRef,
-		Confidence:     input.Confidence,
+		BotId:            input.BotID,
+		UserId:           input.UserID,
+		OwnerUserId:      input.OwnerUserID,
+		GroupId:          input.GroupID,
+		ConversationId:   input.ConversationID,
+		SessionId:        input.SessionID,
+		Scope:            input.Scope,
+		Type:             input.Type,
+		Title:            input.Title,
+		Content:          input.Content,
+		Source:           input.Source,
+		Visibility:       input.Visibility,
+		Enabled:          boolValue(input.Enabled, true),
+		EnabledSet:       input.Enabled != nil,
+		VectorStatus:     input.VectorStatus,
+		EmbeddingRef:     input.EmbeddingRef,
+		Confidence:       input.Confidence,
+		Importance:       input.Importance,
+		PreviousMemoryId: input.PreviousMemoryID,
 	})
 	if err != nil {
 		return nil, err
@@ -78,12 +80,16 @@ func (c *RPCClient) ListMemories(ctx context.Context, viewerID int64, filter Fil
 // Recall 为 Agent 上下文构建召回候选记忆。
 func (c *RPCClient) Recall(ctx context.Context, input RecallInput) (RecallResult, error) {
 	resp, err := c.client.Recall(ctx, &memory.RecallReq{
-		BotId:          input.BotID,
-		UserId:         input.UserID,
-		GroupId:        input.GroupID,
-		ConversationId: input.ConversationID,
-		SessionId:      input.SessionID,
-		Limit:          int64(input.Limit),
+		BotId:            input.BotID,
+		UserId:           input.UserID,
+		GroupId:          input.GroupID,
+		ConversationId:   input.ConversationID,
+		SessionId:        input.SessionID,
+		Limit:            int64(input.Limit),
+		Query:            input.Query,
+		MinScore:         input.MinScore,
+		VectorCandidateK: int64(input.VectorCandidateK),
+		UseLlmFilter:     input.UseLLMFilter,
 	})
 	if err != nil {
 		return RecallResult{}, err
@@ -111,6 +117,8 @@ func (c *RPCClient) UpdateMemory(ctx context.Context, viewerID, memoryID int64, 
 		EmbeddingRef:  input.EmbeddingRef,
 		Confidence:    float64Value(input.Confidence),
 		ConfidenceSet: input.Confidence != nil,
+		Importance:    float64Value(input.Importance),
+		ImportanceSet: input.Importance != nil,
 	})
 	if err != nil {
 		return nil, err
@@ -119,6 +127,76 @@ func (c *RPCClient) UpdateMemory(ctx context.Context, viewerID, memoryID int64, 
 		return nil, err
 	}
 	return fromRPCMemoryFact(resp.GetMemory()), nil
+}
+
+func (c *RPCClient) CreateCandidate(ctx context.Context, input CandidateInput) (*MemoryCandidate, error) {
+	resp, err := c.client.CreateCandidate(ctx, &memory.CreateCandidateReq{
+		BotId:              input.BotID,
+		UserId:             input.UserID,
+		OwnerUserId:        input.OwnerUserID,
+		GroupId:            input.GroupID,
+		ConversationId:     input.ConversationID,
+		SessionId:          input.SessionID,
+		Scope:              input.Scope,
+		Type:               input.Type,
+		Title:              input.Title,
+		Content:            input.Content,
+		Source:             input.Source,
+		Evidence:           input.Evidence,
+		Confidence:         input.Confidence,
+		Importance:         input.Importance,
+		ConflictMemoryIds:  input.ConflictMemoryIDs,
+		ConflictResolution: input.ConflictResolution,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if err := rpcStatus(resp.GetSuccess(), resp.GetMsg()); err != nil {
+		return nil, err
+	}
+	return fromRPCCandidate(resp.GetCandidate()), nil
+}
+
+func (c *RPCClient) ListCandidates(ctx context.Context, viewerID int64, filter CandidateFilter) ([]MemoryCandidate, int64, error) {
+	resp, err := c.client.ListCandidates(ctx, &memory.ListCandidatesReq{
+		ViewerId: viewerID,
+		Filter: &memory.CandidateFilter{
+			BotId:  filter.BotID,
+			UserId: filter.UserID,
+			Status: filter.Status,
+			Limit:  int64(filter.Limit),
+			Offset: int64(filter.Offset),
+		},
+	})
+	if err != nil {
+		return nil, 0, err
+	}
+	if err := rpcStatus(resp.GetSuccess(), resp.GetMsg()); err != nil {
+		return nil, 0, err
+	}
+	return fromRPCCandidates(resp.GetCandidates()), resp.GetTotal(), nil
+}
+
+func (c *RPCClient) AcceptCandidate(ctx context.Context, viewerID, candidateID int64) (*MemoryCandidate, error) {
+	resp, err := c.client.AcceptCandidate(ctx, &memory.CandidateActionReq{ViewerId: viewerID, CandidateId: candidateID})
+	if err != nil {
+		return nil, err
+	}
+	if err := rpcStatus(resp.GetSuccess(), resp.GetMsg()); err != nil {
+		return nil, err
+	}
+	return fromRPCCandidate(resp.GetCandidate()), nil
+}
+
+func (c *RPCClient) RejectCandidate(ctx context.Context, viewerID, candidateID int64) (*MemoryCandidate, error) {
+	resp, err := c.client.RejectCandidate(ctx, &memory.CandidateActionReq{ViewerId: viewerID, CandidateId: candidateID})
+	if err != nil {
+		return nil, err
+	}
+	if err := rpcStatus(resp.GetSuccess(), resp.GetMsg()); err != nil {
+		return nil, err
+	}
+	return fromRPCCandidate(resp.GetCandidate()), nil
 }
 
 // DeleteMemory 删除或关闭一条记忆。
@@ -146,25 +224,72 @@ func fromRPCMemoryFact(fact *memory.MemoryFact) *MemoryFact {
 		return nil
 	}
 	return &MemoryFact{
-		ID:             fact.GetId(),
-		BotID:          fact.GetBotId(),
-		UserID:         fact.GetUserId(),
-		OwnerUserID:    fact.GetOwnerUserId(),
-		GroupID:        fact.GetGroupId(),
-		ConversationID: fact.GetConversationId(),
-		SessionID:      fact.GetSessionId(),
-		Scope:          fact.GetScope(),
-		Type:           fact.GetType(),
-		Title:          fact.GetTitle(),
-		Content:        fact.GetContent(),
-		Source:         fact.GetSource(),
-		Visibility:     fact.GetVisibility(),
-		Enabled:        fact.GetEnabled(),
-		VectorStatus:   fact.GetVectorStatus(),
-		EmbeddingRef:   fact.GetEmbeddingRef(),
-		Confidence:     fact.GetConfidence(),
-		CreatedAt:      fact.GetCreatedAt(),
-		UpdatedAt:      fact.GetUpdatedAt(),
+		ID:               fact.GetId(),
+		BotID:            fact.GetBotId(),
+		UserID:           fact.GetUserId(),
+		OwnerUserID:      fact.GetOwnerUserId(),
+		GroupID:          fact.GetGroupId(),
+		ConversationID:   fact.GetConversationId(),
+		SessionID:        fact.GetSessionId(),
+		Scope:            fact.GetScope(),
+		Type:             fact.GetType(),
+		Title:            fact.GetTitle(),
+		Content:          fact.GetContent(),
+		Source:           fact.GetSource(),
+		Visibility:       fact.GetVisibility(),
+		Enabled:          fact.GetEnabled(),
+		VectorStatus:     fact.GetVectorStatus(),
+		EmbeddingRef:     fact.GetEmbeddingRef(),
+		Confidence:       fact.GetConfidence(),
+		Importance:       fact.GetImportance(),
+		VectorScore:      fact.GetVectorScore(),
+		FinalScore:       fact.GetFinalScore(),
+		ScoreReason:      fact.GetScoreReason(),
+		ExpiredAt:        fact.GetExpiredAt(),
+		SupersededBy:     fact.GetSupersededBy(),
+		PreviousMemoryID: fact.GetPreviousMemoryId(),
+		CreatedAt:        fact.GetCreatedAt(),
+		UpdatedAt:        fact.GetUpdatedAt(),
+	}
+}
+
+func fromRPCCandidates(candidates []*memory.MemoryCandidate) []MemoryCandidate {
+	out := make([]MemoryCandidate, 0, len(candidates))
+	for _, candidate := range candidates {
+		item := fromRPCCandidate(candidate)
+		if item != nil {
+			out = append(out, *item)
+		}
+	}
+	return out
+}
+
+func fromRPCCandidate(candidate *memory.MemoryCandidate) *MemoryCandidate {
+	if candidate == nil {
+		return nil
+	}
+	return &MemoryCandidate{
+		ID:                 candidate.GetId(),
+		BotID:              candidate.GetBotId(),
+		UserID:             candidate.GetUserId(),
+		OwnerUserID:        candidate.GetOwnerUserId(),
+		GroupID:            candidate.GetGroupId(),
+		ConversationID:     candidate.GetConversationId(),
+		SessionID:          candidate.GetSessionId(),
+		Scope:              candidate.GetScope(),
+		Type:               candidate.GetType(),
+		Title:              candidate.GetTitle(),
+		Content:            candidate.GetContent(),
+		Source:             candidate.GetSource(),
+		Evidence:           candidate.GetEvidence(),
+		Confidence:         candidate.GetConfidence(),
+		Importance:         candidate.GetImportance(),
+		Status:             candidate.GetStatus(),
+		ConflictMemoryIDs:  candidate.GetConflictMemoryIds(),
+		ConflictResolution: candidate.GetConflictResolution(),
+		AcceptedMemoryID:   candidate.GetAcceptedMemoryId(),
+		CreatedAt:          candidate.GetCreatedAt(),
+		UpdatedAt:          candidate.GetUpdatedAt(),
 	}
 }
 

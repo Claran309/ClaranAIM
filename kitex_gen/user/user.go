@@ -5,7 +5,6 @@ package user
 import (
 	"context"
 	"fmt"
-	"strings"
 )
 
 type User struct {
@@ -169,196 +168,6 @@ func (p *User) String() string {
 	return fmt.Sprintf("User(%+v)", *p)
 }
 
-func (p *User) DeepEqual(ano *User) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Id) {
-		return false
-	}
-	if !p.Field2DeepEqual(ano.Username) {
-		return false
-	}
-	if !p.Field3DeepEqual(ano.Nickname) {
-		return false
-	}
-	if !p.Field4DeepEqual(ano.Avatar) {
-		return false
-	}
-	if !p.Field5DeepEqual(ano.Email) {
-		return false
-	}
-	if !p.Field6DeepEqual(ano.Phone) {
-		return false
-	}
-	if !p.Field7DeepEqual(ano.Status) {
-		return false
-	}
-	if !p.Field8DeepEqual(ano.CreatedAt) {
-		return false
-	}
-	if !p.Field9DeepEqual(ano.UpdatedAt) {
-		return false
-	}
-	if !p.Field10DeepEqual(ano.Cover) {
-		return false
-	}
-	if !p.Field11DeepEqual(ano.Signature) {
-		return false
-	}
-	if !p.Field12DeepEqual(ano.Bio) {
-		return false
-	}
-	if !p.Field13DeepEqual(ano.Location) {
-		return false
-	}
-	if !p.Field14DeepEqual(ano.Website) {
-		return false
-	}
-	if !p.Field15DeepEqual(ano.Gender) {
-		return false
-	}
-	if !p.Field16DeepEqual(ano.Birthday) {
-		return false
-	}
-	if !p.Field17DeepEqual(ano.Role) {
-		return false
-	}
-	if !p.Field18DeepEqual(ano.IsSystem) {
-		return false
-	}
-	return true
-}
-
-func (p *User) Field1DeepEqual(src int64) bool {
-
-	if p.Id != src {
-		return false
-	}
-	return true
-}
-func (p *User) Field2DeepEqual(src string) bool {
-
-	if strings.Compare(p.Username, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *User) Field3DeepEqual(src string) bool {
-
-	if strings.Compare(p.Nickname, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *User) Field4DeepEqual(src string) bool {
-
-	if strings.Compare(p.Avatar, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *User) Field5DeepEqual(src string) bool {
-
-	if strings.Compare(p.Email, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *User) Field6DeepEqual(src string) bool {
-
-	if strings.Compare(p.Phone, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *User) Field7DeepEqual(src string) bool {
-
-	if strings.Compare(p.Status, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *User) Field8DeepEqual(src string) bool {
-
-	if strings.Compare(p.CreatedAt, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *User) Field9DeepEqual(src string) bool {
-
-	if strings.Compare(p.UpdatedAt, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *User) Field10DeepEqual(src string) bool {
-
-	if strings.Compare(p.Cover, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *User) Field11DeepEqual(src string) bool {
-
-	if strings.Compare(p.Signature, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *User) Field12DeepEqual(src string) bool {
-
-	if strings.Compare(p.Bio, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *User) Field13DeepEqual(src string) bool {
-
-	if strings.Compare(p.Location, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *User) Field14DeepEqual(src string) bool {
-
-	if strings.Compare(p.Website, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *User) Field15DeepEqual(src string) bool {
-
-	if strings.Compare(p.Gender, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *User) Field16DeepEqual(src string) bool {
-
-	if strings.Compare(p.Birthday, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *User) Field17DeepEqual(src string) bool {
-
-	if strings.Compare(p.Role, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *User) Field18DeepEqual(src bool) bool {
-
-	if p.IsSystem != src {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_User = map[int16]string{
 	1:  "id",
 	2:  "username",
@@ -429,56 +238,6 @@ func (p *RegisterReq) String() string {
 	return fmt.Sprintf("RegisterReq(%+v)", *p)
 }
 
-func (p *RegisterReq) DeepEqual(ano *RegisterReq) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Username) {
-		return false
-	}
-	if !p.Field2DeepEqual(ano.Password) {
-		return false
-	}
-	if !p.Field3DeepEqual(ano.Nickname) {
-		return false
-	}
-	if !p.Field4DeepEqual(ano.IsSystem) {
-		return false
-	}
-	return true
-}
-
-func (p *RegisterReq) Field1DeepEqual(src string) bool {
-
-	if strings.Compare(p.Username, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *RegisterReq) Field2DeepEqual(src string) bool {
-
-	if strings.Compare(p.Password, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *RegisterReq) Field3DeepEqual(src string) bool {
-
-	if strings.Compare(p.Nickname, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *RegisterReq) Field4DeepEqual(src bool) bool {
-
-	if p.IsSystem != src {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_RegisterReq = map[int16]string{
 	1: "username",
 	2: "password",
@@ -527,46 +286,6 @@ func (p *RegisterResp) String() string {
 	return fmt.Sprintf("RegisterResp(%+v)", *p)
 }
 
-func (p *RegisterResp) DeepEqual(ano *RegisterResp) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Success) {
-		return false
-	}
-	if !p.Field2DeepEqual(ano.UserId) {
-		return false
-	}
-	if !p.Field3DeepEqual(ano.Msg) {
-		return false
-	}
-	return true
-}
-
-func (p *RegisterResp) Field1DeepEqual(src bool) bool {
-
-	if p.Success != src {
-		return false
-	}
-	return true
-}
-func (p *RegisterResp) Field2DeepEqual(src int64) bool {
-
-	if p.UserId != src {
-		return false
-	}
-	return true
-}
-func (p *RegisterResp) Field3DeepEqual(src string) bool {
-
-	if strings.Compare(p.Msg, src) != 0 {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_RegisterResp = map[int16]string{
 	1: "success",
 	2: "user_id",
@@ -604,36 +323,6 @@ func (p *LoginReq) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("LoginReq(%+v)", *p)
-}
-
-func (p *LoginReq) DeepEqual(ano *LoginReq) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Username) {
-		return false
-	}
-	if !p.Field2DeepEqual(ano.Password) {
-		return false
-	}
-	return true
-}
-
-func (p *LoginReq) Field1DeepEqual(src string) bool {
-
-	if strings.Compare(p.Username, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *LoginReq) Field2DeepEqual(src string) bool {
-
-	if strings.Compare(p.Password, src) != 0 {
-		return false
-	}
-	return true
 }
 
 var fieldIDToName_LoginReq = map[int16]string{
@@ -714,86 +403,6 @@ func (p *LoginResp) String() string {
 	return fmt.Sprintf("LoginResp(%+v)", *p)
 }
 
-func (p *LoginResp) DeepEqual(ano *LoginResp) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Success) {
-		return false
-	}
-	if !p.Field2DeepEqual(ano.Token) {
-		return false
-	}
-	if !p.Field3DeepEqual(ano.UserId) {
-		return false
-	}
-	if !p.Field4DeepEqual(ano.Msg) {
-		return false
-	}
-	if !p.Field5DeepEqual(ano.AccessToken) {
-		return false
-	}
-	if !p.Field6DeepEqual(ano.RefreshToken) {
-		return false
-	}
-	if !p.Field7DeepEqual(ano.Role) {
-		return false
-	}
-	return true
-}
-
-func (p *LoginResp) Field1DeepEqual(src bool) bool {
-
-	if p.Success != src {
-		return false
-	}
-	return true
-}
-func (p *LoginResp) Field2DeepEqual(src string) bool {
-
-	if strings.Compare(p.Token, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *LoginResp) Field3DeepEqual(src int64) bool {
-
-	if p.UserId != src {
-		return false
-	}
-	return true
-}
-func (p *LoginResp) Field4DeepEqual(src string) bool {
-
-	if strings.Compare(p.Msg, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *LoginResp) Field5DeepEqual(src string) bool {
-
-	if strings.Compare(p.AccessToken, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *LoginResp) Field6DeepEqual(src string) bool {
-
-	if strings.Compare(p.RefreshToken, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *LoginResp) Field7DeepEqual(src string) bool {
-
-	if strings.Compare(p.Role, src) != 0 {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_LoginResp = map[int16]string{
 	1: "success",
 	2: "token",
@@ -827,26 +436,6 @@ func (p *GetUserInfoReq) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("GetUserInfoReq(%+v)", *p)
-}
-
-func (p *GetUserInfoReq) DeepEqual(ano *GetUserInfoReq) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.UserId) {
-		return false
-	}
-	return true
-}
-
-func (p *GetUserInfoReq) Field1DeepEqual(src int64) bool {
-
-	if p.UserId != src {
-		return false
-	}
-	return true
 }
 
 var fieldIDToName_GetUserInfoReq = map[int16]string{
@@ -901,46 +490,6 @@ func (p *GetUserInfoResp) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("GetUserInfoResp(%+v)", *p)
-}
-
-func (p *GetUserInfoResp) DeepEqual(ano *GetUserInfoResp) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Success) {
-		return false
-	}
-	if !p.Field2DeepEqual(ano.User) {
-		return false
-	}
-	if !p.Field3DeepEqual(ano.Msg) {
-		return false
-	}
-	return true
-}
-
-func (p *GetUserInfoResp) Field1DeepEqual(src bool) bool {
-
-	if p.Success != src {
-		return false
-	}
-	return true
-}
-func (p *GetUserInfoResp) Field2DeepEqual(src *User) bool {
-
-	if !p.User.DeepEqual(src) {
-		return false
-	}
-	return true
-}
-func (p *GetUserInfoResp) Field3DeepEqual(src string) bool {
-
-	if strings.Compare(p.Msg, src) != 0 {
-		return false
-	}
-	return true
 }
 
 var fieldIDToName_GetUserInfoResp = map[int16]string{
@@ -1070,146 +619,6 @@ func (p *UpdateUserInfoReq) String() string {
 	return fmt.Sprintf("UpdateUserInfoReq(%+v)", *p)
 }
 
-func (p *UpdateUserInfoReq) DeepEqual(ano *UpdateUserInfoReq) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.UserId) {
-		return false
-	}
-	if !p.Field2DeepEqual(ano.Nickname) {
-		return false
-	}
-	if !p.Field3DeepEqual(ano.Email) {
-		return false
-	}
-	if !p.Field4DeepEqual(ano.Phone) {
-		return false
-	}
-	if !p.Field5DeepEqual(ano.Avatar) {
-		return false
-	}
-	if !p.Field6DeepEqual(ano.Cover) {
-		return false
-	}
-	if !p.Field7DeepEqual(ano.Signature) {
-		return false
-	}
-	if !p.Field8DeepEqual(ano.Bio) {
-		return false
-	}
-	if !p.Field9DeepEqual(ano.Location) {
-		return false
-	}
-	if !p.Field10DeepEqual(ano.Website) {
-		return false
-	}
-	if !p.Field11DeepEqual(ano.Gender) {
-		return false
-	}
-	if !p.Field12DeepEqual(ano.Birthday) {
-		return false
-	}
-	if !p.Field13DeepEqual(ano.FullUpdate) {
-		return false
-	}
-	return true
-}
-
-func (p *UpdateUserInfoReq) Field1DeepEqual(src int64) bool {
-
-	if p.UserId != src {
-		return false
-	}
-	return true
-}
-func (p *UpdateUserInfoReq) Field2DeepEqual(src string) bool {
-
-	if strings.Compare(p.Nickname, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *UpdateUserInfoReq) Field3DeepEqual(src string) bool {
-
-	if strings.Compare(p.Email, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *UpdateUserInfoReq) Field4DeepEqual(src string) bool {
-
-	if strings.Compare(p.Phone, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *UpdateUserInfoReq) Field5DeepEqual(src string) bool {
-
-	if strings.Compare(p.Avatar, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *UpdateUserInfoReq) Field6DeepEqual(src string) bool {
-
-	if strings.Compare(p.Cover, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *UpdateUserInfoReq) Field7DeepEqual(src string) bool {
-
-	if strings.Compare(p.Signature, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *UpdateUserInfoReq) Field8DeepEqual(src string) bool {
-
-	if strings.Compare(p.Bio, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *UpdateUserInfoReq) Field9DeepEqual(src string) bool {
-
-	if strings.Compare(p.Location, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *UpdateUserInfoReq) Field10DeepEqual(src string) bool {
-
-	if strings.Compare(p.Website, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *UpdateUserInfoReq) Field11DeepEqual(src string) bool {
-
-	if strings.Compare(p.Gender, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *UpdateUserInfoReq) Field12DeepEqual(src string) bool {
-
-	if strings.Compare(p.Birthday, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *UpdateUserInfoReq) Field13DeepEqual(src bool) bool {
-
-	if p.FullUpdate != src {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_UpdateUserInfoReq = map[int16]string{
 	1:  "user_id",
 	2:  "nickname",
@@ -1259,36 +668,6 @@ func (p *UpdateUserInfoResp) String() string {
 	return fmt.Sprintf("UpdateUserInfoResp(%+v)", *p)
 }
 
-func (p *UpdateUserInfoResp) DeepEqual(ano *UpdateUserInfoResp) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Success) {
-		return false
-	}
-	if !p.Field2DeepEqual(ano.Msg) {
-		return false
-	}
-	return true
-}
-
-func (p *UpdateUserInfoResp) Field1DeepEqual(src bool) bool {
-
-	if p.Success != src {
-		return false
-	}
-	return true
-}
-func (p *UpdateUserInfoResp) Field2DeepEqual(src string) bool {
-
-	if strings.Compare(p.Msg, src) != 0 {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_UpdateUserInfoResp = map[int16]string{
 	1: "success",
 	2: "msg",
@@ -1325,36 +704,6 @@ func (p *UpdateAvatarReq) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("UpdateAvatarReq(%+v)", *p)
-}
-
-func (p *UpdateAvatarReq) DeepEqual(ano *UpdateAvatarReq) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.UserId) {
-		return false
-	}
-	if !p.Field2DeepEqual(ano.Avatar) {
-		return false
-	}
-	return true
-}
-
-func (p *UpdateAvatarReq) Field1DeepEqual(src int64) bool {
-
-	if p.UserId != src {
-		return false
-	}
-	return true
-}
-func (p *UpdateAvatarReq) Field2DeepEqual(src string) bool {
-
-	if strings.Compare(p.Avatar, src) != 0 {
-		return false
-	}
-	return true
 }
 
 var fieldIDToName_UpdateAvatarReq = map[int16]string{
@@ -1395,36 +744,6 @@ func (p *UpdateAvatarResp) String() string {
 	return fmt.Sprintf("UpdateAvatarResp(%+v)", *p)
 }
 
-func (p *UpdateAvatarResp) DeepEqual(ano *UpdateAvatarResp) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Success) {
-		return false
-	}
-	if !p.Field2DeepEqual(ano.Msg) {
-		return false
-	}
-	return true
-}
-
-func (p *UpdateAvatarResp) Field1DeepEqual(src bool) bool {
-
-	if p.Success != src {
-		return false
-	}
-	return true
-}
-func (p *UpdateAvatarResp) Field2DeepEqual(src string) bool {
-
-	if strings.Compare(p.Msg, src) != 0 {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_UpdateAvatarResp = map[int16]string{
 	1: "success",
 	2: "msg",
@@ -1463,36 +782,6 @@ func (p *UpdateStatusReq) String() string {
 	return fmt.Sprintf("UpdateStatusReq(%+v)", *p)
 }
 
-func (p *UpdateStatusReq) DeepEqual(ano *UpdateStatusReq) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.UserId) {
-		return false
-	}
-	if !p.Field2DeepEqual(ano.Status) {
-		return false
-	}
-	return true
-}
-
-func (p *UpdateStatusReq) Field1DeepEqual(src int64) bool {
-
-	if p.UserId != src {
-		return false
-	}
-	return true
-}
-func (p *UpdateStatusReq) Field2DeepEqual(src string) bool {
-
-	if strings.Compare(p.Status, src) != 0 {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_UpdateStatusReq = map[int16]string{
 	1: "user_id",
 	2: "status",
@@ -1529,36 +818,6 @@ func (p *UpdateStatusResp) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("UpdateStatusResp(%+v)", *p)
-}
-
-func (p *UpdateStatusResp) DeepEqual(ano *UpdateStatusResp) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Success) {
-		return false
-	}
-	if !p.Field2DeepEqual(ano.Msg) {
-		return false
-	}
-	return true
-}
-
-func (p *UpdateStatusResp) Field1DeepEqual(src bool) bool {
-
-	if p.Success != src {
-		return false
-	}
-	return true
-}
-func (p *UpdateStatusResp) Field2DeepEqual(src string) bool {
-
-	if strings.Compare(p.Msg, src) != 0 {
-		return false
-	}
-	return true
 }
 
 var fieldIDToName_UpdateStatusResp = map[int16]string{
@@ -1615,56 +874,6 @@ func (p *AddFriendReq) String() string {
 	return fmt.Sprintf("AddFriendReq(%+v)", *p)
 }
 
-func (p *AddFriendReq) DeepEqual(ano *AddFriendReq) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.UserId) {
-		return false
-	}
-	if !p.Field2DeepEqual(ano.FriendId) {
-		return false
-	}
-	if !p.Field3DeepEqual(ano.GroupId) {
-		return false
-	}
-	if !p.Field4DeepEqual(ano.Remark) {
-		return false
-	}
-	return true
-}
-
-func (p *AddFriendReq) Field1DeepEqual(src int64) bool {
-
-	if p.UserId != src {
-		return false
-	}
-	return true
-}
-func (p *AddFriendReq) Field2DeepEqual(src int64) bool {
-
-	if p.FriendId != src {
-		return false
-	}
-	return true
-}
-func (p *AddFriendReq) Field3DeepEqual(src int64) bool {
-
-	if p.GroupId != src {
-		return false
-	}
-	return true
-}
-func (p *AddFriendReq) Field4DeepEqual(src string) bool {
-
-	if strings.Compare(p.Remark, src) != 0 {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_AddFriendReq = map[int16]string{
 	1: "user_id",
 	2: "friend_id",
@@ -1705,36 +914,6 @@ func (p *AddFriendResp) String() string {
 	return fmt.Sprintf("AddFriendResp(%+v)", *p)
 }
 
-func (p *AddFriendResp) DeepEqual(ano *AddFriendResp) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Success) {
-		return false
-	}
-	if !p.Field2DeepEqual(ano.Msg) {
-		return false
-	}
-	return true
-}
-
-func (p *AddFriendResp) Field1DeepEqual(src bool) bool {
-
-	if p.Success != src {
-		return false
-	}
-	return true
-}
-func (p *AddFriendResp) Field2DeepEqual(src string) bool {
-
-	if strings.Compare(p.Msg, src) != 0 {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_AddFriendResp = map[int16]string{
 	1: "success",
 	2: "msg",
@@ -1773,36 +952,6 @@ func (p *DeleteFriendReq) String() string {
 	return fmt.Sprintf("DeleteFriendReq(%+v)", *p)
 }
 
-func (p *DeleteFriendReq) DeepEqual(ano *DeleteFriendReq) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.UserId) {
-		return false
-	}
-	if !p.Field2DeepEqual(ano.FriendId) {
-		return false
-	}
-	return true
-}
-
-func (p *DeleteFriendReq) Field1DeepEqual(src int64) bool {
-
-	if p.UserId != src {
-		return false
-	}
-	return true
-}
-func (p *DeleteFriendReq) Field2DeepEqual(src int64) bool {
-
-	if p.FriendId != src {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_DeleteFriendReq = map[int16]string{
 	1: "user_id",
 	2: "friend_id",
@@ -1839,36 +988,6 @@ func (p *DeleteFriendResp) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("DeleteFriendResp(%+v)", *p)
-}
-
-func (p *DeleteFriendResp) DeepEqual(ano *DeleteFriendResp) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Success) {
-		return false
-	}
-	if !p.Field2DeepEqual(ano.Msg) {
-		return false
-	}
-	return true
-}
-
-func (p *DeleteFriendResp) Field1DeepEqual(src bool) bool {
-
-	if p.Success != src {
-		return false
-	}
-	return true
-}
-func (p *DeleteFriendResp) Field2DeepEqual(src string) bool {
-
-	if strings.Compare(p.Msg, src) != 0 {
-		return false
-	}
-	return true
 }
 
 var fieldIDToName_DeleteFriendResp = map[int16]string{
@@ -1965,106 +1084,6 @@ func (p *Friend) String() string {
 	return fmt.Sprintf("Friend(%+v)", *p)
 }
 
-func (p *Friend) DeepEqual(ano *Friend) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Id) {
-		return false
-	}
-	if !p.Field2DeepEqual(ano.UserId) {
-		return false
-	}
-	if !p.Field3DeepEqual(ano.FriendId) {
-		return false
-	}
-	if !p.Field4DeepEqual(ano.GroupId) {
-		return false
-	}
-	if !p.Field5DeepEqual(ano.Remark) {
-		return false
-	}
-	if !p.Field6DeepEqual(ano.FriendName) {
-		return false
-	}
-	if !p.Field7DeepEqual(ano.FriendAvatar) {
-		return false
-	}
-	if !p.Field8DeepEqual(ano.FriendStatus) {
-		return false
-	}
-	if !p.Field9DeepEqual(ano.GroupName) {
-		return false
-	}
-	return true
-}
-
-func (p *Friend) Field1DeepEqual(src int64) bool {
-
-	if p.Id != src {
-		return false
-	}
-	return true
-}
-func (p *Friend) Field2DeepEqual(src int64) bool {
-
-	if p.UserId != src {
-		return false
-	}
-	return true
-}
-func (p *Friend) Field3DeepEqual(src int64) bool {
-
-	if p.FriendId != src {
-		return false
-	}
-	return true
-}
-func (p *Friend) Field4DeepEqual(src int64) bool {
-
-	if p.GroupId != src {
-		return false
-	}
-	return true
-}
-func (p *Friend) Field5DeepEqual(src string) bool {
-
-	if strings.Compare(p.Remark, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *Friend) Field6DeepEqual(src string) bool {
-
-	if strings.Compare(p.FriendName, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *Friend) Field7DeepEqual(src string) bool {
-
-	if strings.Compare(p.FriendAvatar, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *Friend) Field8DeepEqual(src string) bool {
-
-	if strings.Compare(p.FriendStatus, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *Friend) Field9DeepEqual(src string) bool {
-
-	if strings.Compare(p.GroupName, src) != 0 {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_Friend = map[int16]string{
 	1: "id",
 	2: "user_id",
@@ -2100,26 +1119,6 @@ func (p *GetFriendListReq) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("GetFriendListReq(%+v)", *p)
-}
-
-func (p *GetFriendListReq) DeepEqual(ano *GetFriendListReq) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.UserId) {
-		return false
-	}
-	return true
-}
-
-func (p *GetFriendListReq) Field1DeepEqual(src int64) bool {
-
-	if p.UserId != src {
-		return false
-	}
-	return true
 }
 
 var fieldIDToName_GetFriendListReq = map[int16]string{
@@ -2165,52 +1164,6 @@ func (p *GetFriendListResp) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("GetFriendListResp(%+v)", *p)
-}
-
-func (p *GetFriendListResp) DeepEqual(ano *GetFriendListResp) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Success) {
-		return false
-	}
-	if !p.Field2DeepEqual(ano.Friends) {
-		return false
-	}
-	if !p.Field3DeepEqual(ano.Msg) {
-		return false
-	}
-	return true
-}
-
-func (p *GetFriendListResp) Field1DeepEqual(src bool) bool {
-
-	if p.Success != src {
-		return false
-	}
-	return true
-}
-func (p *GetFriendListResp) Field2DeepEqual(src []*Friend) bool {
-
-	if len(p.Friends) != len(src) {
-		return false
-	}
-	for i, v := range p.Friends {
-		_src := src[i]
-		if !v.DeepEqual(_src) {
-			return false
-		}
-	}
-	return true
-}
-func (p *GetFriendListResp) Field3DeepEqual(src string) bool {
-
-	if strings.Compare(p.Msg, src) != 0 {
-		return false
-	}
-	return true
 }
 
 var fieldIDToName_GetFriendListResp = map[int16]string{
@@ -2268,56 +1221,6 @@ func (p *UpdateFriendRemarkReq) String() string {
 	return fmt.Sprintf("UpdateFriendRemarkReq(%+v)", *p)
 }
 
-func (p *UpdateFriendRemarkReq) DeepEqual(ano *UpdateFriendRemarkReq) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.UserId) {
-		return false
-	}
-	if !p.Field2DeepEqual(ano.FriendId) {
-		return false
-	}
-	if !p.Field3DeepEqual(ano.Remark) {
-		return false
-	}
-	if !p.Field4DeepEqual(ano.GroupId) {
-		return false
-	}
-	return true
-}
-
-func (p *UpdateFriendRemarkReq) Field1DeepEqual(src int64) bool {
-
-	if p.UserId != src {
-		return false
-	}
-	return true
-}
-func (p *UpdateFriendRemarkReq) Field2DeepEqual(src int64) bool {
-
-	if p.FriendId != src {
-		return false
-	}
-	return true
-}
-func (p *UpdateFriendRemarkReq) Field3DeepEqual(src string) bool {
-
-	if strings.Compare(p.Remark, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *UpdateFriendRemarkReq) Field4DeepEqual(src int64) bool {
-
-	if p.GroupId != src {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_UpdateFriendRemarkReq = map[int16]string{
 	1: "user_id",
 	2: "friend_id",
@@ -2356,36 +1259,6 @@ func (p *UpdateFriendRemarkResp) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("UpdateFriendRemarkResp(%+v)", *p)
-}
-
-func (p *UpdateFriendRemarkResp) DeepEqual(ano *UpdateFriendRemarkResp) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Success) {
-		return false
-	}
-	if !p.Field2DeepEqual(ano.Msg) {
-		return false
-	}
-	return true
-}
-
-func (p *UpdateFriendRemarkResp) Field1DeepEqual(src bool) bool {
-
-	if p.Success != src {
-		return false
-	}
-	return true
-}
-func (p *UpdateFriendRemarkResp) Field2DeepEqual(src string) bool {
-
-	if strings.Compare(p.Msg, src) != 0 {
-		return false
-	}
-	return true
 }
 
 var fieldIDToName_UpdateFriendRemarkResp = map[int16]string{
@@ -2434,46 +1307,6 @@ func (p *FriendGroup) String() string {
 	return fmt.Sprintf("FriendGroup(%+v)", *p)
 }
 
-func (p *FriendGroup) DeepEqual(ano *FriendGroup) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Id) {
-		return false
-	}
-	if !p.Field2DeepEqual(ano.UserId) {
-		return false
-	}
-	if !p.Field3DeepEqual(ano.Name) {
-		return false
-	}
-	return true
-}
-
-func (p *FriendGroup) Field1DeepEqual(src int64) bool {
-
-	if p.Id != src {
-		return false
-	}
-	return true
-}
-func (p *FriendGroup) Field2DeepEqual(src int64) bool {
-
-	if p.UserId != src {
-		return false
-	}
-	return true
-}
-func (p *FriendGroup) Field3DeepEqual(src string) bool {
-
-	if strings.Compare(p.Name, src) != 0 {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_FriendGroup = map[int16]string{
 	1: "id",
 	2: "user_id",
@@ -2511,36 +1344,6 @@ func (p *CreateFriendGroupReq) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("CreateFriendGroupReq(%+v)", *p)
-}
-
-func (p *CreateFriendGroupReq) DeepEqual(ano *CreateFriendGroupReq) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.UserId) {
-		return false
-	}
-	if !p.Field2DeepEqual(ano.Name) {
-		return false
-	}
-	return true
-}
-
-func (p *CreateFriendGroupReq) Field1DeepEqual(src int64) bool {
-
-	if p.UserId != src {
-		return false
-	}
-	return true
-}
-func (p *CreateFriendGroupReq) Field2DeepEqual(src string) bool {
-
-	if strings.Compare(p.Name, src) != 0 {
-		return false
-	}
-	return true
 }
 
 var fieldIDToName_CreateFriendGroupReq = map[int16]string{
@@ -2587,46 +1390,6 @@ func (p *CreateFriendGroupResp) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("CreateFriendGroupResp(%+v)", *p)
-}
-
-func (p *CreateFriendGroupResp) DeepEqual(ano *CreateFriendGroupResp) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Success) {
-		return false
-	}
-	if !p.Field2DeepEqual(ano.GroupId) {
-		return false
-	}
-	if !p.Field3DeepEqual(ano.Msg) {
-		return false
-	}
-	return true
-}
-
-func (p *CreateFriendGroupResp) Field1DeepEqual(src bool) bool {
-
-	if p.Success != src {
-		return false
-	}
-	return true
-}
-func (p *CreateFriendGroupResp) Field2DeepEqual(src int64) bool {
-
-	if p.GroupId != src {
-		return false
-	}
-	return true
-}
-func (p *CreateFriendGroupResp) Field3DeepEqual(src string) bool {
-
-	if strings.Compare(p.Msg, src) != 0 {
-		return false
-	}
-	return true
 }
 
 var fieldIDToName_CreateFriendGroupResp = map[int16]string{
@@ -2676,46 +1439,6 @@ func (p *MoveFriendGroupReq) String() string {
 	return fmt.Sprintf("MoveFriendGroupReq(%+v)", *p)
 }
 
-func (p *MoveFriendGroupReq) DeepEqual(ano *MoveFriendGroupReq) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.UserId) {
-		return false
-	}
-	if !p.Field2DeepEqual(ano.FriendId) {
-		return false
-	}
-	if !p.Field3DeepEqual(ano.GroupId) {
-		return false
-	}
-	return true
-}
-
-func (p *MoveFriendGroupReq) Field1DeepEqual(src int64) bool {
-
-	if p.UserId != src {
-		return false
-	}
-	return true
-}
-func (p *MoveFriendGroupReq) Field2DeepEqual(src int64) bool {
-
-	if p.FriendId != src {
-		return false
-	}
-	return true
-}
-func (p *MoveFriendGroupReq) Field3DeepEqual(src int64) bool {
-
-	if p.GroupId != src {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_MoveFriendGroupReq = map[int16]string{
 	1: "user_id",
 	2: "friend_id",
@@ -2755,36 +1478,6 @@ func (p *MoveFriendGroupResp) String() string {
 	return fmt.Sprintf("MoveFriendGroupResp(%+v)", *p)
 }
 
-func (p *MoveFriendGroupResp) DeepEqual(ano *MoveFriendGroupResp) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Success) {
-		return false
-	}
-	if !p.Field2DeepEqual(ano.Msg) {
-		return false
-	}
-	return true
-}
-
-func (p *MoveFriendGroupResp) Field1DeepEqual(src bool) bool {
-
-	if p.Success != src {
-		return false
-	}
-	return true
-}
-func (p *MoveFriendGroupResp) Field2DeepEqual(src string) bool {
-
-	if strings.Compare(p.Msg, src) != 0 {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_MoveFriendGroupResp = map[int16]string{
 	1: "success",
 	2: "msg",
@@ -2813,26 +1506,6 @@ func (p *GetFriendGroupsReq) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("GetFriendGroupsReq(%+v)", *p)
-}
-
-func (p *GetFriendGroupsReq) DeepEqual(ano *GetFriendGroupsReq) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.UserId) {
-		return false
-	}
-	return true
-}
-
-func (p *GetFriendGroupsReq) Field1DeepEqual(src int64) bool {
-
-	if p.UserId != src {
-		return false
-	}
-	return true
 }
 
 var fieldIDToName_GetFriendGroupsReq = map[int16]string{
@@ -2880,52 +1553,6 @@ func (p *GetFriendGroupsResp) String() string {
 	return fmt.Sprintf("GetFriendGroupsResp(%+v)", *p)
 }
 
-func (p *GetFriendGroupsResp) DeepEqual(ano *GetFriendGroupsResp) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Success) {
-		return false
-	}
-	if !p.Field2DeepEqual(ano.Groups) {
-		return false
-	}
-	if !p.Field3DeepEqual(ano.Msg) {
-		return false
-	}
-	return true
-}
-
-func (p *GetFriendGroupsResp) Field1DeepEqual(src bool) bool {
-
-	if p.Success != src {
-		return false
-	}
-	return true
-}
-func (p *GetFriendGroupsResp) Field2DeepEqual(src []*FriendGroup) bool {
-
-	if len(p.Groups) != len(src) {
-		return false
-	}
-	for i, v := range p.Groups {
-		_src := src[i]
-		if !v.DeepEqual(_src) {
-			return false
-		}
-	}
-	return true
-}
-func (p *GetFriendGroupsResp) Field3DeepEqual(src string) bool {
-
-	if strings.Compare(p.Msg, src) != 0 {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_GetFriendGroupsResp = map[int16]string{
 	1: "success",
 	2: "groups",
@@ -2955,32 +1582,6 @@ func (p *BatchGetUserInfoReq) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("BatchGetUserInfoReq(%+v)", *p)
-}
-
-func (p *BatchGetUserInfoReq) DeepEqual(ano *BatchGetUserInfoReq) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.UserIds) {
-		return false
-	}
-	return true
-}
-
-func (p *BatchGetUserInfoReq) Field1DeepEqual(src []int64) bool {
-
-	if len(p.UserIds) != len(src) {
-		return false
-	}
-	for i, v := range p.UserIds {
-		_src := src[i]
-		if v != _src {
-			return false
-		}
-	}
-	return true
 }
 
 var fieldIDToName_BatchGetUserInfoReq = map[int16]string{
@@ -3028,56 +1629,140 @@ func (p *BatchGetUserInfoResp) String() string {
 	return fmt.Sprintf("BatchGetUserInfoResp(%+v)", *p)
 }
 
-func (p *BatchGetUserInfoResp) DeepEqual(ano *BatchGetUserInfoResp) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Success) {
-		return false
-	}
-	if !p.Field2DeepEqual(ano.Users) {
-		return false
-	}
-	if !p.Field3DeepEqual(ano.Msg) {
-		return false
-	}
-	return true
-}
-
-func (p *BatchGetUserInfoResp) Field1DeepEqual(src bool) bool {
-
-	if p.Success != src {
-		return false
-	}
-	return true
-}
-func (p *BatchGetUserInfoResp) Field2DeepEqual(src []*User) bool {
-
-	if len(p.Users) != len(src) {
-		return false
-	}
-	for i, v := range p.Users {
-		_src := src[i]
-		if !v.DeepEqual(_src) {
-			return false
-		}
-	}
-	return true
-}
-func (p *BatchGetUserInfoResp) Field3DeepEqual(src string) bool {
-
-	if strings.Compare(p.Msg, src) != 0 {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_BatchGetUserInfoResp = map[int16]string{
 	1: "success",
 	2: "users",
 	3: "msg",
+}
+
+type AdminListUsersReq struct {
+	Keyword       string `thrift:"keyword,1" frugal:"1,default,string" json:"keyword"`
+	Role          string `thrift:"role,2" frugal:"2,default,string" json:"role"`
+	Status        string `thrift:"status,3" frugal:"3,default,string" json:"status"`
+	IncludeSystem bool   `thrift:"include_system,4" frugal:"4,default,bool" json:"include_system"`
+	Limit         int64  `thrift:"limit,5" frugal:"5,default,i64" json:"limit"`
+	Offset        int64  `thrift:"offset,6" frugal:"6,default,i64" json:"offset"`
+}
+
+func NewAdminListUsersReq() *AdminListUsersReq {
+	return &AdminListUsersReq{}
+}
+
+func (p *AdminListUsersReq) InitDefault() {
+}
+
+func (p *AdminListUsersReq) GetKeyword() (v string) {
+	return p.Keyword
+}
+
+func (p *AdminListUsersReq) GetRole() (v string) {
+	return p.Role
+}
+
+func (p *AdminListUsersReq) GetStatus() (v string) {
+	return p.Status
+}
+
+func (p *AdminListUsersReq) GetIncludeSystem() (v bool) {
+	return p.IncludeSystem
+}
+
+func (p *AdminListUsersReq) GetLimit() (v int64) {
+	return p.Limit
+}
+
+func (p *AdminListUsersReq) GetOffset() (v int64) {
+	return p.Offset
+}
+func (p *AdminListUsersReq) SetKeyword(val string) {
+	p.Keyword = val
+}
+func (p *AdminListUsersReq) SetRole(val string) {
+	p.Role = val
+}
+func (p *AdminListUsersReq) SetStatus(val string) {
+	p.Status = val
+}
+func (p *AdminListUsersReq) SetIncludeSystem(val bool) {
+	p.IncludeSystem = val
+}
+func (p *AdminListUsersReq) SetLimit(val int64) {
+	p.Limit = val
+}
+func (p *AdminListUsersReq) SetOffset(val int64) {
+	p.Offset = val
+}
+
+func (p *AdminListUsersReq) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("AdminListUsersReq(%+v)", *p)
+}
+
+var fieldIDToName_AdminListUsersReq = map[int16]string{
+	1: "keyword",
+	2: "role",
+	3: "status",
+	4: "include_system",
+	5: "limit",
+	6: "offset",
+}
+
+type AdminListUsersResp struct {
+	Success bool    `thrift:"success,1" frugal:"1,default,bool" json:"success"`
+	Users   []*User `thrift:"users,2" frugal:"2,default,list<User>" json:"users"`
+	Total   int64   `thrift:"total,3" frugal:"3,default,i64" json:"total"`
+	Msg     string  `thrift:"msg,4" frugal:"4,default,string" json:"msg"`
+}
+
+func NewAdminListUsersResp() *AdminListUsersResp {
+	return &AdminListUsersResp{}
+}
+
+func (p *AdminListUsersResp) InitDefault() {
+}
+
+func (p *AdminListUsersResp) GetSuccess() (v bool) {
+	return p.Success
+}
+
+func (p *AdminListUsersResp) GetUsers() (v []*User) {
+	return p.Users
+}
+
+func (p *AdminListUsersResp) GetTotal() (v int64) {
+	return p.Total
+}
+
+func (p *AdminListUsersResp) GetMsg() (v string) {
+	return p.Msg
+}
+func (p *AdminListUsersResp) SetSuccess(val bool) {
+	p.Success = val
+}
+func (p *AdminListUsersResp) SetUsers(val []*User) {
+	p.Users = val
+}
+func (p *AdminListUsersResp) SetTotal(val int64) {
+	p.Total = val
+}
+func (p *AdminListUsersResp) SetMsg(val string) {
+	p.Msg = val
+}
+
+func (p *AdminListUsersResp) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("AdminListUsersResp(%+v)", *p)
+}
+
+var fieldIDToName_AdminListUsersResp = map[int16]string{
+	1: "success",
+	2: "users",
+	3: "total",
+	4: "msg",
 }
 
 type UserService interface {
@@ -3108,6 +1793,8 @@ type UserService interface {
 	GetFriendGroups(ctx context.Context, req *GetFriendGroupsReq) (r *GetFriendGroupsResp, err error)
 
 	BatchGetUserInfo(ctx context.Context, req *BatchGetUserInfoReq) (r *BatchGetUserInfoResp, err error)
+
+	AdminListUsers(ctx context.Context, req *AdminListUsersReq) (r *AdminListUsersResp, err error)
 }
 
 type UserServiceRegisterArgs struct {
@@ -3142,26 +1829,6 @@ func (p *UserServiceRegisterArgs) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("UserServiceRegisterArgs(%+v)", *p)
-}
-
-func (p *UserServiceRegisterArgs) DeepEqual(ano *UserServiceRegisterArgs) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Req) {
-		return false
-	}
-	return true
-}
-
-func (p *UserServiceRegisterArgs) Field1DeepEqual(src *RegisterReq) bool {
-
-	if !p.Req.DeepEqual(src) {
-		return false
-	}
-	return true
 }
 
 var fieldIDToName_UserServiceRegisterArgs = map[int16]string{
@@ -3202,26 +1869,6 @@ func (p *UserServiceRegisterResult) String() string {
 	return fmt.Sprintf("UserServiceRegisterResult(%+v)", *p)
 }
 
-func (p *UserServiceRegisterResult) DeepEqual(ano *UserServiceRegisterResult) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field0DeepEqual(ano.Success) {
-		return false
-	}
-	return true
-}
-
-func (p *UserServiceRegisterResult) Field0DeepEqual(src *RegisterResp) bool {
-
-	if !p.Success.DeepEqual(src) {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_UserServiceRegisterResult = map[int16]string{
 	0: "success",
 }
@@ -3258,26 +1905,6 @@ func (p *UserServiceLoginArgs) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("UserServiceLoginArgs(%+v)", *p)
-}
-
-func (p *UserServiceLoginArgs) DeepEqual(ano *UserServiceLoginArgs) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Req) {
-		return false
-	}
-	return true
-}
-
-func (p *UserServiceLoginArgs) Field1DeepEqual(src *LoginReq) bool {
-
-	if !p.Req.DeepEqual(src) {
-		return false
-	}
-	return true
 }
 
 var fieldIDToName_UserServiceLoginArgs = map[int16]string{
@@ -3318,26 +1945,6 @@ func (p *UserServiceLoginResult) String() string {
 	return fmt.Sprintf("UserServiceLoginResult(%+v)", *p)
 }
 
-func (p *UserServiceLoginResult) DeepEqual(ano *UserServiceLoginResult) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field0DeepEqual(ano.Success) {
-		return false
-	}
-	return true
-}
-
-func (p *UserServiceLoginResult) Field0DeepEqual(src *LoginResp) bool {
-
-	if !p.Success.DeepEqual(src) {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_UserServiceLoginResult = map[int16]string{
 	0: "success",
 }
@@ -3374,26 +1981,6 @@ func (p *UserServiceGetUserInfoArgs) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("UserServiceGetUserInfoArgs(%+v)", *p)
-}
-
-func (p *UserServiceGetUserInfoArgs) DeepEqual(ano *UserServiceGetUserInfoArgs) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Req) {
-		return false
-	}
-	return true
-}
-
-func (p *UserServiceGetUserInfoArgs) Field1DeepEqual(src *GetUserInfoReq) bool {
-
-	if !p.Req.DeepEqual(src) {
-		return false
-	}
-	return true
 }
 
 var fieldIDToName_UserServiceGetUserInfoArgs = map[int16]string{
@@ -3434,26 +2021,6 @@ func (p *UserServiceGetUserInfoResult) String() string {
 	return fmt.Sprintf("UserServiceGetUserInfoResult(%+v)", *p)
 }
 
-func (p *UserServiceGetUserInfoResult) DeepEqual(ano *UserServiceGetUserInfoResult) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field0DeepEqual(ano.Success) {
-		return false
-	}
-	return true
-}
-
-func (p *UserServiceGetUserInfoResult) Field0DeepEqual(src *GetUserInfoResp) bool {
-
-	if !p.Success.DeepEqual(src) {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_UserServiceGetUserInfoResult = map[int16]string{
 	0: "success",
 }
@@ -3490,26 +2057,6 @@ func (p *UserServiceUpdateUserInfoArgs) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("UserServiceUpdateUserInfoArgs(%+v)", *p)
-}
-
-func (p *UserServiceUpdateUserInfoArgs) DeepEqual(ano *UserServiceUpdateUserInfoArgs) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Req) {
-		return false
-	}
-	return true
-}
-
-func (p *UserServiceUpdateUserInfoArgs) Field1DeepEqual(src *UpdateUserInfoReq) bool {
-
-	if !p.Req.DeepEqual(src) {
-		return false
-	}
-	return true
 }
 
 var fieldIDToName_UserServiceUpdateUserInfoArgs = map[int16]string{
@@ -3550,26 +2097,6 @@ func (p *UserServiceUpdateUserInfoResult) String() string {
 	return fmt.Sprintf("UserServiceUpdateUserInfoResult(%+v)", *p)
 }
 
-func (p *UserServiceUpdateUserInfoResult) DeepEqual(ano *UserServiceUpdateUserInfoResult) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field0DeepEqual(ano.Success) {
-		return false
-	}
-	return true
-}
-
-func (p *UserServiceUpdateUserInfoResult) Field0DeepEqual(src *UpdateUserInfoResp) bool {
-
-	if !p.Success.DeepEqual(src) {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_UserServiceUpdateUserInfoResult = map[int16]string{
 	0: "success",
 }
@@ -3606,26 +2133,6 @@ func (p *UserServiceUpdateAvatarArgs) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("UserServiceUpdateAvatarArgs(%+v)", *p)
-}
-
-func (p *UserServiceUpdateAvatarArgs) DeepEqual(ano *UserServiceUpdateAvatarArgs) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Req) {
-		return false
-	}
-	return true
-}
-
-func (p *UserServiceUpdateAvatarArgs) Field1DeepEqual(src *UpdateAvatarReq) bool {
-
-	if !p.Req.DeepEqual(src) {
-		return false
-	}
-	return true
 }
 
 var fieldIDToName_UserServiceUpdateAvatarArgs = map[int16]string{
@@ -3666,26 +2173,6 @@ func (p *UserServiceUpdateAvatarResult) String() string {
 	return fmt.Sprintf("UserServiceUpdateAvatarResult(%+v)", *p)
 }
 
-func (p *UserServiceUpdateAvatarResult) DeepEqual(ano *UserServiceUpdateAvatarResult) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field0DeepEqual(ano.Success) {
-		return false
-	}
-	return true
-}
-
-func (p *UserServiceUpdateAvatarResult) Field0DeepEqual(src *UpdateAvatarResp) bool {
-
-	if !p.Success.DeepEqual(src) {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_UserServiceUpdateAvatarResult = map[int16]string{
 	0: "success",
 }
@@ -3722,26 +2209,6 @@ func (p *UserServiceUpdateStatusArgs) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("UserServiceUpdateStatusArgs(%+v)", *p)
-}
-
-func (p *UserServiceUpdateStatusArgs) DeepEqual(ano *UserServiceUpdateStatusArgs) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Req) {
-		return false
-	}
-	return true
-}
-
-func (p *UserServiceUpdateStatusArgs) Field1DeepEqual(src *UpdateStatusReq) bool {
-
-	if !p.Req.DeepEqual(src) {
-		return false
-	}
-	return true
 }
 
 var fieldIDToName_UserServiceUpdateStatusArgs = map[int16]string{
@@ -3782,26 +2249,6 @@ func (p *UserServiceUpdateStatusResult) String() string {
 	return fmt.Sprintf("UserServiceUpdateStatusResult(%+v)", *p)
 }
 
-func (p *UserServiceUpdateStatusResult) DeepEqual(ano *UserServiceUpdateStatusResult) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field0DeepEqual(ano.Success) {
-		return false
-	}
-	return true
-}
-
-func (p *UserServiceUpdateStatusResult) Field0DeepEqual(src *UpdateStatusResp) bool {
-
-	if !p.Success.DeepEqual(src) {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_UserServiceUpdateStatusResult = map[int16]string{
 	0: "success",
 }
@@ -3838,26 +2285,6 @@ func (p *UserServiceAddFriendArgs) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("UserServiceAddFriendArgs(%+v)", *p)
-}
-
-func (p *UserServiceAddFriendArgs) DeepEqual(ano *UserServiceAddFriendArgs) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Req) {
-		return false
-	}
-	return true
-}
-
-func (p *UserServiceAddFriendArgs) Field1DeepEqual(src *AddFriendReq) bool {
-
-	if !p.Req.DeepEqual(src) {
-		return false
-	}
-	return true
 }
 
 var fieldIDToName_UserServiceAddFriendArgs = map[int16]string{
@@ -3898,26 +2325,6 @@ func (p *UserServiceAddFriendResult) String() string {
 	return fmt.Sprintf("UserServiceAddFriendResult(%+v)", *p)
 }
 
-func (p *UserServiceAddFriendResult) DeepEqual(ano *UserServiceAddFriendResult) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field0DeepEqual(ano.Success) {
-		return false
-	}
-	return true
-}
-
-func (p *UserServiceAddFriendResult) Field0DeepEqual(src *AddFriendResp) bool {
-
-	if !p.Success.DeepEqual(src) {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_UserServiceAddFriendResult = map[int16]string{
 	0: "success",
 }
@@ -3954,26 +2361,6 @@ func (p *UserServiceDeleteFriendArgs) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("UserServiceDeleteFriendArgs(%+v)", *p)
-}
-
-func (p *UserServiceDeleteFriendArgs) DeepEqual(ano *UserServiceDeleteFriendArgs) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Req) {
-		return false
-	}
-	return true
-}
-
-func (p *UserServiceDeleteFriendArgs) Field1DeepEqual(src *DeleteFriendReq) bool {
-
-	if !p.Req.DeepEqual(src) {
-		return false
-	}
-	return true
 }
 
 var fieldIDToName_UserServiceDeleteFriendArgs = map[int16]string{
@@ -4014,26 +2401,6 @@ func (p *UserServiceDeleteFriendResult) String() string {
 	return fmt.Sprintf("UserServiceDeleteFriendResult(%+v)", *p)
 }
 
-func (p *UserServiceDeleteFriendResult) DeepEqual(ano *UserServiceDeleteFriendResult) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field0DeepEqual(ano.Success) {
-		return false
-	}
-	return true
-}
-
-func (p *UserServiceDeleteFriendResult) Field0DeepEqual(src *DeleteFriendResp) bool {
-
-	if !p.Success.DeepEqual(src) {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_UserServiceDeleteFriendResult = map[int16]string{
 	0: "success",
 }
@@ -4070,26 +2437,6 @@ func (p *UserServiceGetFriendListArgs) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("UserServiceGetFriendListArgs(%+v)", *p)
-}
-
-func (p *UserServiceGetFriendListArgs) DeepEqual(ano *UserServiceGetFriendListArgs) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Req) {
-		return false
-	}
-	return true
-}
-
-func (p *UserServiceGetFriendListArgs) Field1DeepEqual(src *GetFriendListReq) bool {
-
-	if !p.Req.DeepEqual(src) {
-		return false
-	}
-	return true
 }
 
 var fieldIDToName_UserServiceGetFriendListArgs = map[int16]string{
@@ -4130,26 +2477,6 @@ func (p *UserServiceGetFriendListResult) String() string {
 	return fmt.Sprintf("UserServiceGetFriendListResult(%+v)", *p)
 }
 
-func (p *UserServiceGetFriendListResult) DeepEqual(ano *UserServiceGetFriendListResult) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field0DeepEqual(ano.Success) {
-		return false
-	}
-	return true
-}
-
-func (p *UserServiceGetFriendListResult) Field0DeepEqual(src *GetFriendListResp) bool {
-
-	if !p.Success.DeepEqual(src) {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_UserServiceGetFriendListResult = map[int16]string{
 	0: "success",
 }
@@ -4186,26 +2513,6 @@ func (p *UserServiceUpdateFriendRemarkArgs) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("UserServiceUpdateFriendRemarkArgs(%+v)", *p)
-}
-
-func (p *UserServiceUpdateFriendRemarkArgs) DeepEqual(ano *UserServiceUpdateFriendRemarkArgs) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Req) {
-		return false
-	}
-	return true
-}
-
-func (p *UserServiceUpdateFriendRemarkArgs) Field1DeepEqual(src *UpdateFriendRemarkReq) bool {
-
-	if !p.Req.DeepEqual(src) {
-		return false
-	}
-	return true
 }
 
 var fieldIDToName_UserServiceUpdateFriendRemarkArgs = map[int16]string{
@@ -4246,26 +2553,6 @@ func (p *UserServiceUpdateFriendRemarkResult) String() string {
 	return fmt.Sprintf("UserServiceUpdateFriendRemarkResult(%+v)", *p)
 }
 
-func (p *UserServiceUpdateFriendRemarkResult) DeepEqual(ano *UserServiceUpdateFriendRemarkResult) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field0DeepEqual(ano.Success) {
-		return false
-	}
-	return true
-}
-
-func (p *UserServiceUpdateFriendRemarkResult) Field0DeepEqual(src *UpdateFriendRemarkResp) bool {
-
-	if !p.Success.DeepEqual(src) {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_UserServiceUpdateFriendRemarkResult = map[int16]string{
 	0: "success",
 }
@@ -4302,26 +2589,6 @@ func (p *UserServiceCreateFriendGroupArgs) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("UserServiceCreateFriendGroupArgs(%+v)", *p)
-}
-
-func (p *UserServiceCreateFriendGroupArgs) DeepEqual(ano *UserServiceCreateFriendGroupArgs) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Req) {
-		return false
-	}
-	return true
-}
-
-func (p *UserServiceCreateFriendGroupArgs) Field1DeepEqual(src *CreateFriendGroupReq) bool {
-
-	if !p.Req.DeepEqual(src) {
-		return false
-	}
-	return true
 }
 
 var fieldIDToName_UserServiceCreateFriendGroupArgs = map[int16]string{
@@ -4362,26 +2629,6 @@ func (p *UserServiceCreateFriendGroupResult) String() string {
 	return fmt.Sprintf("UserServiceCreateFriendGroupResult(%+v)", *p)
 }
 
-func (p *UserServiceCreateFriendGroupResult) DeepEqual(ano *UserServiceCreateFriendGroupResult) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field0DeepEqual(ano.Success) {
-		return false
-	}
-	return true
-}
-
-func (p *UserServiceCreateFriendGroupResult) Field0DeepEqual(src *CreateFriendGroupResp) bool {
-
-	if !p.Success.DeepEqual(src) {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_UserServiceCreateFriendGroupResult = map[int16]string{
 	0: "success",
 }
@@ -4418,26 +2665,6 @@ func (p *UserServiceMoveFriendGroupArgs) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("UserServiceMoveFriendGroupArgs(%+v)", *p)
-}
-
-func (p *UserServiceMoveFriendGroupArgs) DeepEqual(ano *UserServiceMoveFriendGroupArgs) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Req) {
-		return false
-	}
-	return true
-}
-
-func (p *UserServiceMoveFriendGroupArgs) Field1DeepEqual(src *MoveFriendGroupReq) bool {
-
-	if !p.Req.DeepEqual(src) {
-		return false
-	}
-	return true
 }
 
 var fieldIDToName_UserServiceMoveFriendGroupArgs = map[int16]string{
@@ -4478,26 +2705,6 @@ func (p *UserServiceMoveFriendGroupResult) String() string {
 	return fmt.Sprintf("UserServiceMoveFriendGroupResult(%+v)", *p)
 }
 
-func (p *UserServiceMoveFriendGroupResult) DeepEqual(ano *UserServiceMoveFriendGroupResult) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field0DeepEqual(ano.Success) {
-		return false
-	}
-	return true
-}
-
-func (p *UserServiceMoveFriendGroupResult) Field0DeepEqual(src *MoveFriendGroupResp) bool {
-
-	if !p.Success.DeepEqual(src) {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_UserServiceMoveFriendGroupResult = map[int16]string{
 	0: "success",
 }
@@ -4534,26 +2741,6 @@ func (p *UserServiceGetFriendGroupsArgs) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("UserServiceGetFriendGroupsArgs(%+v)", *p)
-}
-
-func (p *UserServiceGetFriendGroupsArgs) DeepEqual(ano *UserServiceGetFriendGroupsArgs) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Req) {
-		return false
-	}
-	return true
-}
-
-func (p *UserServiceGetFriendGroupsArgs) Field1DeepEqual(src *GetFriendGroupsReq) bool {
-
-	if !p.Req.DeepEqual(src) {
-		return false
-	}
-	return true
 }
 
 var fieldIDToName_UserServiceGetFriendGroupsArgs = map[int16]string{
@@ -4594,26 +2781,6 @@ func (p *UserServiceGetFriendGroupsResult) String() string {
 	return fmt.Sprintf("UserServiceGetFriendGroupsResult(%+v)", *p)
 }
 
-func (p *UserServiceGetFriendGroupsResult) DeepEqual(ano *UserServiceGetFriendGroupsResult) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field0DeepEqual(ano.Success) {
-		return false
-	}
-	return true
-}
-
-func (p *UserServiceGetFriendGroupsResult) Field0DeepEqual(src *GetFriendGroupsResp) bool {
-
-	if !p.Success.DeepEqual(src) {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_UserServiceGetFriendGroupsResult = map[int16]string{
 	0: "success",
 }
@@ -4650,26 +2817,6 @@ func (p *UserServiceBatchGetUserInfoArgs) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("UserServiceBatchGetUserInfoArgs(%+v)", *p)
-}
-
-func (p *UserServiceBatchGetUserInfoArgs) DeepEqual(ano *UserServiceBatchGetUserInfoArgs) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Req) {
-		return false
-	}
-	return true
-}
-
-func (p *UserServiceBatchGetUserInfoArgs) Field1DeepEqual(src *BatchGetUserInfoReq) bool {
-
-	if !p.Req.DeepEqual(src) {
-		return false
-	}
-	return true
 }
 
 var fieldIDToName_UserServiceBatchGetUserInfoArgs = map[int16]string{
@@ -4710,26 +2857,82 @@ func (p *UserServiceBatchGetUserInfoResult) String() string {
 	return fmt.Sprintf("UserServiceBatchGetUserInfoResult(%+v)", *p)
 }
 
-func (p *UserServiceBatchGetUserInfoResult) DeepEqual(ano *UserServiceBatchGetUserInfoResult) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field0DeepEqual(ano.Success) {
-		return false
-	}
-	return true
-}
-
-func (p *UserServiceBatchGetUserInfoResult) Field0DeepEqual(src *BatchGetUserInfoResp) bool {
-
-	if !p.Success.DeepEqual(src) {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_UserServiceBatchGetUserInfoResult = map[int16]string{
+	0: "success",
+}
+
+type UserServiceAdminListUsersArgs struct {
+	Req *AdminListUsersReq `thrift:"req,1" frugal:"1,default,AdminListUsersReq" json:"req"`
+}
+
+func NewUserServiceAdminListUsersArgs() *UserServiceAdminListUsersArgs {
+	return &UserServiceAdminListUsersArgs{}
+}
+
+func (p *UserServiceAdminListUsersArgs) InitDefault() {
+}
+
+var UserServiceAdminListUsersArgs_Req_DEFAULT *AdminListUsersReq
+
+func (p *UserServiceAdminListUsersArgs) GetReq() (v *AdminListUsersReq) {
+	if !p.IsSetReq() {
+		return UserServiceAdminListUsersArgs_Req_DEFAULT
+	}
+	return p.Req
+}
+func (p *UserServiceAdminListUsersArgs) SetReq(val *AdminListUsersReq) {
+	p.Req = val
+}
+
+func (p *UserServiceAdminListUsersArgs) IsSetReq() bool {
+	return p.Req != nil
+}
+
+func (p *UserServiceAdminListUsersArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("UserServiceAdminListUsersArgs(%+v)", *p)
+}
+
+var fieldIDToName_UserServiceAdminListUsersArgs = map[int16]string{
+	1: "req",
+}
+
+type UserServiceAdminListUsersResult struct {
+	Success *AdminListUsersResp `thrift:"success,0,optional" frugal:"0,optional,AdminListUsersResp" json:"success,omitempty"`
+}
+
+func NewUserServiceAdminListUsersResult() *UserServiceAdminListUsersResult {
+	return &UserServiceAdminListUsersResult{}
+}
+
+func (p *UserServiceAdminListUsersResult) InitDefault() {
+}
+
+var UserServiceAdminListUsersResult_Success_DEFAULT *AdminListUsersResp
+
+func (p *UserServiceAdminListUsersResult) GetSuccess() (v *AdminListUsersResp) {
+	if !p.IsSetSuccess() {
+		return UserServiceAdminListUsersResult_Success_DEFAULT
+	}
+	return p.Success
+}
+func (p *UserServiceAdminListUsersResult) SetSuccess(x interface{}) {
+	p.Success = x.(*AdminListUsersResp)
+}
+
+func (p *UserServiceAdminListUsersResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *UserServiceAdminListUsersResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("UserServiceAdminListUsersResult(%+v)", *p)
+}
+
+var fieldIDToName_UserServiceAdminListUsersResult = map[int16]string{
 	0: "success",
 }

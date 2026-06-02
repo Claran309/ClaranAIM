@@ -5,6 +5,28 @@ service:
 mysql:
   dsn: ""
 
+memory_rag:
+  enabled: true
+  embedding_dim: 256
+  embedding_provider: "glm"
+  embedding_url: "https://open.bigmodel.cn/api/paas/v4/embeddings"
+  embedding_api_key: ""
+  embedding_model: "embedding-3"
+  embedding_dimension: 0
+  milvus_enabled: false
+  milvus_address: "127.0.0.1:19530"
+  milvus_collection: "claran_memory_facts"
+  vector_candidate_k: 80
+  min_score: 0.05
+  vector_weight: 0.45
+  importance_weight: 0.25
+  recency_weight: 0.15
+  scope_weight: 0.15
+  llm_filter_enabled: false
+  llm_filter_base_url: ""
+  llm_filter_api_key: ""
+  llm_filter_model: "glm-4-flash"
+
 governance:
   rpc:
     timeout_ms: 5000

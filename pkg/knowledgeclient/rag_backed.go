@@ -177,6 +177,18 @@ func (s *ragBackedService) GetPath(ctx context.Context, viewerID, sourceID, targ
 	}, nil
 }
 
+func (s *ragBackedService) CreateGraphReviewCandidate(ctx context.Context, viewerID int64, input CreateGraphReviewCandidateInput) (*GraphReviewCandidate, error) {
+	return nil, errors.New("图谱审核需要通过knowledge-service仓储执行")
+}
+
+func (s *ragBackedService) ListGraphReviewCandidates(ctx context.Context, viewerID int64, input ListGraphReviewCandidatesInput) (*GraphReviewCandidateList, error) {
+	return &GraphReviewCandidateList{Success: false, Msg: "图谱审核需要通过knowledge-service仓储执行"}, nil
+}
+
+func (s *ragBackedService) ReviewGraphCandidate(ctx context.Context, viewerID int64, input ReviewGraphCandidateInput) (*GraphReviewCandidate, error) {
+	return nil, errors.New("图谱审核需要通过knowledge-service仓储执行")
+}
+
 func (s *ragBackedService) loadGraph(ctx context.Context, viewerID int64, input GraphQuery) (*rag.GraphResp, error) {
 	if s == nil || s.source == nil {
 		return nil, errors.New("knowledge graph source未初始化")

@@ -50,6 +50,10 @@ func (r *fakeUserRepo) BatchGetUsersByIDs(ctx context.Context, ids []int64) ([]m
 	return nil, nil
 }
 
+func (r *fakeUserRepo) AdminListUsers(ctx context.Context, keyword, role, status string, includeSystem bool, limit, offset int64) ([]model.User, int64, error) {
+	return nil, 0, nil
+}
+
 func (r *fakeUserRepo) AddFriend(ctx context.Context, friend *model.Friend) error {
 	r.addFriendCalls++
 	if r.addFriendErrAt > 0 && r.addFriendCalls == r.addFriendErrAt {

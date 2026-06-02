@@ -23,22 +23,24 @@ func NewMemoryServiceImpl(svc memorysvc.MemoryService) memory.MemoryService {
 // CreateMemory 创建一条可治理的记忆事实。
 func (h *MemoryServiceImpl) CreateMemory(ctx context.Context, req *memory.CreateMemoryReq) (*memory.CreateMemoryResp, error) {
 	fact, err := h.svc.CreateMemory(ctx, memoryclient.CreateMemoryInput{
-		BotID:          req.BotId,
-		UserID:         req.UserId,
-		OwnerUserID:    req.OwnerUserId,
-		GroupID:        req.GroupId,
-		ConversationID: req.ConversationId,
-		SessionID:      req.SessionId,
-		Scope:          req.Scope,
-		Type:           req.Type,
-		Title:          req.Title,
-		Content:        req.Content,
-		Source:         req.Source,
-		Visibility:     req.Visibility,
-		Enabled:        optionalBool(req.Enabled, req.EnabledSet),
-		VectorStatus:   req.VectorStatus,
-		EmbeddingRef:   req.EmbeddingRef,
-		Confidence:     req.Confidence,
+		BotID:            req.BotId,
+		UserID:           req.UserId,
+		OwnerUserID:      req.OwnerUserId,
+		GroupID:          req.GroupId,
+		ConversationID:   req.ConversationId,
+		SessionID:        req.SessionId,
+		Scope:            req.Scope,
+		Type:             req.Type,
+		Title:            req.Title,
+		Content:          req.Content,
+		Source:           req.Source,
+		Visibility:       req.Visibility,
+		Enabled:          optionalBool(req.Enabled, req.EnabledSet),
+		VectorStatus:     req.VectorStatus,
+		EmbeddingRef:     req.EmbeddingRef,
+		Confidence:       req.Confidence,
+		Importance:       req.Importance,
+		PreviousMemoryID: req.PreviousMemoryId,
 	})
 	if err != nil {
 		return &memory.CreateMemoryResp{Success: false, Msg: err.Error()}, nil
@@ -58,12 +60,16 @@ func (h *MemoryServiceImpl) ListMemories(ctx context.Context, req *memory.ListMe
 // Recall 为 Agent 上下文构建召回长期记忆。
 func (h *MemoryServiceImpl) Recall(ctx context.Context, req *memory.RecallReq) (*memory.RecallResp, error) {
 	result, err := h.svc.Recall(ctx, memoryclient.RecallInput{
-		BotID:          req.BotId,
-		UserID:         req.UserId,
-		GroupID:        req.GroupId,
-		ConversationID: req.ConversationId,
-		SessionID:      req.SessionId,
-		Limit:          int(req.Limit),
+		BotID:            req.BotId,
+		UserID:           req.UserId,
+		GroupID:          req.GroupId,
+		ConversationID:   req.ConversationId,
+		SessionID:        req.SessionId,
+		Limit:            int(req.Limit),
+		Query:            req.Query,
+		MinScore:         req.MinScore,
+		VectorCandidateK: int(req.VectorCandidateK),
+		UseLLMFilter:     req.UseLlmFilter,
 	})
 	if err != nil {
 		return &memory.RecallResp{Success: false, Msg: err.Error()}, nil
@@ -84,11 +90,71 @@ func (h *MemoryServiceImpl) UpdateMemory(ctx context.Context, req *memory.Update
 		VectorStatus: req.VectorStatus,
 		EmbeddingRef: req.EmbeddingRef,
 		Confidence:   optionalFloat64(req.Confidence, req.ConfidenceSet),
+		Importance:   optionalFloat64(req.Importance, req.ImportanceSet),
 	})
 	if err != nil {
 		return &memory.UpdateMemoryResp{Success: false, Msg: err.Error()}, nil
 	}
 	return &memory.UpdateMemoryResp{Success: true, Memory: toRPCMemoryFact(fact)}, nil
+}
+
+func (h *MemoryServiceImpl) CreateCandidate(ctx context.Context, req *memory.CreateCandidateReq) (*memory.CreateCandidateResp, error) {
+	candidate, err := h.svc.CreateCandidate(ctx, memoryclient.CandidateInput{
+		BotID:              req.BotId,
+		UserID:             req.UserId,
+		OwnerUserID:        req.OwnerUserId,
+		GroupID:            req.GroupId,
+		ConversationID:     req.ConversationId,
+		SessionID:          req.SessionId,
+		Scope:              req.Scope,
+		Type:               req.Type,
+		Title:              req.Title,
+		Content:            req.Content,
+		Source:             req.Source,
+		Evidence:           req.Evidence,
+		Confidence:         req.Confidence,
+		Importance:         req.Importance,
+		ConflictMemoryIDs:  req.ConflictMemoryIds,
+		ConflictResolution: req.ConflictResolution,
+	})
+	if err != nil {
+		return &memory.CreateCandidateResp{Success: false, Msg: err.Error()}, nil
+	}
+	return &memory.CreateCandidateResp{Success: true, Candidate: toRPCCandidate(candidate)}, nil
+}
+
+func (h *MemoryServiceImpl) ListCandidates(ctx context.Context, req *memory.ListCandidatesReq) (*memory.ListCandidatesResp, error) {
+	filter := memoryclient.CandidateFilter{}
+	if req.Filter != nil {
+		filter = memoryclient.CandidateFilter{
+			BotID:  req.Filter.BotId,
+			UserID: req.Filter.UserId,
+			Status: req.Filter.Status,
+			Limit:  int(req.Filter.Limit),
+			Offset: int(req.Filter.Offset),
+		}
+	}
+	candidates, total, err := h.svc.ListCandidates(ctx, req.ViewerId, filter)
+	if err != nil {
+		return &memory.ListCandidatesResp{Success: false, Msg: err.Error()}, nil
+	}
+	return &memory.ListCandidatesResp{Success: true, Candidates: toRPCCandidates(candidates), Total: total}, nil
+}
+
+func (h *MemoryServiceImpl) AcceptCandidate(ctx context.Context, req *memory.CandidateActionReq) (*memory.CandidateActionResp, error) {
+	candidate, err := h.svc.AcceptCandidate(ctx, req.ViewerId, req.CandidateId)
+	if err != nil {
+		return &memory.CandidateActionResp{Success: false, Msg: err.Error()}, nil
+	}
+	return &memory.CandidateActionResp{Success: true, Candidate: toRPCCandidate(candidate)}, nil
+}
+
+func (h *MemoryServiceImpl) RejectCandidate(ctx context.Context, req *memory.CandidateActionReq) (*memory.CandidateActionResp, error) {
+	candidate, err := h.svc.RejectCandidate(ctx, req.ViewerId, req.CandidateId)
+	if err != nil {
+		return &memory.CandidateActionResp{Success: false, Msg: err.Error()}, nil
+	}
+	return &memory.CandidateActionResp{Success: true, Candidate: toRPCCandidate(candidate)}, nil
 }
 
 // DeleteMemory 删除当前用户拥有的记忆事实。
@@ -131,25 +197,69 @@ func toRPCMemoryFact(fact *memoryclient.MemoryFact) *memory.MemoryFact {
 		return nil
 	}
 	return &memory.MemoryFact{
-		Id:             fact.ID,
-		BotId:          fact.BotID,
-		UserId:         fact.UserID,
-		OwnerUserId:    fact.OwnerUserID,
-		GroupId:        fact.GroupID,
-		ConversationId: fact.ConversationID,
-		SessionId:      fact.SessionID,
-		Scope:          fact.Scope,
-		Type:           fact.Type,
-		Title:          fact.Title,
-		Content:        fact.Content,
-		Source:         fact.Source,
-		Visibility:     fact.Visibility,
-		Enabled:        fact.Enabled,
-		VectorStatus:   fact.VectorStatus,
-		EmbeddingRef:   fact.EmbeddingRef,
-		Confidence:     fact.Confidence,
-		CreatedAt:      fact.CreatedAt,
-		UpdatedAt:      fact.UpdatedAt,
+		Id:               fact.ID,
+		BotId:            fact.BotID,
+		UserId:           fact.UserID,
+		OwnerUserId:      fact.OwnerUserID,
+		GroupId:          fact.GroupID,
+		ConversationId:   fact.ConversationID,
+		SessionId:        fact.SessionID,
+		Scope:            fact.Scope,
+		Type:             fact.Type,
+		Title:            fact.Title,
+		Content:          fact.Content,
+		Source:           fact.Source,
+		Visibility:       fact.Visibility,
+		Enabled:          fact.Enabled,
+		VectorStatus:     fact.VectorStatus,
+		EmbeddingRef:     fact.EmbeddingRef,
+		Confidence:       fact.Confidence,
+		Importance:       fact.Importance,
+		VectorScore:      fact.VectorScore,
+		FinalScore:       fact.FinalScore,
+		ScoreReason:      fact.ScoreReason,
+		ExpiredAt:        fact.ExpiredAt,
+		SupersededBy:     fact.SupersededBy,
+		PreviousMemoryId: fact.PreviousMemoryID,
+		CreatedAt:        fact.CreatedAt,
+		UpdatedAt:        fact.UpdatedAt,
+	}
+}
+
+func toRPCCandidates(candidates []memoryclient.MemoryCandidate) []*memory.MemoryCandidate {
+	out := make([]*memory.MemoryCandidate, 0, len(candidates))
+	for i := range candidates {
+		out = append(out, toRPCCandidate(&candidates[i]))
+	}
+	return out
+}
+
+func toRPCCandidate(candidate *memoryclient.MemoryCandidate) *memory.MemoryCandidate {
+	if candidate == nil {
+		return nil
+	}
+	return &memory.MemoryCandidate{
+		Id:                 candidate.ID,
+		BotId:              candidate.BotID,
+		UserId:             candidate.UserID,
+		OwnerUserId:        candidate.OwnerUserID,
+		GroupId:            candidate.GroupID,
+		ConversationId:     candidate.ConversationID,
+		SessionId:          candidate.SessionID,
+		Scope:              candidate.Scope,
+		Type:               candidate.Type,
+		Title:              candidate.Title,
+		Content:            candidate.Content,
+		Source:             candidate.Source,
+		Evidence:           candidate.Evidence,
+		Confidence:         candidate.Confidence,
+		Importance:         candidate.Importance,
+		Status:             candidate.Status,
+		ConflictMemoryIds:  candidate.ConflictMemoryIDs,
+		ConflictResolution: candidate.ConflictResolution,
+		AcceptedMemoryId:   candidate.AcceptedMemoryID,
+		CreatedAt:          candidate.CreatedAt,
+		UpdatedAt:          candidate.UpdatedAt,
 	}
 }
 

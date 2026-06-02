@@ -25,6 +25,7 @@ type Client interface {
 	CheckMember(ctx context.Context, req *group.CheckMemberReq, callOptions ...callopt.Option) (r *group.CheckMemberResp, err error)
 	TransferOwner(ctx context.Context, req *group.TransferOwnerReq, callOptions ...callopt.Option) (r *group.TransferOwnerResp, err error)
 	PinGroup(ctx context.Context, req *group.PinGroupReq, callOptions ...callopt.Option) (r *group.PinGroupResp, err error)
+	AdminListGroups(ctx context.Context, req *group.AdminListGroupsReq, callOptions ...callopt.Option) (r *group.AdminListGroupsResp, err error)
 }
 
 // NewClient creates a client for the service defined in IDL.
@@ -124,4 +125,9 @@ func (p *kGroupServiceClient) TransferOwner(ctx context.Context, req *group.Tran
 func (p *kGroupServiceClient) PinGroup(ctx context.Context, req *group.PinGroupReq, callOptions ...callopt.Option) (r *group.PinGroupResp, err error) {
 	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
 	return p.kClient.PinGroup(ctx, req)
+}
+
+func (p *kGroupServiceClient) AdminListGroups(ctx context.Context, req *group.AdminListGroupsReq, callOptions ...callopt.Option) (r *group.AdminListGroupsResp, err error) {
+	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
+	return p.kClient.AdminListGroups(ctx, req)
 }

@@ -108,11 +108,11 @@ func classifyByRules(query, defaultMode string) (RouterDecision, bool) {
 	if containsAny(query, "高风险", "安全", "权限", "支付", "一致性", "强一致", "审计", "矛盾", "冲突") {
 		return RouterDecision{Route: AdaptiveRouteStrictRAG, Mode: "hybrid", Complexity: "high", Retrieve: true, RetrievalSource: "project_docs", Sources: []string{"project_docs", "code_chunks"}, Strategy: "strict_rag", Query: query, Reason: "规则命中高风险问题"}, false
 	}
-	if containsAny(lower, "sql") || containsAny(query, "销售额", "最高", "统计", "排名") {
-		return RouterDecision{Route: AdaptiveRouteStrictRAG, Mode: "text_to_sql", Complexity: "medium", Retrieve: true, RetrievalSource: "structured_data", Sources: []string{"structured_data"}, Strategy: "text_to_sql", Query: query, Reason: "规则命中结构化统计问题"}, false
-	}
 	if containsAny(query, "关系", "影响", "为什么", "关联") || containsAny(lower, "graph") {
 		return RouterDecision{Route: AdaptiveRouteProjectRAG, Mode: "graphrag", Complexity: "medium", Retrieve: true, RetrievalSource: "project_docs", Sources: []string{"project_docs", "knowledge_graph"}, Strategy: "graphrag", Query: query, Reason: "规则命中关系/多跳问题"}, false
+	}
+	if containsAny(lower, "sql") || containsAny(query, "销售额", "最高", "统计", "排名") {
+		return RouterDecision{Route: AdaptiveRouteStrictRAG, Mode: "hybrid", Complexity: "medium", Retrieve: true, RetrievalSource: "project_docs", Sources: []string{"project_docs"}, Strategy: "hybrid_rerank", Query: query, Reason: "规则命中结构化/统计问题，当前转为知识库混合检索"}, false
 	}
 	return RouterDecision{}, true
 }
@@ -165,7 +165,7 @@ func (r *LLMRouter) Route(ctx context.Context, input RouterInput) (RouterDecisio
 		"messages": []map[string]string{
 			{
 				"role":    "system",
-				"content": "你是Adaptive RAG Router / Classifier。只输出JSON，不要解释。你只做结构化判断，不执行工具、不绕过权限。字段: route(direct|project_rag|strict_rag|web_rag|memory_rag|tool_action), complexity(simple|medium|high), need_retrieve(boolean), sources(array), strategy(string), mode(direct|hybrid|graphrag|text_to_sql|web|memory|tool_action), retrieval_source(string), query(string), reason(string)。简单问题 direct；普通知识库 project_rag；复杂/高风险 strict_rag；实时最新 web_rag；私有记忆 memory_rag；执行动作 tool_action。",
+				"content": "你是Adaptive RAG Router / Classifier。只输出JSON，不要解释。你只做结构化判断，不执行工具、不绕过权限。字段: route(direct|project_rag|strict_rag|web_rag|memory_rag|tool_action), complexity(simple|medium|high), need_retrieve(boolean), sources(array), strategy(string), mode(direct|hybrid|graphrag|web|memory|tool_action), retrieval_source(string), query(string), reason(string)。简单问题 direct；普通知识库 project_rag；复杂/高风险 strict_rag；实时最新 web_rag；私有记忆 memory_rag；执行动作 tool_action。",
 			},
 			{
 				"role":    "user",
@@ -259,7 +259,7 @@ func parseRouterDecision(content, defaultMode string) (RouterDecision, error) {
 
 func sanitizeRAGMode(mode, defaultMode string) string {
 	switch strings.ToLower(strings.TrimSpace(mode)) {
-	case "direct", "hybrid", "graphrag", "text_to_sql", "web", "memory", "tool_action":
+	case "direct", "hybrid", "graphrag", "web", "memory", "tool_action":
 		return strings.ToLower(strings.TrimSpace(mode))
 	case "adaptive", "":
 		return defaultString(defaultMode, "hybrid")
@@ -306,8 +306,6 @@ func normalizeAdaptiveRoute(route, mode string, retrieve bool) string {
 		return AdaptiveRouteMemoryRAG
 	case "tool_action":
 		return AdaptiveRouteToolAction
-	case "text_to_sql":
-		return AdaptiveRouteStrictRAG
 	default:
 		if retrieve {
 			return AdaptiveRouteProjectRAG

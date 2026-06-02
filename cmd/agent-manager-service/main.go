@@ -82,6 +82,11 @@ func main() {
 
 	agentService := service.NewAgentService(botRepo, permissionRepo, routeRepo, billingRepo, runtimeClient, userClient, cfg.Agent.AgentRoot)
 	if impl, ok := agentService.(interface {
+		SetDefaultLLM(string, string, string)
+	}); ok {
+		impl.SetDefaultLLM(cfg.LLM.DefaultAPIKey, cfg.LLM.DefaultBaseURL, cfg.LLM.DefaultModel)
+	}
+	if impl, ok := agentService.(interface {
 		SetAgentSubscriptionRepository(dao.AgentSubscriptionRepository)
 	}); ok {
 		impl.SetAgentSubscriptionRepository(subscriptionRepo)

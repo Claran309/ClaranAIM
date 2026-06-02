@@ -108,6 +108,7 @@ func (s *runtimeServiceImpl) runAgent(ctx context.Context, req *bot_runtime.RunA
 	inputMsgs = append(inputMsgs, userMsg)
 
 	runCtx := logic.WithRAGRuntimeContext(ctx, req.UserId, req.ConversationId)
+	runCtx = logic.WithMCPRuntimeContext(runCtx, req.UserId, req.Bot.BotId, req.ConversationId)
 	iter := ag.Run(runCtx, &adk.AgentInput{Messages: inputMsgs})
 	var collector replyCollector
 	var usage tokenUsage

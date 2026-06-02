@@ -23,6 +23,10 @@ type Client interface {
 	GetSkill(ctx context.Context, req *settings.GetSkillReq, callOptions ...callopt.Option) (r *settings.GetSkillResp, err error)
 	UpdateSkillContent(ctx context.Context, req *settings.UpdateSkillContentReq, callOptions ...callopt.Option) (r *settings.UpdateSkillContentResp, err error)
 	DeleteSkill(ctx context.Context, req *settings.DeleteSkillReq, callOptions ...callopt.Option) (r *settings.DeleteSkillResp, err error)
+	SaveMCPServer(ctx context.Context, req *settings.SaveMCPServerReq, callOptions ...callopt.Option) (r *settings.SaveMCPServerResp, err error)
+	ListMCPServers(ctx context.Context, req *settings.ListMCPServersReq, callOptions ...callopt.Option) (r *settings.ListMCPServersResp, err error)
+	ResolveMCPServers(ctx context.Context, req *settings.ResolveMCPServersReq, callOptions ...callopt.Option) (r *settings.ResolveMCPServersResp, err error)
+	DeleteMCPServer(ctx context.Context, req *settings.DeleteMCPServerReq, callOptions ...callopt.Option) (r *settings.DeleteMCPServerResp, err error)
 }
 
 // NewClient creates a client for the service defined in IDL.
@@ -112,4 +116,24 @@ func (p *kSettingsServiceClient) UpdateSkillContent(ctx context.Context, req *se
 func (p *kSettingsServiceClient) DeleteSkill(ctx context.Context, req *settings.DeleteSkillReq, callOptions ...callopt.Option) (r *settings.DeleteSkillResp, err error) {
 	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
 	return p.kClient.DeleteSkill(ctx, req)
+}
+
+func (p *kSettingsServiceClient) SaveMCPServer(ctx context.Context, req *settings.SaveMCPServerReq, callOptions ...callopt.Option) (r *settings.SaveMCPServerResp, err error) {
+	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
+	return p.kClient.SaveMCPServer(ctx, req)
+}
+
+func (p *kSettingsServiceClient) ListMCPServers(ctx context.Context, req *settings.ListMCPServersReq, callOptions ...callopt.Option) (r *settings.ListMCPServersResp, err error) {
+	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
+	return p.kClient.ListMCPServers(ctx, req)
+}
+
+func (p *kSettingsServiceClient) ResolveMCPServers(ctx context.Context, req *settings.ResolveMCPServersReq, callOptions ...callopt.Option) (r *settings.ResolveMCPServersResp, err error) {
+	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
+	return p.kClient.ResolveMCPServers(ctx, req)
+}
+
+func (p *kSettingsServiceClient) DeleteMCPServer(ctx context.Context, req *settings.DeleteMCPServerReq, callOptions ...callopt.Option) (r *settings.DeleteMCPServerResp, err error) {
+	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
+	return p.kClient.DeleteMCPServer(ctx, req)
 }

@@ -69,12 +69,17 @@ func (r *fileRepositoryImpl) DeleteFile(ctx context.Context, fileID string) erro
 	return r.db.WithContext(ctx).Where("file_id = ?", fileID).Delete(&model.FileRecord{}).Error
 }
 
-// ListFiles 返回某个上传者的分页元数据和总数。
+// ListFiles 返回文件分页元数据和总数。
+// uploaderID > 0 时按上传者裁剪，供普通用户文件列表使用；uploaderID == 0 时返回全局文件，
+// 只允许 admin-service 这类受保护的内部管理入口调用。
 func (r *fileRepositoryImpl) ListFiles(ctx context.Context, uploaderID int64, fileType string, limit, offset int64) ([]model.FileRecord, int64, error) {
 	var files []model.FileRecord
 	var total int64
 
-	query := r.db.WithContext(ctx).Model(&model.FileRecord{}).Where("uploader_id = ?", uploaderID)
+	query := r.db.WithContext(ctx).Model(&model.FileRecord{})
+	if uploaderID > 0 {
+		query = query.Where("uploader_id = ?", uploaderID)
+	}
 	if fileType != "" {
 		query = query.Where("file_type = ?", fileType)
 	}

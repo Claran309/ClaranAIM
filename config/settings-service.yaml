@@ -10,6 +10,10 @@ llm:
   default_base_url: ""
   default_model: ""
 
+settings:
+  # API Key / MCP Secret 的应用层加密密钥只通过 SETTINGS_SECRET_KEY 注入。
+  secret_key: ""
+
 skills:
   dir: "storage/agent/skills"
 

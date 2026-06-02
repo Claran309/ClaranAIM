@@ -1,6 +1,6 @@
 service:
   name: "rag-service"
-  address: "127.0.0.1:9012"
+  address: "127.0.0.1:9112"
 
 mysql:
   dsn: ""

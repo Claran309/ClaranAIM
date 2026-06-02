@@ -63,6 +63,31 @@ func TestHandleAgentMentionEventSkipsPermanentPermissionError(t *testing.T) {
 	}
 }
 
+func TestHandleAgentMentionEventSkipsPermanentProviderAuthError(t *testing.T) {
+	envelope, err := events.NewEnvelope(events.EventTypeMessageCreated, "10", events.MessagePayload{
+		ConversationID: 10,
+		SenderID:       1001,
+		Content:        "@agent help",
+		MsgID:          99,
+		MentionUserIDs: []int64{2001},
+	})
+	if err != nil {
+		t.Fatalf("NewEnvelope returned error: %v", err)
+	}
+	dispatchRepo := &fakeDispatchRepo{}
+
+	err = handleAgentMentionEvent(context.Background(), envelope, &fakeBotService{
+		bot:     &model.Bot{ID: 1, AgentUserID: 2001, IsActive: true},
+		chatErr: errors.New("Agent执行失败: [NodeRunError] error, status code: 401, status: 401 Unauthorized, message: 身份验证失败。"),
+	}, dispatchRepo, &fakeMessageClient{})
+	if err != nil {
+		t.Fatalf("handleAgentMentionEvent returned error for provider auth failure: %v", err)
+	}
+	if dispatchRepo.failed == "" {
+		t.Fatal("expected failed dispatch record for provider auth failure")
+	}
+}
+
 func TestHandleAgentMentionEventTriggersPrivateAgentConversation(t *testing.T) {
 	envelope, err := events.NewEnvelope(events.EventTypeMessageCreated, "10", events.MessagePayload{
 		ConversationID:   10,
@@ -133,6 +158,34 @@ func TestHandleAgentMentionEventInjectsGroupContext(t *testing.T) {
 	}
 	if !strings.Contains(botSvc.lastMessage, "群聊里的关键背景") {
 		t.Fatalf("agent input did not include group context: %q", botSvc.lastMessage)
+	}
+}
+
+func TestAgentEventDispatcherSkipsMessageCreatedForMediaMessage(t *testing.T) {
+	envelope, err := events.NewEnvelope(events.EventTypeMessageCreated, "10", events.MessagePayload{
+		ConversationID:   10,
+		ConversationType: "group",
+		SenderID:         1001,
+		Content:          `[img]{"id":"3001","name":"error.png","content_type":"image/png"}[/img]`,
+		MsgType:          "image",
+		MsgID:            99,
+		MentionUserIDs:   []int64{2001},
+		ParticipantIDs:   []int64{1001, 2001},
+	})
+	if err != nil {
+		t.Fatalf("NewEnvelope returned error: %v", err)
+	}
+	botSvc := &fakeBotService{
+		bot:   &model.Bot{ID: 1, AgentUserID: 2001, IsActive: true},
+		reply: "reply",
+	}
+	dispatcher := NewAgentEventDispatcher(botSvc, &fakeDispatchRepo{}, &fakeSubscriptionRepo{}, &fakeAuditRepo{}, &fakeMessageClient{sendResp: &message.SendMessageResp{Success: true, MsgId: 101}})
+
+	if err := dispatcher.Handle(context.Background(), envelope); err != nil {
+		t.Fatalf("dispatcher.Handle returned error: %v", err)
+	}
+	if botSvc.chatCalls != 0 {
+		t.Fatalf("chat calls = %d, want 0 because file.uploaded event owns media trigger", botSvc.chatCalls)
 	}
 }
 
@@ -269,6 +322,9 @@ func TestAgentEventDispatcherInjectsAttachmentContextForFileEvent(t *testing.T) 
 	if !strings.Contains(botSvc.lastMessage, "error.png") || !strings.Contains(botSvc.lastMessage, "/files/77") {
 		t.Fatalf("agent input did not include attachment context: %q", botSvc.lastMessage)
 	}
+	if !strings.Contains(botSvc.lastMessage, "图片OCR") {
+		t.Fatalf("agent input did not tell agent to use image OCR tool: %q", botSvc.lastMessage)
+	}
 }
 
 func TestAgentEventDispatcherHandlesUnifiedMessageReadEvent(t *testing.T) {
@@ -336,6 +392,35 @@ func TestAgentEventDispatcherUsesPayloadIdempotencyKeyForIMEvents(t *testing.T) 
 	}
 	if botSvc.chatCalls != 1 {
 		t.Fatalf("chat calls = %d, want one run for duplicate payload idempotency key", botSvc.chatCalls)
+	}
+}
+
+func TestAgentEventDispatcherIgnoresEventsSentByAnyAgentUser(t *testing.T) {
+	envelope, err := events.NewEnvelope(events.EventTypeMessageCreated, "10", events.MessagePayload{
+		ConversationID:   10,
+		ConversationType: "group",
+		SenderID:         3001,
+		Content:          "@agent 我刚才已经回复过了",
+		MsgID:            99,
+		MentionUserIDs:   []int64{2001},
+		ParticipantIDs:   []int64{1001, 2001, 3001},
+	})
+	if err != nil {
+		t.Fatalf("NewEnvelope returned error: %v", err)
+	}
+	botSvc := &fakeBotService{botsByAgentUserID: map[int64]*model.Bot{
+		2001: {ID: 1, AgentUserID: 2001, IsActive: true},
+		3001: {ID: 2, AgentUserID: 3001, IsActive: true},
+	}}
+	dispatcher := NewAgentEventDispatcher(botSvc, &fakeDispatchRepo{}, &fakeSubscriptionRepo{rules: []model.AgentSubscriptionRule{
+		{BotID: 1, AgentUserID: 2001, ConversationID: 10, EventTypes: events.EventTypeMessageCreated, TriggerMode: "mention", Action: "trigger", IsActive: true},
+	}}, &fakeAuditRepo{}, &fakeMessageClient{sendResp: &message.SendMessageResp{Success: true, MsgId: 101}})
+
+	if err := dispatcher.Handle(context.Background(), envelope); err != nil {
+		t.Fatalf("dispatcher.Handle returned error: %v", err)
+	}
+	if botSvc.chatCalls != 0 {
+		t.Fatalf("chat calls = %d, want 0 for event sent by agent itself", botSvc.chatCalls)
 	}
 }
 
@@ -414,11 +499,12 @@ func (r *fakeAuditRepo) hasDecision(decision string) bool {
 }
 
 type fakeBotService struct {
-	bot         *model.Bot
-	reply       string
-	chatErr     error
-	chatCalls   int
-	lastMessage string
+	bot               *model.Bot
+	botsByAgentUserID map[int64]*model.Bot
+	reply             string
+	chatErr           error
+	chatCalls         int
+	lastMessage       string
 }
 
 func (s *fakeBotService) CreateBot(context.Context, string, string, string, string, string, string, string, string, string, string, string, string, string, int64, int64, int64, int64, float64, string, bool, string, string, string) (*model.Bot, error) {
@@ -463,6 +549,9 @@ func (s *fakeBotService) RunAgentTask(context.Context, int64, int64, int64, stri
 	return "", nil
 }
 func (s *fakeBotService) GetBotByAgentUserID(ctx context.Context, agentUserID int64) (*model.Bot, error) {
+	if s.botsByAgentUserID != nil {
+		return s.botsByAgentUserID[agentUserID], nil
+	}
 	if s.bot != nil && s.bot.AgentUserID == agentUserID {
 		return s.bot, nil
 	}

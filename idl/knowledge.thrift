@@ -116,10 +116,65 @@ struct KnowledgePathResp {
     6: string msg
 }
 
+struct GraphReviewCandidate {
+    1: i64 id
+    2: string item_type
+    3: i64 item_id
+    4: string name
+    5: string type
+    6: string summary
+    7: string evidence
+    8: string reason
+    9: string status
+    10: string review_note
+    11: string created_at
+    12: string updated_at
+    13: string reviewed_at
+}
+
+struct CreateGraphReviewCandidateReq {
+    1: i64 viewer_id
+    2: string item_type
+    3: i64 item_id
+    4: string reason
+    5: string query
+}
+
+struct GraphReviewCandidateResp {
+    1: bool success
+    2: GraphReviewCandidate candidate
+    3: string msg
+}
+
+struct ListGraphReviewCandidatesReq {
+    1: i64 viewer_id
+    2: string status
+    3: string item_type
+    4: i64 limit
+    5: i64 offset
+}
+
+struct ListGraphReviewCandidatesResp {
+    1: bool success
+    2: list<GraphReviewCandidate> candidates
+    3: i64 total
+    4: string msg
+}
+
+struct ReviewGraphCandidateReq {
+    1: i64 viewer_id
+    2: i64 candidate_id
+    3: string action
+    4: string note
+}
+
 service KnowledgeService {
     KnowledgeGraphResp GetGraphView(1: KnowledgeGraphReq req)
     KnowledgeNodeDetailResp GetNodeDetail(1: KnowledgeNodeDetailReq req)
     KnowledgeEdgeDetailResp GetEdgeDetail(1: KnowledgeEdgeDetailReq req)
     KnowledgeGraphResp GetNeighborhood(1: KnowledgeNeighborhoodReq req)
     KnowledgePathResp GetPath(1: KnowledgePathReq req)
+    GraphReviewCandidateResp CreateGraphReviewCandidate(1: CreateGraphReviewCandidateReq req)
+    ListGraphReviewCandidatesResp ListGraphReviewCandidates(1: ListGraphReviewCandidatesReq req)
+    GraphReviewCandidateResp ReviewGraphCandidate(1: ReviewGraphCandidateReq req)
 }

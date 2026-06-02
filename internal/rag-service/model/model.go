@@ -77,7 +77,9 @@ func (c *Chunk) BeforeCreate(tx *gorm.DB) error {
 	return err
 }
 
-// Entity 是 GraphRAG 中的节点，MVP 使用 MySQL 保存，后续可迁移到图数据库。
+// Entity 是 GraphRAG 中的知识图谱节点。
+// 当前使用 MySQL 事实表保存实体、别名、类型、摘要和社区归属；在线查询由 rag-service/knowledge-service 读取，
+// 后续如果需要更复杂的图遍历，可以把这组事实表迁移到专用图数据库。
 type Entity struct {
 	ID           int64          `json:"id" gorm:"primaryKey;autoIncrement:false"`
 	OwnerID      int64          `json:"owner_id" gorm:"index;not null"`
@@ -133,7 +135,8 @@ func (r *Relation) BeforeCreate(tx *gorm.DB) error {
 	return err
 }
 
-// Community 是 GraphRAG 社区摘要。MVP 使用启发式社区划分，后续可替换 Leiden 实现。
+// Community 是 GraphRAG 社区摘要。
+// rag-service 会基于实体关系做 Leiden 风格社区划分，并用 LLM 或本地规则生成社区标题与摘要。
 type Community struct {
 	ID              int64          `json:"id" gorm:"primaryKey;autoIncrement:false"`
 	OwnerID         int64          `json:"owner_id" gorm:"index;not null"`

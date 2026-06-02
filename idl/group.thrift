@@ -177,6 +177,20 @@ struct PinGroupResp {
     2: string msg
 }
 
+struct AdminListGroupsReq {
+    1: string keyword
+    2: i64 owner_id
+    3: i64 limit
+    4: i64 offset
+}
+
+struct AdminListGroupsResp {
+    1: bool success
+    2: list<Group> groups
+    3: i64 total
+    4: string msg
+}
+
 service GroupService {
     CreateGroupResp CreateGroup(1: CreateGroupReq req)
     DeleteGroupResp DeleteGroup(1: DeleteGroupReq req)
@@ -192,4 +206,5 @@ service GroupService {
     CheckMemberResp CheckMember(1: CheckMemberReq req)
     TransferOwnerResp TransferOwner(1: TransferOwnerReq req)
     PinGroupResp PinGroup(1: PinGroupReq req)
+    AdminListGroupsResp AdminListGroups(1: AdminListGroupsReq req)
 }
