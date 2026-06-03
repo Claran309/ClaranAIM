@@ -21,6 +21,7 @@ import (
 	"io"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -206,7 +207,12 @@ func (s *mcpGatewayServiceImpl) callWebSearch(ctx context.Context, input CallToo
 	if strings.TrimSpace(args.Query) == "" {
 		return CallToolResult{}, errors.New("query不能为空")
 	}
-	result, err := s.deps.WebSearch.Augment(ctx, websearchclient.AugmentInput{Query: args.Query, Limit: args.Limit, MaxFetch: args.MaxFetch, MaxPassages: args.MaxPassages})
+	result, err := s.deps.WebSearch.Augment(ctx, websearchclient.AugmentInput{
+		Query:       args.Query,
+		Limit:       defaultInt(args.Limit, 5),
+		MaxFetch:    defaultInt(args.MaxFetch, 3),
+		MaxPassages: defaultInt(args.MaxPassages, 6),
+	})
 	if err != nil {
 		return CallToolResult{}, err
 	}
@@ -258,7 +264,11 @@ func (s *mcpGatewayServiceImpl) callSearchKnowledge(ctx context.Context, input C
 	if strings.TrimSpace(args.Query) == "" {
 		return CallToolResult{}, errors.New("query不能为空")
 	}
-	resp, err := s.deps.RAG.Search(ctx, input.UserID, ragclient.SearchInput{Query: args.Query, Mode: args.Mode, Limit: defaultInt(args.Limit, 5), ConversationID: input.ConversationID})
+	mode := strings.TrimSpace(args.Mode)
+	if mode == "" {
+		mode = "hybrid"
+	}
+	resp, err := s.deps.RAG.Search(ctx, input.UserID, ragclient.SearchInput{Query: args.Query, Mode: mode, Limit: defaultInt(args.Limit, 5), ConversationID: input.ConversationID})
 	if err != nil {
 		return CallToolResult{}, err
 	}
@@ -309,9 +319,16 @@ func (s *mcpGatewayServiceImpl) callSummarizeConversation(ctx context.Context, i
 	if err := decodeArgs(input.ArgumentsJSON, &args); err != nil {
 		return CallToolResult{}, err
 	}
-	conversationID := args.ConversationID
-	if conversationID <= 0 {
-		conversationID = input.ConversationID
+	if args.ConversationID <= 0 {
+		args.ConversationID = int64Arg(input.ArgumentsJSON, "conversation_id")
+	}
+	conversationID := input.ConversationID
+	if conversationID <= 0 && args.ConversationID > 0 {
+		conversationID = args.ConversationID
+	} else if conversationID > 0 && args.ConversationID > 0 && args.ConversationID != conversationID {
+		// Agent 工具调用时模型有时会把 Agent 用户 ID 当成会话 ID。当前运行上下文里的 conversation_id
+		// 才是权限校验过的真实会话，因此优先使用它，避免 summarize_conversation 误报“会话不存在”。
+		args.ConversationID = conversationID
 	}
 	if conversationID <= 0 {
 		return CallToolResult{}, errors.New("conversation_id不能为空")
@@ -538,6 +555,30 @@ func decodeArgs(raw string, v interface{}) error {
 		raw = "{}"
 	}
 	return json.Unmarshal([]byte(raw), v)
+}
+
+func int64Arg(raw, key string) int64 {
+	args, err := rawJSONMap(raw)
+	if err != nil {
+		return 0
+	}
+	value, ok := args[key]
+	if !ok {
+		return 0
+	}
+	switch v := value.(type) {
+	case float64:
+		return int64(v)
+	case int64:
+		return v
+	case int:
+		return int64(v)
+	case string:
+		n, _ := strconv.ParseInt(strings.TrimSpace(v), 10, 64)
+		return n
+	default:
+		return 0
+	}
 }
 
 func toolResult(name, resultJSON, text string) CallToolResult {

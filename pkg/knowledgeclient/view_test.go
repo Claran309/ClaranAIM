@@ -3,6 +3,7 @@ package knowledgeclient
 import (
 	"ClaranAIM/kitex_gen/rag"
 	"context"
+	"strings"
 	"testing"
 )
 
@@ -12,8 +13,8 @@ func TestGraphViewFiltersAndComputesVisualAttributes(t *testing.T) {
 
 	view, err := svc.GetGraphView(context.Background(), 1001, GraphQuery{
 		Query:           "agent",
-		TypeFilters:     []string{"Service", "DatabaseTable"},
-		RelationFilters: []string{"WRITES", "CALLS"},
+		TypeFilters:     []string{"Service", "Data"},
+		RelationFilters: []string{"DATA_FLOW", "CALLS"},
 		Hops:            1,
 		Limit:           20,
 	})
@@ -40,7 +41,7 @@ func TestGraphViewFiltersAndComputesVisualAttributes(t *testing.T) {
 	if view.Stats.NodeCount != len(view.Nodes) || view.Stats.EdgeCount != len(view.Edges) {
 		t.Fatalf("stats = %#v, want counts to match view", view.Stats)
 	}
-	if !containsString(view.Stats.Types, "Service") || !containsString(view.Stats.Relations, "WRITES") {
+	if !containsString(view.Stats.Types, "Service") || !containsString(view.Stats.Relations, "DATA_FLOW") {
 		t.Fatalf("stats = %#v, want type and relation facets", view.Stats)
 	}
 	if view.Nodes[0].Name != "agent-manager-service" || view.Nodes[0].Degree != 2 {
@@ -73,8 +74,8 @@ func TestEdgeDetailReturnsEndpointsAndEvidence(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetEdgeDetail returned error: %v", err)
 	}
-	if !detail.Success || detail.Edge.Relation != "WRITES" {
-		t.Fatalf("detail = %#v, want WRITES edge", detail)
+	if !detail.Success || detail.Edge.Relation != "DATA_FLOW" {
+		t.Fatalf("detail = %#v, want DATA_FLOW edge", detail)
 	}
 	if detail.Source == nil || detail.Source.Name != "agent-manager-service" {
 		t.Fatalf("source = %#v, want agent-manager-service", detail.Source)
@@ -175,14 +176,77 @@ func TestPathAppliesGraphFilters(t *testing.T) {
 	}
 }
 
+func TestGraphViewPassesDocumentScopeToGraphSource(t *testing.T) {
+	source := &fakeGraphSource{graph: sampleGraph()}
+	svc := NewRAGBackedService(source)
+
+	_, err := svc.GetGraphView(context.Background(), 1001, GraphQuery{
+		Query:      "agent",
+		DocumentID: 42,
+		Hops:       2,
+		Limit:      20,
+	})
+	if err != nil {
+		t.Fatalf("GetGraphView returned error: %v", err)
+	}
+	if source.lastInput.DocumentID != 42 || source.lastInput.Hops != 2 {
+		t.Fatalf("last input = %#v, want document_id=42 hops=2 passed through", source.lastInput)
+	}
+}
+
+func TestGraphViewPreservesEmptyGraphDiagnosticMessage(t *testing.T) {
+	source := &fakeGraphSource{graph: &rag.GraphResp{
+		Success: true,
+		Msg:     "该文档共有 601 个可读分块，但没有通过 GraphRAG 实体/关系质量过滤。",
+	}}
+	svc := NewRAGBackedService(source)
+
+	view, err := svc.GetGraphView(context.Background(), 1001, GraphQuery{DocumentID: 42, Limit: 20})
+	if err != nil {
+		t.Fatalf("GetGraphView returned error: %v", err)
+	}
+	if view.Msg == "" || !strings.Contains(view.Msg, "601") {
+		t.Fatalf("view msg = %q, want rag-service diagnostic message preserved", view.Msg)
+	}
+}
+
+func TestGraphViewDropsMeaninglessNodesBeforeRendering(t *testing.T) {
+	graph := sampleGraph()
+	graph.Nodes = append(graph.Nodes,
+		&rag.RAGGraphNode{Id: 9, Name: "0", Type: "Concept", Summary: "无意义实体", Score: 1},
+		&rag.RAGGraphNode{Id: 10, Name: "event_id", Type: "Concept", Summary: "字段名", Score: 1},
+	)
+	graph.Edges = append(graph.Edges,
+		&rag.RAGGraphEdge{Id: 109, SourceId: 1, TargetId: 9, Relation: "RELATED_TO", Weight: 0.9},
+		&rag.RAGGraphEdge{Id: 110, SourceId: 10, TargetId: 3, Relation: "RELATED_TO", Weight: 0.9},
+	)
+	svc := NewRAGBackedService(&fakeGraphSource{graph: graph})
+
+	view, err := svc.GetGraphView(context.Background(), 1001, GraphQuery{Limit: 20})
+	if err != nil {
+		t.Fatalf("GetGraphView returned error: %v", err)
+	}
+	for _, node := range view.Nodes {
+		if node.Name == "0" || node.Name == "event_id" {
+			t.Fatalf("nodes=%#v, want meaningless node %s dropped", view.Nodes, node.Name)
+		}
+	}
+	for _, edge := range view.Edges {
+		if edge.SourceID == 9 || edge.TargetID == 9 || edge.SourceID == 10 || edge.TargetID == 10 {
+			t.Fatalf("edges=%#v, want edges touching meaningless nodes dropped", view.Edges)
+		}
+	}
+}
+
 type fakeGraphSource struct {
-	graph *rag.GraphResp
+	graph     *rag.GraphResp
+	lastInput GraphInput
 }
 
 func (s *fakeGraphSource) GetGraph(ctx context.Context, viewerID int64, input GraphInput) (*rag.GraphResp, error) {
 	_ = ctx
 	_ = viewerID
-	_ = input
+	s.lastInput = input
 	return s.graph, nil
 }
 

@@ -9,6 +9,7 @@ struct Group {
     6: string created_at
     7: string updated_at
     8: bool is_pinned
+    9: string status
 }
 
 struct GroupMember {
@@ -191,6 +192,19 @@ struct AdminListGroupsResp {
     4: string msg
 }
 
+struct AdminUpdateGroupStatusReq {
+    1: i64 admin_id
+    2: i64 group_id
+    3: string status
+    4: string reason
+}
+
+struct AdminUpdateGroupStatusResp {
+    1: bool success
+    2: string msg
+    3: Group group
+}
+
 service GroupService {
     CreateGroupResp CreateGroup(1: CreateGroupReq req)
     DeleteGroupResp DeleteGroup(1: DeleteGroupReq req)
@@ -207,4 +221,5 @@ service GroupService {
     TransferOwnerResp TransferOwner(1: TransferOwnerReq req)
     PinGroupResp PinGroup(1: PinGroupReq req)
     AdminListGroupsResp AdminListGroups(1: AdminListGroupsReq req)
+    AdminUpdateGroupStatusResp AdminUpdateGroupStatus(1: AdminUpdateGroupStatusReq req)
 }

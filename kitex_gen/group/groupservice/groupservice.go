@@ -118,6 +118,13 @@ var serviceMethods = map[string]kitex.MethodInfo{
 		false,
 		kitex.WithStreamingMode(kitex.StreamingNone),
 	),
+	"AdminUpdateGroupStatus": kitex.NewMethodInfo(
+		adminUpdateGroupStatusHandler,
+		newGroupServiceAdminUpdateGroupStatusArgs,
+		newGroupServiceAdminUpdateGroupStatusResult,
+		false,
+		kitex.WithStreamingMode(kitex.StreamingNone),
+	),
 }
 
 var (
@@ -454,6 +461,24 @@ func newGroupServiceAdminListGroupsResult() interface{} {
 	return group.NewGroupServiceAdminListGroupsResult()
 }
 
+func adminUpdateGroupStatusHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
+	realArg := arg.(*group.GroupServiceAdminUpdateGroupStatusArgs)
+	realResult := result.(*group.GroupServiceAdminUpdateGroupStatusResult)
+	success, err := handler.(group.GroupService).AdminUpdateGroupStatus(ctx, realArg.Req)
+	if err != nil {
+		return err
+	}
+	realResult.Success = success
+	return nil
+}
+func newGroupServiceAdminUpdateGroupStatusArgs() interface{} {
+	return group.NewGroupServiceAdminUpdateGroupStatusArgs()
+}
+
+func newGroupServiceAdminUpdateGroupStatusResult() interface{} {
+	return group.NewGroupServiceAdminUpdateGroupStatusResult()
+}
+
 type kClient struct {
 	c client.Client
 }
@@ -609,6 +634,16 @@ func (p *kClient) AdminListGroups(ctx context.Context, req *group.AdminListGroup
 	_args.Req = req
 	var _result group.GroupServiceAdminListGroupsResult
 	if err = p.c.Call(ctx, "AdminListGroups", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
+
+func (p *kClient) AdminUpdateGroupStatus(ctx context.Context, req *group.AdminUpdateGroupStatusReq) (r *group.AdminUpdateGroupStatusResp, err error) {
+	var _args group.GroupServiceAdminUpdateGroupStatusArgs
+	_args.Req = req
+	var _result group.GroupServiceAdminUpdateGroupStatusResult
+	if err = p.c.Call(ctx, "AdminUpdateGroupStatus", &_args, &_result); err != nil {
 		return
 	}
 	return _result.GetSuccess(), nil

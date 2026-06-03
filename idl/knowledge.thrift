@@ -21,6 +21,7 @@ struct KnowledgeGraphEdge {
     6: double weight
     7: string evidence
     8: string color
+    9: i64 document_id
 }
 
 struct KnowledgeGraphCommunity {
@@ -47,6 +48,7 @@ struct KnowledgeGraphReq {
     5: i64 community_id
     6: i64 hops
     7: i64 limit
+    8: i64 document_id
 }
 
 struct KnowledgeGraphResp {
@@ -63,6 +65,8 @@ struct KnowledgeNodeDetailReq {
     2: i64 node_id
     3: string query
     4: i64 limit
+    5: i64 document_id
+    6: i64 hops
 }
 
 struct KnowledgeNodeDetailResp {
@@ -78,6 +82,8 @@ struct KnowledgeEdgeDetailReq {
     2: i64 edge_id
     3: string query
     4: i64 limit
+    5: i64 document_id
+    6: i64 hops
 }
 
 struct KnowledgeEdgeDetailResp {
@@ -97,6 +103,7 @@ struct KnowledgeNeighborhoodReq {
     6: i64 community_id
     7: i64 hops
     8: i64 limit
+    9: i64 document_id
 }
 
 struct KnowledgePathReq {
@@ -105,6 +112,8 @@ struct KnowledgePathReq {
     3: i64 target_id
     4: string query
     5: i64 limit
+    6: i64 document_id
+    7: i64 hops
 }
 
 struct KnowledgePathResp {

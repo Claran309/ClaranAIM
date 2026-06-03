@@ -17,6 +17,7 @@ type Group struct {
 	OwnerID      int64     `json:"owner_id" gorm:"index;not null"`           // 群主用户ID，索引
 	Announcement string    `json:"announcement" gorm:"type:text"`            // 群公告
 	IsPinned     bool      `json:"is_pinned" gorm:"default:false"`           // 是否置顶（群内全局置顶标识）
+	Status       string    `json:"status" gorm:"size:20;default:active"`     // 群状态：active 正常，banned 被管理端封禁
 	CreatedAt    time.Time `json:"created_at" gorm:"autoCreateTime"`         // 创建时间
 	UpdatedAt    time.Time `json:"updated_at" gorm:"autoUpdateTime"`         // 更新时间
 }

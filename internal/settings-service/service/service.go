@@ -5,12 +5,16 @@ import (
 	"ClaranAIM/internal/settings-service/dao"
 	"ClaranAIM/internal/settings-service/model"
 	"ClaranAIM/pkg/settingsclient"
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // APIKeyAction* 复用 pkg/settingsclient 的协议值，避免 service 层和 HTTP 客户端对密钥操作语义不一致。
@@ -32,6 +36,7 @@ type SettingsService interface {
 	SaveLLMProfile(ctx context.Context, ownerID int64, input SaveLLMProfileInput) (*settingsclient.LLMProfile, error)
 	ListLLMProfiles(ctx context.Context, ownerID int64, usageType string) ([]settingsclient.LLMProfile, error)
 	DeleteLLMProfile(ctx context.Context, ownerID, profileID int64) error
+	TestLLMProfile(ctx context.Context, ownerID int64, input settingsclient.TestLLMProfileInput) (settingsclient.TestLLMProfileResult, error)
 	SavePrompt(ctx context.Context, ownerID int64, input SavePromptInput) (*settingsclient.PromptTemplate, error)
 	ListPrompts(ctx context.Context, ownerID int64) ([]settingsclient.PromptTemplate, error)
 	ResolveTranslationConfig(ctx context.Context, ownerID int64) (ResolvedLLMConfig, error)
@@ -204,6 +209,162 @@ func (s *settingsServiceImpl) DeleteLLMProfile(ctx context.Context, ownerID, pro
 		return errors.New("只能删除自己的LLM配置")
 	}
 	return s.repo.DeleteLLMProfile(ctx, profileID)
+}
+
+// TestLLMProfile 用最小请求验证用户填写或已保存的模型配置是否可用。
+// 该方法不保存任何密钥；错误信息会脱敏后返回给前端，便于用户定位 BaseURL、模型名或 API Key 问题。
+func (s *settingsServiceImpl) TestLLMProfile(ctx context.Context, ownerID int64, input settingsclient.TestLLMProfileInput) (settingsclient.TestLLMProfileResult, error) {
+	if ownerID <= 0 {
+		return settingsclient.TestLLMProfileResult{}, errors.New("用户未登录")
+	}
+	cfg, err := s.resolveTestLLMConfig(ctx, ownerID, input)
+	if err != nil {
+		return settingsclient.TestLLMProfileResult{}, err
+	}
+	start := time.Now()
+	msg, err := testLLMEndpoint(ctx, cfg)
+	result := settingsclient.TestLLMProfileResult{
+		OK:           err == nil,
+		Msg:          defaultString(msg, "连通测试通过"),
+		LatencyMS:    time.Since(start).Milliseconds(),
+		ProviderType: cfg.ProviderType,
+		ModelName:    cfg.ModelName,
+	}
+	if err != nil {
+		result.Msg = sanitizeConnectivityError(err)
+	}
+	return result, nil
+}
+
+func (s *settingsServiceImpl) resolveTestLLMConfig(ctx context.Context, ownerID int64, input settingsclient.TestLLMProfileInput) (ResolvedLLMConfig, error) {
+	if input.UseBuiltin {
+		cfg := ResolvedLLMConfig{
+			APIKey:       strings.TrimSpace(s.defaultLLM.APIKey),
+			BaseURL:      strings.TrimSpace(s.defaultLLM.BaseURL),
+			ModelName:    strings.TrimSpace(s.defaultLLM.Model),
+			ProviderType: defaultString(input.ProviderType, "openai_compatible"),
+		}
+		switch input.UsageType {
+		case settingsclient.ProviderEmbedding:
+			cfg.APIKey = firstNonEmpty(os.Getenv("RAG_EMBEDDING_API_KEY"), cfg.APIKey)
+			cfg.BaseURL = firstNonEmpty(os.Getenv("RAG_EMBEDDING_URL"), cfg.BaseURL)
+			cfg.ModelName = firstNonEmpty(os.Getenv("RAG_EMBEDDING_MODEL"), "embedding-3")
+		case settingsclient.ProviderOCR:
+			cfg.APIKey = firstNonEmpty(os.Getenv("DOCUMENT_OCR_API_KEY"), cfg.APIKey)
+			cfg.BaseURL = firstNonEmpty(os.Getenv("DOCUMENT_OCR_URL"), cfg.BaseURL)
+			cfg.ModelName = firstNonEmpty(os.Getenv("DOCUMENT_OCR_MODEL"), "glm-ocr")
+		case settingsclient.ProviderRerank:
+			cfg.APIKey = firstNonEmpty(os.Getenv("RAG_RERANK_API_KEY"), cfg.APIKey)
+			cfg.BaseURL = firstNonEmpty(os.Getenv("RAG_RERANK_URL"), cfg.BaseURL)
+			cfg.ModelName = firstNonEmpty(os.Getenv("RAG_RERANK_MODEL"), "rerank")
+		case settingsclient.ProviderRAGRouter:
+			cfg.BaseURL = firstNonEmpty(os.Getenv("RAG_ROUTER_BASE_URL"), cfg.BaseURL)
+			cfg.ModelName = firstNonEmpty(os.Getenv("RAG_ROUTER_MODEL"), cfg.ModelName)
+		}
+		if cfg.APIKey == "" || cfg.BaseURL == "" || cfg.ModelName == "" {
+			return ResolvedLLMConfig{}, errors.New("项目内置默认模型未配置，请检查 LLM_DEFAULT_API_KEY、LLM_DEFAULT_BASE_URL 和 LLM_DEFAULT_MODEL")
+		}
+		cfg.PromptTemplate = strings.TrimSpace(input.UsageType)
+		return cfg, nil
+	}
+	if input.ProfileID > 0 {
+		cfg, err := s.ResolveLLMProfile(ctx, ownerID, input.ProfileID)
+		if err != nil {
+			return ResolvedLLMConfig{}, err
+		}
+		cfg.PromptTemplate = strings.TrimSpace(input.UsageType)
+		return cfg, nil
+	}
+	cfg := ResolvedLLMConfig{
+		APIKey:       strings.TrimSpace(input.APIKey),
+		BaseURL:      strings.TrimSpace(input.BaseURL),
+		ModelName:    strings.TrimSpace(input.ModelName),
+		ProviderType: defaultString(input.ProviderType, "openai_compatible"),
+	}
+	if cfg.ModelName == "" {
+		switch input.UsageType {
+		case settingsclient.ProviderEmbedding:
+			cfg.ModelName = "embedding-3"
+		case settingsclient.ProviderOCR:
+			cfg.ModelName = "glm-ocr"
+		case settingsclient.ProviderRerank:
+			cfg.ModelName = "rerank"
+		}
+	}
+	if cfg.APIKey == "" || cfg.BaseURL == "" || cfg.ModelName == "" {
+		return ResolvedLLMConfig{}, errors.New("模型配置不完整，请填写 BaseURL、API Key 和模型名")
+	}
+	cfg.PromptTemplate = strings.TrimSpace(input.UsageType)
+	return cfg, nil
+}
+
+func testLLMEndpoint(ctx context.Context, cfg ResolvedLLMConfig) (string, error) {
+	endpoint := strings.TrimRight(strings.TrimSpace(cfg.BaseURL), "/")
+	usage := strings.TrimSpace(cfg.PromptTemplate)
+	var payload map[string]interface{}
+	switch usage {
+	case settingsclient.ProviderEmbedding:
+		if !strings.HasSuffix(endpoint, "/embeddings") {
+			endpoint += "/embeddings"
+		}
+		payload = map[string]interface{}{"model": cfg.ModelName, "input": "ClaranAIM 连通测试", "dimensions": 16}
+	case settingsclient.ProviderOCR:
+		if !strings.HasSuffix(endpoint, "/layout_parsing") {
+			endpoint += "/layout_parsing"
+		}
+		payload = map[string]interface{}{"model": cfg.ModelName, "file": "https://cdn.bigmodel.cn/static/logo/introduction.png"}
+	case settingsclient.ProviderRerank:
+		if !strings.HasSuffix(endpoint, "/rerank") {
+			endpoint += "/rerank"
+		}
+		payload = map[string]interface{}{"model": cfg.ModelName, "query": "ClaranAIM", "documents": []string{"ClaranAIM 是 Agent Native IM 项目。", "无关文本"}}
+	default:
+		if !strings.HasSuffix(endpoint, "/chat/completions") {
+			endpoint += "/chat/completions"
+		}
+		payload = map[string]interface{}{
+			"model": cfg.ModelName,
+			"messages": []map[string]string{
+				{"role": "system", "content": "你是连通测试助手，只输出 OK。"},
+				{"role": "user", "content": "请回复 OK"},
+			},
+			"temperature": 0,
+			"max_tokens":  8,
+		}
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return "", err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Authorization", "Bearer "+cfg.APIKey)
+	req.Header.Set("Content-Type", "application/json")
+	client := &http.Client{Timeout: 15 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", fmt.Errorf("模型服务返回 HTTP %d", resp.StatusCode)
+	}
+	return "连通测试通过", nil
+}
+
+func sanitizeConnectivityError(err error) string {
+	if err == nil {
+		return ""
+	}
+	msg := err.Error()
+	msg = strings.ReplaceAll(msg, "\r", " ")
+	msg = strings.ReplaceAll(msg, "\n", " ")
+	if len([]rune(msg)) > 180 {
+		msg = string([]rune(msg)[:180]) + "..."
+	}
+	return "连通测试失败：" + msg
 }
 
 // SavePrompt 保存当前用户拥有的 prompt 模板。
@@ -1116,4 +1277,13 @@ func defaultString(value, fallback string) string {
 		return fallback
 	}
 	return value
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
 }

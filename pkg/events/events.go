@@ -196,6 +196,7 @@ type MessagePayload struct {
 	UserID           int64   `json:"user_id"`
 	TargetUserIDs    []int64 `json:"target_user_ids"`
 	ParticipantIDs   []int64 `json:"participant_ids"`
+	ClientMsgID      string  `json:"client_msg_id"`
 }
 
 // IMEventPayload 是 Agent Dispatcher 消费的 Agent-Native 统一 IM 事件契约。

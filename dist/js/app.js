@@ -32,12 +32,17 @@ let agentNativeStateByConversation = {};
 let llmProfilesCache = [];
 let messageTranslations = {};
 let ragDocumentsCache = [];
+let ragSearchDocumentID = '';
 let ragGraphCache = { nodes: [], edges: [], communities: [] };
+let ragUploadJobs = {};
+let ragSearchTimer = null;
 let knowledgeGraphCache = { nodes: [], edges: [], communities: [], stats: {} };
 let knowledgeGraphInstance = null;
 let knowledgeGraphSelected = null;
-let knowledgePathSelection = { sourceID: 0, targetID: 0, path: null };
+let knowledgePathSelection = { sourceID: '', targetID: '', path: null };
 let adminMCPTraceCache = [];
+let systemNoticeCache = [];
+let systemNoticeUnread = 0;
 let activeWorkspace = 'chat';
 const LOCAL_LOG_KEY = 'claran_frontend_logs';
 const LOCAL_LOG_LIMIT = 500;
@@ -145,6 +150,11 @@ function sameID(a, b) {
     return String(a) === String(b);
 }
 
+function idString(value) {
+    const text = String(value ?? '').trim();
+    return text && text !== '0' ? text : '';
+}
+
 function workspaceFromHash() {
     const raw = (location.hash || '#/chat').replace(/^#\/?/, '').split('?')[0].trim();
     return raw || 'chat';
@@ -230,9 +240,76 @@ function renderWorkspaceShell(name, eyebrow, title, subtitle, actionsHTML = '') 
     return document.getElementById('workspace-page-body');
 }
 
+function ensureSystemNoticeBell() {
+    if (!token || !currentUser) return;
+    let bell = document.getElementById('system-notice-bell');
+    if (!bell) {
+        bell = document.createElement('button');
+        bell.id = 'system-notice-bell';
+        bell.className = 'system-notice-bell';
+        bell.type = 'button';
+        bell.title = '系统公告';
+        bell.onclick = showSystemNoticePanel;
+        document.body.appendChild(bell);
+    }
+    bell.innerHTML = `
+        <span class="notice-bell-icon">!</span>
+        ${systemNoticeUnread > 0 ? `<em>${systemNoticeUnread > 99 ? '99+' : systemNoticeUnread}</em>` : ''}
+    `;
+}
+
+async function loadSystemNotices({ silent = true } = {}) {
+    if (!token || !currentUser || typeof systemAPI === 'undefined') return;
+    const resp = await systemAPI.notices({ limit: 30 });
+    if (!(resp && resp.code === 0 && resp.data?.success)) {
+        if (!silent) showToast(resp?.message || resp?.data?.msg || '读取系统公告失败', 'error');
+        ensureSystemNoticeBell();
+        return;
+    }
+    systemNoticeCache = resp.data.notices || [];
+    const seenKey = 'claran_seen_notice_ids';
+    let seen = [];
+    try { seen = JSON.parse(localStorage.getItem(seenKey) || '[]').map(String); } catch (err) { seen = []; }
+    systemNoticeUnread = systemNoticeCache.filter(item => !seen.includes(String(item.id || ''))).length;
+    ensureSystemNoticeBell();
+}
+
+function showSystemNoticePanel() {
+    if (!systemNoticeCache.length) {
+        loadSystemNotices({ silent: false }).then(() => showSystemNoticePanel());
+        return;
+    }
+    const seenIDs = systemNoticeCache.map(item => String(item.id || '')).filter(Boolean);
+    localStorage.setItem('claran_seen_notice_ids', JSON.stringify(seenIDs));
+    systemNoticeUnread = 0;
+    ensureSystemNoticeBell();
+    showModal('系统公告', `
+        <div class="system-notice-panel">
+            <div class="system-notice-head">
+                <strong>最近公告</strong>
+                <button class="btn-small ghost" onclick="loadSystemNotices({ silent: false }).then(showSystemNoticePanel)">刷新</button>
+            </div>
+            ${systemNoticeCache.length ? systemNoticeCache.map(renderSystemNoticeItem).join('') : '<div class="empty-tip">暂无系统公告</div>'}
+        </div>
+    `);
+}
+
+function renderSystemNoticeItem(item) {
+    const level = item.level || 'info';
+    return `
+        <article class="system-notice-item ${escapeHTML(level)}">
+            <header>
+                <strong>${escapeHTML(item.title || '系统公告')}</strong>
+                <span>${escapeHTML(level)} · ${escapeHTML(item.created_at || '')}</span>
+            </header>
+            <p>${escapeHTML(item.content || '')}</p>
+        </article>
+    `;
+}
+
 async function renderWorkspace(name = workspaceFromHash()) {
     if (!currentUser) return;
-    if (name === 'admin' && currentUser.role !== 'admin') {
+    if (name === 'admin' && (!currentUser || currentUser.role !== 'admin')) {
         showToast('只有管理员可以打开治理台', 'warning');
         name = 'chat';
         if (location.hash !== '#/chat') {
@@ -286,6 +363,13 @@ function escapeRegExp(value) {
     return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+function cssEscapeValue(value) {
+    if (window.CSS && typeof window.CSS.escape === 'function') {
+        return window.CSS.escape(String(value || ''));
+    }
+    return String(value || '').replace(/["\\]/g, '\\$&');
+}
+
 function agentRoleLabel(role) {
     const labels = {
         owner: '创建者',
@@ -330,7 +414,11 @@ function llmUsageLabel(type) {
     const labels = {
         translation: '翻译',
         rag_router: 'RAG 路由小模型',
+        rag_answer: 'RAG 回答模型',
         agent: 'Agent',
+        embedding: '向量模型',
+        ocr: 'OCR 模型',
+        rerank: 'Rerank 模型',
         general: '通用',
     };
     return labels[type] || type || '通用';
@@ -686,7 +774,7 @@ function stripMediaTags(content) {
 function resolveMediaURL(media) {
     if (!media) return '';
     if (media.id) return fileAPI.previewURL(media.id);
-    if (media.url && media.url.startsWith('/')) return `http://localhost:8080${media.url}`;
+    if (media.url && media.url.startsWith('/')) return `${API_ORIGIN}${media.url}`;
     if (media.url) return media.url;
     return media.url || '';
 }
@@ -712,7 +800,7 @@ function rememberMedia(media) {
 
 function publicMediaURL(media) {
     if (!media || !media.url) return '';
-    if (media.url.startsWith('/files/')) return `http://localhost:8080${media.url}`;
+    if (media.url.startsWith('/files/')) return `${API_ORIGIN}${media.url}`;
     return '';
 }
 
@@ -798,6 +886,9 @@ function getMessageByID(messageID) {
 
 function renderCurrentMessages(scrollToBottom = true) {
     const msgList = document.getElementById('message-list');
+    if (currentConversationID) {
+        currentMessages = currentMessages.filter(m => !m.conversation_id || sameID(m.conversation_id, currentConversationID));
+    }
     msgList.innerHTML = currentMessages.map(m => createMessageHTML(m)).join('');
     hydrateMedia(msgList);
     if (scrollToBottom) {
@@ -1197,9 +1288,17 @@ function showToast(msg, type = 'info') {
 function updateAdminConsoleEntry() {
     const entry = document.getElementById('admin-console-entry');
     const navEntry = document.getElementById('admin-workspace-nav');
-    const visible = currentUser && currentUser.role === 'admin';
-    if (entry) entry.style.display = visible ? '' : 'none';
-    if (navEntry) navEntry.style.display = visible ? '' : 'none';
+    const isAdmin = currentUser && currentUser.role === 'admin';
+    if (entry) {
+        entry.style.display = '';
+        entry.classList.toggle('disabled-soft', !isAdmin);
+        entry.title = isAdmin ? '打开系统治理台' : '当前账号不是管理员，只能由 admin 角色进入治理台';
+    }
+    if (navEntry) {
+        navEntry.style.display = '';
+        navEntry.classList.toggle('disabled-soft', !isAdmin);
+        navEntry.title = isAdmin ? '治理台' : '当前账号不是管理员，只能由 admin 角色进入治理台';
+    }
 }
 
 function showChatHome() {
@@ -1453,6 +1552,7 @@ async function loadKnowledgeWorkspaceDocuments() {
         return;
     }
     const docs = resp.data.documents || [];
+    ragDocumentsCache = docs;
     area.innerHTML = docs.length ? docs.map(doc => `
         <div class="data-row">
             <div class="data-row-main">
@@ -1461,13 +1561,50 @@ async function loadKnowledgeWorkspaceDocuments() {
             </div>
             <div class="data-row-meta">
                 <span>${escapeHTML(doc.visibility || 'private')}</span>
+                <span>子区块 ${Number(doc.chunk_count || 0)}</span>
                 <span>${escapeHTML(doc.created_at || '')}</span>
             </div>
             <div class="data-row-actions">
-                <button class="btn-small ghost" onclick="showRAGWorkspace('search', ${jsStringArg(doc.title || doc.source || '')})">检索</button>
+                <button class="btn-small ghost" onclick="showRAGWorkspace('search', '', ${jsArg(doc.id || 0)})">检索</button>
+                <button class="btn-small ghost" onclick="showKnowledgeGraphWorkspace('', ${jsArg(doc.id || 0)})">看图谱</button>
+                <button class="btn-small ghost" onclick="deleteRAGDocumentGraph(${jsArg(doc.id || 0)}, ${jsStringArg(doc.title || doc.source || '')})">删图谱</button>
+                <button class="btn-small danger-soft" onclick="deleteRAGDocument(${jsArg(doc.id || 0)}, ${jsStringArg(doc.title || doc.source || '')})">删除</button>
             </div>
         </div>
     `).join('') : '<div class="empty-tip">暂无知识文档</div>';
+}
+
+async function deleteRAGDocumentGraph(documentID, title = '') {
+    if (!documentID) return;
+    if (!confirm(`只删除“${title || documentID}”的知识图谱？文档和 RAG 分块会保留。`)) return;
+    const resp = await ragAPI.deleteDocumentGraph(documentID);
+    if (resp && resp.code === 0 && resp.data?.success) {
+        showToast('文档图谱已删除', 'success');
+        await loadKnowledgeWorkspaceDocuments();
+        if (document.getElementById('knowledge-graph-canvas')) {
+            await loadKnowledgeGraph();
+        }
+    } else {
+        showToast(resp?.message || resp?.data?.msg || '删除文档图谱失败', 'error');
+    }
+}
+
+async function deleteRAGDocument(documentID, title = '') {
+    if (!documentID) return;
+    if (!confirm(`确定删除“${title || documentID}”？这会删除文档、分块和该文档贡献的知识图谱。`)) return;
+    const resp = await ragAPI.deleteDocument(documentID);
+    if (resp && resp.code === 0 && resp.data?.success) {
+        showToast('知识文档已删除', 'success');
+        ragDocumentsCache = ragDocumentsCache.filter(doc => !sameID(doc.id, documentID));
+        if (sameID(ragSearchDocumentID, documentID)) ragSearchDocumentID = '';
+        await loadKnowledgeWorkspaceDocuments();
+        if (document.getElementById('knowledge-graph-canvas')) {
+            await syncKnowledgeDocumentOptions(0);
+            await loadKnowledgeGraph();
+        }
+    } else {
+        showToast(resp?.message || resp?.data?.msg || '删除知识文档失败', 'error');
+    }
 }
 
 async function showMemoryWorkspace() {
@@ -1647,6 +1784,10 @@ async function logout() {
         clearTimeout(wsReconnectTimer);
         wsReconnectTimer = null;
     }
+    const noticeBell = document.getElementById('system-notice-bell');
+    if (noticeBell) noticeBell.remove();
+    systemNoticeCache = [];
+    systemNoticeUnread = 0;
     document.getElementById('user-status').textContent = '○ 离线';
     document.getElementById('user-status').className = 'user-status offline';
     updateAdminConsoleEntry();
@@ -1688,6 +1829,7 @@ async function enterMainPage() {
     loadFriends();
     connectWS();
     syncAfterOnline();
+    loadSystemNotices();
     await renderWorkspace(workspaceFromHash());
 }
 
@@ -1885,14 +2027,14 @@ async function loadKnowledgeSidebar() {
         return;
     }
     list.innerHTML = ragDocumentsCache.map(doc => `
-        <div class="list-item knowledge-item" onclick="showRAGWorkspace('search', ${jsStringArg(doc.title || '')})">
+        <div class="list-item knowledge-item" onclick="showRAGWorkspace('search', '', ${jsArg(doc.id || 0)})">
             <div class="avatar knowledge-avatar">K</div>
             <div class="list-item-info">
                 <div class="list-item-top">
                     <span class="list-item-name">${escapeHTML(doc.title || '未命名知识')}</span>
                     <span class="list-item-type">${escapeHTML(ragVisibilityLabel(doc.visibility))}</span>
                 </div>
-                <div class="list-item-msg">${escapeHTML(doc.source || doc.source_type || '文本知识')}</div>
+                <div class="list-item-msg">${escapeHTML(doc.source || doc.source_type || '文本知识')} · ${Number(doc.chunk_count || 0)}块</div>
             </div>
         </div>
     `).join('');
@@ -1910,9 +2052,245 @@ function ragRouteLabel(value) {
     return {
         adaptive: '自适应',
         hybrid: '混合检索',
+        document: '文档检索',
         graphrag: '知识图谱',
         direct: '直接回答',
     }[value] || value || '自适应';
+}
+
+function responsePayload(resp) {
+    if (!(resp && resp.code === 0)) return null;
+    if (resp.data && typeof resp.data === 'object' && resp.data.data && typeof resp.data.data === 'object') {
+        return resp.data.data;
+    }
+    return resp.data || null;
+}
+
+function responseOK(resp) {
+    const data = responsePayload(resp);
+    return !!(resp && resp.code === 0 && data && data.success !== false && data.Success !== false);
+}
+
+function valueOfAny(obj, ...keys) {
+    if (!obj || typeof obj !== 'object') return undefined;
+    for (const key of keys) {
+        if (Object.prototype.hasOwnProperty.call(obj, key) && obj[key] !== undefined && obj[key] !== null) {
+            return obj[key];
+        }
+    }
+    return undefined;
+}
+
+function formatElapsed(ms) {
+    const total = Math.max(0, Math.floor(Number(ms || 0) / 1000));
+    if (total < 60) return `${total}s`;
+    const min = Math.floor(total / 60);
+    const sec = total % 60;
+    return `${min}m ${String(sec).padStart(2, '0')}s`;
+}
+
+function shortTime(ts) {
+    if (!ts) return '';
+    const date = new Date(ts);
+    if (Number.isNaN(date.getTime())) return '';
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
+function uploadJobID(data) {
+    const job = data?.job || data || {};
+    return String(job.id || data?.job_id || data?.id || '').trim();
+}
+
+function normalizeRAGUploadData(data, patch = {}) {
+    const base = data && typeof data === 'object' ? { ...data } : {};
+    const job = { ...(base.job || base || {}), ...(patch.job || {}) };
+    const files = Array.isArray(job.files) ? job.files : (Array.isArray(base.files) ? base.files : []);
+    const id = String(job.id || base.job_id || base.id || patch.job_id || '').trim();
+    if (id) {
+        job.id = job.id || id;
+        base.job_id = base.job_id || id;
+    }
+    job.files = files;
+    job.status = patch.status || job.status || base.status || 'processing';
+    job.total = Number(job.total ?? base.total ?? files.length ?? 0);
+    job.completed = Number(job.completed ?? base.completed ?? files.filter(f => f.status === 'completed' || f.success).length);
+    job.failed = Number(job.failed ?? base.failed ?? files.filter(f => f.status === 'failed').length);
+    base.job = job;
+    base.files = files;
+    base.status = job.status;
+    base.poll_error = patch.poll_error ?? base.poll_error;
+    base.poll_attempt = patch.poll_attempt ?? base.poll_attempt;
+    base.upload_percent = patch.upload_percent ?? base.upload_percent;
+    base.upload_loaded = patch.upload_loaded ?? base.upload_loaded;
+    base.upload_total = patch.upload_total ?? base.upload_total;
+    base.started_at = patch.started_at || base.started_at || Date.now();
+    base.updated_at_ms = patch.updated_at_ms || Date.now();
+    return base;
+}
+
+function persistRAGUploadJobs() {
+    const compact = {};
+    Object.entries(ragUploadJobs || {}).forEach(([id, job]) => {
+        if (String(id).startsWith('upload-')) return;
+        const normalized = normalizeRAGUploadData(job);
+        compact[id] = {
+            id,
+            status: normalized.status || normalized.job?.status || 'processing',
+            updated_at: normalized.updated_at_ms || Date.now(),
+            data: normalized,
+        };
+    });
+    localStorage.setItem('claran_rag_upload_jobs', JSON.stringify(compact));
+}
+
+function restoreRAGUploadJobs() {
+    try {
+        const saved = JSON.parse(localStorage.getItem('claran_rag_upload_jobs') || '{}');
+        Object.entries(saved).forEach(([id, item]) => {
+            if (!id || Date.now() - Number(item.updated_at || 0) > 24 * 3600 * 1000) return;
+            ragUploadJobs[id] = item.data || item;
+        });
+    } catch (err) {
+        ragUploadJobs = {};
+    }
+    renderRAGUploadBubble();
+    Object.entries(ragUploadJobs || {}).forEach(([id, data]) => {
+        if (String(id).startsWith('upload-')) return;
+        const status = data?.job?.status || data?.status || 'processing';
+        if (status !== 'completed' && status !== 'failed') {
+            pollRAGUploadJob(id, null, 0);
+        }
+    });
+}
+
+function upsertRAGUploadJob(data) {
+    const incoming = normalizeRAGUploadData(data);
+    const incomingID = uploadJobID(incoming);
+    const existing = incomingID ? ragUploadJobs[incomingID] : null;
+    const normalized = existing
+        ? normalizeRAGUploadData({ ...incoming, started_at: existing.started_at || incoming.started_at }, { poll_error: incoming.poll_error || '' })
+        : incoming;
+    const id = uploadJobID(normalized);
+    if (!id || id === '0') return;
+    ragUploadJobs[id] = normalized;
+    persistRAGUploadJobs();
+    renderRAGUploadBubble();
+}
+
+function patchRAGUploadJob(jobID, patch = {}) {
+    const id = String(jobID || '').trim();
+    if (!id) return;
+    const current = ragUploadJobs[id] || { job: { id, status: 'processing', files: [] }, job_id: id };
+    ragUploadJobs[id] = normalizeRAGUploadData(current, patch);
+    persistRAGUploadJobs();
+    renderRAGUploadBubble();
+}
+
+function dismissRAGUploadJob(jobID) {
+    delete ragUploadJobs[String(jobID)];
+    persistRAGUploadJobs();
+    renderRAGUploadBubble();
+}
+
+function renderRAGUploadBubble() {
+    let bubble = document.getElementById('rag-upload-bubble');
+    const jobs = Object.entries(ragUploadJobs || {});
+    if (!jobs.length) {
+        if (bubble) bubble.remove();
+        return;
+    }
+    if (!bubble) {
+        bubble = document.createElement('div');
+        bubble.id = 'rag-upload-bubble';
+        document.body.appendChild(bubble);
+    }
+    applyRAGUploadBubblePosition(bubble);
+    const active = jobs.filter(([, data]) => {
+        const status = data?.job?.status || data?.status;
+        return status !== 'completed' && status !== 'failed' && status !== 'stalled';
+    }).length;
+    bubble.innerHTML = `
+        <div class="rag-upload-bubble-head" data-rag-bubble-drag>
+            <strong>知识入库</strong>
+            <span>${active ? `${active} 个处理中` : '任务已完成'}</span>
+        </div>
+        <div class="rag-upload-bubble-list">
+            ${jobs.slice(-4).map(([id, data]) => {
+                const job = data?.job || data || {};
+                const files = job.files || data?.files || [];
+                const status = job.status || data?.status || 'processing';
+                const total = job.total ?? files.length;
+                const completed = job.completed ?? files.filter(f => f.status === 'completed' || f.success).length;
+                const failed = job.failed ?? files.filter(f => f.status === 'failed').length;
+                const progress = status === 'uploading'
+                    ? Math.max(0, Math.min(99, Math.round(Number(data.upload_percent || 0))))
+                    : (total > 0 ? Math.min(100, Math.max(0, Math.round(((completed + failed) / total) * 100))) : (status === 'completed' ? 100 : 0));
+                const elapsed = data?.started_at ? formatElapsed(Date.now() - Number(data.started_at || Date.now())) : '';
+                return `
+                    <div class="rag-upload-bubble-item ${escapeHTML(status)}">
+                        <button class="rag-upload-bubble-main" onclick="showRAGWorkspace('ingest')">
+                            <span>${escapeHTML(ragUploadStatusLabel(status))}${elapsed ? ` · ${escapeHTML(elapsed)}` : ''}</span>
+                            <strong>${completed}/${total || 1}</strong>
+                            <i style="width:${progress}%"></i>
+                        </button>
+                        ${(status === 'completed' || status === 'failed' || status === 'stalled') ? `<button class="rag-upload-bubble-close" onclick="dismissRAGUploadJob(${jsStringArg(id)})">×</button>` : ''}
+                    </div>
+                `;
+            }).join('')}
+        </div>
+    `;
+    bindRAGUploadBubbleDrag(bubble);
+}
+
+function applyRAGUploadBubblePosition(bubble) {
+    try {
+        const pos = JSON.parse(localStorage.getItem('claran_rag_upload_bubble_pos') || 'null');
+        if (pos && Number.isFinite(Number(pos.left)) && Number.isFinite(Number(pos.top))) {
+            bubble.style.left = `${Math.max(8, Math.min(window.innerWidth - 260, Number(pos.left)))}px`;
+            bubble.style.top = `${Math.max(8, Math.min(window.innerHeight - 120, Number(pos.top)))}px`;
+            bubble.style.right = 'auto';
+            bubble.style.bottom = 'auto';
+        }
+    } catch (err) {
+        // 位置恢复失败不影响上传任务展示。
+    }
+}
+
+function bindRAGUploadBubbleDrag(bubble) {
+    const handle = bubble.querySelector('[data-rag-bubble-drag]');
+    if (!handle || handle.dataset.bound === 'true') return;
+    handle.dataset.bound = 'true';
+    let start = null;
+    handle.addEventListener('click', event => {
+        if (start?.dragged) return;
+        showRAGWorkspace('ingest');
+    });
+    handle.addEventListener('pointerdown', event => {
+        if (event.button !== 0) return;
+        const rect = bubble.getBoundingClientRect();
+        start = { x: event.clientX, y: event.clientY, left: rect.left, top: rect.top, dragged: false };
+        handle.setPointerCapture?.(event.pointerId);
+    });
+    handle.addEventListener('pointermove', event => {
+        if (!start) return;
+        const dx = event.clientX - start.x;
+        const dy = event.clientY - start.y;
+        if (Math.abs(dx) + Math.abs(dy) > 4) start.dragged = true;
+        const left = Math.max(8, Math.min(window.innerWidth - bubble.offsetWidth - 8, start.left + dx));
+        const top = Math.max(8, Math.min(window.innerHeight - bubble.offsetHeight - 8, start.top + dy));
+        bubble.style.left = `${left}px`;
+        bubble.style.top = `${top}px`;
+        bubble.style.right = 'auto';
+        bubble.style.bottom = 'auto';
+    });
+    const finish = () => {
+        if (!start) return;
+        const rect = bubble.getBoundingClientRect();
+        localStorage.setItem('claran_rag_upload_bubble_pos', JSON.stringify({ left: rect.left, top: rect.top }));
+        setTimeout(() => { start = null; }, 0);
+    };
+    handle.addEventListener('pointerup', finish);
+    handle.addEventListener('pointercancel', finish);
 }
 
 function cragLabel(value) {
@@ -1927,7 +2305,8 @@ function cragLabel(value) {
     }[value] || value || '未判断';
 }
 
-async function showRAGWorkspace(defaultTab = 'search', seedQuery = '') {
+async function showRAGWorkspace(defaultTab = 'search', seedQuery = '', seedDocumentID = 0) {
+    ragSearchDocumentID = idString(seedDocumentID);
     activateStandaloneWorkspace('knowledge');
     document.getElementById('chat-area').style.display = 'none';
     const welcome = document.getElementById('welcome-area');
@@ -1940,6 +2319,7 @@ async function showRAGWorkspace(defaultTab = 'search', seedQuery = '') {
                     <p>把知识写入 RAG 服务，使用 Hybrid Search、CRAG、自检和知识图谱辅助 Agent 工作。</p>
                 </div>
                 <div class="rag-tabs">
+                    <button class="ghost" onclick="showKnowledgeHomeWorkspace()">返回知识工作台</button>
                     <button id="rag-tab-search" onclick="switchRAGTab('search')">检索问答</button>
                     <button id="rag-tab-ingest" onclick="switchRAGTab('ingest')">录入知识</button>
                     <button id="rag-tab-graph" onclick="showKnowledgeGraphWorkspace()">知识图谱</button>
@@ -1950,10 +2330,18 @@ async function showRAGWorkspace(defaultTab = 'search', seedQuery = '') {
                     <input id="rag-query" type="text" placeholder="输入问题，例如：这个项目中 Agent 与 RAG 的关系是什么？" value="${escapeHTML(seedQuery)}">
                     <select id="rag-mode" class="form-select">
                         <option value="adaptive">自适应</option>
+                        <option value="document">文档检索</option>
                         <option value="hybrid">混合检索</option>
                         <option value="graphrag">知识图谱</option>
                     </select>
                     <button class="btn-primary rag-run-btn" onclick="runRAGSearch()">检索</button>
+                </div>
+                <div class="rag-scope-row">
+                    <label>文档范围</label>
+                    <select id="rag-document-scope" class="form-select" onchange="onRAGDocumentScopeChange()">
+                        <option value="0">全部知识库</option>
+                    </select>
+                    <span id="rag-document-scope-hint">自适应模式会先判断是否需要检索；文档检索模式会强制检索所选范围。</span>
                 </div>
                 <div id="rag-search-result" class="rag-result empty-tip">输入问题后查看答案、来源、CRAG 决策和 Self-RAG 检查点。</div>
             </section>
@@ -2014,9 +2402,68 @@ async function showRAGWorkspace(defaultTab = 'search', seedQuery = '') {
     `;
     switchRAGTab(defaultTab || 'search');
     await loadKnowledgeSidebar();
+    await syncRAGDocumentScopeOptions(seedDocumentID);
+    if (ragSearchDocumentID) {
+        const mode = document.getElementById('rag-mode');
+        if (mode) mode.value = 'document';
+        updateRAGDocumentScopeHint();
+    }
+    renderActiveRAGUploadIntoIngestPanel();
     if (defaultTab === 'graph') {
         await loadRAGGraph();
     }
+}
+
+function renderActiveRAGUploadIntoIngestPanel() {
+    const resultEl = document.getElementById('rag-ingest-result');
+    if (!resultEl) return;
+    const entries = Object.entries(ragUploadJobs || {});
+    if (!entries.length) return;
+    const [, latest] = entries
+        .sort((a, b) => Number(b[1]?.updated_at_ms || b[1]?.started_at || 0) - Number(a[1]?.updated_at_ms || a[1]?.started_at || 0))[0];
+    renderRAGUploadJob(latest, resultEl);
+}
+
+async function syncRAGDocumentScopeOptions(selectedID = 0) {
+    const select = document.getElementById('rag-document-scope');
+    if (!select) return;
+    const current = idString(selectedID) || idString(ragSearchDocumentID) || idString(select.value) || '0';
+    if (!ragDocumentsCache.length || (current !== '0' && !ragDocumentsCache.some(doc => sameID(doc.id, current)))) {
+        const resp = await ragAPI.documents(100, 0);
+        if (resp && resp.code === 0 && resp.data?.success) {
+            ragDocumentsCache = resp.data.documents || [];
+        }
+    }
+    select.innerHTML = `<option value="0">全部知识库</option>` + (ragDocumentsCache || []).map(doc => `
+        <option value="${escapeHTML(String(doc.id || 0))}">${escapeHTML(doc.title || doc.source || '未命名文档')} · ${Number(doc.chunk_count || 0)}块</option>
+    `).join('');
+    select.value = Array.from(select.options).some(opt => opt.value === current) ? current : '0';
+    ragSearchDocumentID = idString(select.value);
+    updateRAGDocumentScopeHint();
+}
+
+function onRAGDocumentScopeChange() {
+    const select = document.getElementById('rag-document-scope');
+    ragSearchDocumentID = idString(select?.value);
+    if (ragSearchDocumentID) {
+        const mode = document.getElementById('rag-mode');
+        if (mode && mode.value === 'adaptive') mode.value = 'document';
+    }
+    updateRAGDocumentScopeHint();
+}
+
+function selectedRAGDocumentName() {
+    const select = document.getElementById('rag-document-scope');
+    if (!select || !select.value || select.value === '0') return '全部知识库';
+    return select.options[select.selectedIndex]?.textContent || '指定文档';
+}
+
+function updateRAGDocumentScopeHint() {
+    const hint = document.getElementById('rag-document-scope-hint');
+    if (!hint) return;
+    hint.textContent = ragSearchDocumentID
+        ? `当前只检索：${selectedRAGDocumentName()}。后端会按 document_id 过滤，不再把标题拼进问题。`
+        : '当前检索全部可见知识。选择文档后会启用真实 document_id 范围过滤。';
 }
 
 function switchRAGTab(tab) {
@@ -2048,7 +2495,7 @@ async function ingestRAGDocument() {
         resultEl.innerHTML = `
             <div class="rag-status-line success">
                 已写入：${escapeHTML(resp.data.document?.title || data.title || '未命名知识')}，
-                分块 ${resp.data.chunk_count || 0}，
+                                子区块 ${resp.data.chunk_count || 0}，
                 实体 ${resp.data.entity_count || 0}，
                 关系 ${resp.data.relation_count || 0}
             </div>
@@ -2068,27 +2515,285 @@ async function uploadRAGFiles() {
         return;
     }
     const resultEl = document.getElementById('rag-ingest-result');
-    resultEl.innerHTML = '<div class="empty-tip">正在解析文件、切片并构建图谱...</div>';
+    const uploadStart = Date.now();
+    const tempJobID = `upload-${uploadStart}`;
+    const totalBytes = Array.from(files).reduce((sum, file) => sum + Number(file.size || 0), 0);
+    ragUploadJobs[tempJobID] = normalizeRAGUploadData({
+        job_id: tempJobID,
+        job: {
+            id: tempJobID,
+            status: 'uploading',
+            total: files.length,
+            completed: 0,
+            failed: 0,
+            files: Array.from(files).map(file => ({ file_name: file.name, status: 'uploading' })),
+        },
+        status: 'uploading',
+        started_at: uploadStart,
+        upload_total: totalBytes,
+    });
+    renderRAGUploadBubble();
+    renderRAGUploadSubmitting(resultEl, {
+        phase: 'preparing',
+        percent: 0,
+        loaded: 0,
+        total: totalBytes,
+        fileCount: files.length,
+        elapsed: 0,
+    });
     const resp = await ragAPI.upload({
         fileList: files,
         title: document.getElementById('rag-title')?.value.trim() || '',
         visibility: document.getElementById('rag-visibility')?.value || 'private',
         groupID: currentConversationType === 'group' ? (conversationGroupMap[currentConversationID] || '') : '',
         conversationID: currentConversationID || '',
+        onProgress: progress => {
+            const next = {
+                ...progress,
+                total: progress.total || totalBytes,
+                fileCount: files.length,
+                elapsed: Date.now() - uploadStart,
+            };
+            renderRAGUploadSubmitting(resultEl, next);
+            ragUploadJobs[tempJobID] = normalizeRAGUploadData(ragUploadJobs[tempJobID], {
+                status: progress.phase === 'submitted' ? 'processing' : 'uploading',
+                upload_percent: next.percent,
+                upload_loaded: next.loaded,
+                upload_total: next.total,
+            });
+            renderRAGUploadBubble();
+        },
     });
+    delete ragUploadJobs[tempJobID];
+    renderRAGUploadBubble();
     if (resp && resp.code === 0 && resp.data?.success) {
-        const rows = (resp.data.files || []).map(item => `
-            <div class="rag-status-line ${item.success ? 'success' : 'error'}">
-                ${escapeHTML(item.file_name || '')}：
-                ${item.success ? `分块 ${item.chunk_count || 0}，实体 ${item.entity_count || 0}，关系 ${item.relation_count || 0}` : escapeHTML(item.msg || '解析失败')}
-            </div>
-        `).join('');
-        resultEl.innerHTML = rows || '<div class="empty-tip">没有处理任何文件。</div>';
-        showToast('文件处理完成', 'success');
-        await loadKnowledgeSidebar();
+        const jobID = resp.data.job_id;
+        renderRAGUploadJob(resp.data, document.getElementById('rag-ingest-result') || resultEl);
+        upsertRAGUploadJob(resp.data);
+        if (jobID) {
+            showToast('上传任务已提交，后台正在解析入库', 'info');
+            pollRAGUploadJob(jobID, resultEl);
+        } else {
+            showToast('文件处理完成', 'success');
+            await loadKnowledgeSidebar();
+        }
     } else {
+        ragUploadJobs[tempJobID] = normalizeRAGUploadData({
+            job_id: tempJobID,
+            job: {
+                id: tempJobID,
+                status: 'failed',
+                total: files.length,
+                completed: 0,
+                failed: files.length,
+                files: Array.from(files).map(file => ({ file_name: file.name, status: 'failed' })),
+            },
+            status: 'failed',
+            started_at: uploadStart,
+        });
+        renderRAGUploadBubble();
         resultEl.innerHTML = `<div class="rag-status-line error">${escapeHTML(resp?.message || resp?.data?.msg || '上传失败')}</div>`;
     }
+}
+
+function renderRAGUploadSubmitting(resultEl, progress = {}) {
+    resultEl = document.getElementById('rag-ingest-result') || resultEl;
+    if (!resultEl) return;
+    const phaseLabel = {
+        preparing: '准备上传',
+        uploading: '正在上传文件',
+        submitted: '上传完成，等待后台解析',
+    }[progress.phase] || '正在上传文件';
+    const percent = Math.max(0, Math.min(100, Number(progress.percent || 0)));
+    const loaded = Number(progress.loaded || 0);
+    const total = Number(progress.total || 0);
+    const elapsed = formatElapsed(progress.elapsed || 0);
+    let card = resultEl.querySelector('.rag-upload-submit-card');
+    if (!card) {
+        resultEl.innerHTML = `
+            <div class="rag-upload-submit-card">
+                <div class="rag-upload-job-head">
+                    <div>
+                        <strong data-upload-submit-title>${escapeHTML(phaseLabel)}</strong>
+                        <span data-upload-submit-meta></span>
+                    </div>
+                    <span class="rag-upload-submit-percent" data-upload-submit-percent>0%</span>
+                </div>
+                <div class="rag-upload-progress">
+                    <span data-upload-submit-bar style="width:0%"></span>
+                </div>
+                <div class="rag-upload-telemetry">
+                    <span data-upload-submit-size></span>
+                    <span data-upload-submit-files></span>
+                    <span data-upload-submit-elapsed></span>
+                </div>
+            </div>
+        `;
+        card = resultEl.querySelector('.rag-upload-submit-card');
+    }
+    card.querySelector('[data-upload-submit-title]').textContent = phaseLabel;
+    card.querySelector('[data-upload-submit-meta]').textContent = percent >= 100
+        ? '文件已到达网关，接下来进入文档解析、分片、Embedding 和图谱抽取。'
+        : '大文件上传期间可切换到其他工作台；右下角任务气泡会持续显示上传和后台解析状态。';
+    card.querySelector('[data-upload-submit-percent]').textContent = `${Math.round(percent)}%`;
+    card.querySelector('[data-upload-submit-bar]').style.width = `${percent}%`;
+    card.querySelector('[data-upload-submit-size]').textContent = total > 0
+        ? `${formatAdminBytes(loaded)} / ${formatAdminBytes(total)}`
+        : '等待浏览器返回上传大小';
+    card.querySelector('[data-upload-submit-files]').textContent = `${Number(progress.fileCount || 0)} 个文件`;
+    card.querySelector('[data-upload-submit-elapsed]').textContent = `用时 ${elapsed}`;
+}
+
+function ragUploadStatusLabel(status) {
+    return {
+        uploading: '上传中',
+        pending: '等待处理',
+        processing: '解析入库中',
+        completed: '已完成',
+        failed: '失败',
+        stalled: '状态异常',
+    }[status] || status || '未知';
+}
+
+function renderRAGUploadJob(data, resultEl = document.getElementById('rag-ingest-result')) {
+    if (!resultEl) return;
+    const normalized = normalizeRAGUploadData(data);
+    const job = normalized.job || normalized;
+    const files = job.files || normalized.files || [];
+    const status = job.status || data.status || 'processing';
+    const completed = job.completed ?? files.filter(f => f.status === 'completed' || f.success).length;
+    const failed = job.failed ?? files.filter(f => f.status === 'failed').length;
+    const total = job.total ?? files.length;
+    const progress = total > 0 ? Math.min(100, Math.max(0, Math.round(((completed + failed) / total) * 100))) : (status === 'completed' ? 100 : 0);
+    const elapsed = normalized.started_at ? formatElapsed(Date.now() - Number(normalized.started_at || Date.now())) : '0s';
+    const lastUpdate = shortTime(normalized.updated_at_ms);
+    const jobID = String(job.id || data.job_id || '');
+    const current = resultEl.querySelector(`.rag-upload-job[data-job-id="${cssEscapeValue(jobID)}"]`);
+    if (current && Number(current.dataset.fileCount || 0) === files.length) {
+        current.querySelector('[data-upload-meta]').textContent = `${ragUploadStatusLabel(status)} · ${completed}/${total} 完成 · ${failed} 失败 · 用时 ${elapsed}${lastUpdate ? ` · 更新 ${lastUpdate}` : ''}`;
+        current.querySelector('[data-upload-progress]').style.width = `${progress}%`;
+        current.querySelector('[data-upload-progress-text]').textContent = `进度 ${progress}%`;
+        current.querySelector('[data-upload-chunks]').textContent = `子区块 ${files.reduce((sum, item) => sum + Number(item.chunk_count || 0), 0)}`;
+        current.querySelector('[data-upload-entities]').textContent = `实体 ${files.reduce((sum, item) => sum + Number(item.entity_count || 0), 0)}`;
+        current.querySelector('[data-upload-relations]').textContent = `关系 ${files.reduce((sum, item) => sum + Number(item.relation_count || 0), 0)}`;
+        const warning = current.querySelector('[data-upload-warning]');
+        if (warning) {
+            warning.style.display = normalized.poll_error ? 'block' : 'none';
+            warning.textContent = normalized.poll_error ? `轮询暂时失败：${normalized.poll_error}。系统会继续重试，你也可以手动刷新。` : '';
+        }
+        files.forEach((item, index) => updateRAGUploadFileRow(current, item, index));
+        return;
+    }
+    resultEl.innerHTML = `
+        <div class="rag-upload-job" data-job-id="${escapeHTML(jobID)}" data-file-count="${files.length}">
+            <div class="rag-upload-job-head">
+                <div>
+                    <strong>上传任务 #${escapeHTML(jobID)}</strong>
+                    <span data-upload-meta>${escapeHTML(ragUploadStatusLabel(status))} · ${completed}/${total} 完成 · ${failed} 失败 · 用时 ${escapeHTML(elapsed)}${lastUpdate ? ` · 更新 ${escapeHTML(lastUpdate)}` : ''}</span>
+                </div>
+                <button class="btn-small ghost" onclick="refreshRAGUploadJob(${jsArg(job.id || data.job_id || 0)})">刷新状态</button>
+            </div>
+            <div class="rag-upload-progress" aria-label="知识入库进度">
+                <span data-upload-progress style="width:${progress}%"></span>
+            </div>
+            <div class="rag-upload-telemetry">
+                <span data-upload-progress-text>进度 ${progress}%</span>
+                <span data-upload-chunks>子区块 ${files.reduce((sum, item) => sum + Number(item.chunk_count || 0), 0)}</span>
+                <span data-upload-entities>实体 ${files.reduce((sum, item) => sum + Number(item.entity_count || 0), 0)}</span>
+                <span data-upload-relations>关系 ${files.reduce((sum, item) => sum + Number(item.relation_count || 0), 0)}</span>
+            </div>
+            <div class="rag-status-line warning" data-upload-warning style="${normalized.poll_error ? '' : 'display:none;'}">${normalized.poll_error ? `轮询暂时失败：${escapeHTML(normalized.poll_error)}。系统会继续重试，你也可以手动刷新。` : ''}</div>
+            <div class="rag-upload-file-list">
+                ${files.map((item, index) => {
+                    const fileStatus = item.status || (item.success ? 'completed' : 'pending');
+                    const ok = fileStatus === 'completed' || item.success;
+                    const failedFile = fileStatus === 'failed';
+                    return `
+                        <div class="rag-upload-file ${escapeHTML(fileStatus)}" data-file-index="${index}">
+                            <div>
+                                <strong>${escapeHTML(item.file_name || '')}</strong>
+                                <span data-file-status>${escapeHTML(ragUploadStatusLabel(fileStatus))}${item.msg ? ' · ' + escapeHTML(item.msg) : ''}</span>
+                            </div>
+                            <div class="rag-upload-file-stats">
+                                <span data-file-chunks>子区块 ${ok ? Number(item.chunk_count || 0) : '-'}</span>
+                                <span data-file-entities>实体 ${ok ? Number(item.entity_count || 0) : '-'}</span>
+                                <span data-file-relations>关系 ${ok ? Number(item.relation_count || 0) : '-'}</span>
+                                <span data-file-danger class="danger" style="${failedFile ? '' : 'display:none;'}">需要重试</span>
+                            </div>
+                        </div>
+                    `;
+                }).join('') || '<div class="empty-tip">没有处理任何文件。</div>'}
+            </div>
+        </div>
+    `;
+}
+
+function updateRAGUploadFileRow(root, item, index) {
+    const row = root.querySelector(`[data-file-index="${index}"]`);
+    if (!row) return;
+    const fileStatus = item.status || (item.success ? 'completed' : 'pending');
+    const ok = fileStatus === 'completed' || item.success;
+    row.className = `rag-upload-file ${fileStatus}`;
+    const statusEl = row.querySelector('[data-file-status]');
+    if (statusEl) statusEl.textContent = `${ragUploadStatusLabel(fileStatus)}${item.msg ? ' · ' + item.msg : ''}`;
+    const chunksEl = row.querySelector('[data-file-chunks]');
+    const entitiesEl = row.querySelector('[data-file-entities]');
+    const relationsEl = row.querySelector('[data-file-relations]');
+    const dangerEl = row.querySelector('[data-file-danger]');
+    if (chunksEl) chunksEl.textContent = `子区块 ${ok ? Number(item.chunk_count || 0) : '-'}`;
+    if (entitiesEl) entitiesEl.textContent = `实体 ${ok ? Number(item.entity_count || 0) : '-'}`;
+    if (relationsEl) relationsEl.textContent = `关系 ${ok ? Number(item.relation_count || 0) : '-'}`;
+    if (dangerEl) dangerEl.style.display = fileStatus === 'failed' ? '' : 'none';
+}
+
+async function refreshRAGUploadJob(jobID) {
+    const resultEl = document.getElementById('rag-ingest-result');
+    if (!jobID || !resultEl) return;
+    const resp = await ragAPI.uploadStatus(jobID);
+    const data = responsePayload(resp);
+    if (responseOK(resp)) {
+        renderRAGUploadJob(data, resultEl);
+        upsertRAGUploadJob(data);
+        if (data.job?.status === 'completed') await loadKnowledgeSidebar();
+    } else {
+        showToast(resp?.message || resp?.data?.msg || '刷新上传任务失败', 'error');
+    }
+}
+
+async function pollRAGUploadJob(jobID, resultEl, attempt = 0) {
+    if (!jobID) return;
+    if (attempt > 240) {
+        patchRAGUploadJob(jobID, { status: 'stalled', poll_error: '超过最大轮询次数，任务可能仍在后台运行，请手动刷新确认。', poll_attempt: attempt });
+        const liveResultEl = document.getElementById('rag-ingest-result') || resultEl;
+        if (liveResultEl) renderRAGUploadJob(ragUploadJobs[String(jobID)], liveResultEl);
+        return;
+    }
+    await new Promise(resolve => setTimeout(resolve, attempt < 8 ? 1200 : 2500));
+    let resp = null;
+    try {
+        resp = await ragAPI.uploadStatus(jobID);
+    } catch (err) {
+        resp = null;
+    }
+    const data = responsePayload(resp);
+    if (!responseOK(resp)) {
+        const message = resp?.message || resp?.data?.msg || '网络或服务暂时不可用';
+        patchRAGUploadJob(jobID, { poll_error: message, poll_attempt: attempt + 1 });
+        const liveResultEl = document.getElementById('rag-ingest-result') || resultEl;
+        if (liveResultEl) renderRAGUploadJob(ragUploadJobs[String(jobID)], liveResultEl);
+        pollRAGUploadJob(jobID, resultEl, attempt + 1);
+        return;
+    }
+    const liveResultEl = document.getElementById('rag-ingest-result') || resultEl;
+    if (liveResultEl) renderRAGUploadJob(data, liveResultEl);
+    upsertRAGUploadJob({ ...data, poll_error: '' });
+    const status = data.job?.status;
+    if (status === 'completed' || status === 'failed') {
+        await loadKnowledgeSidebar();
+        showToast(status === 'completed' ? 'RAG 文件入库完成' : 'RAG 文件入库任务失败', status === 'completed' ? 'success' : 'error');
+        return;
+    }
+    pollRAGUploadJob(jobID, resultEl, attempt + 1);
 }
 
 function clearRAGIngestForm() {
@@ -2114,49 +2819,155 @@ async function runRAGSearch() {
         return;
     }
     const resultEl = document.getElementById('rag-search-result');
-    resultEl.innerHTML = '<div class="empty-tip">正在执行 Adaptive RAG...</div>';
-    const resp = await ragAPI.search({
-        query,
-        mode: document.getElementById('rag-mode').value,
-        limit: 8,
-    });
-    if (!(resp && resp.code === 0 && resp.data?.success)) {
-        resultEl.innerHTML = `<div class="rag-status-line error">${escapeHTML(resp?.message || resp?.data?.msg || '检索失败')}</div>`;
+    const mode = document.getElementById('rag-mode').value;
+    const documentID = idString(document.getElementById('rag-document-scope')?.value) || idString(ragSearchDocumentID);
+    renderRAGSearchLoading(resultEl, { query, mode, documentID });
+    let resp = null;
+    try {
+        resp = await ragAPI.search({
+            query,
+            mode,
+            document_id: documentID,
+            limit: 8,
+        });
+    } catch (err) {
+        resp = null;
+    } finally {
+        stopRAGSearchTimer();
+    }
+    const data = responsePayload(resp);
+    if (!responseOK(resp)) {
+        resultEl.innerHTML = `<div class="rag-status-line error">${escapeHTML(resp?.message || resp?.data?.msg || '检索失败。如果长时间停在检索中，通常是 rag-service / 模型调用 / 网关超时导致，请查看服务日志。')}</div>`;
         return;
     }
-    const data = resp.data;
-    const check = data.self_check || {};
+    renderRAGSearchResult(resultEl, data, { mode, documentID });
+    const normalized = normalizeRAGSearchResult(data);
+    ragGraphCache = { nodes: normalized.graph_nodes || [], edges: normalized.graph_edges || [], communities: [] };
+}
+
+function stopRAGSearchTimer() {
+    if (ragSearchTimer) {
+        clearInterval(ragSearchTimer);
+        ragSearchTimer = null;
+    }
+}
+
+function renderRAGSearchLoading(resultEl, context) {
+    stopRAGSearchTimer();
+    const start = Date.now();
+    const title = context.mode === 'document' ? '正在执行文档检索' : context.mode === 'hybrid' ? '正在执行混合检索' : context.mode === 'graphrag' ? '正在查询知识图谱' : '正在执行 Adaptive RAG';
+    resultEl.innerHTML = `
+        <div class="rag-loading-card">
+            <div class="rag-loading-orbit"><span></span></div>
+            <div class="rag-loading-main">
+                <strong>${escapeHTML(title)}</strong>
+                <p data-rag-loading-stage>正在检索、重排和质检 · 已用时 0s</p>
+                <div class="rag-loading-steps">
+                    <span class="active" data-step="route">路由</span>
+                    <span data-step="retrieve">召回</span>
+                    <span data-step="rerank">Rerank</span>
+                    <span data-step="answer">总结</span>
+                </div>
+                <small>问题：${escapeHTML(context.query)}${context.documentID ? ` · 范围：${escapeHTML(selectedRAGDocumentName())}` : ''}</small>
+                <em data-rag-loading-hint>如果超过 45 秒，页面会保留状态并提示可能的服务或模型超时。</em>
+            </div>
+        </div>
+    `;
+    const paint = () => {
+        const elapsed = Date.now() - start;
+        const stage = elapsed > 45000 ? '仍在等待服务返回，可能是模型或 RPC 超时' : (elapsed > 15000 ? '正在等待模型总结和自检' : '正在检索、重排和质检');
+        const stageEl = resultEl.querySelector('[data-rag-loading-stage]');
+        if (stageEl) stageEl.textContent = `${stage} · 已用时 ${formatElapsed(elapsed)}`;
+        resultEl.querySelector('[data-step="retrieve"]')?.classList.toggle('active', elapsed > 1200);
+        resultEl.querySelector('[data-step="rerank"]')?.classList.toggle('active', elapsed > 3000);
+        resultEl.querySelector('[data-step="answer"]')?.classList.toggle('active', elapsed > 5200);
+        const hintEl = resultEl.querySelector('[data-rag-loading-hint]');
+        if (hintEl && elapsed > 45000) hintEl.textContent = '已等待较久：请检查 rag-service、模型配置或网关 RPC timeout。当前请求仍在等待返回。';
+    };
+    paint();
+    ragSearchTimer = setInterval(paint, 1000);
+}
+
+function renderRAGSearchResult(resultEl, data, context) {
+    const normalized = normalizeRAGSearchResult(data);
+    const check = normalized.self_check || {};
     resultEl.innerHTML = `
         <div class="rag-answer">
             <div class="rag-meta-strip">
-                <span>路线：${escapeHTML(ragRouteLabel(data.route))}</span>
-                <span>CRAG：${escapeHTML(cragLabel(data.crag_action))}</span>
+                <span>范围：${escapeHTML(context.documentID ? selectedRAGDocumentName() : '全部知识库')}</span>
+                <span>模式：${escapeHTML(context.mode === 'document' ? '文档检索' : context.mode === 'hybrid' ? '混合检索' : context.mode === 'graphrag' ? '知识图谱' : '自适应')}</span>
+                <span>路线：${escapeHTML(ragRouteLabel(normalized.route))}</span>
+                <span>CRAG：${escapeHTML(cragLabel(normalized.crag_action))}</span>
                 <span>Retrieve：${check.retrieve ? '是' : '否'}</span>
                 <span>IsRel：${check.is_rel ? '通过' : '未通过'}</span>
                 <span>IsSup：${check.is_sup ? '通过' : '不足'}</span>
                 <span>IsUse：${check.is_use ? '有用' : '不足'}</span>
             </div>
-            <div class="rag-answer-text">${renderMarkdownText(data.answer || '')}</div>
-            ${check.note ? `<p class="rag-note">${escapeHTML(check.note)}</p>` : ''}
+            <div class="rag-answer-label">AI 总结</div>
+            <div class="rag-answer-text">${renderMarkdownText(normalized.answer || '当前没有生成模型总结。请检查 RAG 回答模型配置，或查看下方命中来源。')}</div>
+            ${check.note ? `<details class="rag-note"><summary>检索诊断</summary><p>${escapeHTML(check.note)}</p></details>` : ''}
         </div>
         <div class="rag-sources">
-            <h3>来源</h3>
-            ${(data.sources || []).length ? data.sources.map(src => `
-                <div class="data-row">
-                    <div class="data-row-main">
-                        <strong>${escapeHTML(src.title || '未知文档')}</strong>
-                        <span>${renderMarkdownText(src.content || '')}</span>
-                    </div>
-                    <div class="data-row-meta">
-                        <span>score ${Number(src.score || 0).toFixed(3)}</span>
-                        <span>${escapeHTML(src.reason || '')}</span>
-                        <span>${escapeHTML(src.source || '')}</span>
-                    </div>
-                </div>
-            `).join('') : '<div class="empty-tip">没有命中内部来源。</div>'}
+            <div class="rag-source-head">
+                <h3>命中来源</h3>
+                <span>${Number((normalized.sources || []).length)} 条，可展开查看原文和命中信息</span>
+            </div>
+            ${(normalized.sources || []).length ? normalized.sources.map(renderRAGSourceCard).join('') : '<div class="empty-tip">没有命中内部来源。</div>'}
         </div>
     `;
-    ragGraphCache = { nodes: data.graph_nodes || [], edges: data.graph_edges || [], communities: [] };
+}
+
+function normalizeRAGSearchResult(data = {}) {
+    const self = valueOfAny(data, 'self_check', 'SelfCheck') || {};
+    return {
+        answer: valueOfAny(data, 'answer', 'Answer') || '',
+        route: valueOfAny(data, 'route', 'Route') || '',
+        crag_action: valueOfAny(data, 'crag_action', 'CragAction') || '',
+        self_check: {
+            retrieve: !!valueOfAny(self, 'retrieve', 'Retrieve'),
+            is_rel: !!valueOfAny(self, 'is_rel', 'IsRel'),
+            is_sup: !!valueOfAny(self, 'is_sup', 'IsSup'),
+            is_use: !!valueOfAny(self, 'is_use', 'IsUse'),
+            note: valueOfAny(self, 'note', 'Note') || '',
+        },
+        sources: valueOfAny(data, 'sources', 'Sources') || [],
+        graph_nodes: valueOfAny(data, 'graph_nodes', 'GraphNodes') || [],
+        graph_edges: valueOfAny(data, 'graph_edges', 'GraphEdges') || [],
+    };
+}
+
+function renderRAGSourceCard(src, index) {
+    const documentID = valueOfAny(src, 'document_id', 'DocumentId') || '';
+    const chunkID = valueOfAny(src, 'chunk_id', 'ChunkId') || '';
+    const title = valueOfAny(src, 'title', 'Title') || '未知文档';
+    const source = valueOfAny(src, 'source', 'Source') || '无来源路径';
+    const reason = valueOfAny(src, 'reason', 'Reason') || '';
+    const content = valueOfAny(src, 'content', 'Content') || '';
+    const score = Number(valueOfAny(src, 'score', 'Score') || 0);
+    return `
+        <article class="rag-source-card">
+            <header>
+                <div>
+                    <span class="rag-source-index">#${index + 1}</span>
+                    <strong>${escapeHTML(title)}</strong>
+                    <small>${escapeHTML(source)}</small>
+                </div>
+                <div class="rag-source-score">
+                    <span>${score.toFixed(3)}</span>
+                    <small>score</small>
+                </div>
+            </header>
+            <div class="rag-source-meta">
+                ${documentID ? `<span>文档 ${escapeHTML(String(documentID))}</span>` : ''}
+                ${chunkID ? `<span>Chunk ${escapeHTML(String(chunkID))}</span>` : ''}
+                ${reason ? `<span>${escapeHTML(reason)}</span>` : ''}
+            </div>
+            <details>
+                <summary>查看命中原文</summary>
+                <div class="rag-source-content">${renderMarkdownText(content)}</div>
+            </details>
+        </article>
+    `;
 }
 
 async function loadRAGGraph() {
@@ -2247,10 +3058,92 @@ function focusRAGNode(nodeID) {
     `;
 }
 
-const knowledgeTypeOptions = ['Service', 'DatabaseTable', 'EventTopic', 'API', 'Module', 'Concept', 'Person', 'Organization', 'Product'];
-const knowledgeRelationOptions = ['CALLS', 'PUBLISHES', 'CONSUMES', 'STORES', 'OWNS', 'DEPENDS_ON', 'CONFIGURES', 'TRIGGERS', 'READS', 'WRITES', 'RELATED_TO'];
+const knowledgeTypeOptions = ['Service', 'Data', 'Event', 'Interface', 'Concept'];
+const knowledgeRelationOptions = ['CALLS', 'EVENT_FLOW', 'DATA_FLOW', 'DEPENDS_ON', 'RELATED_TO'];
+const knowledgeTypeLabels = {
+    Service: '服务',
+    Data: '数据',
+    Event: '事件',
+    Interface: '接口/模块',
+    PersonOrg: '人/组织',
+    DatabaseTable: '数据表',
+    EventTopic: '事件主题',
+    API: '接口',
+    Module: '模块',
+    Concept: '概念',
+    Person: '人员',
+    Organization: '组织',
+    Product: '产品',
+};
+const knowledgeRelationLabels = {
+    CALLS: '调用',
+    EVENT_FLOW: '事件流',
+    DATA_FLOW: '数据流',
+    PUBLISHES: '发布',
+    CONSUMES: '消费',
+    STORES: '存储',
+    OWNS: '负责',
+    DEPENDS_ON: '依赖',
+    CONFIGURES: '配置',
+    TRIGGERS: '触发',
+    READS: '读取',
+    WRITES: '写入',
+    RELATED_TO: '相关',
+};
 
-async function showKnowledgeGraphWorkspace(seedQuery = '') {
+function knowledgeTypeLabel(type) {
+    return knowledgeTypeLabels[type] || type || '概念';
+}
+
+function knowledgeRelationLabel(relation) {
+    return knowledgeRelationLabels[relation] || relation || '相关';
+}
+
+function knowledgeDisplayType(type) {
+    switch (type) {
+        case 'API':
+        case 'Module':
+            return 'Interface';
+        case 'DatabaseTable':
+        case 'Product':
+            return 'Data';
+        case 'EventTopic':
+            return 'Event';
+        case 'Person':
+        case 'Organization':
+        case 'PersonOrg':
+            return 'Concept';
+        case 'Service':
+        case 'Data':
+        case 'Event':
+        case 'Interface':
+        case 'Concept':
+            return type;
+        default:
+            return 'Concept';
+    }
+}
+
+function knowledgeDisplayRelation(relation) {
+    switch (relation) {
+        case 'PUBLISHES':
+        case 'CONSUMES':
+        case 'TRIGGERS':
+            return 'EVENT_FLOW';
+        case 'READS':
+        case 'WRITES':
+        case 'STORES':
+            return 'DATA_FLOW';
+        case 'CALLS':
+        case 'DEPENDS_ON':
+        case 'RELATED_TO':
+            return relation;
+        default:
+            return 'RELATED_TO';
+    }
+}
+
+async function showKnowledgeGraphWorkspace(seedQuery = '', seedDocumentID = 0) {
     activateStandaloneWorkspace('knowledge');
     document.getElementById('chat-area').style.display = 'none';
     const welcome = document.getElementById('welcome-area');
@@ -2266,6 +3159,7 @@ async function showKnowledgeGraphWorkspace(seedQuery = '') {
                 <div class="knowledge-hero-stats" id="knowledge-hero-stats">
                     <span>实体 0</span><span>关系 0</span><span>社区 0</span>
                 </div>
+                <button class="knowledge-back-btn" onclick="showKnowledgeHomeWorkspace()">返回知识工作台</button>
             </section>
             <section class="knowledge-toolbar">
                 <div class="knowledge-search">
@@ -2273,16 +3167,23 @@ async function showKnowledgeGraphWorkspace(seedQuery = '') {
                     <button class="btn-primary" onclick="loadKnowledgeGraph()">搜索图谱</button>
                     <button class="btn-secondary" onclick="resetKnowledgeGraphView()">重置视图</button>
                 </div>
+                <div class="knowledge-filter-row document-scope">
+                    <label>文章范围</label>
+                    <select id="knowledge-document-select" class="form-select" onchange="loadKnowledgeGraph()">
+                        <option value="0">全部文档</option>
+                    </select>
+                    <button class="btn-small danger-soft" onclick="deleteSelectedKnowledgeGraph()">删除该文图谱</button>
+                </div>
                 <div class="knowledge-filter-row">
                     <label>实体类型</label>
                     <div id="knowledge-type-filters" class="knowledge-chip-group">
-                        ${knowledgeTypeOptions.map(type => `<button class="knowledge-chip" data-value="${escapeHTML(type)}" onclick="toggleKnowledgeFilter(this)">${escapeHTML(type)}</button>`).join('')}
+                        ${knowledgeTypeOptions.map(type => `<button class="knowledge-chip" data-value="${escapeHTML(type)}" onclick="toggleKnowledgeFilter(this)">${escapeHTML(knowledgeTypeLabel(type))}</button>`).join('')}
                     </div>
                 </div>
                 <div class="knowledge-filter-row">
                     <label>关系类型</label>
                     <div id="knowledge-relation-filters" class="knowledge-chip-group compact">
-                        ${knowledgeRelationOptions.map(type => `<button class="knowledge-chip relation" data-value="${escapeHTML(type)}" onclick="toggleKnowledgeFilter(this)">${escapeHTML(type)}</button>`).join('')}
+                        ${knowledgeRelationOptions.map(type => `<button class="knowledge-chip relation" data-value="${escapeHTML(type)}" onclick="toggleKnowledgeFilter(this)">${escapeHTML(knowledgeRelationLabel(type))}</button>`).join('')}
                     </div>
                 </div>
                 <div class="knowledge-filter-row split">
@@ -2321,6 +3222,7 @@ async function showKnowledgeGraphWorkspace(seedQuery = '') {
         </div>
     `;
     await loadKnowledgeSidebar();
+    await syncKnowledgeDocumentOptions(seedDocumentID);
     await loadKnowledgeGraph();
     await loadKnowledgeReviewCandidates();
 }
@@ -2340,9 +3242,27 @@ function currentKnowledgeQueryOptions() {
         types: selectedKnowledgeFilters('knowledge-type-filters'),
         relations: selectedKnowledgeFilters('knowledge-relation-filters'),
         communityID: document.getElementById('knowledge-community-select')?.value || 0,
+        documentID: idString(document.getElementById('knowledge-document-select')?.value),
         hops: Number(document.getElementById('knowledge-hop-select')?.value || 1),
-        limit: 180,
+        limit: 120,
     };
+}
+
+async function syncKnowledgeDocumentOptions(selectedID = 0) {
+    const select = document.getElementById('knowledge-document-select');
+    if (!select) return;
+    const selectedIDString = String(selectedID || select.value || '0');
+    if (!ragDocumentsCache.length || (selectedIDString !== '0' && !ragDocumentsCache.some(doc => sameID(doc.id, selectedIDString)))) {
+        const resp = await ragAPI.documents(80, 0);
+        if (resp && resp.code === 0 && resp.data?.success) {
+            ragDocumentsCache = resp.data.documents || [];
+        }
+    }
+    const current = selectedIDString;
+    select.innerHTML = `<option value="0">全部文档</option>` + (ragDocumentsCache || []).map(doc => `
+        <option value="${escapeHTML(String(doc.id || 0))}">${escapeHTML(doc.title || doc.source || '未命名文档')} · ${Number(doc.chunk_count || 0)}块</option>
+    `).join('');
+    select.value = Array.from(select.options).some(opt => opt.value === current) ? current : '0';
 }
 
 async function loadKnowledgeGraph() {
@@ -2350,12 +3270,13 @@ async function loadKnowledgeGraph() {
     if (!canvas) return;
     canvas.innerHTML = '<div class="empty-tip">正在向 knowledge-service 查询图谱视图...</div>';
     const resp = await knowledgeAPI.graph(currentKnowledgeQueryOptions());
-    if (!(resp && resp.code === 0 && resp.data?.success)) {
+    const data = responsePayload(resp);
+    if (!responseOK(resp)) {
         canvas.innerHTML = `<div class="empty-tip">图谱加载失败<br><small>${escapeHTML(resp?.message || resp?.data?.msg || '请确认 knowledge-service / rag-service 已启动')}</small></div>`;
         return;
     }
-    knowledgeGraphCache = resp.data;
-    syncKnowledgeCommunityOptions(resp.data.communities || []);
+    knowledgeGraphCache = data;
+    syncKnowledgeCommunityOptions(data.communities || []);
     renderKnowledgeGraph();
 }
 
@@ -2381,14 +3302,25 @@ function renderKnowledgeGraph() {
         heroStats.innerHTML = `<span>实体 ${stats.node_count ?? nodes.length}</span><span>关系 ${stats.edge_count ?? edges.length}</span><span>社区 ${stats.community_count ?? communities.length}</span>`;
     }
     if (summary) {
+        const typeLabels = uniqueArray((stats.types || []).map(type => knowledgeTypeLabel(knowledgeDisplayType(type))));
+        const relationLabels = uniqueArray((stats.relations || []).map(type => knowledgeRelationLabel(knowledgeDisplayRelation(type))));
         summary.innerHTML = `
-            <span>类型：${(stats.types || []).map(escapeHTML).join(' / ') || '暂无'}</span>
-            <span>关系：${(stats.relations || []).map(escapeHTML).join(' / ') || '暂无'}</span>
+            <span>范围：${escapeHTML(selectedKnowledgeDocumentName())}</span>
+            <span>类型：${typeLabels.join(' / ') || '暂无'}</span>
+            <span>关系：${relationLabels.join(' / ') || '暂无'}</span>
             ${communities.slice(0, 3).map(c => `<span style="--community-color:${escapeHTML(c.color || '#64748b')}">${escapeHTML(c.name || '社区')}</span>`).join('')}
         `;
     }
     if (!nodes.length) {
-        canvas.innerHTML = '<div class="empty-tip">暂无图谱节点<br><small>先上传文档或放宽过滤条件。</small></div>';
+        const documentID = currentKnowledgeQueryOptions().documentID;
+        const reason = data.msg || data.Msg || '';
+        canvas.innerHTML = `
+            <div class="empty-tip">
+                暂无图谱节点
+                <br>
+                <small>${escapeHTML(reason || (documentID ? '该文档当前没有可展示的实体/关系。可以重新入库、删除该文图谱后重建，或放宽过滤条件。' : '先上传文档，或清空搜索与类型过滤条件。'))}</small>
+            </div>
+        `;
         renderKnowledgeEmptyDetail();
         return;
     }
@@ -2405,15 +3337,35 @@ function renderKnowledgeGraph() {
     applyKnowledgePathHighlight();
 }
 
+function selectedKnowledgeDocumentName() {
+    const select = document.getElementById('knowledge-document-select');
+    if (!select || !select.value || select.value === '0') return '全部文档';
+    return select.options[select.selectedIndex]?.textContent || '指定文档';
+}
+
+async function deleteSelectedKnowledgeGraph() {
+    const documentID = idString(document.getElementById('knowledge-document-select')?.value);
+    if (!documentID) {
+        showToast('请先选择一篇具体文章', 'warning');
+        return;
+    }
+    await deleteRAGDocumentGraph(documentID, selectedKnowledgeDocumentName());
+}
+
+function uniqueArray(values) {
+    return Array.from(new Set((values || []).filter(Boolean)));
+}
+
 function renderKnowledgeG6(nodes, edges) {
     const container = document.getElementById('knowledge-g6-container');
     if (!container) return;
     const width = container.clientWidth || 900;
     const height = container.clientHeight || 620;
+    const showEdgeLabels = edges.length <= 18;
     const graphData = {
         nodes: nodes.map(node => ({
             id: String(node.id),
-            label: node.name,
+            label: truncateKnowledgeLabel(node.name || '', 22),
             data: node,
             size: node.size || 34,
             style: {
@@ -2432,7 +3384,7 @@ function renderKnowledgeG6(nodes, edges) {
             id: String(edge.id),
             source: String(edge.source_id),
             target: String(edge.target_id),
-            label: edge.relation,
+            label: showEdgeLabels ? knowledgeRelationLabel(edge.relation) : '',
             data: edge,
             style: {
                 stroke: edge.color || '#64748b',
@@ -2456,9 +3408,9 @@ function renderKnowledgeG6(nodes, edges) {
         layout: {
             type: 'force',
             preventOverlap: true,
-            nodeStrength: -360,
-            edgeStrength: 0.18,
-            linkDistance: 160,
+            nodeStrength: -430,
+            edgeStrength: 0.10,
+            linkDistance: 220,
         },
         modes: {
             default: ['drag-canvas', 'zoom-canvas', 'drag-node', 'activate-relations'],
@@ -2508,6 +3460,42 @@ function clearKnowledgeGraphSelection() {
     knowledgeGraphInstance.getEdges().forEach(item => knowledgeGraphInstance.clearItemStates(item, ['selected']));
 }
 
+function truncateKnowledgeLabel(value, limit = 22) {
+    const text = String(value || '').trim();
+    if (text.length <= limit) return text;
+    return `${text.slice(0, limit)}...`;
+}
+
+function knowledgeEntityIntro(node) {
+    const type = knowledgeDisplayType(node?.type || 'Concept');
+    const label = knowledgeTypeLabel(type);
+    const summary = String(node?.summary || '').trim();
+    if (summary) return summary;
+    const templates = {
+        Service: '这是文档中识别出的服务或网关节点，通常代表一个可调用、可部署或负责业务流程的系统组件。',
+        Data: '这是文档中识别出的数据节点，通常代表数据表、配置、存储对象或业务数据集合。',
+        Event: '这是文档中识别出的事件节点，通常代表消息主题、事件流或异步通知入口。',
+        Interface: '这是文档中识别出的接口或模块节点，通常代表可被调用的 API、模块边界或功能入口。',
+        Concept: '这是文档中识别出的概念节点，通常代表业务概念、项目术语或讨论主题。',
+    };
+    return `${label}：${templates[type] || templates.Concept}`;
+}
+
+function knowledgeRelationIntro(edge) {
+    const relation = knowledgeDisplayRelation(edge?.relation || 'RELATED_TO');
+    const label = knowledgeRelationLabel(relation);
+    const description = String(edge?.description || '').trim();
+    if (description) return description;
+    const templates = {
+        CALLS: '调用关系：源实体会调用、依赖调用或触发目标实体的能力。',
+        EVENT_FLOW: '事件流关系：源实体会发布、消费或触发目标事件，表示异步消息流动。',
+        DATA_FLOW: '数据流关系：源实体会读取、写入或存储目标数据，表示数据读写路径。',
+        DEPENDS_ON: '依赖关系：源实体需要目标实体提供配置、能力或上下文才能完成工作。',
+        RELATED_TO: '相关关系：两个实体在同一段文档上下文中被关联提及，但关系方向或类型不够强。',
+    };
+    return `${label}：${templates[relation] || templates.RELATED_TO}`;
+}
+
 function renderKnowledgeSVGFallback(canvas, nodes, edges) {
     const width = 980;
     const height = 620;
@@ -2523,7 +3511,7 @@ function renderKnowledgeSVGFallback(canvas, nodes, edges) {
         const s = nodeMap[String(edge.source_id)];
         const t = nodeMap[String(edge.target_id)];
         if (!s || !t) return '';
-        return `<line x1="${s.x}" y1="${s.y}" x2="${t.x}" y2="${t.y}" class="knowledge-svg-edge" onclick="renderKnowledgeEdgeDetail(${jsStringArg(edge.id)})"><title>${escapeHTML(edge.relation || '')}：${escapeHTML(edge.evidence || '')}</title></line>`;
+        return `<line x1="${s.x}" y1="${s.y}" x2="${t.x}" y2="${t.y}" class="knowledge-svg-edge" onclick="renderKnowledgeEdgeDetail(${jsStringArg(edge.id)})"><title>${escapeHTML(knowledgeRelationLabel(edge.relation))}：${escapeHTML(edge.evidence || '')}</title></line>`;
     }).join('');
     const nodeHTML = positioned.map(node => `
         <g class="knowledge-svg-node" onclick="renderKnowledgeNodeDetail(${jsStringArg(node.id)})">
@@ -2550,12 +3538,12 @@ async function renderKnowledgeNodeDetail(nodeID) {
             <span class="knowledge-node-dot" style="background:${escapeHTML(node.color || '#0ea5e9')}"></span>
             <div>
                 <h3>${escapeHTML(node.name || '实体')}</h3>
-                <p>${escapeHTML(node.type || 'Concept')} · 度数 ${node.degree || 0} · score ${Number(node.score || 0).toFixed(2)}</p>
+                <p>${escapeHTML(knowledgeTypeLabel(node.type || 'Concept'))} · 度数 ${node.degree || 0} · score ${Number(node.score || 0).toFixed(2)}</p>
             </div>
         </div>
         <div class="knowledge-detail-section">
             <strong>实体说明</strong>
-            <p>${escapeHTML(node.summary || '暂无说明')}</p>
+            <p>${escapeHTML(knowledgeEntityIntro(node))}</p>
         </div>
         <div class="knowledge-detail-actions">
             <button class="btn-small ghost" onclick="loadKnowledgeNeighborhood(${jsStringArg(node.id)})">查看邻域</button>
@@ -2565,13 +3553,13 @@ async function renderKnowledgeNodeDetail(nodeID) {
         </div>
         <div class="knowledge-detail-section">
             <strong>相邻节点</strong>
-            ${(detail.neighbors || []).length ? detail.neighbors.map(n => `<button class="knowledge-neighbor" onclick="renderKnowledgeNodeDetail(${jsStringArg(n.id)})">${escapeHTML(n.name || '')}<span>${escapeHTML(n.type || '')}</span></button>`).join('') : '<p>暂无相邻节点</p>'}
+            ${(detail.neighbors || []).length ? detail.neighbors.map(n => `<button class="knowledge-neighbor" onclick="renderKnowledgeNodeDetail(${jsStringArg(n.id)})">${escapeHTML(n.name || '')}<span>${escapeHTML(knowledgeTypeLabel(n.type || 'Concept'))}</span></button>`).join('') : '<p>暂无相邻节点</p>'}
         </div>
         <div class="knowledge-detail-section">
             <strong>相关关系</strong>
             ${(detail.relations || []).length ? detail.relations.map(edge => `
                 <button class="knowledge-relation-row" onclick="renderKnowledgeEdgeDetail(${jsStringArg(edge.id)})">
-                    <span>${escapeHTML(edge.relation || 'RELATED_TO')}</span>
+                    <span>${escapeHTML(knowledgeRelationLabel(edge.relation || 'RELATED_TO'))}</span>
                     <small>${escapeHTML(edge.evidence || edge.description || '')}</small>
                 </button>
             `).join('') : '<p>暂无关系</p>'}
@@ -2596,13 +3584,13 @@ async function renderKnowledgeEdgeDetail(edgeID) {
         <div class="knowledge-detail-head relation">
             <span class="knowledge-node-dot" style="background:${escapeHTML(edge.color || '#64748b')}"></span>
             <div>
-                <h3>${escapeHTML(edge.relation || 'RELATED_TO')}</h3>
+                <h3>${escapeHTML(knowledgeRelationLabel(edge.relation || 'RELATED_TO'))}</h3>
                 <p>${escapeHTML(detail.source?.name || '源实体')} -> ${escapeHTML(detail.target?.name || '目标实体')}</p>
             </div>
         </div>
         <div class="knowledge-detail-section">
             <strong>关系说明</strong>
-            <p>${escapeHTML(edge.description || '暂无说明')}</p>
+            <p>${escapeHTML(knowledgeRelationIntro(edge))}</p>
         </div>
         <div class="knowledge-detail-section">
             <strong>证据来源</strong>
@@ -2612,8 +3600,8 @@ async function renderKnowledgeEdgeDetail(edgeID) {
             <button class="btn-small" onclick="submitKnowledgeReviewCandidate('edge', ${jsStringArg(edge.id)})">提交审核</button>
         </div>
         <div class="knowledge-detail-section two-cols">
-            <button class="knowledge-neighbor" onclick="renderKnowledgeNodeDetail(${jsStringArg(detail.source?.id || 0)})">${escapeHTML(detail.source?.name || '源实体')}<span>${escapeHTML(detail.source?.type || '')}</span></button>
-            <button class="knowledge-neighbor" onclick="renderKnowledgeNodeDetail(${jsStringArg(detail.target?.id || 0)})">${escapeHTML(detail.target?.name || '目标实体')}<span>${escapeHTML(detail.target?.type || '')}</span></button>
+            <button class="knowledge-neighbor" onclick="renderKnowledgeNodeDetail(${jsStringArg(detail.source?.id || 0)})">${escapeHTML(detail.source?.name || '源实体')}<span>${escapeHTML(knowledgeTypeLabel(detail.source?.type || 'Concept'))}</span></button>
+            <button class="knowledge-neighbor" onclick="renderKnowledgeNodeDetail(${jsStringArg(detail.target?.id || 0)})">${escapeHTML(detail.target?.name || '目标实体')}<span>${escapeHTML(knowledgeTypeLabel(detail.target?.type || 'Concept'))}</span></button>
         </div>
         <div id="knowledge-review-panel" class="knowledge-review-panel"></div>
     `;
@@ -2709,6 +3697,8 @@ function resetKnowledgeGraphView() {
     if (hops) hops.value = '1';
     const community = document.getElementById('knowledge-community-select');
     if (community) community.value = '0';
+    const documentSelect = document.getElementById('knowledge-document-select');
+    if (documentSelect) documentSelect.value = '0';
     loadKnowledgeGraph();
 }
 
@@ -2736,13 +3726,13 @@ async function loadKnowledgeNeighborhood(nodeID) {
 
 function setKnowledgePathPoint(kind, nodeID) {
     if (kind === 'source') {
-        knowledgePathSelection.sourceID = Number(nodeID || 0);
+        knowledgePathSelection.sourceID = idString(nodeID);
     } else {
-        knowledgePathSelection.targetID = Number(nodeID || 0);
+        knowledgePathSelection.targetID = idString(nodeID);
     }
     const panel = document.getElementById('knowledge-detail-panel');
-    const source = knowledgeGraphCache.nodes?.find(n => Number(n.id) === Number(knowledgePathSelection.sourceID));
-    const target = knowledgeGraphCache.nodes?.find(n => Number(n.id) === Number(knowledgePathSelection.targetID));
+    const source = knowledgeGraphCache.nodes?.find(n => sameID(n.id, knowledgePathSelection.sourceID));
+    const target = knowledgeGraphCache.nodes?.find(n => sameID(n.id, knowledgePathSelection.targetID));
     if (panel) {
         const notice = document.createElement('div');
         notice.className = 'knowledge-path-notice';
@@ -2755,8 +3745,8 @@ function setKnowledgePathPoint(kind, nodeID) {
 }
 
 async function highlightKnowledgePath() {
-    const sourceID = knowledgePathSelection.sourceID || knowledgeGraphSelected?.id || 0;
-    const targetID = knowledgePathSelection.targetID || 0;
+    const sourceID = idString(knowledgePathSelection.sourceID) || idString(knowledgeGraphSelected?.id);
+    const targetID = idString(knowledgePathSelection.targetID);
     if (!sourceID || !targetID || sourceID === targetID) {
         showToast('请先在节点详情中设置不同的起点和终点');
         return;
@@ -2765,7 +3755,9 @@ async function highlightKnowledgePath() {
         sourceID,
         targetID,
         query: document.getElementById('knowledge-query')?.value.trim() || '',
-        limit: 180,
+        limit: 120,
+        documentID: currentKnowledgeQueryOptions().documentID,
+        hops: currentKnowledgeQueryOptions().hops,
     });
     if (!(resp && resp.code === 0 && resp.data?.success)) {
         showToast(resp?.message || resp?.data?.msg || '未找到可见路径');
@@ -2806,7 +3798,7 @@ function renderKnowledgePathDetail(path) {
             <strong>路径关系</strong>
             ${edges.length ? edges.map(edge => `
                 <button class="knowledge-relation-row" onclick="renderKnowledgeEdgeDetail(${jsStringArg(edge.id)})">
-                    <span>${escapeHTML(edge.relation || 'RELATED_TO')}</span>
+                    <span>${escapeHTML(knowledgeRelationLabel(edge.relation || 'RELATED_TO'))}</span>
                     <small>${escapeHTML(edge.evidence || edge.description || '')}</small>
                 </button>
             `).join('') : '<p>暂无路径关系</p>'}
@@ -4965,7 +5957,16 @@ async function renderLLMSettings() {
     area.innerHTML = `
             <div class="agent-help-box">
                 <strong>LLM 预设</strong>
-                <p>这里保存可复用的模型服务配置。创建 Agent、翻译消息或让 RAG 判断是否需要检索时可以直接选择这些预设，API Key 不会回显。</p>
+                <p>这里保存可复用的模型服务配置。创建 Agent、翻译消息、RAG 路由、向量化、OCR 和 Rerank 都可以选择这些预设；也可以测试项目内置默认模型。</p>
+            </div>
+            <div class="model-test-board">
+                <div>
+                    <strong>项目内置模型连通测试</strong>
+                    <span>使用 .env / yaml 中的默认模型配置，不需要在前端填写 API Key。</span>
+                </div>
+                <div class="model-test-actions">
+                    ${modelCapabilityOptions().map(item => `<button class="btn-small ghost" onclick="testBuiltinLLMSetting(${jsStringArg(item.value)})">${escapeHTML(item.label)}</button>`).join('')}
+                </div>
             </div>
             <input id="setting-llm-id" type="hidden" value="">
             <div class="settings-list">
@@ -4981,10 +5982,7 @@ async function renderLLMSettings() {
                 <div class="form-group">
                     <label>用途</label>
                     <select id="setting-llm-usage" class="form-select">
-                        <option value="translation">翻译</option>
-                        <option value="rag_router">RAG 路由小模型</option>
-                        <option value="agent">Agent</option>
-                        <option value="general">通用</option>
+                        ${modelCapabilityOptions().map(item => `<option value="${escapeHTML(item.value)}">${escapeHTML(item.label)}</option>`).join('')}
                     </select>
                     <small class="form-hint">RAG 路由小模型用于判断问题是否需要检索知识库；未配置时使用项目内置默认模型。</small>
                 </div>
@@ -5002,9 +6000,27 @@ async function renderLLMSettings() {
                 <input id="setting-llm-apikey" type="password" placeholder="留空则不写入；保存时会设置为新密钥">
             </div>
             <label class="checkbox-row"><input id="setting-llm-default" type="checkbox"><span>设为该用途默认配置</span></label>
-            <button class="btn-primary" onclick="saveLLMSetting()">保存 LLM 预设</button>
+            <div class="modal-actions">
+                <button class="btn-secondary" onclick="testLLMSettingForm()">测试连接</button>
+                <button class="btn-secondary" onclick="testBuiltinLLMSetting(document.getElementById('setting-llm-usage')?.value || 'general')">测试内置默认</button>
+                <button class="btn-primary" onclick="saveLLMSetting()">保存 LLM 预设</button>
+            </div>
+            <div id="setting-llm-test-result" class="settings-test-result"></div>
         </div>
     `;
+}
+
+function modelCapabilityOptions() {
+    return [
+        { value: 'agent', label: 'Agent 大模型' },
+        { value: 'rag_answer', label: 'RAG 回答模型' },
+        { value: 'rag_router', label: 'RAG 路由小模型' },
+        { value: 'embedding', label: '向量模型' },
+        { value: 'ocr', label: 'OCR 模型' },
+        { value: 'rerank', label: 'Rerank 模型' },
+        { value: 'translation', label: '翻译模型' },
+        { value: 'general', label: '通用模型' },
+    ];
 }
 
 function renderLLMProfileCard(profile) {
@@ -5019,6 +6035,7 @@ function renderLLMProfileCard(profile) {
                 <span>${profile.has_api_key ? '已保存密钥' : '未保存密钥'}</span>
             </div>
             <div class="data-row-actions">
+                <button class="btn-small ghost" onclick="testSavedLLMSetting(${jsArg(profile.id)}, ${jsStringArg(profile.usage_type || '')})">测试</button>
                 <button class="btn-small" onclick="fillLLMSettingForm(${jsStringArg(JSON.stringify(profile).replace(/</g, '\\u003c'))})">填入表单</button>
                 <button class="btn-small danger-soft" onclick="deleteLLMSetting(${jsArg(profile.id)})">删除</button>
             </div>
@@ -5056,6 +6073,54 @@ async function saveLLMSetting() {
     } else {
         showToast(resp?.message || resp?.data?.msg || '保存失败', 'error');
     }
+}
+
+function currentLLMSettingFormPayload(includeKey = true) {
+    const apiKey = document.getElementById('setting-llm-apikey')?.value.trim() || '';
+    return {
+        profile_id: Number(document.getElementById('setting-llm-id')?.value || 0),
+        provider_type: 'openai_compatible',
+        usage_type: document.getElementById('setting-llm-usage')?.value || 'general',
+        base_url: document.getElementById('setting-llm-baseurl')?.value.trim() || '',
+        model_name: document.getElementById('setting-llm-model')?.value.trim() || '',
+        api_key: includeKey ? apiKey : '',
+    };
+}
+
+async function testLLMSettingForm() {
+    const resultEl = document.getElementById('setting-llm-test-result');
+    if (resultEl) resultEl.innerHTML = '<div class="empty-tip small">正在测试连接...</div>';
+    const payload = currentLLMSettingFormPayload(true);
+    if (!payload.api_key && !payload.profile_id) {
+        showToast('测试未保存配置时需要填写 API Key', 'warning');
+        if (resultEl) resultEl.innerHTML = '<div class="rag-status-line error">请填写 API Key，或先选择一个已保存配置。</div>';
+        return;
+    }
+    const resp = await settingsAPI.testLLMProfile(payload);
+    renderLLMTestResult(resp, resultEl);
+}
+
+async function testSavedLLMSetting(profileID, usageType = '') {
+    const resp = await settingsAPI.testLLMProfile({ profile_id: profileID, usage_type: usageType });
+    const ok = resp && resp.code === 0 && resp.data?.success && resp.data?.result?.ok;
+    showToast(ok ? `模型连接正常，延迟 ${resp.data.result.latency_ms || 0}ms` : (resp?.data?.result?.msg || resp?.message || resp?.data?.msg || '模型连接失败'), ok ? 'success' : 'error');
+}
+
+async function testBuiltinLLMSetting(usageType = 'general') {
+    const resultEl = document.getElementById('setting-llm-test-result');
+    if (resultEl) resultEl.innerHTML = `<div class="empty-tip small">正在测试项目内置 ${escapeHTML(llmUsageLabel(usageType))}...</div>`;
+    const resp = await settingsAPI.testLLMProfile({ use_builtin: true, usage_type: usageType || 'general' });
+    renderLLMTestResult(resp, resultEl);
+}
+
+function renderLLMTestResult(resp, resultEl) {
+    const result = resp?.data?.result || {};
+    const ok = resp && resp.code === 0 && resp.data?.success && result.ok;
+    const message = result.msg || resp?.message || resp?.data?.msg || (ok ? '连通测试通过' : '连通测试失败');
+    if (resultEl) {
+        resultEl.innerHTML = `<div class="rag-status-line ${ok ? 'success' : 'error'}">${escapeHTML(message)}${result.latency_ms ? ` · ${Number(result.latency_ms)}ms` : ''}</div>`;
+    }
+    showToast(message, ok ? 'success' : 'error');
 }
 
 async function deleteLLMSetting(id) {
@@ -6421,14 +7486,18 @@ async function showAdminWorkspace() {
     const welcome = document.getElementById('welcome-area');
     welcome.style.display = 'flex';
     welcome.innerHTML = `
-        <div class="workspace admin-console">
-            <div class="workspace-header admin-console-header">
+        <div class="admin-console">
+            <div class="admin-console-hero">
                 <div>
                     <span class="eyebrow">Admin Console</span>
                     <h2>系统管理台</h2>
-                    <p>集中查看用户、群聊、媒体、Agent、知识审核、MCP 审计、系统公告和成本。</p>
+                    <p>面向运营和排障的控制台：用户封禁、群聊治理、媒体预览、成本观察、知识候选审核和审计追踪集中处理。</p>
                 </div>
-                <button class="btn-small ghost" onclick="renderAdminDashboard()">刷新</button>
+                <div class="admin-hero-actions">
+                    <button class="btn-secondary" onclick="renderAdminUsers()">查找用户</button>
+                    <button class="btn-secondary" onclick="renderAdminMedia()">媒体预览</button>
+                    <button class="btn-primary" onclick="renderAdminDashboard()">刷新总览</button>
+                </div>
             </div>
             <div class="admin-console-tabs">
                 <button class="active" data-admin-tab="dashboard" onclick="renderAdminDashboard()">总览</button>
@@ -6458,14 +7527,35 @@ async function renderAdminMedia() {
     activateAdminTab('media');
     const area = document.getElementById('admin-workspace-content');
     if (!area) return;
+    const type = document.getElementById('admin-media-type')?.value || '';
+    const uploader = document.getElementById('admin-media-uploader')?.value || '';
     area.innerHTML = '<div class="empty-tip">加载媒体文件...</div>';
-    const resp = await adminAPI.files({ limit: '80' });
+    const resp = await adminAPI.files({ limit: '80', file_type: type, uploader_id: uploader });
     const files = resp?.data?.files || resp?.data?.Files || [];
     if (!(resp && resp.code === 0) || !Array.isArray(files)) {
         area.innerHTML = `<div class="empty-tip">媒体文件不可用<br><small>${escapeHTML(resp?.message || resp?.data?.msg || '')}</small></div>`;
         return;
     }
     area.innerHTML = `
+        <div class="admin-section-head">
+            <div>
+                <h3>媒体资产</h3>
+                <p>支持图片直接预览，音频内嵌播放，其他文件保留预览和下载入口。</p>
+            </div>
+            <span>${files.length} 个文件</span>
+        </div>
+        <div class="admin-filter-bar admin-media-filter">
+            <select id="admin-media-type" class="form-select" onchange="renderAdminMedia()">
+                <option value="">全部类型</option>
+                <option value="image" ${type === 'image' ? 'selected' : ''}>图片</option>
+                <option value="video" ${type === 'video' ? 'selected' : ''}>视频</option>
+                <option value="audio" ${type === 'audio' ? 'selected' : ''}>音频</option>
+                <option value="voice" ${type === 'voice' ? 'selected' : ''}>语音</option>
+                <option value="file" ${type === 'file' ? 'selected' : ''}>普通文件</option>
+            </select>
+            <input id="admin-media-uploader" placeholder="上传者 ID" value="${escapeHTML(uploader)}" onkeydown="if(event.key==='Enter') renderAdminMedia()">
+            <button class="btn-small" onclick="renderAdminMedia()">筛选</button>
+        </div>
         <div class="admin-grid">
             ${files.length ? files.map(renderAdminFileItem).join('') : '<div class="empty-tip">暂无文件</div>'}
         </div>
@@ -6486,7 +7576,16 @@ async function renderAdminDashboard() {
     const notices = resp.data.notices || [];
     const audits = resp.data.recent_audits || [];
     area.innerHTML = `
-        <div class="admin-metric-grid">
+        <div class="admin-dashboard-grid">
+            <section class="admin-dashboard-main">
+                <div class="admin-section-head">
+                    <div>
+                        <h3>系统总览</h3>
+                        <p>关键对象数量和最近治理动作。</p>
+                    </div>
+                    <span>实时读取</span>
+                </div>
+                <div class="admin-metric-grid">
             ${metrics.map(m => `
                 <div class="admin-metric">
                     <span>${escapeHTML(m.label || m.key)}</span>
@@ -6494,13 +7593,22 @@ async function renderAdminDashboard() {
                     <small>${escapeHTML(m.hint || '')}</small>
                 </div>
             `).join('')}
+                </div>
+            </section>
+            <section class="admin-governance-panel">
+                <h3>治理入口</h3>
+                <button onclick="renderAdminUsers()"><strong>用户封禁 / 解封</strong><span>按昵称、用户名、邮箱或手机号查找</span></button>
+                <button onclick="renderAdminGroups()"><strong>群聊治理</strong><span>查看群聊，可封禁/解封群聊发送能力</span></button>
+                <button onclick="renderAdminKnowledgeCandidates()"><strong>知识候选审核</strong><span>处理记忆和图谱候选</span></button>
+                <button onclick="renderAdminBilling()"><strong>成本分析</strong><span>按模型和日期观察调用成本</span></button>
+            </section>
         </div>
         <div class="admin-two-col">
-            <section>
+            <section class="admin-panel-card">
                 <h3>近期公告</h3>
                 ${notices.length ? notices.map(renderAdminNoticeRow).join('') : '<div class="empty-tip small">暂无公告</div>'}
             </section>
-            <section>
+            <section class="admin-panel-card">
                 <h3>管理审计</h3>
                 ${audits.length ? audits.map(renderAdminAuditRow).join('') : '<div class="empty-tip small">暂无审计记录</div>'}
             </section>
@@ -6512,13 +7620,39 @@ async function renderAdminUsers() {
     activateAdminTab('users');
     const area = document.getElementById('admin-workspace-content');
     if (!area) return;
-    area.innerHTML = adminFilterBar('admin-user-keyword', '搜索用户名、昵称、邮箱或手机号', 'renderAdminUsersList') + '<div id="admin-user-list" class="admin-table-wrap"></div>';
+    area.innerHTML = `
+        <div class="admin-section-head">
+            <div>
+                <h3>用户治理</h3>
+                <p>查找用户后可执行封禁/解封。封禁用户会阻止其继续登录。</p>
+            </div>
+            <span>真实写入 user-service</span>
+        </div>
+        <div class="admin-filter-bar">
+            <input id="admin-user-keyword" placeholder="搜索用户名、昵称、邮箱或手机号" onkeydown="if(event.key==='Enter') renderAdminUsersList()">
+            <select id="admin-user-status" class="form-select" onchange="renderAdminUsersList()">
+                <option value="">全部状态</option>
+                <option value="online">在线</option>
+                <option value="offline">离线</option>
+                <option value="banned">已封禁</option>
+            </select>
+            <select id="admin-user-role" class="form-select" onchange="renderAdminUsersList()">
+                <option value="">全部角色</option>
+                <option value="user">普通用户</option>
+                <option value="admin">管理员</option>
+            </select>
+            <button class="btn-small" onclick="renderAdminUsersList()">搜索</button>
+        </div>
+        <div id="admin-user-list" class="admin-table-wrap"></div>
+    `;
     await renderAdminUsersList();
 }
 
 async function renderAdminUsersList() {
     const keyword = document.getElementById('admin-user-keyword')?.value || '';
-    const resp = await adminAPI.users({ keyword, include_system: 'true', limit: '80' });
+    const status = document.getElementById('admin-user-status')?.value || '';
+    const role = document.getElementById('admin-user-role')?.value || '';
+    const resp = await adminAPI.users({ keyword, status, role, include_system: 'true', limit: '80' });
     const list = document.getElementById('admin-user-list');
     if (!list) return;
     if (!(resp && resp.code === 0 && resp.data?.success)) {
@@ -6526,12 +7660,13 @@ async function renderAdminUsersList() {
         return;
     }
     const users = resp?.data?.users || [];
-    list.innerHTML = renderAdminTable(['用户', '角色', '状态', '系统用户', '创建时间'], users.map(u => [
+    list.innerHTML = renderAdminTable(['用户', '角色', '状态', '系统用户', '创建时间', '操作'], users.map(u => [
         `<strong>${escapeHTML(u.nickname || u.username || '')}</strong><small>#${escapeHTML(entityID(u))} · ${escapeHTML(u.username || '')}</small>`,
         escapeHTML(u.role || 'user'),
-        escapeHTML(u.status || ''),
+        adminStatusBadge(u.status || ''),
         u.is_system ? '是' : '否',
         escapeHTML(u.created_at || ''),
+        renderAdminUserActions(u),
     ]), resp?.data?.total);
 }
 
@@ -6539,7 +7674,17 @@ async function renderAdminGroups() {
     activateAdminTab('groups');
     const area = document.getElementById('admin-workspace-content');
     if (!area) return;
-    area.innerHTML = adminFilterBar('admin-group-keyword', '搜索群名或公告', 'renderAdminGroupsList') + '<div id="admin-group-list" class="admin-table-wrap"></div>';
+    area.innerHTML = `
+        <div class="admin-section-head">
+            <div>
+                <h3>群聊治理</h3>
+                <p>查看和搜索群聊，可执行封禁/解封。封禁后群历史仍保留，但 msg-core 会拒绝新消息写入。</p>
+            </div>
+            <span>真实写入 group-service</span>
+        </div>
+        ${adminFilterBar('admin-group-keyword', '搜索群名、群号或公告', 'renderAdminGroupsList')}
+        <div id="admin-group-list" class="admin-table-wrap"></div>
+    `;
     await renderAdminGroupsList();
 }
 
@@ -6553,11 +7698,13 @@ async function renderAdminGroupsList() {
         return;
     }
     const groups = resp?.data?.groups || [];
-    list.innerHTML = renderAdminTable(['群聊', '群主', '公告', '创建时间'], groups.map(g => [
+    list.innerHTML = renderAdminTable(['群聊', '群主', '状态', '公告', '创建时间', '操作'], groups.map(g => [
         `<strong>${escapeHTML(g.name || '')}</strong><small>#${escapeHTML(entityID(g))}</small>`,
         escapeHTML(String(g.owner_id || '')),
+        adminGroupStatusBadge(g.status || 'active'),
         escapeHTML((g.announcement || '').slice(0, 80)),
         escapeHTML(g.created_at || ''),
+        `${renderAdminGroupActions(g)}<button class="btn-small ghost" onclick="copyText(${jsStringArg(entityID(g))}, '群号已复制')">复制群号</button>`,
     ]), resp?.data?.total);
 }
 
@@ -6584,24 +7731,37 @@ async function renderAdminAgents() {
 function renderAdminFileItem(file) {
     const id = file.id || file.file_id;
     const name = file.file_name || file.name || `文件 #${id}`;
-    const type = file.file_type || file.type || '';
+    const contentType = file.content_type || '';
+    const rawType = file.file_type || file.type || '';
+    const type = normalizeMediaKind(rawType, contentType);
     const preview = id ? fileAPI.previewURL(id) : '';
     const previewHTML = type === 'image'
-        ? `<img src="${escapeHTML(preview)}" alt="${escapeHTML(name)}">`
-        : (type === 'voice' || type === 'audio'
+        ? `<img src="${escapeHTML(preview)}" alt="${escapeHTML(name)}" loading="lazy">`
+        : (type === 'video'
+            ? `<video muted controls preload="metadata" src="${escapeHTML(preview)}"></video>`
+            : (type === 'voice' || type === 'audio'
             ? `<audio controls preload="metadata" src="${escapeHTML(preview)}"></audio>`
-            : `<div class="admin-file-icon">${escapeHTML((type || 'FILE').toUpperCase())}</div>`);
+            : `<div class="admin-file-icon">${escapeHTML((type || 'FILE').toUpperCase())}</div>`));
     return `
         <div class="admin-file-card">
             <div class="admin-file-preview">${previewHTML}</div>
             <strong title="${escapeHTML(name)}">${escapeHTML(name)}</strong>
-            <span>${escapeHTML(type || 'file')} · ${escapeHTML(String(file.size || file.file_size || ''))}</span>
+            <span>${escapeHTML(type || 'file')} · ${escapeHTML(contentType || rawType || '未知 MIME')} · ${escapeHTML(formatAdminBytes(file.size || file.file_size || 0))} · 上传者 ${escapeHTML(String(file.uploader_id || ''))}</span>
             <div class="btn-row">
                 <button class="btn-small ghost" onclick="window.open(${jsStringArg(preview)}, '_blank')">预览</button>
                 <button class="btn-small ghost" onclick="downloadMedia(${jsStringArg(id)}, ${jsStringArg(name)}, '')">下载</button>
             </div>
         </div>
     `;
+}
+
+function normalizeMediaKind(fileType = '', contentType = '') {
+    const type = String(fileType || '').toLowerCase();
+    const mime = String(contentType || '').toLowerCase();
+    if (type === 'image' || mime.startsWith('image/')) return 'image';
+    if (type === 'video' || mime.startsWith('video/')) return 'video';
+    if (type === 'audio' || type === 'voice' || mime.startsWith('audio/')) return type === 'voice' ? 'voice' : 'audio';
+    return type || 'file';
 }
 
 async function renderAdminAgentApprovals() {
@@ -6746,15 +7906,155 @@ async function renderAdminBilling() {
     }
     const records = resp?.data?.records || [];
     area.innerHTML = `
-        <div class="admin-cost-summary">当前页成本 ¥${Number(resp?.data?.total_cost || 0).toFixed(6)} · 总数 ${resp?.data?.total || records.length}</div>
-        ${renderAdminTable(['Agent', '用户', 'Token', '费用', '模型', '时间'], records.map(r => [
-            escapeHTML(String(r.bot_id || '')),
-            escapeHTML(String(r.user_id || '')),
-            `${r.input_tokens || 0} / ${r.output_tokens || 0}`,
-            `¥${Number(r.cost || 0).toFixed(6)}`,
-            escapeHTML(r.model_name || ''),
-            escapeHTML(r.created_at || ''),
-        ]))}
+        <div class="admin-section-head">
+            <div>
+                <h3>成本看板</h3>
+                <p>按日期和模型聚合当前页调用成本，明细默认折叠，避免表格挤占视线。</p>
+            </div>
+            <span>${records.length} 条记录</span>
+        </div>
+        ${renderAdminCostVisuals(records, resp?.data?.total_cost || 0, resp?.data?.total || records.length)}
+        <details class="admin-cost-details">
+            <summary>展开调用明细</summary>
+            ${renderAdminTable(['Agent', '用户', 'Token', '费用', '模型', '时间'], records.map(r => [
+                escapeHTML(String(r.bot_id || '')),
+                escapeHTML(String(r.user_id || '')),
+                `${r.input_tokens || 0} / ${r.output_tokens || 0}`,
+                `¥${Number(r.cost || 0).toFixed(6)}`,
+                escapeHTML(r.model_name || ''),
+                escapeHTML(r.created_at || ''),
+            ]))}
+        </details>
+    `;
+}
+
+function adminStatusBadge(status) {
+    const label = ({ online: '在线', offline: '离线', banned: '已封禁' })[status] || status || '未知';
+    return `<span class="admin-status-badge ${escapeHTML(status || 'unknown')}">${escapeHTML(label)}</span>`;
+}
+
+function adminGroupStatusBadge(status) {
+    const normalized = status || 'active';
+    const label = ({ active: '正常', banned: '已封禁' })[normalized] || normalized;
+    return `<span class="admin-status-badge ${escapeHTML(normalized)}">${escapeHTML(label)}</span>`;
+}
+
+function renderAdminUserActions(user) {
+    const id = entityID(user);
+    if (user.is_system) {
+        return '<span class="admin-action-muted">系统用户</span>';
+    }
+    if (user.status === 'banned') {
+        return `<button class="btn-small ghost" onclick="updateAdminUserStatus(${jsArg(id)}, 'offline')">解封</button>`;
+    }
+    return `<button class="btn-small danger-soft" onclick="updateAdminUserStatus(${jsArg(id)}, 'banned')">封禁</button>`;
+}
+
+async function updateAdminUserStatus(userID, status) {
+    const action = status === 'banned' ? '封禁' : '解封';
+    const reason = prompt(`${action}用户 #${userID} 的原因：`, status === 'banned' ? '管理员手动封禁' : '管理员解除封禁');
+    if (reason === null) return;
+    const resp = await adminAPI.updateUserStatus(userID, status, reason);
+    if (resp && resp.code === 0 && (resp.data?.success !== false)) {
+        showToast(`${action}完成`, 'success');
+        renderAdminUsersList();
+    } else {
+        showToast(resp?.message || resp?.data?.msg || `${action}失败`, 'error');
+    }
+}
+
+function renderAdminGroupActions(group) {
+    const id = entityID(group);
+    const status = group.status || 'active';
+    if (status === 'banned') {
+        return `<button class="btn-small ghost" onclick="updateAdminGroupStatus(${jsArg(id)}, 'active')">解封群聊</button>`;
+    }
+    return `<button class="btn-small danger-soft" onclick="updateAdminGroupStatus(${jsArg(id)}, 'banned')">封禁群聊</button>`;
+}
+
+async function updateAdminGroupStatus(groupID, status) {
+    const action = status === 'banned' ? '封禁' : '解封';
+    const reason = prompt(`${action}群聊 #${groupID} 的原因：`, status === 'banned' ? '管理员手动封禁群聊' : '管理员解除群封禁');
+    if (reason === null) return;
+    const resp = await adminAPI.updateGroupStatus(groupID, status, reason);
+    if (resp && resp.code === 0 && resp.data?.success) {
+        showToast(`${action}群聊完成`, 'success');
+        renderAdminGroupsList();
+    } else {
+        showToast(resp?.message || resp?.data?.msg || `${action}群聊失败`, 'error');
+    }
+}
+
+function formatAdminBytes(value) {
+    const bytes = Number(value || 0);
+    if (!bytes) return '0 B';
+    const units = ['B', 'KB', 'MB', 'GB'];
+    let size = bytes;
+    let unit = 0;
+    while (size >= 1024 && unit < units.length - 1) {
+        size /= 1024;
+        unit++;
+    }
+    return `${size.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`;
+}
+
+function renderAdminCostVisuals(records, totalCost, totalCount) {
+    const byDay = {};
+    const byModel = {};
+    records.forEach(record => {
+        const day = String(record.created_at || '').slice(0, 10) || '未知日期';
+        const model = record.model_name || '未知模型';
+        byDay[day] = (byDay[day] || 0) + Number(record.cost || 0);
+        byModel[model] = (byModel[model] || 0) + Number(record.cost || 0);
+    });
+    const dayEntries = Object.entries(byDay).slice(-7);
+    const modelEntries = Object.entries(byModel).sort((a, b) => b[1] - a[1]).slice(0, 6);
+    const maxDay = Math.max(0.000001, ...dayEntries.map(([, value]) => value));
+    const modelTotal = Math.max(0.000001, modelEntries.reduce((sum, [, value]) => sum + value, 0));
+    const topModel = modelEntries[0]?.[0] || '暂无';
+    const conicStops = modelEntries.length ? modelEntries.reduce((state, [model, value], index) => {
+        const pct = (value / modelTotal) * 100;
+        const start = state.cursor;
+        const end = start + pct;
+        const color = ['#0f766e', '#2563eb', '#f59e0b', '#ef4444', '#8b5cf6', '#14b8a6'][index % 6];
+        state.parts.push(`${color} ${start}% ${end}%`);
+        state.cursor = end;
+        return state;
+    }, { cursor: 0, parts: [] }).parts.join(', ') : '#e2e8f0 0 100%';
+    return `
+        <div class="admin-cost-summary">
+            <strong>当前页成本 ¥${Number(totalCost || 0).toFixed(6)}</strong>
+            <span>调用 ${totalCount || records.length} 次 · 主要模型 ${escapeHTML(topModel)}</span>
+        </div>
+        <div class="admin-cost-visuals">
+            <section>
+                <h3>近几日成本</h3>
+                <div class="admin-cost-bars">
+                    ${dayEntries.length ? dayEntries.map(([day, value]) => `
+                        <div class="admin-cost-bar" title="${escapeHTML(day)} 成本 ¥${Number(value).toFixed(6)}" data-tooltip="${escapeHTML(day)} · ¥${Number(value).toFixed(6)}">
+                            <span style="height:${Math.max(8, (value / maxDay) * 100)}%"></span>
+                            <small>${escapeHTML(day.slice(5))}</small>
+                        </div>
+                    `).join('') : '<div class="empty-tip small">暂无成本数据</div>'}
+                </div>
+            </section>
+            <section>
+                <h3>模型占比</h3>
+                <div class="admin-cost-donut" style="--cost-donut:${escapeHTML(conicStops)}" title="当前页总成本 ¥${Number(totalCost || 0).toFixed(6)}，主要模型 ${escapeHTML(topModel)}" data-tooltip="总成本 ¥${Number(totalCost || 0).toFixed(6)}">
+                    <strong>${modelEntries.length}</strong>
+                    <span>模型</span>
+                </div>
+                <div class="admin-cost-models">
+                    ${modelEntries.length ? modelEntries.map(([model, value]) => `
+                        <div title="${escapeHTML(model)} 成本 ¥${Number(value).toFixed(6)}，占比 ${((value / modelTotal) * 100).toFixed(1)}%" data-tooltip="${escapeHTML(model)} · ¥${Number(value).toFixed(6)}">
+                            <strong>${escapeHTML(model)}</strong>
+                            <span><i style="width:${Math.max(4, (value / modelTotal) * 100)}%"></i></span>
+                            <small>¥${Number(value).toFixed(6)}</small>
+                        </div>
+                    `).join('') : '<div class="empty-tip small">暂无模型成本</div>'}
+                </div>
+            </section>
+        </div>
     `;
 }
 
@@ -6815,7 +8115,7 @@ function showAdminMCPTraceDetail(index) {
 
 function adminFilterBar(inputID, placeholder, fnName) {
     return `
-        <div class="admin-filter-bar">
+        <div class="admin-filter-bar admin-filter-simple">
             <input id="${inputID}" placeholder="${escapeHTML(placeholder)}" onkeydown="if(event.key==='Enter') ${fnName}()">
             <button class="btn-small" onclick="${fnName}()">搜索</button>
         </div>
@@ -8104,6 +9404,7 @@ window.addEventListener('hashchange', () => {
 
 window.onload = function () {
     bindVoiceRecorder();
+    restoreRAGUploadJobs();
     if (token && currentUser) {
         enterMainPage();
     }

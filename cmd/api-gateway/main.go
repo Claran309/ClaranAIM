@@ -39,7 +39,7 @@ func main() {
 	handler.InitFileStorage(cfg)
 	handler.InitDTMConfig(cfg.DTM)
 	handler.InitMemoryService(memoryclient.NewRPCClient(client.MemoryClient))
-	ragService := ragclient.NewRPCClient(client.RAGClient)
+	ragService := ragclient.NewRPCClient(client.RAGLongTaskClient)
 	handler.InitRAGService(ragService)
 	handler.InitKnowledgeService(knowledgeclient.NewRPCClient(client.KnowledgeClient))
 	if cfg.Document.OCRProvider == "glm" && cfg.Document.OCRURL != "" && cfg.Document.OCRAPIKey != "" {
@@ -62,7 +62,11 @@ func main() {
 		logger.Info("DTM分布式事务配置未启用")
 	}
 
-	h := server.Default(server.WithHostPorts(cfg.Service.Address))
+	h := server.Default(
+		server.WithHostPorts(cfg.Service.Address),
+		server.WithMaxRequestBodySize(160<<20),
+		server.WithMaxKeepBodySize(160<<20),
+	)
 
 	router.RegisterRoutes(h.Engine, cfg)
 

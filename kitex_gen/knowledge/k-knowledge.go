@@ -600,6 +600,20 @@ func (p *KnowledgeGraphEdge) FastRead(buf []byte) (int, error) {
 					goto SkipFieldError
 				}
 			}
+		case 9:
+			if fieldTypeId == thrift.I64 {
+				l, err = p.FastReadField9(buf[offset:])
+				offset += l
+				if err != nil {
+					goto ReadFieldError
+				}
+			} else {
+				l, err = thrift.Binary.Skip(buf[offset:], fieldTypeId)
+				offset += l
+				if err != nil {
+					goto SkipFieldError
+				}
+			}
 		default:
 			l, err = thrift.Binary.Skip(buf[offset:], fieldTypeId)
 			offset += l
@@ -730,6 +744,20 @@ func (p *KnowledgeGraphEdge) FastReadField8(buf []byte) (int, error) {
 	return offset, nil
 }
 
+func (p *KnowledgeGraphEdge) FastReadField9(buf []byte) (int, error) {
+	offset := 0
+
+	var _field int64
+	if v, l, err := thrift.Binary.ReadI64(buf[offset:]); err != nil {
+		return offset, err
+	} else {
+		offset += l
+		_field = v
+	}
+	p.DocumentId = _field
+	return offset, nil
+}
+
 func (p *KnowledgeGraphEdge) FastWrite(buf []byte) int {
 	return p.FastWriteNocopy(buf, nil)
 }
@@ -741,6 +769,7 @@ func (p *KnowledgeGraphEdge) FastWriteNocopy(buf []byte, w thrift.NocopyWriter) 
 		offset += p.fastWriteField2(buf[offset:], w)
 		offset += p.fastWriteField3(buf[offset:], w)
 		offset += p.fastWriteField6(buf[offset:], w)
+		offset += p.fastWriteField9(buf[offset:], w)
 		offset += p.fastWriteField4(buf[offset:], w)
 		offset += p.fastWriteField5(buf[offset:], w)
 		offset += p.fastWriteField7(buf[offset:], w)
@@ -761,6 +790,7 @@ func (p *KnowledgeGraphEdge) BLength() int {
 		l += p.field6Length()
 		l += p.field7Length()
 		l += p.field8Length()
+		l += p.field9Length()
 	}
 	l += thrift.Binary.FieldStopLength()
 	return l
@@ -822,6 +852,13 @@ func (p *KnowledgeGraphEdge) fastWriteField8(buf []byte, w thrift.NocopyWriter) 
 	return offset
 }
 
+func (p *KnowledgeGraphEdge) fastWriteField9(buf []byte, w thrift.NocopyWriter) int {
+	offset := 0
+	offset += thrift.Binary.WriteFieldBegin(buf[offset:], thrift.I64, 9)
+	offset += thrift.Binary.WriteI64(buf[offset:], p.DocumentId)
+	return offset
+}
+
 func (p *KnowledgeGraphEdge) field1Length() int {
 	l := 0
 	l += thrift.Binary.FieldBeginLength()
@@ -875,6 +912,13 @@ func (p *KnowledgeGraphEdge) field8Length() int {
 	l := 0
 	l += thrift.Binary.FieldBeginLength()
 	l += thrift.Binary.StringLengthNocopy(p.Color)
+	return l
+}
+
+func (p *KnowledgeGraphEdge) field9Length() int {
+	l := 0
+	l += thrift.Binary.FieldBeginLength()
+	l += thrift.Binary.I64Length()
 	return l
 }
 
@@ -1585,6 +1629,20 @@ func (p *KnowledgeGraphReq) FastRead(buf []byte) (int, error) {
 					goto SkipFieldError
 				}
 			}
+		case 8:
+			if fieldTypeId == thrift.I64 {
+				l, err = p.FastReadField8(buf[offset:])
+				offset += l
+				if err != nil {
+					goto ReadFieldError
+				}
+			} else {
+				l, err = thrift.Binary.Skip(buf[offset:], fieldTypeId)
+				offset += l
+				if err != nil {
+					goto SkipFieldError
+				}
+			}
 		default:
 			l, err = thrift.Binary.Skip(buf[offset:], fieldTypeId)
 			offset += l
@@ -1721,6 +1779,20 @@ func (p *KnowledgeGraphReq) FastReadField7(buf []byte) (int, error) {
 	return offset, nil
 }
 
+func (p *KnowledgeGraphReq) FastReadField8(buf []byte) (int, error) {
+	offset := 0
+
+	var _field int64
+	if v, l, err := thrift.Binary.ReadI64(buf[offset:]); err != nil {
+		return offset, err
+	} else {
+		offset += l
+		_field = v
+	}
+	p.DocumentId = _field
+	return offset, nil
+}
+
 func (p *KnowledgeGraphReq) FastWrite(buf []byte) int {
 	return p.FastWriteNocopy(buf, nil)
 }
@@ -1732,6 +1804,7 @@ func (p *KnowledgeGraphReq) FastWriteNocopy(buf []byte, w thrift.NocopyWriter) i
 		offset += p.fastWriteField5(buf[offset:], w)
 		offset += p.fastWriteField6(buf[offset:], w)
 		offset += p.fastWriteField7(buf[offset:], w)
+		offset += p.fastWriteField8(buf[offset:], w)
 		offset += p.fastWriteField2(buf[offset:], w)
 		offset += p.fastWriteField3(buf[offset:], w)
 		offset += p.fastWriteField4(buf[offset:], w)
@@ -1750,6 +1823,7 @@ func (p *KnowledgeGraphReq) BLength() int {
 		l += p.field5Length()
 		l += p.field6Length()
 		l += p.field7Length()
+		l += p.field8Length()
 	}
 	l += thrift.Binary.FieldStopLength()
 	return l
@@ -1818,6 +1892,13 @@ func (p *KnowledgeGraphReq) fastWriteField7(buf []byte, w thrift.NocopyWriter) i
 	return offset
 }
 
+func (p *KnowledgeGraphReq) fastWriteField8(buf []byte, w thrift.NocopyWriter) int {
+	offset := 0
+	offset += thrift.Binary.WriteFieldBegin(buf[offset:], thrift.I64, 8)
+	offset += thrift.Binary.WriteI64(buf[offset:], p.DocumentId)
+	return offset
+}
+
 func (p *KnowledgeGraphReq) field1Length() int {
 	l := 0
 	l += thrift.Binary.FieldBeginLength()
@@ -1869,6 +1950,13 @@ func (p *KnowledgeGraphReq) field6Length() int {
 }
 
 func (p *KnowledgeGraphReq) field7Length() int {
+	l := 0
+	l += thrift.Binary.FieldBeginLength()
+	l += thrift.Binary.I64Length()
+	return l
+}
+
+func (p *KnowledgeGraphReq) field8Length() int {
 	l := 0
 	l += thrift.Binary.FieldBeginLength()
 	l += thrift.Binary.I64Length()
@@ -2331,6 +2419,34 @@ func (p *KnowledgeNodeDetailReq) FastRead(buf []byte) (int, error) {
 					goto SkipFieldError
 				}
 			}
+		case 5:
+			if fieldTypeId == thrift.I64 {
+				l, err = p.FastReadField5(buf[offset:])
+				offset += l
+				if err != nil {
+					goto ReadFieldError
+				}
+			} else {
+				l, err = thrift.Binary.Skip(buf[offset:], fieldTypeId)
+				offset += l
+				if err != nil {
+					goto SkipFieldError
+				}
+			}
+		case 6:
+			if fieldTypeId == thrift.I64 {
+				l, err = p.FastReadField6(buf[offset:])
+				offset += l
+				if err != nil {
+					goto ReadFieldError
+				}
+			} else {
+				l, err = thrift.Binary.Skip(buf[offset:], fieldTypeId)
+				offset += l
+				if err != nil {
+					goto SkipFieldError
+				}
+			}
 		default:
 			l, err = thrift.Binary.Skip(buf[offset:], fieldTypeId)
 			offset += l
@@ -2405,6 +2521,34 @@ func (p *KnowledgeNodeDetailReq) FastReadField4(buf []byte) (int, error) {
 	return offset, nil
 }
 
+func (p *KnowledgeNodeDetailReq) FastReadField5(buf []byte) (int, error) {
+	offset := 0
+
+	var _field int64
+	if v, l, err := thrift.Binary.ReadI64(buf[offset:]); err != nil {
+		return offset, err
+	} else {
+		offset += l
+		_field = v
+	}
+	p.DocumentId = _field
+	return offset, nil
+}
+
+func (p *KnowledgeNodeDetailReq) FastReadField6(buf []byte) (int, error) {
+	offset := 0
+
+	var _field int64
+	if v, l, err := thrift.Binary.ReadI64(buf[offset:]); err != nil {
+		return offset, err
+	} else {
+		offset += l
+		_field = v
+	}
+	p.Hops = _field
+	return offset, nil
+}
+
 func (p *KnowledgeNodeDetailReq) FastWrite(buf []byte) int {
 	return p.FastWriteNocopy(buf, nil)
 }
@@ -2415,6 +2559,8 @@ func (p *KnowledgeNodeDetailReq) FastWriteNocopy(buf []byte, w thrift.NocopyWrit
 		offset += p.fastWriteField1(buf[offset:], w)
 		offset += p.fastWriteField2(buf[offset:], w)
 		offset += p.fastWriteField4(buf[offset:], w)
+		offset += p.fastWriteField5(buf[offset:], w)
+		offset += p.fastWriteField6(buf[offset:], w)
 		offset += p.fastWriteField3(buf[offset:], w)
 	}
 	offset += thrift.Binary.WriteFieldStop(buf[offset:])
@@ -2428,6 +2574,8 @@ func (p *KnowledgeNodeDetailReq) BLength() int {
 		l += p.field2Length()
 		l += p.field3Length()
 		l += p.field4Length()
+		l += p.field5Length()
+		l += p.field6Length()
 	}
 	l += thrift.Binary.FieldStopLength()
 	return l
@@ -2461,6 +2609,20 @@ func (p *KnowledgeNodeDetailReq) fastWriteField4(buf []byte, w thrift.NocopyWrit
 	return offset
 }
 
+func (p *KnowledgeNodeDetailReq) fastWriteField5(buf []byte, w thrift.NocopyWriter) int {
+	offset := 0
+	offset += thrift.Binary.WriteFieldBegin(buf[offset:], thrift.I64, 5)
+	offset += thrift.Binary.WriteI64(buf[offset:], p.DocumentId)
+	return offset
+}
+
+func (p *KnowledgeNodeDetailReq) fastWriteField6(buf []byte, w thrift.NocopyWriter) int {
+	offset := 0
+	offset += thrift.Binary.WriteFieldBegin(buf[offset:], thrift.I64, 6)
+	offset += thrift.Binary.WriteI64(buf[offset:], p.Hops)
+	return offset
+}
+
 func (p *KnowledgeNodeDetailReq) field1Length() int {
 	l := 0
 	l += thrift.Binary.FieldBeginLength()
@@ -2483,6 +2645,20 @@ func (p *KnowledgeNodeDetailReq) field3Length() int {
 }
 
 func (p *KnowledgeNodeDetailReq) field4Length() int {
+	l := 0
+	l += thrift.Binary.FieldBeginLength()
+	l += thrift.Binary.I64Length()
+	return l
+}
+
+func (p *KnowledgeNodeDetailReq) field5Length() int {
+	l := 0
+	l += thrift.Binary.FieldBeginLength()
+	l += thrift.Binary.I64Length()
+	return l
+}
+
+func (p *KnowledgeNodeDetailReq) field6Length() int {
 	l := 0
 	l += thrift.Binary.FieldBeginLength()
 	l += thrift.Binary.I64Length()
@@ -2879,6 +3055,34 @@ func (p *KnowledgeEdgeDetailReq) FastRead(buf []byte) (int, error) {
 					goto SkipFieldError
 				}
 			}
+		case 5:
+			if fieldTypeId == thrift.I64 {
+				l, err = p.FastReadField5(buf[offset:])
+				offset += l
+				if err != nil {
+					goto ReadFieldError
+				}
+			} else {
+				l, err = thrift.Binary.Skip(buf[offset:], fieldTypeId)
+				offset += l
+				if err != nil {
+					goto SkipFieldError
+				}
+			}
+		case 6:
+			if fieldTypeId == thrift.I64 {
+				l, err = p.FastReadField6(buf[offset:])
+				offset += l
+				if err != nil {
+					goto ReadFieldError
+				}
+			} else {
+				l, err = thrift.Binary.Skip(buf[offset:], fieldTypeId)
+				offset += l
+				if err != nil {
+					goto SkipFieldError
+				}
+			}
 		default:
 			l, err = thrift.Binary.Skip(buf[offset:], fieldTypeId)
 			offset += l
@@ -2953,6 +3157,34 @@ func (p *KnowledgeEdgeDetailReq) FastReadField4(buf []byte) (int, error) {
 	return offset, nil
 }
 
+func (p *KnowledgeEdgeDetailReq) FastReadField5(buf []byte) (int, error) {
+	offset := 0
+
+	var _field int64
+	if v, l, err := thrift.Binary.ReadI64(buf[offset:]); err != nil {
+		return offset, err
+	} else {
+		offset += l
+		_field = v
+	}
+	p.DocumentId = _field
+	return offset, nil
+}
+
+func (p *KnowledgeEdgeDetailReq) FastReadField6(buf []byte) (int, error) {
+	offset := 0
+
+	var _field int64
+	if v, l, err := thrift.Binary.ReadI64(buf[offset:]); err != nil {
+		return offset, err
+	} else {
+		offset += l
+		_field = v
+	}
+	p.Hops = _field
+	return offset, nil
+}
+
 func (p *KnowledgeEdgeDetailReq) FastWrite(buf []byte) int {
 	return p.FastWriteNocopy(buf, nil)
 }
@@ -2963,6 +3195,8 @@ func (p *KnowledgeEdgeDetailReq) FastWriteNocopy(buf []byte, w thrift.NocopyWrit
 		offset += p.fastWriteField1(buf[offset:], w)
 		offset += p.fastWriteField2(buf[offset:], w)
 		offset += p.fastWriteField4(buf[offset:], w)
+		offset += p.fastWriteField5(buf[offset:], w)
+		offset += p.fastWriteField6(buf[offset:], w)
 		offset += p.fastWriteField3(buf[offset:], w)
 	}
 	offset += thrift.Binary.WriteFieldStop(buf[offset:])
@@ -2976,6 +3210,8 @@ func (p *KnowledgeEdgeDetailReq) BLength() int {
 		l += p.field2Length()
 		l += p.field3Length()
 		l += p.field4Length()
+		l += p.field5Length()
+		l += p.field6Length()
 	}
 	l += thrift.Binary.FieldStopLength()
 	return l
@@ -3009,6 +3245,20 @@ func (p *KnowledgeEdgeDetailReq) fastWriteField4(buf []byte, w thrift.NocopyWrit
 	return offset
 }
 
+func (p *KnowledgeEdgeDetailReq) fastWriteField5(buf []byte, w thrift.NocopyWriter) int {
+	offset := 0
+	offset += thrift.Binary.WriteFieldBegin(buf[offset:], thrift.I64, 5)
+	offset += thrift.Binary.WriteI64(buf[offset:], p.DocumentId)
+	return offset
+}
+
+func (p *KnowledgeEdgeDetailReq) fastWriteField6(buf []byte, w thrift.NocopyWriter) int {
+	offset := 0
+	offset += thrift.Binary.WriteFieldBegin(buf[offset:], thrift.I64, 6)
+	offset += thrift.Binary.WriteI64(buf[offset:], p.Hops)
+	return offset
+}
+
 func (p *KnowledgeEdgeDetailReq) field1Length() int {
 	l := 0
 	l += thrift.Binary.FieldBeginLength()
@@ -3031,6 +3281,20 @@ func (p *KnowledgeEdgeDetailReq) field3Length() int {
 }
 
 func (p *KnowledgeEdgeDetailReq) field4Length() int {
+	l := 0
+	l += thrift.Binary.FieldBeginLength()
+	l += thrift.Binary.I64Length()
+	return l
+}
+
+func (p *KnowledgeEdgeDetailReq) field5Length() int {
+	l := 0
+	l += thrift.Binary.FieldBeginLength()
+	l += thrift.Binary.I64Length()
+	return l
+}
+
+func (p *KnowledgeEdgeDetailReq) field6Length() int {
 	l := 0
 	l += thrift.Binary.FieldBeginLength()
 	l += thrift.Binary.I64Length()
@@ -3435,6 +3699,20 @@ func (p *KnowledgeNeighborhoodReq) FastRead(buf []byte) (int, error) {
 					goto SkipFieldError
 				}
 			}
+		case 9:
+			if fieldTypeId == thrift.I64 {
+				l, err = p.FastReadField9(buf[offset:])
+				offset += l
+				if err != nil {
+					goto ReadFieldError
+				}
+			} else {
+				l, err = thrift.Binary.Skip(buf[offset:], fieldTypeId)
+				offset += l
+				if err != nil {
+					goto SkipFieldError
+				}
+			}
 		default:
 			l, err = thrift.Binary.Skip(buf[offset:], fieldTypeId)
 			offset += l
@@ -3585,6 +3863,20 @@ func (p *KnowledgeNeighborhoodReq) FastReadField8(buf []byte) (int, error) {
 	return offset, nil
 }
 
+func (p *KnowledgeNeighborhoodReq) FastReadField9(buf []byte) (int, error) {
+	offset := 0
+
+	var _field int64
+	if v, l, err := thrift.Binary.ReadI64(buf[offset:]); err != nil {
+		return offset, err
+	} else {
+		offset += l
+		_field = v
+	}
+	p.DocumentId = _field
+	return offset, nil
+}
+
 func (p *KnowledgeNeighborhoodReq) FastWrite(buf []byte) int {
 	return p.FastWriteNocopy(buf, nil)
 }
@@ -3597,6 +3889,7 @@ func (p *KnowledgeNeighborhoodReq) FastWriteNocopy(buf []byte, w thrift.NocopyWr
 		offset += p.fastWriteField6(buf[offset:], w)
 		offset += p.fastWriteField7(buf[offset:], w)
 		offset += p.fastWriteField8(buf[offset:], w)
+		offset += p.fastWriteField9(buf[offset:], w)
 		offset += p.fastWriteField3(buf[offset:], w)
 		offset += p.fastWriteField4(buf[offset:], w)
 		offset += p.fastWriteField5(buf[offset:], w)
@@ -3616,6 +3909,7 @@ func (p *KnowledgeNeighborhoodReq) BLength() int {
 		l += p.field6Length()
 		l += p.field7Length()
 		l += p.field8Length()
+		l += p.field9Length()
 	}
 	l += thrift.Binary.FieldStopLength()
 	return l
@@ -3691,6 +3985,13 @@ func (p *KnowledgeNeighborhoodReq) fastWriteField8(buf []byte, w thrift.NocopyWr
 	return offset
 }
 
+func (p *KnowledgeNeighborhoodReq) fastWriteField9(buf []byte, w thrift.NocopyWriter) int {
+	offset := 0
+	offset += thrift.Binary.WriteFieldBegin(buf[offset:], thrift.I64, 9)
+	offset += thrift.Binary.WriteI64(buf[offset:], p.DocumentId)
+	return offset
+}
+
 func (p *KnowledgeNeighborhoodReq) field1Length() int {
 	l := 0
 	l += thrift.Binary.FieldBeginLength()
@@ -3749,6 +4050,13 @@ func (p *KnowledgeNeighborhoodReq) field7Length() int {
 }
 
 func (p *KnowledgeNeighborhoodReq) field8Length() int {
+	l := 0
+	l += thrift.Binary.FieldBeginLength()
+	l += thrift.Binary.I64Length()
+	return l
+}
+
+func (p *KnowledgeNeighborhoodReq) field9Length() int {
 	l := 0
 	l += thrift.Binary.FieldBeginLength()
 	l += thrift.Binary.I64Length()
@@ -3831,6 +4139,34 @@ func (p *KnowledgePathReq) FastRead(buf []byte) (int, error) {
 		case 5:
 			if fieldTypeId == thrift.I64 {
 				l, err = p.FastReadField5(buf[offset:])
+				offset += l
+				if err != nil {
+					goto ReadFieldError
+				}
+			} else {
+				l, err = thrift.Binary.Skip(buf[offset:], fieldTypeId)
+				offset += l
+				if err != nil {
+					goto SkipFieldError
+				}
+			}
+		case 6:
+			if fieldTypeId == thrift.I64 {
+				l, err = p.FastReadField6(buf[offset:])
+				offset += l
+				if err != nil {
+					goto ReadFieldError
+				}
+			} else {
+				l, err = thrift.Binary.Skip(buf[offset:], fieldTypeId)
+				offset += l
+				if err != nil {
+					goto SkipFieldError
+				}
+			}
+		case 7:
+			if fieldTypeId == thrift.I64 {
+				l, err = p.FastReadField7(buf[offset:])
 				offset += l
 				if err != nil {
 					goto ReadFieldError
@@ -3930,6 +4266,34 @@ func (p *KnowledgePathReq) FastReadField5(buf []byte) (int, error) {
 	return offset, nil
 }
 
+func (p *KnowledgePathReq) FastReadField6(buf []byte) (int, error) {
+	offset := 0
+
+	var _field int64
+	if v, l, err := thrift.Binary.ReadI64(buf[offset:]); err != nil {
+		return offset, err
+	} else {
+		offset += l
+		_field = v
+	}
+	p.DocumentId = _field
+	return offset, nil
+}
+
+func (p *KnowledgePathReq) FastReadField7(buf []byte) (int, error) {
+	offset := 0
+
+	var _field int64
+	if v, l, err := thrift.Binary.ReadI64(buf[offset:]); err != nil {
+		return offset, err
+	} else {
+		offset += l
+		_field = v
+	}
+	p.Hops = _field
+	return offset, nil
+}
+
 func (p *KnowledgePathReq) FastWrite(buf []byte) int {
 	return p.FastWriteNocopy(buf, nil)
 }
@@ -3941,6 +4305,8 @@ func (p *KnowledgePathReq) FastWriteNocopy(buf []byte, w thrift.NocopyWriter) in
 		offset += p.fastWriteField2(buf[offset:], w)
 		offset += p.fastWriteField3(buf[offset:], w)
 		offset += p.fastWriteField5(buf[offset:], w)
+		offset += p.fastWriteField6(buf[offset:], w)
+		offset += p.fastWriteField7(buf[offset:], w)
 		offset += p.fastWriteField4(buf[offset:], w)
 	}
 	offset += thrift.Binary.WriteFieldStop(buf[offset:])
@@ -3955,6 +4321,8 @@ func (p *KnowledgePathReq) BLength() int {
 		l += p.field3Length()
 		l += p.field4Length()
 		l += p.field5Length()
+		l += p.field6Length()
+		l += p.field7Length()
 	}
 	l += thrift.Binary.FieldStopLength()
 	return l
@@ -3995,6 +4363,20 @@ func (p *KnowledgePathReq) fastWriteField5(buf []byte, w thrift.NocopyWriter) in
 	return offset
 }
 
+func (p *KnowledgePathReq) fastWriteField6(buf []byte, w thrift.NocopyWriter) int {
+	offset := 0
+	offset += thrift.Binary.WriteFieldBegin(buf[offset:], thrift.I64, 6)
+	offset += thrift.Binary.WriteI64(buf[offset:], p.DocumentId)
+	return offset
+}
+
+func (p *KnowledgePathReq) fastWriteField7(buf []byte, w thrift.NocopyWriter) int {
+	offset := 0
+	offset += thrift.Binary.WriteFieldBegin(buf[offset:], thrift.I64, 7)
+	offset += thrift.Binary.WriteI64(buf[offset:], p.Hops)
+	return offset
+}
+
 func (p *KnowledgePathReq) field1Length() int {
 	l := 0
 	l += thrift.Binary.FieldBeginLength()
@@ -4024,6 +4406,20 @@ func (p *KnowledgePathReq) field4Length() int {
 }
 
 func (p *KnowledgePathReq) field5Length() int {
+	l := 0
+	l += thrift.Binary.FieldBeginLength()
+	l += thrift.Binary.I64Length()
+	return l
+}
+
+func (p *KnowledgePathReq) field6Length() int {
+	l := 0
+	l += thrift.Binary.FieldBeginLength()
+	l += thrift.Binary.I64Length()
+	return l
+}
+
+func (p *KnowledgePathReq) field7Length() int {
 	l := 0
 	l += thrift.Binary.FieldBeginLength()
 	l += thrift.Binary.I64Length()

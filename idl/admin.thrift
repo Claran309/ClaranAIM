@@ -24,6 +24,7 @@ struct AdminGroup {
     3: i64 owner_id
     4: string announcement
     5: string created_at
+    6: string status
 }
 
 struct AdminFile {
@@ -149,6 +150,19 @@ struct ListGroupsResp {
     2: list<AdminGroup> groups
     3: i64 total
     4: string msg
+}
+
+struct UpdateGroupStatusReq {
+    1: i64 admin_id
+    2: i64 group_id
+    3: string status
+    4: string reason
+}
+
+struct UpdateGroupStatusResp {
+    1: bool success
+    2: string msg
+    3: AdminGroup group
 }
 
 struct ListFilesReq {
@@ -289,6 +303,7 @@ service AdminService {
     DashboardResp GetDashboard(1: DashboardReq req)
     ListUsersResp ListUsers(1: ListUsersReq req)
     ListGroupsResp ListGroups(1: ListGroupsReq req)
+    UpdateGroupStatusResp UpdateGroupStatus(1: UpdateGroupStatusReq req)
     ListFilesResp ListFiles(1: ListFilesReq req)
     ListAgentsResp ListAgents(1: ListAgentsReq req)
     ListBillingResp ListBilling(1: ListBillingReq req)

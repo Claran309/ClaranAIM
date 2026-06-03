@@ -28,6 +28,7 @@ func (h *KnowledgeServiceImpl) GetGraphView(ctx context.Context, req *knowledge.
 		CommunityID:     req.GetCommunityId(),
 		Hops:            int(req.GetHops()),
 		Limit:           int(req.GetLimit()),
+		DocumentID:      req.GetDocumentId(),
 	})
 	if err != nil {
 		return &knowledge.KnowledgeGraphResp{Success: false, Msg: err.Error()}, nil
@@ -38,8 +39,10 @@ func (h *KnowledgeServiceImpl) GetGraphView(ctx context.Context, req *knowledge.
 // GetNodeDetail 返回节点详情、相邻节点和相关关系。
 func (h *KnowledgeServiceImpl) GetNodeDetail(ctx context.Context, req *knowledge.KnowledgeNodeDetailReq) (*knowledge.KnowledgeNodeDetailResp, error) {
 	detail, err := h.svc.GetNodeDetail(ctx, req.GetViewerId(), req.GetNodeId(), knowledgeclient.GraphQuery{
-		Query: req.GetQuery(),
-		Limit: int(req.GetLimit()),
+		Query:      req.GetQuery(),
+		Limit:      int(req.GetLimit()),
+		DocumentID: req.GetDocumentId(),
+		Hops:       int(req.GetHops()),
 	})
 	if err != nil {
 		return &knowledge.KnowledgeNodeDetailResp{Success: false, Msg: err.Error()}, nil
@@ -50,8 +53,10 @@ func (h *KnowledgeServiceImpl) GetNodeDetail(ctx context.Context, req *knowledge
 // GetEdgeDetail 返回关系详情、两端节点和证据来源。
 func (h *KnowledgeServiceImpl) GetEdgeDetail(ctx context.Context, req *knowledge.KnowledgeEdgeDetailReq) (*knowledge.KnowledgeEdgeDetailResp, error) {
 	detail, err := h.svc.GetEdgeDetail(ctx, req.GetViewerId(), req.GetEdgeId(), knowledgeclient.GraphQuery{
-		Query: req.GetQuery(),
-		Limit: int(req.GetLimit()),
+		Query:      req.GetQuery(),
+		Limit:      int(req.GetLimit()),
+		DocumentID: req.GetDocumentId(),
+		Hops:       int(req.GetHops()),
 	})
 	if err != nil {
 		return &knowledge.KnowledgeEdgeDetailResp{Success: false, Msg: err.Error()}, nil
@@ -68,6 +73,7 @@ func (h *KnowledgeServiceImpl) GetNeighborhood(ctx context.Context, req *knowled
 		CommunityID:     req.GetCommunityId(),
 		Hops:            int(req.GetHops()),
 		Limit:           int(req.GetLimit()),
+		DocumentID:      req.GetDocumentId(),
 	})
 	if err != nil {
 		return &knowledge.KnowledgeGraphResp{Success: false, Msg: err.Error()}, nil
@@ -78,8 +84,10 @@ func (h *KnowledgeServiceImpl) GetNeighborhood(ctx context.Context, req *knowled
 // GetPath 返回两个实体之间的最短可见路径，用于前端高亮和解释链路。
 func (h *KnowledgeServiceImpl) GetPath(ctx context.Context, req *knowledge.KnowledgePathReq) (*knowledge.KnowledgePathResp, error) {
 	path, err := h.svc.GetPath(ctx, req.GetViewerId(), req.GetSourceId(), req.GetTargetId(), knowledgeclient.GraphQuery{
-		Query: req.GetQuery(),
-		Limit: int(req.GetLimit()),
+		Query:      req.GetQuery(),
+		Limit:      int(req.GetLimit()),
+		DocumentID: req.GetDocumentId(),
+		Hops:       int(req.GetHops()),
 	})
 	if err != nil {
 		return &knowledge.KnowledgePathResp{Success: false, Msg: err.Error()}, nil
@@ -229,6 +237,7 @@ func toRPCEdge(edge knowledgeclient.GraphEdge) *knowledge.KnowledgeGraphEdge {
 		Weight:      edge.Weight,
 		Evidence:    edge.Evidence,
 		Color:       edge.Color,
+		DocumentId:  edge.DocumentID,
 	}
 }
 

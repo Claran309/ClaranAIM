@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"strings"
 )
 
@@ -95,7 +96,7 @@ func (s *messageServiceImpl) TranslateMessage(ctx context.Context, input Transla
 	prompt := renderTranslationPrompt(cfg.PromptTemplate, targetLanguage, msg.Content)
 	translated, err := s.translationLLM.Translate(ctx, cfg, prompt)
 	if err != nil {
-		return TranslateMessageResult{}, err
+		return TranslateMessageResult{}, describeTranslationLLMError(cfg, err)
 	}
 	translated = strings.TrimSpace(translated)
 	if translated == "" {
@@ -113,6 +114,30 @@ func (s *messageServiceImpl) TranslateMessage(ctx context.Context, input Transla
 	}
 	_ = s.repo.SaveTranslation(ctx, record)
 	return TranslateMessageResult{MessageID: msg.ID, TargetLanguage: targetLanguage, TranslatedText: translated, Cached: false, ModelName: cfg.ModelName}, nil
+}
+
+func describeTranslationLLMError(cfg settingsclient.ResolvedLLMConfig, err error) error {
+	if err == nil {
+		return nil
+	}
+	raw := strings.TrimSpace(err.Error())
+	lower := strings.ToLower(raw)
+	provider := defaultTranslationErrorField(cfg.ProviderType, "unknown")
+	model := defaultTranslationErrorField(cfg.ModelName, "unknown")
+	baseURL := defaultTranslationErrorField(cfg.BaseURL, "未配置")
+	prefix := "第三方翻译模型调用失败"
+	if strings.Contains(lower, "rate limit") || strings.Contains(lower, "too many requests") || strings.Contains(raw, "速率限制") || strings.Contains(raw, "达到速率") || strings.Contains(raw, "429") {
+		prefix = "第三方翻译模型限流"
+	}
+	return fmt.Errorf("%s：provider=%s，model=%s，base_url=%s，错误=%s", prefix, provider, model, baseURL, raw)
+}
+
+func defaultTranslationErrorField(value, fallback string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return fallback
+	}
+	return value
 }
 
 // renderTranslationPrompt 将用户配置的模板渲染为实际翻译 prompt。

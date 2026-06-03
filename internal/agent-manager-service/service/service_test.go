@@ -312,7 +312,7 @@ func TestDeleteRouteRemovesMirroredSubscriptionRule(t *testing.T) {
 	}
 }
 
-func TestChatWithBotInjectsRecalledMemoryAndStoresRunSummary(t *testing.T) {
+func TestChatWithBotInjectsRecalledMemoryAndSkipsLowValueRunSummary(t *testing.T) {
 	runtime := &fakeRuntimeClient{}
 	memory := &fakeBotMemoryService{
 		recallResult: memoryclient.RecallResult{
@@ -359,8 +359,34 @@ func TestChatWithBotInjectsRecalledMemoryAndStoresRunSummary(t *testing.T) {
 	if runtime.lastReq == nil || runtime.lastReq.Bot == nil || runtime.lastReq.Bot.ContextMessageLimit != 42 {
 		t.Fatalf("runtime config did not include context limit: %#v", runtime.lastReq)
 	}
+	if len(memory.created) != 0 {
+		t.Fatalf("expected low-value chat not to create long-term memory, got %#v", memory.created)
+	}
+}
+
+func TestChatWithBotStoresHighValueRunSummary(t *testing.T) {
+	runtime := &fakeRuntimeClient{}
+	memory := &fakeBotMemoryService{}
+	svc := NewAgentService(&fakeBotRepo{byID: &model.Bot{
+		ID:                  1,
+		Name:                "Agent",
+		Type:                "custom",
+		ModelName:           "glm-4.7",
+		APIKey:              "key",
+		BaseURL:             "https://llm.example/v1",
+		OwnerID:             1001,
+		IsActive:            true,
+		ContextMessageLimit: DefaultContextMessageLimit,
+		MemoryRecallLimit:   DefaultMemoryRecallLimit,
+	}}, &fakePermissionRepo{}, nil, &fakeBillingRepo{}, runtime, nil, "storage/agent/files")
+	svc.(*agentServiceImpl).SetMemoryService(memory)
+
+	_, err := svc.ChatWithBot(context.Background(), 1, 1001, 33, "请长期记住：我正在做 ClaranAIM 的 RAG 和知识图谱模块，偏好先修闭环再打磨 UI")
+	if err != nil {
+		t.Fatalf("ChatWithBot returned error: %v", err)
+	}
 	if len(memory.created) != 1 || memory.created[0].Type != memoryclient.TypeAgentRun || memory.created[0].Scope != memoryclient.ScopeConversation {
-		t.Fatalf("expected one agent run memory summary, got %#v", memory.created)
+		t.Fatalf("expected one high-value agent run memory summary, got %#v", memory.created)
 	}
 }
 
@@ -395,12 +421,12 @@ func TestInternalAgentUsesLatestDefaultProviderAtRuntime(t *testing.T) {
 }
 
 func TestSummarizeAgentRunMemoryUsesTriggeredContentNotSystemEnvelope(t *testing.T) {
-	wrapped := "你是 ClaranAIM 中的原生 Agent 成员，本轮输入来自 IM 事件流。\n\n事件信息：\n- event_type: message.created\n\n当前触发内容：\n请分析这张图\n\n会话材料：\n- [2026] 用户1: 历史消息"
-	got := summarizeAgentRunMemory(wrapped, "图里是一段报错。")
+	wrapped := "你是 ClaranAIM 中的原生 Agent 成员，本轮输入来自 IM 事件流。\n\n事件信息：\n- event_type: message.created\n\n当前触发内容：\n请长期记住：我正在修 RAG 知识图谱和上传进度问题\n\n会话材料：\n- [2026] 用户1: 历史消息"
+	got := summarizeAgentRunMemory(wrapped, "已记录为项目长期问题：RAG 知识图谱和上传进度需要优先闭环。")
 	if strings.Contains(got, "你是 ClaranAIM") || strings.Contains(got, "会话材料") {
 		t.Fatalf("summary leaked system envelope: %q", got)
 	}
-	if !strings.Contains(got, "请分析这张图") || !strings.Contains(got, "图里是一段报错") {
+	if !strings.Contains(got, "请长期记住") || !strings.Contains(got, "RAG 知识图谱") {
 		t.Fatalf("summary = %q, want triggered content and reply", got)
 	}
 }

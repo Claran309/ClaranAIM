@@ -95,6 +95,7 @@ func RegisterRoutes(r *route.Engine, cfg ...*config.Config) {
 		auth.GET("/message/unread-count", messageHandler.GetUnreadCount)
 		auth.GET("/message/sync", messageHandler.SyncOnReconnect)
 		auth.POST("/message/translate", messageHandler.TranslateMessage)
+		auth.GET("/system/notices", adminHandler.ListPublicNotices)
 
 		auth.POST("/file/upload", fileHandler.UploadFile)
 		auth.POST("/file/:id/ocr", fileHandler.AnalyzeImage)
@@ -138,9 +139,12 @@ func RegisterRoutes(r *route.Engine, cfg ...*config.Config) {
 
 		auth.POST("/rag/ingest", ragHandler.IngestDocument)
 		auth.POST("/rag/upload", ragHandler.UploadDocument)
+		auth.GET("/rag/upload/:id", ragHandler.GetUploadJob)
 		auth.POST("/rag/search", ragHandler.Search)
 		auth.GET("/rag/graph", ragHandler.GetGraph)
 		auth.GET("/rag/documents", ragHandler.ListDocuments)
+		auth.DELETE("/rag/documents/:id", ragHandler.DeleteDocument)
+		auth.DELETE("/rag/documents/:id/graph", ragHandler.DeleteDocumentGraph)
 
 		auth.GET("/web-search/search", webSearchHandler.Search)
 		auth.POST("/web-search/augment", webSearchHandler.Augment)
@@ -167,6 +171,7 @@ func RegisterRoutes(r *route.Engine, cfg ...*config.Config) {
 
 		auth.GET("/settings/llm-profiles", settingsHandler.ListLLMProfiles)
 		auth.POST("/settings/llm-profiles", settingsHandler.SaveLLMProfile)
+		auth.POST("/settings/llm-profiles/test", settingsHandler.TestLLMProfile)
 		auth.DELETE("/settings/llm-profiles/:id", settingsHandler.DeleteLLMProfile)
 		auth.GET("/settings/prompts", settingsHandler.ListPrompts)
 		auth.POST("/settings/prompts", settingsHandler.SavePrompt)
@@ -185,7 +190,9 @@ func RegisterRoutes(r *route.Engine, cfg ...*config.Config) {
 	{
 		admin.GET("/dashboard", adminHandler.Dashboard)
 		admin.GET("/users", adminHandler.ListUsers)
+		admin.POST("/users/:id/status", adminHandler.UpdateUserStatus)
 		admin.GET("/groups", adminHandler.ListGroups)
+		admin.POST("/groups/:id/status", adminHandler.UpdateGroupStatus)
 		admin.GET("/files", adminHandler.ListFiles)
 		admin.GET("/agents", adminHandler.ListAgents)
 		admin.GET("/billing", adminHandler.ListBilling)

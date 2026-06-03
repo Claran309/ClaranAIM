@@ -13,6 +13,7 @@ import (
 	"context"
 	"errors"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -35,6 +36,7 @@ type GroupService interface {
 	TransferOwner(ctx context.Context, groupID, operatorID, newOwnerID int64) error
 	PinGroup(ctx context.Context, groupID, operatorID int64, isPinned bool) error
 	AdminListGroups(ctx context.Context, keyword string, ownerID, limit, offset int64) ([]model.Group, int64, error)
+	AdminUpdateGroupStatus(ctx context.Context, adminID, groupID int64, status, reason string) (*model.Group, error)
 }
 
 // groupServiceImpl 串联群组仓储和可选 Redis。
@@ -94,6 +96,7 @@ func (s *groupServiceImpl) createGroup(ctx context.Context, groupID int64, name 
 		ID:      groupID,
 		Name:    name,
 		OwnerID: ownerID,
+		Status:  "active",
 	}
 
 	if err := s.repo.WithTransaction(ctx, func(tx dao.GroupRepository) error {
@@ -290,6 +293,30 @@ func (s *groupServiceImpl) GetUserGroups(ctx context.Context, userID int64) ([]m
 // 该方法只读，不绕过普通群管理接口执行写操作。
 func (s *groupServiceImpl) AdminListGroups(ctx context.Context, keyword string, ownerID, limit, offset int64) ([]model.Group, int64, error) {
 	return s.repo.AdminListGroups(ctx, keyword, ownerID, limit, offset)
+}
+
+// AdminUpdateGroupStatus 由管理端封禁或解封群聊。
+// 它只修改群治理状态，不删除成员和历史消息；msg-core-service 在发送链路读取该状态并拒绝已封禁群的新消息。
+func (s *groupServiceImpl) AdminUpdateGroupStatus(ctx context.Context, adminID, groupID int64, status, reason string) (*model.Group, error) {
+	_ = adminID
+	_ = reason
+	status = normalizeGroupStatus(status)
+	if status == "" {
+		return nil, errors.New("status只能是active或banned")
+	}
+	group, err := s.repo.GetGroupByID(ctx, groupID)
+	if err != nil {
+		return nil, err
+	}
+	if group == nil {
+		return nil, errors.New("群组不存在")
+	}
+	if err := s.repo.UpdateGroupStatus(ctx, groupID, status); err != nil {
+		return nil, err
+	}
+	group.Status = status
+	s.invalidateGroupCache(ctx, groupID)
+	return group, nil
 }
 
 // InviteMember 邀请成员加入群组
@@ -679,4 +706,18 @@ func dedupeInt64(ids []int64) []int64 {
 		result = append(result, id)
 	}
 	return result
+}
+
+// normalizeGroupStatus 收敛管理端传入的群治理状态。
+// 空值和历史脏值不在这里静默接受，避免“封禁/解封成功但实际状态不可解释”。
+func normalizeGroupStatus(status string) string {
+	status = strings.ToLower(strings.TrimSpace(status))
+	switch status {
+	case "active", "online", "normal":
+		return "active"
+	case "banned", "disabled":
+		return "banned"
+	default:
+		return ""
+	}
 }

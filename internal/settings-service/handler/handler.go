@@ -56,6 +56,30 @@ func (h *SettingsServiceImpl) DeleteLLMProfile(ctx context.Context, req *setting
 	return &settings.DeleteLLMProfileResp{Success: true, Msg: "删除成功"}, nil
 }
 
+// TestLLMProfile 对用户填写或已保存的模型配置做一次最小连通测试。
+func (h *SettingsServiceImpl) TestLLMProfile(ctx context.Context, req *settings.TestLLMProfileReq) (*settings.TestLLMProfileResp, error) {
+	result, err := h.svc.TestLLMProfile(ctx, req.UserId, settingsclient.TestLLMProfileInput{
+		ProfileID:    req.ProfileId,
+		ProviderType: req.ProviderType,
+		BaseURL:      req.BaseUrl,
+		APIKey:       req.ApiKey,
+		ModelName:    req.ModelName,
+		UsageType:    req.UsageType,
+		UseBuiltin:   req.UseBuiltin,
+	})
+	if err != nil {
+		return &settings.TestLLMProfileResp{Success: false, Msg: err.Error()}, nil
+	}
+	return &settings.TestLLMProfileResp{
+		Success:      true,
+		Ok:           result.OK,
+		Msg:          result.Msg,
+		LatencyMs:    result.LatencyMS,
+		ProviderType: result.ProviderType,
+		ModelName:    result.ModelName,
+	}, nil
+}
+
 // SavePrompt 保存用户 Prompt 模板。
 func (h *SettingsServiceImpl) SavePrompt(ctx context.Context, req *settings.SavePromptReq) (*settings.SavePromptResp, error) {
 	prompt, err := h.svc.SavePrompt(ctx, req.UserId, settingsclient.SavePromptInput{

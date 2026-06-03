@@ -28,6 +28,10 @@ func (h *AdminServiceImpl) ListGroups(ctx context.Context, req *admin.ListGroups
 	return h.svc.ListGroups(ctx, req)
 }
 
+func (h *AdminServiceImpl) UpdateGroupStatus(ctx context.Context, req *admin.UpdateGroupStatusReq) (*admin.UpdateGroupStatusResp, error) {
+	return h.svc.UpdateGroupStatus(ctx, req)
+}
+
 func (h *AdminServiceImpl) ListFiles(ctx context.Context, req *admin.ListFilesReq) (*admin.ListFilesResp, error) {
 	return h.svc.ListFiles(ctx, req)
 }

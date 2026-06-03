@@ -424,6 +424,91 @@ func TestAgentEventDispatcherIgnoresEventsSentByAnyAgentUser(t *testing.T) {
 	}
 }
 
+func TestAgentEventDispatcherIgnoresAgentGeneratedClientMessage(t *testing.T) {
+	envelope, err := events.NewEnvelope(events.EventTypeMessageCreated, "10", events.MessagePayload{
+		ConversationID:   10,
+		ConversationType: "group",
+		SenderID:         2001,
+		Content:          "@agent 这是 Agent 刚写回的消息",
+		MsgID:            100,
+		MentionUserIDs:   []int64{2001},
+		ParticipantIDs:   []int64{1001, 2001},
+		ClientMsgID:      "agent:message.created:99:2001",
+	})
+	if err != nil {
+		t.Fatalf("NewEnvelope returned error: %v", err)
+	}
+	botSvc := &fakeBotService{bot: &model.Bot{ID: 1, AgentUserID: 2001, IsActive: true}}
+	dispatcher := NewAgentEventDispatcher(botSvc, &fakeDispatchRepo{}, &fakeSubscriptionRepo{rules: []model.AgentSubscriptionRule{
+		{BotID: 1, AgentUserID: 2001, ConversationID: 10, EventTypes: events.EventTypeMessageCreated, TriggerMode: "mention", Action: "trigger", IsActive: true},
+	}}, &fakeAuditRepo{}, &fakeMessageClient{sendResp: &message.SendMessageResp{Success: true, MsgId: 101}})
+
+	if err := dispatcher.Handle(context.Background(), envelope); err != nil {
+		t.Fatalf("dispatcher.Handle returned error: %v", err)
+	}
+	if botSvc.chatCalls != 0 {
+		t.Fatalf("chat calls = %d, want 0 for agent-generated client_msg_id", botSvc.chatCalls)
+	}
+}
+
+func TestAgentEventDispatcherIgnoresResolvedBotSelfMessageWithoutClientMsgID(t *testing.T) {
+	envelope, err := events.NewEnvelope(events.EventTypeMessageCreated, "10", events.MessagePayload{
+		ConversationID:   10,
+		ConversationType: "group",
+		SenderID:         2001,
+		Content:          "@agent 这是 Agent 刚写回但缺少 client_msg_id 的事件",
+		MsgID:            101,
+		MentionUserIDs:   []int64{2001},
+		ParticipantIDs:   []int64{1001, 2001},
+	})
+	if err != nil {
+		t.Fatalf("NewEnvelope returned error: %v", err)
+	}
+	botSvc := &fakeBotService{bot: &model.Bot{ID: 1, AgentUserID: 2001, IsActive: true}}
+	dispatcher := NewAgentEventDispatcher(botSvc, &fakeDispatchRepo{}, &fakeSubscriptionRepo{rules: []model.AgentSubscriptionRule{
+		{BotID: 1, AgentUserID: 2001, ConversationID: 10, EventTypes: events.EventTypeMessageCreated, TriggerMode: "mention", Action: "trigger", IsActive: true},
+	}}, &fakeAuditRepo{}, &fakeMessageClient{sendResp: &message.SendMessageResp{Success: true, MsgId: 102}})
+
+	if err := dispatcher.Handle(context.Background(), envelope); err != nil {
+		t.Fatalf("dispatcher.Handle returned error: %v", err)
+	}
+	if botSvc.chatCalls != 0 {
+		t.Fatalf("chat calls = %d, want 0 for resolved Agent self message without client_msg_id", botSvc.chatCalls)
+	}
+}
+
+func TestAgentEventDispatcherIgnoresAgentGeneratedIMMetadata(t *testing.T) {
+	envelope, err := events.NewEnvelope(events.EventTypeFileUploaded, "10", events.IMEventPayload{
+		EventType:        events.EventTypeFileUploaded,
+		ConversationID:   10,
+		ConversationType: "group",
+		SenderID:         2001,
+		Content:          "@agent 这是 Agent 生成的附件事件",
+		MsgID:            102,
+		MentionUserIDs:   []int64{2001},
+		ParticipantIDs:   []int64{1001, 2001},
+		Metadata: map[string]string{
+			"agent_generated": "true",
+			"client_msg_id":   "agent:message.created:101:2001",
+			"source":          "agent",
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewEnvelope returned error: %v", err)
+	}
+	botSvc := &fakeBotService{bot: &model.Bot{ID: 1, AgentUserID: 2001, IsActive: true}}
+	dispatcher := NewAgentEventDispatcher(botSvc, &fakeDispatchRepo{}, &fakeSubscriptionRepo{rules: []model.AgentSubscriptionRule{
+		{BotID: 1, AgentUserID: 2001, ConversationID: 10, EventTypes: events.EventTypeFileUploaded, TriggerMode: "mention", Action: "trigger", IsActive: true},
+	}}, &fakeAuditRepo{}, &fakeMessageClient{sendResp: &message.SendMessageResp{Success: true, MsgId: 103}})
+
+	if err := dispatcher.Handle(context.Background(), envelope); err != nil {
+		t.Fatalf("dispatcher.Handle returned error: %v", err)
+	}
+	if botSvc.chatCalls != 0 {
+		t.Fatalf("chat calls = %d, want 0 for agent-generated IM metadata", botSvc.chatCalls)
+	}
+}
+
 type fakeDispatchRepo struct {
 	failed string
 	seen   map[string]struct{}

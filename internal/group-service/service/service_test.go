@@ -58,6 +58,13 @@ func (r *fakeGroupRepo) UpdateGroup(ctx context.Context, group *model.Group) err
 	return nil
 }
 
+func (r *fakeGroupRepo) UpdateGroupStatus(ctx context.Context, groupID int64, status string) error {
+	if r.groups[groupID] != nil {
+		r.groups[groupID].Status = status
+	}
+	return nil
+}
+
 func (r *fakeGroupRepo) DeleteGroup(ctx context.Context, id int64) error {
 	delete(r.groups, id)
 	return nil

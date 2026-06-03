@@ -7,6 +7,11 @@ import "context"
 const (
 	ProviderTranslate      = "translation"
 	ProviderRAGRouter      = "rag_router"
+	ProviderAgent          = "agent"
+	ProviderGeneral        = "general"
+	ProviderEmbedding      = "embedding"
+	ProviderOCR            = "ocr"
+	ProviderRerank         = "rerank"
 	DefaultTranslatePrompt = "请将下面内容翻译成中文。只输出译文，保留代码、链接、数字、专有名词和 Markdown 结构。"
 
 	SkillScopeGlobal = "global"
@@ -112,6 +117,27 @@ type SaveLLMProfileInput struct {
 	APIKeyAction string
 }
 
+// TestLLMProfileInput 表示一次模型连通性检测请求。
+// ProfileID 用于测试已保存配置；BaseURL/APIKey/ModelName 用于测试尚未保存的表单内容。
+type TestLLMProfileInput struct {
+	ProfileID    int64  `json:"profile_id"`
+	ProviderType string `json:"provider_type"`
+	BaseURL      string `json:"base_url"`
+	APIKey       string `json:"api_key"`
+	ModelName    string `json:"model_name"`
+	UsageType    string `json:"usage_type"`
+	UseBuiltin   bool   `json:"use_builtin"`
+}
+
+// TestLLMProfileResult 是模型连通性检测的脱敏结果。
+type TestLLMProfileResult struct {
+	OK           bool   `json:"ok"`
+	Msg          string `json:"msg"`
+	LatencyMS    int64  `json:"latency_ms"`
+	ProviderType string `json:"provider_type"`
+	ModelName    string `json:"model_name"`
+}
+
 // SavePromptInput 表示保存 prompt 模板的入参。
 type SavePromptInput struct {
 	ID        int64
@@ -183,6 +209,7 @@ type Service interface {
 	SaveLLMProfile(ctx context.Context, ownerID int64, input SaveLLMProfileInput) (*LLMProfile, error)
 	ListLLMProfiles(ctx context.Context, ownerID int64, usageType string) ([]LLMProfile, error)
 	DeleteLLMProfile(ctx context.Context, ownerID, profileID int64) error
+	TestLLMProfile(ctx context.Context, ownerID int64, input TestLLMProfileInput) (TestLLMProfileResult, error)
 	SavePrompt(ctx context.Context, ownerID int64, input SavePromptInput) (*PromptTemplate, error)
 	ListPrompts(ctx context.Context, ownerID int64) ([]PromptTemplate, error)
 	ResolveTranslationConfig(ctx context.Context, ownerID int64) (ResolvedLLMConfig, error)

@@ -64,6 +64,33 @@ func (c *RPCClient) DeleteLLMProfile(ctx context.Context, ownerID, profileID int
 	return rpcStatus(resp.GetSuccess(), resp.GetMsg())
 }
 
+// TestLLMProfile 验证已保存或表单中的模型配置是否能正常调用。
+func (c *RPCClient) TestLLMProfile(ctx context.Context, ownerID int64, input TestLLMProfileInput) (TestLLMProfileResult, error) {
+	resp, err := c.client.TestLLMProfile(ctx, &settings.TestLLMProfileReq{
+		UserId:       ownerID,
+		ProfileId:    input.ProfileID,
+		ProviderType: input.ProviderType,
+		BaseUrl:      input.BaseURL,
+		ApiKey:       input.APIKey,
+		ModelName:    input.ModelName,
+		UsageType:    input.UsageType,
+		UseBuiltin:   input.UseBuiltin,
+	})
+	if err != nil {
+		return TestLLMProfileResult{}, err
+	}
+	if err := rpcStatus(resp.GetSuccess(), resp.GetMsg()); err != nil {
+		return TestLLMProfileResult{}, err
+	}
+	return TestLLMProfileResult{
+		OK:           resp.GetOk(),
+		Msg:          resp.GetMsg(),
+		LatencyMS:    resp.GetLatencyMs(),
+		ProviderType: resp.GetProviderType(),
+		ModelName:    resp.GetModelName(),
+	}, nil
+}
+
 // SavePrompt 创建或更新用户 Prompt 模板。
 func (c *RPCClient) SavePrompt(ctx context.Context, ownerID int64, input SavePromptInput) (*PromptTemplate, error) {
 	resp, err := c.client.SavePrompt(ctx, &settings.SavePromptReq{

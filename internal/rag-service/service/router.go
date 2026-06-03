@@ -93,6 +93,9 @@ func classifyByRules(query, defaultMode string) (RouterDecision, bool) {
 	if isGreetingQuery(query) {
 		return RouterDecision{Route: AdaptiveRouteDirect, Mode: "direct", Complexity: "simple", Retrieve: false, RetrievalSource: "none", Sources: []string{}, Strategy: "direct_answer", Reason: "规则命中寒暄/简单问题"}, false
 	}
+	if looksLikeDocumentLookup(query) {
+		return RouterDecision{Route: AdaptiveRouteProjectRAG, Mode: "document", Complexity: "medium", Retrieve: true, RetrievalSource: "project_docs", Sources: []string{"project_docs"}, Strategy: "document_search", Query: query, Reason: "规则命中文档标题/材料名称式查询，优先检索知识库而不是直接创作"}, false
+	}
 	if containsAny(lower, "最新", "today", "price", "价格", "版本", "release", "news", "新闻", "实时", "现在") {
 		return RouterDecision{Route: AdaptiveRouteWebRAG, Mode: "web", Complexity: "medium", Retrieve: true, RetrievalSource: "web", Sources: []string{"web"}, Strategy: "web_search", Query: query, Reason: "规则命中实时/最新信息问题"}, false
 	}
@@ -127,7 +130,41 @@ func defaultProjectDecision(query, defaultMode, reason string) RouterDecision {
 
 func isGreetingQuery(query string) bool {
 	trimmed := strings.TrimSpace(query)
-	return len([]rune(trimmed)) <= 12 && containsAny(strings.ToLower(trimmed), "你好", "hello", "hi", "介绍一下", "在吗")
+	lower := strings.ToLower(trimmed)
+	switch lower {
+	case "你好", "hello", "hi", "在吗", "在不在", "哈喽", "嗨":
+		return true
+	}
+	if len([]rune(trimmed)) <= 24 &&
+		(containsAny(lower, "你好", "hello", "hi", "哈喽", "嗨") || strings.HasPrefix(lower, "hello")) &&
+		containsAny(trimmed, "介绍一下自己", "你是谁", "你能做什么", "自我介绍") {
+		return true
+	}
+	return false
+}
+
+func looksLikeDocumentLookup(query string) bool {
+	trimmed := strings.TrimSpace(query)
+	if trimmed == "" {
+		return false
+	}
+	lower := strings.ToLower(trimmed)
+	if containsAny(trimmed, "帮我写", "帮我生成", "生成一份", "写一份", "准备一份", "起草", "润色", "改写") {
+		return false
+	}
+	if containsAny(lower, ".pdf", ".doc", ".docx", ".ppt", ".pptx", ".md", ".txt") {
+		return true
+	}
+	if containsAny(trimmed, "知识库", "文档", "文件", "材料", "资料", "简历", "论文", "课件", "讲义", "报告", "方案", "面试", "第") {
+		return true
+	}
+	runes := []rune(trimmed)
+	if len(runes) >= 4 && len(runes) <= 24 &&
+		!containsAny(trimmed, "？", "?", "为什么", "怎么", "如何", "请", "帮", "写", "生成", "创建", "删除", "修改", "执行") &&
+		containsAny(trimmed, "中心", "项目", "课程", "实验", "架构", "使用", "进阶", "总结") {
+		return true
+	}
+	return false
 }
 
 func containsAny(text string, terms ...string) bool {
@@ -165,7 +202,7 @@ func (r *LLMRouter) Route(ctx context.Context, input RouterInput) (RouterDecisio
 		"messages": []map[string]string{
 			{
 				"role":    "system",
-				"content": "你是Adaptive RAG Router / Classifier。只输出JSON，不要解释。你只做结构化判断，不执行工具、不绕过权限。字段: route(direct|project_rag|strict_rag|web_rag|memory_rag|tool_action), complexity(simple|medium|high), need_retrieve(boolean), sources(array), strategy(string), mode(direct|hybrid|graphrag|web|memory|tool_action), retrieval_source(string), query(string), reason(string)。简单问题 direct；普通知识库 project_rag；复杂/高风险 strict_rag；实时最新 web_rag；私有记忆 memory_rag；执行动作 tool_action。",
+				"content": "你是Adaptive RAG Router / Classifier。只输出JSON，不要解释。你只做结构化判断，不执行工具、不绕过权限。字段: route(direct|project_rag|strict_rag|web_rag|memory_rag|tool_action), complexity(simple|medium|high), need_retrieve(boolean), sources(array), strategy(string), mode(direct|hybrid|document|graphrag|web|memory|tool_action), retrieval_source(string), query(string), reason(string)。简单寒暄 direct；普通知识库 project_rag；明确查文档/材料/简历/课件/标题时必须 project_rag + mode=document + need_retrieve=true，不要擅自改写成创作任务；复杂/高风险 strict_rag；实时最新 web_rag；私有记忆 memory_rag；执行动作 tool_action。",
 			},
 			{
 				"role":    "user",
@@ -259,7 +296,7 @@ func parseRouterDecision(content, defaultMode string) (RouterDecision, error) {
 
 func sanitizeRAGMode(mode, defaultMode string) string {
 	switch strings.ToLower(strings.TrimSpace(mode)) {
-	case "direct", "hybrid", "graphrag", "web", "memory", "tool_action":
+	case "direct", "hybrid", "document", "graphrag", "web", "memory", "tool_action":
 		return strings.ToLower(strings.TrimSpace(mode))
 	case "adaptive", "":
 		return defaultString(defaultMode, "hybrid")

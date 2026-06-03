@@ -140,9 +140,11 @@ func (s *webSearchServiceImpl) Search(ctx context.Context, input SearchInput) (S
 		return SearchOutput{}, errors.New("搜索关键词不能为空")
 	}
 	limit := normalizeLimit(input.Limit, s.options.MaxResults)
-	results, err := s.searcher.Search(ctx, query, limit)
+	searchCtx, cancel := context.WithTimeout(ctx, searchProviderBudget(s.options.Timeout))
+	results, err := s.searcher.Search(searchCtx, query, limit)
+	cancel()
 	if err != nil {
-		return SearchOutput{}, err
+		return SearchOutput{Success: true, Query: query, Results: nil, Msg: "搜索源暂时不可用：" + err.Error()}, nil
 	}
 	sources := make([]WebSource, 0, len(results))
 	for _, result := range results {
@@ -166,17 +168,37 @@ func (s *webSearchServiceImpl) Augment(ctx context.Context, input AugmentInput) 
 	limit := normalizeLimit(input.Limit, s.options.MaxResults)
 	maxFetch := normalizeLimit(input.MaxFetch, s.options.MaxFetch)
 	maxPassages := normalizeLimit(input.MaxPassages, s.options.MaxPassages)
-	results, err := s.searcher.Search(ctx, query, max(limit, maxFetch))
+	searchCtx, cancel := context.WithTimeout(ctx, searchProviderBudget(s.options.Timeout))
+	results, err := s.searcher.Search(searchCtx, query, max(limit, maxFetch))
+	cancel()
 	if err != nil {
-		return AugmentOutput{}, err
+		return AugmentOutput{
+			Success:       true,
+			Query:         query,
+			AnswerContext: "联网搜索增强暂时没有拿到可用搜索结果。请检查 web-search-service 网络连通性或稍后重试。用户问题：" + query,
+			Sources:       nil,
+			SearchTime:    time.Since(start).Round(time.Millisecond).String(),
+			Msg:           "搜索源暂时不可用：" + err.Error(),
+		}, nil
 	}
 	results = rankResults(results, query, s.options.TrustedDomains)
 	if len(results) > maxFetch {
 		results = results[:maxFetch]
 	}
 	sources := make([]WebSource, 0, len(results))
+	deadline := time.Now().Add(s.options.Timeout)
+	if parentDeadline, ok := ctx.Deadline(); ok && parentDeadline.Before(deadline) {
+		deadline = parentDeadline.Add(-500 * time.Millisecond)
+	}
 	for _, result := range results {
-		page, fetchErr := s.fetcher.Fetch(ctx, result.URL)
+		if time.Now().After(deadline) {
+			source := s.resultToSource(result, []string{strings.TrimSpace(result.Snippet)}, "deadline_snippet_fallback", query)
+			sources = append(sources, source)
+			continue
+		}
+		fetchCtx, cancel := context.WithTimeout(ctx, perPageFetchBudget(s.options.Timeout, time.Until(deadline), len(results)))
+		page, fetchErr := s.fetcher.Fetch(fetchCtx, result.URL)
+		cancel()
 		if fetchErr != nil || strings.TrimSpace(page.Content) == "" {
 			source := s.resultToSource(result, []string{strings.TrimSpace(result.Snippet)}, "snippet_fallback", query)
 			if fetchErr != nil {
@@ -192,6 +214,18 @@ func (s *webSearchServiceImpl) Augment(ctx context.Context, input AugmentInput) 
 	}
 	sortSources(sources)
 	sources = filterUsefulSources(sources, limit)
+	if len(sources) == 0 && len(results) > 0 {
+		for _, result := range results {
+			source := s.resultToSource(result, []string{strings.TrimSpace(result.Snippet)}, "snippet_fallback", query)
+			if len(source.Passages) == 0 && strings.TrimSpace(source.Snippet) != "" {
+				source.Passages = []string{strings.TrimSpace(source.Snippet)}
+			}
+			sources = append(sources, source)
+			if len(sources) >= limit {
+				break
+			}
+		}
+	}
 	return AugmentOutput{
 		Success:       true,
 		Query:         query,
@@ -199,6 +233,40 @@ func (s *webSearchServiceImpl) Augment(ctx context.Context, input AugmentInput) 
 		Sources:       sources,
 		SearchTime:    time.Since(start).Round(time.Millisecond).String(),
 	}, nil
+}
+
+func perPageFetchBudget(totalBudget, remain time.Duration, resultCount int) time.Duration {
+	if totalBudget <= 0 {
+		totalBudget = 10 * time.Second
+	}
+	if remain <= 0 {
+		return 500 * time.Millisecond
+	}
+	if resultCount <= 0 {
+		resultCount = 1
+	}
+	budget := remain / time.Duration(resultCount)
+	if budget < 800*time.Millisecond {
+		return 800 * time.Millisecond
+	}
+	if budget > 3500*time.Millisecond {
+		return 3500 * time.Millisecond
+	}
+	return budget
+}
+
+func searchProviderBudget(totalBudget time.Duration) time.Duration {
+	if totalBudget <= 0 {
+		return 6 * time.Second
+	}
+	budget := totalBudget / 2
+	if budget < 2500*time.Millisecond {
+		return 2500 * time.Millisecond
+	}
+	if budget > 6*time.Second {
+		return 6 * time.Second
+	}
+	return budget
 }
 
 func (s *webSearchServiceImpl) resultToSource(result SearchResult, passages []string, status, query string) WebSource {

@@ -497,6 +497,10 @@ func (c *fakeGroupClient) AdminListGroups(ctx context.Context, req *group.AdminL
 	return &group.AdminListGroupsResp{Success: true}, nil
 }
 
+func (c *fakeGroupClient) AdminUpdateGroupStatus(ctx context.Context, req *group.AdminUpdateGroupStatusReq, callOptions ...callopt.Option) (*group.AdminUpdateGroupStatusResp, error) {
+	return &group.AdminUpdateGroupStatusResp{Success: true}, nil
+}
+
 func TestCreateConversationRejectsGroupWithoutGroupID(t *testing.T) {
 	svc := &messageServiceImpl{repo: newFakeMessageRepo()}
 
@@ -753,6 +757,41 @@ func TestSendMediaMessagePublishesAgentNativeIMEvent(t *testing.T) {
 	}
 	if len(payload.ParticipantIDs) != 3 || len(payload.Permission.VisibleUserIDs) != 3 {
 		t.Fatalf("permission context missing participants: %#v", payload)
+	}
+}
+
+func TestAgentGeneratedMediaEventCarriesMetadata(t *testing.T) {
+	repo := newFakeMessageRepo()
+	svc := &messageServiceImpl{repo: repo}
+	conv, err := svc.CreateConversation(context.Background(), "group", []int64{1, 2, 2001}, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clientMsgID := "agent:message.created:99:2001"
+
+	_, err = svc.SendMessageExt(context.Background(), SendMessageOptions{
+		ConversationID: conv.ID,
+		SenderID:       2001,
+		Content:        `[file]{"id":"3001","name":"agent-output.md","url":"/files/3001","content_type":"text/markdown","size":12345}`,
+		MsgType:        "file",
+		ClientMsgID:    clientMsgID,
+	})
+	if err != nil {
+		t.Fatalf("SendMessageExt returned error: %v", err)
+	}
+	if len(repo.outbox) != 2 {
+		t.Fatalf("outbox len = %d, want message.created + file.uploaded", len(repo.outbox))
+	}
+	envelope, err := repo.outbox[1].Envelope()
+	if err != nil {
+		t.Fatalf("outbox envelope decode failed: %v", err)
+	}
+	payload, err := events.DecodePayload[events.IMEventPayload](envelope)
+	if err != nil {
+		t.Fatalf("decode payload: %v", err)
+	}
+	if payload.Metadata["client_msg_id"] != clientMsgID || payload.Metadata["agent_generated"] != "true" || payload.Metadata["source"] != "agent" {
+		t.Fatalf("metadata = %#v, want agent-generated source markers", payload.Metadata)
 	}
 }
 

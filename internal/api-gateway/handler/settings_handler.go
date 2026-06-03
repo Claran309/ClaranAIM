@@ -120,6 +120,36 @@ func (h *SettingsHandler) DeleteLLMProfile(ctx context.Context, c *app.RequestCo
 	response.Success(c, map[string]interface{}{"success": true})
 }
 
+// TestLLMProfile 用当前表单或已保存配置做模型连通测试。
+func (h *SettingsHandler) TestLLMProfile(ctx context.Context, c *app.RequestContext) {
+	if !h.ensureService(c) {
+		return
+	}
+	userID, ok := requireCurrentUserID(c)
+	if !ok {
+		return
+	}
+	var req llmProfileTestReq
+	if err := bindSettingsJSON(c, &req); err != nil {
+		response.BadRequest(c, "参数错误")
+		return
+	}
+	result, err := h.svc.TestLLMProfile(ctx, userID, settingsclient.TestLLMProfileInput{
+		ProfileID:    parseSettingsNumber(req.ProfileID),
+		ProviderType: req.ProviderType,
+		BaseURL:      req.BaseURL,
+		APIKey:       req.APIKey,
+		ModelName:    req.ModelName,
+		UsageType:    req.UsageType,
+		UseBuiltin:   req.UseBuiltin,
+	})
+	if err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	response.Success(c, map[string]interface{}{"success": true, "result": result})
+}
+
 // ListPrompts 返回当前用户保存的提示词模板。
 func (h *SettingsHandler) ListPrompts(ctx context.Context, c *app.RequestContext) {
 	if !h.ensureService(c) {
@@ -410,6 +440,16 @@ type llmProfileReq struct {
 	IsDefault    bool        `json:"is_default"`
 	Enabled      *bool       `json:"enabled"`
 	APIKeyAction string      `json:"api_key_action"`
+}
+
+type llmProfileTestReq struct {
+	ProfileID    json.Number `json:"profile_id"`
+	ProviderType string      `json:"provider_type"`
+	BaseURL      string      `json:"base_url"`
+	APIKey       string      `json:"api_key"`
+	ModelName    string      `json:"model_name"`
+	UsageType    string      `json:"usage_type"`
+	UseBuiltin   bool        `json:"use_builtin"`
 }
 
 // promptReq 是浏览器保存 Prompt 模板的 JSON 请求体。

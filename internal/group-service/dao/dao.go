@@ -52,6 +52,7 @@ type GroupRepository interface {
 	UpdateMuteStatus(ctx context.Context, groupID, userID int64, mutedUntil *time.Time) error
 	UpdateOwner(ctx context.Context, groupID, newOwnerID int64) error
 	PinGroup(ctx context.Context, groupID int64, isPinned bool) error
+	UpdateGroupStatus(ctx context.Context, groupID int64, status string) error
 	WithTransaction(ctx context.Context, fn func(tx GroupRepository) error) error
 	SaveOutboxEvent(ctx context.Context, event outbox.Event) error
 	AdminListGroups(ctx context.Context, keyword string, ownerID, limit, offset int64) ([]model.Group, int64, error)
@@ -137,6 +138,15 @@ func (r *groupRepositoryImpl) AdminListGroups(ctx context.Context, keyword strin
 	}
 	err := query.Order("created_at DESC, id DESC").Limit(int(limit)).Offset(int(offset)).Find(&groups).Error
 	return groups, total, err
+}
+
+// UpdateGroupStatus 更新群组治理状态。该方法仅供受保护的管理 RPC 调用，
+// 普通群成员不能通过群资料更新接口绕过治理状态。
+func (r *groupRepositoryImpl) UpdateGroupStatus(ctx context.Context, groupID int64, status string) error {
+	return r.db.WithContext(ctx).
+		Model(&model.Group{}).
+		Where("id = ?", groupID).
+		Update("status", status).Error
 }
 
 // AddMember 添加群组成员记录

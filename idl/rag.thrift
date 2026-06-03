@@ -12,6 +12,7 @@ struct RAGDocument {
     9: string status
     10: string created_at
     11: string updated_at
+    12: i64 chunk_count
 }
 
 struct RAGSource {
@@ -40,6 +41,7 @@ struct RAGGraphEdge {
     4: string relation
     5: double weight
     6: string evidence
+    7: i64 document_id
 }
 
 struct RAGGraphCommunity {
@@ -76,6 +78,7 @@ struct SearchReq {
     4: i64 limit
     5: i64 group_id
     6: i64 conversation_id
+    7: i64 document_id
 }
 
 struct SelfRAGCheckpoints {
@@ -102,6 +105,8 @@ struct GraphReq {
     1: i64 viewer_id
     2: string query
     3: i64 limit
+    4: i64 document_id
+    5: i64 hops
 }
 
 struct GraphResp {
@@ -125,9 +130,31 @@ struct ListDocumentsResp {
     4: string msg
 }
 
+struct DeleteDocumentReq {
+    1: i64 viewer_id
+    2: i64 document_id
+}
+
+struct DeleteDocumentResp {
+    1: bool success
+    2: string msg
+}
+
+struct DeleteGraphReq {
+    1: i64 viewer_id
+    2: i64 document_id
+}
+
+struct DeleteGraphResp {
+    1: bool success
+    2: string msg
+}
+
 service RAGService {
     IngestDocumentResp IngestDocument(1: IngestDocumentReq req)
     SearchResp Search(1: SearchReq req)
     GraphResp GetGraph(1: GraphReq req)
     ListDocumentsResp ListDocuments(1: ListDocumentsReq req)
+    DeleteDocumentResp DeleteDocument(1: DeleteDocumentReq req)
+    DeleteGraphResp DeleteDocumentGraph(1: DeleteGraphReq req)
 }

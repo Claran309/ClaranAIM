@@ -514,6 +514,9 @@ func summarizeAgentRunMemory(userMessage, reply string) string {
 	userMessage = extractTriggeredContentForMemory(userMessage)
 	userMessage = truncateRunMemoryText(userMessage, 240)
 	reply = truncateRunMemoryText(reply, 360)
+	if !agentRunHasLongTermValue(userMessage, reply) {
+		return ""
+	}
 	if userMessage == "" && reply == "" {
 		return ""
 	}
@@ -524,6 +527,30 @@ func summarizeAgentRunMemory(userMessage, reply string) string {
 		return "Agent回复：" + reply
 	}
 	return fmt.Sprintf("用户请求：%s\nAgent回复：%s", userMessage, reply)
+}
+
+func agentRunHasLongTermValue(userMessage, reply string) bool {
+	combined := strings.ToLower(strings.TrimSpace(userMessage + "\n" + reply))
+	if len([]rune(combined)) < 28 {
+		return false
+	}
+	noise := []string{"你好", "hello", "hi", "好的", "收到", "谢谢", "测试", "在吗", "嗯", "可以", "没事"}
+	for _, item := range noise {
+		if combined == item || (strings.Contains(combined, item) && len([]rune(combined)) < 40) {
+			return false
+		}
+	}
+	longTermSignals := []string{
+		"长期", "记住", "偏好", "习惯", "目标", "计划", "项目", "需求", "配置", "apikey", "api key",
+		"baseurl", "工作目录", "知识库", "知识图谱", "rag", "memory", "milvus", "agent", "skill",
+		"不懂", "困惑", "正在学习", "已经掌握", "以后", "下次", "总是", "倾向",
+	}
+	for _, signal := range longTermSignals {
+		if strings.Contains(combined, strings.ToLower(signal)) {
+			return true
+		}
+	}
+	return len([]rune(combined)) >= 180
 }
 
 // extractTriggeredContentForMemory 从 Agent-Native 包装输入中抽出真正的用户触发内容。

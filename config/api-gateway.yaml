@@ -1,6 +1,6 @@
 service:
   name: "api-gateway"
-  address: "127.0.0.1:8080"
+  address: "127.0.0.1:18080"
 
 mysql:
   dsn: ""

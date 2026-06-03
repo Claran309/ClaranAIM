@@ -178,6 +178,9 @@ func (s *userServiceImpl) Login(ctx context.Context, username, pwd, jwtSecret st
 	if user.IsSystem {
 		return TokenPair{}, nil, errors.New("系统用户不允许密码登录")
 	}
+	if user.Status == "banned" {
+		return TokenPair{}, nil, errors.New("该账号已被管理员封禁")
+	}
 
 	if !password.CheckPassword(pwd, user.Password) {
 		return TokenPair{}, nil, errors.New("密码错误")

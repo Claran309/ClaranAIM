@@ -14,6 +14,7 @@ type Client interface {
 	GetDashboard(ctx context.Context, req *admin.DashboardReq, callOptions ...callopt.Option) (r *admin.DashboardResp, err error)
 	ListUsers(ctx context.Context, req *admin.ListUsersReq, callOptions ...callopt.Option) (r *admin.ListUsersResp, err error)
 	ListGroups(ctx context.Context, req *admin.ListGroupsReq, callOptions ...callopt.Option) (r *admin.ListGroupsResp, err error)
+	UpdateGroupStatus(ctx context.Context, req *admin.UpdateGroupStatusReq, callOptions ...callopt.Option) (r *admin.UpdateGroupStatusResp, err error)
 	ListFiles(ctx context.Context, req *admin.ListFilesReq, callOptions ...callopt.Option) (r *admin.ListFilesResp, err error)
 	ListAgents(ctx context.Context, req *admin.ListAgentsReq, callOptions ...callopt.Option) (r *admin.ListAgentsResp, err error)
 	ListBilling(ctx context.Context, req *admin.ListBillingReq, callOptions ...callopt.Option) (r *admin.ListBillingResp, err error)
@@ -67,6 +68,11 @@ func (p *kAdminServiceClient) ListUsers(ctx context.Context, req *admin.ListUser
 func (p *kAdminServiceClient) ListGroups(ctx context.Context, req *admin.ListGroupsReq, callOptions ...callopt.Option) (r *admin.ListGroupsResp, err error) {
 	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
 	return p.kClient.ListGroups(ctx, req)
+}
+
+func (p *kAdminServiceClient) UpdateGroupStatus(ctx context.Context, req *admin.UpdateGroupStatusReq, callOptions ...callopt.Option) (r *admin.UpdateGroupStatusResp, err error) {
+	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
+	return p.kClient.UpdateGroupStatus(ctx, req)
 }
 
 func (p *kAdminServiceClient) ListFiles(ctx context.Context, req *admin.ListFilesReq, callOptions ...callopt.Option) (r *admin.ListFilesResp, err error) {

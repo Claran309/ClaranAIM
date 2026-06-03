@@ -138,6 +138,7 @@ type messageEventData struct {
 	MentionUserIDs   []int64
 	MentionAll       bool
 	UserID           int64
+	ClientMsgID      string
 }
 
 // mediaMessagePayload 表示聊天消息中嵌入的媒体引用信息。
@@ -453,6 +454,9 @@ func (s *messageServiceImpl) SendMessageExt(ctx context.Context, opts SendMessag
 	if err := s.ensureConversationParticipant(ctx, conv, opts.SenderID); err != nil {
 		return nil, err
 	}
+	if err := s.checkGroupStatus(ctx, conv); err != nil {
+		return nil, err
+	}
 	if err := s.checkGroupMute(ctx, conv, opts.SenderID); err != nil {
 		return nil, err
 	}
@@ -530,6 +534,7 @@ func (s *messageServiceImpl) SendMessageExt(ctx context.Context, opts SendMessag
 				Status:           msg.Status,
 				MentionUserIDs:   msg.MentionUserIDs,
 				MentionAll:       msg.MentionAll,
+				ClientMsgID:      clientMsgID,
 			},
 			targetUserIDs: targetUserIDs,
 		}
@@ -1092,6 +1097,22 @@ func (s *messageServiceImpl) ensureConversationParticipant(ctx context.Context, 
 	return errConversationAccessDenied
 }
 
+// checkGroupStatus 在群消息写入前读取群治理状态。
+// 和禁言不同，群封禁是管理员级别的全局开关；已封禁群不能继续产生新消息。
+func (s *messageServiceImpl) checkGroupStatus(ctx context.Context, conv *model.Conversation) error {
+	if conv.Type != "group" || conv.GroupID <= 0 || s.groupClient == nil {
+		return nil
+	}
+	resp, err := s.groupClient.GetGroup(ctx, &group.GetGroupReq{GroupId: conv.GroupID})
+	if err != nil || resp == nil || !resp.GetSuccess() || resp.GetGroup() == nil {
+		return nil
+	}
+	if strings.EqualFold(resp.GetGroup().GetStatus(), "banned") {
+		return errors.New("该群聊已被管理员封禁，不能继续发送消息")
+	}
+	return nil
+}
+
 // checkGroupMute 在发送群消息前检查禁言状态。
 // 如果 group-service 暂不可用，本地开发阶段选择放行，避免消息核心链路因依赖抖动完全不可用。
 func (s *messageServiceImpl) checkGroupMute(ctx context.Context, conv *model.Conversation, senderID int64) error {
@@ -1308,6 +1329,7 @@ func (s *messageServiceImpl) saveMessageEvent(ctx context.Context, repo dao.Mess
 		UserID:           data.UserID,
 		TargetUserIDs:    dedupeUserIDs(targetUserIDs),
 		ParticipantIDs:   dedupeUserIDs(targetUserIDs),
+		ClientMsgID:      data.ClientMsgID,
 	}
 	envelope, err := events.NewEnvelope(eventType, strconv.FormatInt(data.ConversationID, 10), payload)
 	if err != nil {
@@ -1372,6 +1394,7 @@ func (s *messageServiceImpl) saveAgentNativeIMEvent(ctx context.Context, repo da
 		return nil
 	}
 	participantIDs = dedupeUserIDs(participantIDs)
+	metadata := messageAgentMetadata(messageClientMsgID(msg))
 	payload := events.IMEventPayload{
 		EventType:        eventType,
 		ConversationID:   msg.ConversationID,
@@ -1393,6 +1416,7 @@ func (s *messageServiceImpl) saveAgentNativeIMEvent(ctx context.Context, repo da
 		},
 		OccurredAt:     msg.CreatedAt.Format(time.RFC3339Nano),
 		IdempotencyKey: fmt.Sprintf("%s:%d", eventType, msg.ID),
+		Metadata:       metadata,
 	}
 	envelope, err := events.NewEnvelope(eventType, strconv.FormatInt(msg.ConversationID, 10), payload)
 	if err != nil {
@@ -1420,6 +1444,8 @@ func (s *messageServiceImpl) saveAgentNativeMessageStateEvent(ctx context.Contex
 	if envelopeType == "" {
 		return nil
 	}
+	metadata := messageAgentMetadata(messageClientMsgID(msg))
+	metadata["message_status"] = msg.Status
 	payload := events.IMEventPayload{
 		EventType:        businessEventType,
 		ConversationID:   msg.ConversationID,
@@ -1440,9 +1466,7 @@ func (s *messageServiceImpl) saveAgentNativeMessageStateEvent(ctx context.Contex
 		},
 		OccurredAt:     time.Now().Format(time.RFC3339Nano),
 		IdempotencyKey: fmt.Sprintf("%s:%d", businessEventType, msg.ID),
-		Metadata: map[string]string{
-			"message_status": msg.Status,
-		},
+		Metadata:       metadata,
 	}
 	envelope, err := events.NewEnvelope(envelopeType, strconv.FormatInt(msg.ConversationID, 10), payload)
 	if err != nil {
@@ -1524,6 +1548,26 @@ func agentNativeEventFromMessage(msg *model.Message) (string, events.AttachmentR
 	default:
 		return "", events.AttachmentRef{}, false
 	}
+}
+
+func messageClientMsgID(msg *model.Message) string {
+	if msg == nil || msg.ClientMsgID == nil {
+		return ""
+	}
+	return strings.TrimSpace(*msg.ClientMsgID)
+}
+
+func messageAgentMetadata(clientMsgID string) map[string]string {
+	clientMsgID = strings.TrimSpace(clientMsgID)
+	metadata := map[string]string{}
+	if clientMsgID != "" {
+		metadata["client_msg_id"] = clientMsgID
+	}
+	if strings.HasPrefix(clientMsgID, "agent:") {
+		metadata["agent_generated"] = "true"
+		metadata["source"] = "agent"
+	}
+	return metadata
 }
 
 // attachmentRefFromMessageContent 从消息内容中提取附件引用。

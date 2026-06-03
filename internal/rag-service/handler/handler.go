@@ -52,6 +52,7 @@ func (h *RAGServiceImpl) Search(ctx context.Context, req *rag.SearchReq) (*rag.S
 		Limit:          int(req.GetLimit()),
 		GroupID:        req.GetGroupId(),
 		ConversationID: req.GetConversationId(),
+		DocumentID:     req.GetDocumentId(),
 	})
 	if err != nil {
 		return &rag.SearchResp{Success: false, Msg: err.Error()}, nil
@@ -62,9 +63,11 @@ func (h *RAGServiceImpl) Search(ctx context.Context, req *rag.SearchReq) (*rag.S
 // GetGraph 返回当前用户可见的知识图谱子图。
 func (h *RAGServiceImpl) GetGraph(ctx context.Context, req *rag.GraphReq) (*rag.GraphResp, error) {
 	result, err := h.svc.GetGraph(ctx, ragsvc.GraphInput{
-		ViewerID: req.GetViewerId(),
-		Query:    req.GetQuery(),
-		Limit:    int(req.GetLimit()),
+		ViewerID:   req.GetViewerId(),
+		Query:      req.GetQuery(),
+		Limit:      int(req.GetLimit()),
+		DocumentID: req.GetDocumentId(),
+		Hops:       int(req.GetHops()),
 	})
 	if err != nil {
 		return &rag.GraphResp{Success: false, Msg: err.Error()}, nil
@@ -84,4 +87,20 @@ func (h *RAGServiceImpl) ListDocuments(ctx context.Context, req *rag.ListDocumen
 		out = append(out, &doc)
 	}
 	return &rag.ListDocumentsResp{Success: true, Documents: out, Total: total}, nil
+}
+
+// DeleteDocument 删除当前用户拥有的知识文档及其分块/图谱。
+func (h *RAGServiceImpl) DeleteDocument(ctx context.Context, req *rag.DeleteDocumentReq) (*rag.DeleteDocumentResp, error) {
+	if err := h.svc.DeleteDocument(ctx, req.GetViewerId(), req.GetDocumentId()); err != nil {
+		return &rag.DeleteDocumentResp{Success: false, Msg: err.Error()}, nil
+	}
+	return &rag.DeleteDocumentResp{Success: true, Msg: "删除成功"}, nil
+}
+
+// DeleteDocumentGraph 删除某篇文档贡献的 GraphRAG 关系，保留文档和检索 chunk。
+func (h *RAGServiceImpl) DeleteDocumentGraph(ctx context.Context, req *rag.DeleteGraphReq) (*rag.DeleteGraphResp, error) {
+	if err := h.svc.DeleteDocumentGraph(ctx, req.GetViewerId(), req.GetDocumentId()); err != nil {
+		return &rag.DeleteGraphResp{Success: false, Msg: err.Error()}, nil
+	}
+	return &rag.DeleteGraphResp{Success: true, Msg: "图谱已删除"}, nil
 }

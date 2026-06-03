@@ -54,6 +54,26 @@ struct ListLLMProfilesResp {
     3: string msg
 }
 
+struct TestLLMProfileReq {
+    1: i64 user_id
+    2: i64 profile_id
+    3: string provider_type
+    4: string base_url
+    5: string api_key
+    6: string model_name
+    7: string usage_type
+    8: bool use_builtin
+}
+
+struct TestLLMProfileResp {
+    1: bool success
+    2: bool ok
+    3: string msg
+    4: i64 latency_ms
+    5: string provider_type
+    6: string model_name
+}
+
 struct PromptTemplate {
     1: i64 id
     2: string type
@@ -304,6 +324,7 @@ service SettingsService {
     SaveLLMProfileResp SaveLLMProfile(1: SaveLLMProfileReq req)
     ListLLMProfilesResp ListLLMProfiles(1: ListLLMProfilesReq req)
     DeleteLLMProfileResp DeleteLLMProfile(1: DeleteLLMProfileReq req)
+    TestLLMProfileResp TestLLMProfile(1: TestLLMProfileReq req)
     SavePromptResp SavePrompt(1: SavePromptReq req)
     ListPromptsResp ListPrompts(1: ListPromptsReq req)
     ResolveTranslationConfigResp ResolveTranslationConfig(1: ResolveTranslationConfigReq req)

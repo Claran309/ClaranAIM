@@ -93,6 +93,40 @@ func TestProcessDigestJobSkipsNoisyWindowWithoutRAGOrMemoryWrites(t *testing.T) 
 	}
 }
 
+func TestProcessDigestJobFiltersLowValueMemoryCandidates(t *testing.T) {
+	repo := newFakeConversationRepo()
+	fetcher := &fakeMessageWindowFetcher{messages: []ConversationMessage{
+		{ID: 1, ConversationID: 210, SenderID: 10, Content: "用户正在集成 RAG 和 Milvus，希望先保证主链路稳定。", MsgType: "text", CreatedAt: time.Now()},
+		{ID: 2, ConversationID: 210, SenderID: 10, Content: "这条消息足够长，用来触发会话归档窗口处理。", MsgType: "text", CreatedAt: time.Now()},
+	}}
+	memory := &fakeConversationMemorySink{}
+	extractor := fixedArtifactExtractor{bundle: ArtifactBundle{
+		Summary: &ConversationSummary{ConversationID: 210, Summary: "讨论了 RAG 集成。", SourceMsgIDs: []int64{1, 2}},
+		MemoryCandidates: []MemoryCandidate{
+			{Title: "噪声", Content: "好的", Confidence: 0.9, Importance: 0.9},
+			{Title: "低置信", Content: "用户可能有一点点关注 RAG。", Confidence: 0.4, Importance: 0.9},
+			{Title: "长期项目状态", Content: "用户正在集成 RAG 和 Milvus，希望先保证主链路稳定。", Evidence: "用户明确说明", Confidence: 0.92, Importance: 0.82},
+			{Title: "重复候选", Content: "用户正在集成 RAG 和 Milvus，希望先保证主链路稳定。", Evidence: "重复", Confidence: 0.88, Importance: 0.78},
+		},
+	}}
+	svc := NewConversationIntelligenceService(repo, fetcher, nil, memory, extractor, ConversationIntelligenceOptions{MinValuableMessages: 1})
+
+	job, err := svc.CreateDigestJob(context.Background(), CreateDigestJobInput{ConversationID: 210, ViewerID: 10, AgentID: 9001})
+	if err != nil {
+		t.Fatalf("CreateDigestJob returned error: %v", err)
+	}
+	result, err := svc.ProcessDigestJob(context.Background(), job.ID)
+	if err != nil {
+		t.Fatalf("ProcessDigestJob returned error: %v", err)
+	}
+	if len(result.MemoryCandidates) != 1 {
+		t.Fatalf("expected one high-value memory candidate, got %#v", result.MemoryCandidates)
+	}
+	if len(memory.candidates) != 1 || !strings.Contains(memory.candidates[0].Content, "Milvus") {
+		t.Fatalf("expected only durable memory candidate to be archived, got %#v", memory.candidates)
+	}
+}
+
 func TestProcessDigestJobRejectsMismatchedViewer(t *testing.T) {
 	repo := newFakeConversationRepo()
 	fetcher := &fakeMessageWindowFetcher{messages: []ConversationMessage{
@@ -303,4 +337,15 @@ func (s *fakeConversationMemorySink) CreateCandidate(ctx context.Context, input 
 	_ = ctx
 	s.candidates = append(s.candidates, input)
 	return nil
+}
+
+type fixedArtifactExtractor struct {
+	bundle ArtifactBundle
+	err    error
+}
+
+func (e fixedArtifactExtractor) Extract(ctx context.Context, window MessageWindow) (ArtifactBundle, error) {
+	_ = ctx
+	_ = window
+	return e.bundle, e.err
 }

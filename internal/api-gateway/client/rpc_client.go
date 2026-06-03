@@ -62,6 +62,9 @@ var (
 	MemoryClient memoryservice.Client
 	// RAGClient 调用 rag-service，负责知识库入库、RAG 检索和 GraphRAG 子图读取。
 	RAGClient ragservice.Client
+	// RAGLongTaskClient 调用 rag-service 的长任务能力，例如大文档入库、OCR 后切片、embedding 和图谱构建。
+	// 大文件入库可能明显超过普通 RPC deadline，因此独立使用长任务治理配置。
+	RAGLongTaskClient ragservice.Client
 	// KnowledgeClient 调用 knowledge-service，负责知识图谱查询、过滤和可视化视图。
 	KnowledgeClient knowledgeservice.Client
 	// SettingsClient 调用 settings-service，负责 LLM 预设、Prompt 和 Agent Skill 配置。
@@ -167,6 +170,13 @@ func InitClients(etcdEndpoints []string, rpcCfg ...config.RPCGovernanceConfig) {
 		)
 		if err != nil {
 			log.Fatal("创建rag-service客户端失败:", err)
+		}
+
+		RAGLongTaskClient, err = ragservice.NewClient("rag-service",
+			agentOptions...,
+		)
+		if err != nil {
+			log.Fatal("创建rag-service长任务客户端失败:", err)
 		}
 
 		KnowledgeClient, err = knowledgeservice.NewClient("knowledge-service",

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"math"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -31,6 +32,7 @@ func (s *ragBackedService) GetGraphView(ctx context.Context, viewerID int64, inp
 	}
 	nodes, edges, communities := normalizeGraph(graph)
 	nodes, edges, communities = filterGraph(nodes, edges, communities, input)
+	edges = dedupeAndSortEdges(edges)
 	nodes, edges = applyVisualAttrs(nodes, edges, communities)
 	sortGraphNodes(nodes)
 	return &GraphView{
@@ -39,6 +41,7 @@ func (s *ragBackedService) GetGraphView(ctx context.Context, viewerID int64, inp
 		Edges:       edges,
 		Communities: communities,
 		Stats:       buildStats(nodes, edges, communities),
+		Msg:         graph.GetMsg(),
 	}, nil
 }
 
@@ -106,6 +109,7 @@ func (s *ragBackedService) GetNeighborhood(ctx context.Context, viewerID, nodeID
 	}
 	nodes, edges, communities := normalizeGraph(graph)
 	nodes, edges, communities = filterGraph(nodes, edges, communities, input)
+	edges = dedupeAndSortEdges(edges)
 	nodeByID := indexNodes(nodes)
 	center, ok := nodeByID[nodeID]
 	if !ok {
@@ -120,6 +124,7 @@ func (s *ragBackedService) GetNeighborhood(ctx context.Context, viewerID, nodeID
 	}
 	allowedIDs := expandByHops(map[int64]bool{nodeID: true}, edges, depth)
 	subNodes, subEdges, subCommunities := subgraphByIDs(nodes, edges, communities, allowedIDs)
+	subEdges = dedupeAndSortEdges(subEdges)
 	subNodes, subEdges = applyVisualAttrs(subNodes, subEdges, subCommunities)
 	sortGraphNodes(subNodes)
 	moveNodeFirst(subNodes, center.ID)
@@ -139,6 +144,7 @@ func (s *ragBackedService) GetPath(ctx context.Context, viewerID, sourceID, targ
 	}
 	nodes, edges, communities := normalizeGraph(graph)
 	nodes, edges, communities = filterGraph(nodes, edges, communities, input)
+	edges = dedupeAndSortEdges(edges)
 	nodeByID := indexNodes(nodes)
 	if _, ok := nodeByID[sourceID]; !ok {
 		return &PathDetail{Success: false, Msg: "起点不存在或当前用户不可见"}, nil
@@ -197,7 +203,7 @@ func (s *ragBackedService) loadGraph(ctx context.Context, viewerID int64, input 
 	if limit <= 0 {
 		limit = 160
 	}
-	resp, err := s.source.GetGraph(ctx, viewerID, GraphInput{Query: input.Query, Limit: limit})
+	resp, err := s.source.GetGraph(ctx, viewerID, GraphInput{Query: input.Query, Limit: limit, DocumentID: input.DocumentID, Hops: input.Hops})
 	if err != nil {
 		return nil, err
 	}
@@ -220,10 +226,13 @@ func normalizeGraph(resp *rag.GraphResp) ([]GraphNode, []GraphEdge, []GraphCommu
 		if node == nil {
 			continue
 		}
+		if !isDisplayableGraphNode(node.GetName(), node.GetType(), node.GetSummary()) {
+			continue
+		}
 		nodes = append(nodes, GraphNode{
 			ID:          node.GetId(),
 			Name:        node.GetName(),
-			Type:        defaultString(node.GetType(), "Concept"),
+			Type:        displayEntityType(defaultString(node.GetType(), "Concept")),
 			Summary:     node.GetSummary(),
 			CommunityID: node.GetCommunityId(),
 			Score:       node.GetScore(),
@@ -234,6 +243,9 @@ func normalizeGraph(resp *rag.GraphResp) ([]GraphNode, []GraphEdge, []GraphCommu
 		if edge == nil {
 			continue
 		}
+		if edge.GetSourceId() <= 0 || edge.GetTargetId() <= 0 || edge.GetSourceId() == edge.GetTargetId() {
+			continue
+		}
 		edges = append(edges, GraphEdge{
 			ID:          edge.GetId(),
 			SourceID:    edge.GetSourceId(),
@@ -242,6 +254,7 @@ func normalizeGraph(resp *rag.GraphResp) ([]GraphNode, []GraphEdge, []GraphCommu
 			Description: relationDescription(edge.GetRelation(), edge.GetEvidence()),
 			Weight:      edge.GetWeight(),
 			Evidence:    edge.GetEvidence(),
+			DocumentID:  edge.GetDocumentId(),
 		})
 	}
 	communities := make([]GraphCommunity, 0, len(resp.GetCommunities()))
@@ -266,7 +279,7 @@ func filterGraph(nodes []GraphNode, edges []GraphEdge, communities []GraphCommun
 	nodeByID := map[int64]GraphNode{}
 	allowedIDs := map[int64]bool{}
 	for _, node := range nodes {
-		if len(typeSet) > 0 && !typeSet[node.Type] {
+		if len(typeSet) > 0 && !typeSet[node.Type] && !typeSet[displayEntityType(node.Type)] {
 			continue
 		}
 		if input.CommunityID > 0 && node.CommunityID != input.CommunityID {
@@ -307,6 +320,38 @@ func filterGraph(nodes []GraphNode, edges []GraphEdge, communities []GraphCommun
 		}
 	}
 	return filteredNodes, filteredEdges, filteredCommunities
+}
+
+func dedupeAndSortEdges(edges []GraphEdge) []GraphEdge {
+	best := map[string]GraphEdge{}
+	for _, edge := range edges {
+		if edge.SourceID <= 0 || edge.TargetID <= 0 || edge.SourceID == edge.TargetID {
+			continue
+		}
+		key := edgeKey(edge)
+		if existing, ok := best[key]; ok && existing.Weight >= edge.Weight {
+			continue
+		}
+		best[key] = edge
+	}
+	out := make([]GraphEdge, 0, len(best))
+	for _, edge := range best {
+		out = append(out, edge)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Weight != out[j].Weight {
+			return out[i].Weight > out[j].Weight
+		}
+		if out[i].Relation != out[j].Relation {
+			return out[i].Relation < out[j].Relation
+		}
+		return out[i].ID < out[j].ID
+	})
+	return out
+}
+
+func edgeKey(edge GraphEdge) string {
+	return normalizeRelation(edge.Relation) + ":" + strconv.FormatInt(edge.SourceID, 10) + ">" + strconv.FormatInt(edge.TargetID, 10)
 }
 
 func applyVisualAttrs(nodes []GraphNode, edges []GraphEdge, communities []GraphCommunity) ([]GraphNode, []GraphEdge) {
@@ -467,10 +512,16 @@ func orderEdgesByPath(edges []GraphEdge, edgeIDs []int64) {
 
 func sortGraphNodes(nodes []GraphNode) {
 	sort.Slice(nodes, func(i, j int) bool {
-		if nodes[i].Degree == nodes[j].Degree {
+		if nodes[i].CommunityID != nodes[j].CommunityID {
+			return nodes[i].CommunityID < nodes[j].CommunityID
+		}
+		if nodes[i].Degree != nodes[j].Degree {
+			return nodes[i].Degree > nodes[j].Degree
+		}
+		if nodes[i].Score != nodes[j].Score {
 			return nodes[i].Score > nodes[j].Score
 		}
-		return nodes[i].Degree > nodes[j].Degree
+		return nodes[i].Name < nodes[j].Name
 	})
 }
 
@@ -507,6 +558,7 @@ func toSet(values []string) map[string]bool {
 		value = strings.TrimSpace(value)
 		if value != "" {
 			out[value] = true
+			out[displayEntityType(value)] = true
 		}
 	}
 	return out
@@ -528,33 +580,138 @@ func normalizeRelation(value string) string {
 	if value == "" {
 		return "RELATED_TO"
 	}
-	return value
+	switch value {
+	case "EVENT_FLOW", "DATA_FLOW":
+		return value
+	case "PUBLISHES", "CONSUMES", "TRIGGERS":
+		return "EVENT_FLOW"
+	case "READS", "WRITES", "STORES":
+		return "DATA_FLOW"
+	case "CALLS", "DEPENDS_ON", "RELATED_TO":
+		return value
+	case "CONFIGURES", "OWNS":
+		return "DEPENDS_ON"
+	default:
+		return "RELATED_TO"
+	}
+}
+
+func displayEntityType(value string) string {
+	switch strings.TrimSpace(value) {
+	case "DatabaseTable", "Product":
+		return "Data"
+	case "EventTopic":
+		return "Event"
+	case "API", "Module":
+		return "Interface"
+	case "Person", "Organization":
+		return "Concept"
+	case "Service", "Interface", "Concept", "Data", "Event":
+		return strings.TrimSpace(value)
+	default:
+		return "Concept"
+	}
 }
 
 func relationDescription(relation, evidence string) string {
 	relation = normalizeRelation(relation)
+	label := relationLabel(relation)
 	if strings.TrimSpace(evidence) != "" {
-		return relation + " · " + strings.TrimSpace(evidence)
+		return label + "： " + truncateText(strings.TrimSpace(evidence), 220)
 	}
-	return relation
+	return label + "：该关系由 GraphRAG 从文档上下文中抽取，用于说明两个实体之间的结构联系。"
+}
+
+func relationLabel(relation string) string {
+	switch normalizeRelation(relation) {
+	case "CALLS":
+		return "调用关系"
+	case "EVENT_FLOW":
+		return "事件流关系"
+	case "DATA_FLOW":
+		return "数据流关系"
+	case "DEPENDS_ON":
+		return "依赖关系"
+	default:
+		return "相关关系"
+	}
+}
+
+func isDisplayableGraphNode(name, entityType, summary string) bool {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return false
+	}
+	key := strings.ToLower(strings.TrimSpace(name))
+	if len([]rune(key)) < 2 {
+		return false
+	}
+	if isNumericLikeName(key) {
+		return false
+	}
+	if isFieldOrStatusGraphName(key) {
+		return false
+	}
+	noise := []string{"正文", "标题", "内容", "图片", "截图", "页面", "文件", "文本", "数据", "信息", "说明", "示例", "用户", "系统", "未知实体", "unknown", "none", "n/a", "todo"}
+	for _, item := range noise {
+		if key == strings.ToLower(item) || strings.Contains(strings.ToLower(summary), "无意义实体") {
+			return false
+		}
+	}
+	if strings.HasPrefix(key, "http") || strings.Contains(key, "\\") || strings.Contains(key, "/") {
+		return false
+	}
+	if strings.HasSuffix(key, ".png") || strings.HasSuffix(key, ".jpg") || strings.HasSuffix(key, ".jpeg") || strings.HasSuffix(key, ".webp") || strings.HasSuffix(key, ".pdf") || strings.HasSuffix(key, ".docx") {
+		return false
+	}
+	_ = entityType
+	return true
+}
+
+func isFieldOrStatusGraphName(value string) bool {
+	fields := map[string]bool{
+		"id": true, "ids": true, "user_id": true, "sender_id": true, "owner_id": true, "group_id": true, "conversation_id": true,
+		"message_id": true, "msg_id": true, "reply_to_id": true, "event_id": true, "source_event_id": true,
+		"client_msg_id": true, "trace_id": true, "agent_trace_id": true, "agent_user_id": true, "bot_id": true,
+		"created_at": true, "updated_at": true, "deleted_at": true, "status": true, "type": true, "scope": true,
+		"pending": true, "processing": true, "completed": true, "failed": true, "success": true, "error": true,
+	}
+	if fields[value] {
+		return true
+	}
+	return strings.HasSuffix(value, "_id") || strings.HasSuffix(value, "_ids") || strings.HasSuffix(value, "_status") || strings.HasSuffix(value, "_type")
+}
+
+func isNumericLikeName(value string) bool {
+	if value == "" {
+		return true
+	}
+	for _, r := range value {
+		if (r < '0' || r > '9') && r != '.' && r != '-' && r != '_' {
+			return false
+		}
+	}
+	return true
+}
+
+func truncateText(text string, limit int) string {
+	runes := []rune(strings.TrimSpace(text))
+	if len(runes) <= limit {
+		return string(runes)
+	}
+	return string(runes[:limit]) + "..."
 }
 
 func typeColor(entityType string) string {
 	switch entityType {
 	case "Service":
 		return "#0ea5e9"
-	case "DatabaseTable":
+	case "Data":
 		return "#22c55e"
-	case "EventTopic":
+	case "Event":
 		return "#f97316"
-	case "API":
+	case "Interface":
 		return "#a855f7"
-	case "Module":
-		return "#14b8a6"
-	case "Organization", "Person":
-		return "#e11d48"
-	case "Product":
-		return "#f59e0b"
 	default:
 		return "#64748b"
 	}
@@ -562,13 +719,13 @@ func typeColor(entityType string) string {
 
 func relationColor(relation string) string {
 	switch normalizeRelation(relation) {
-	case "WRITES", "READS", "STORES":
+	case "DATA_FLOW":
 		return "#16a34a"
-	case "CALLS", "TRIGGERS":
+	case "CALLS":
 		return "#2563eb"
-	case "PUBLISHES", "CONSUMES":
+	case "EVENT_FLOW":
 		return "#ea580c"
-	case "DEPENDS_ON", "CONFIGURES":
+	case "DEPENDS_ON":
 		return "#9333ea"
 	default:
 		return "#64748b"

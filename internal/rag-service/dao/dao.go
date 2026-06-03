@@ -29,6 +29,7 @@ type SearchFilter struct {
 	ViewerID       int64
 	GroupID        int64
 	ConversationID int64
+	DocumentID     int64
 	Limit          int
 	Offset         int
 }
@@ -37,6 +38,7 @@ type SearchFilter struct {
 type Repository interface {
 	CreateDocumentWithChunks(ctx context.Context, doc *model.Document, chunks []model.Chunk) error
 	ListDocuments(ctx context.Context, filter SearchFilter) ([]model.Document, int64, error)
+	CountChildChunksByDocumentIDs(ctx context.Context, documentIDs []int64) (map[int64]int64, error)
 	ListChunks(ctx context.Context, filter SearchFilter) ([]ChunkWithDocument, error)
 	GetEntityByName(ctx context.Context, ownerID int64, name string) (*model.Entity, error)
 	GetEntityByCanonicalKey(ctx context.Context, ownerID int64, canonicalKey string) (*model.Entity, error)
@@ -45,7 +47,9 @@ type Repository interface {
 	SaveCommunity(ctx context.Context, community *model.Community) error
 	ListOwnerGraph(ctx context.Context, ownerID int64) ([]model.Entity, []model.Relation, error)
 	ReplaceOwnerCommunities(ctx context.Context, ownerID int64, communities []model.Community, entityCommunity map[int64]int64) error
-	ListGraph(ctx context.Context, viewerID int64, query string, limit int) ([]model.Entity, []model.Relation, []model.Community, error)
+	ListGraph(ctx context.Context, viewerID int64, query string, limit int, documentID int64, hops int) ([]model.Entity, []model.Relation, []model.Community, error)
+	DeleteDocument(ctx context.Context, viewerID, documentID int64) error
+	DeleteDocumentGraph(ctx context.Context, viewerID, documentID int64) error
 }
 
 // ChunkWithDocument 把 chunk 和所属文档合并给 service 层做权限、排序和来源展示。
@@ -102,11 +106,39 @@ func (r *repositoryImpl) ListDocuments(ctx context.Context, filter SearchFilter)
 	return docs, total, err
 }
 
+// CountChildChunksByDocumentIDs 统计每篇文档真正参与检索的 child chunk 数量。
+// 前端展示 chunk 数时使用 child chunk，而不是 parent chunk，避免把层级索引的父块误算进去。
+func (r *repositoryImpl) CountChildChunksByDocumentIDs(ctx context.Context, documentIDs []int64) (map[int64]int64, error) {
+	out := make(map[int64]int64, len(documentIDs))
+	if len(documentIDs) == 0 {
+		return out, nil
+	}
+	var rows []struct {
+		DocumentID int64 `gorm:"column:document_id"`
+		Count      int64 `gorm:"column:count"`
+	}
+	err := r.db.WithContext(ctx).Table("rag_chunks").
+		Select("document_id, COUNT(*) AS count").
+		Where("deleted_at IS NULL AND chunk_level = ? AND document_id IN ?", model.ChunkLevelChild, documentIDs).
+		Group("document_id").
+		Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		out[row.DocumentID] = row.Count
+	}
+	return out, nil
+}
+
 // ListChunks 读取可见文档下的候选分块，service 层再做 Hybrid/Rerank 排序。
 func (r *repositoryImpl) ListChunks(ctx context.Context, filter SearchFilter) ([]ChunkWithDocument, error) {
 	limit := filter.Limit
 	if limit <= 0 || limit > 500 {
 		limit = 200
+	}
+	if filter.DocumentID > 0 && filter.Limit > 500 && filter.Limit <= 1500 {
+		limit = filter.Limit
 	}
 	var rows []struct {
 		model.Chunk
@@ -130,6 +162,9 @@ func (r *repositoryImpl) ListChunks(ctx context.Context, filter SearchFilter) ([
 	}
 	if filter.ConversationID > 0 {
 		query = query.Where("(rag_documents.conversation_id = ? OR rag_documents.conversation_id = 0)", filter.ConversationID)
+	}
+	if filter.DocumentID > 0 {
+		query = query.Where("rag_documents.id = ?", filter.DocumentID)
 	}
 	if err := query.Order("rag_chunks.updated_at DESC").Limit(limit).Scan(&rows).Error; err != nil {
 		return nil, err
@@ -221,9 +256,18 @@ func (r *repositoryImpl) ReplaceOwnerCommunities(ctx context.Context, ownerID in
 }
 
 // ListGraph 返回当前用户可见的轻量知识图谱。
-func (r *repositoryImpl) ListGraph(ctx context.Context, viewerID int64, queryText string, limit int) ([]model.Entity, []model.Relation, []model.Community, error) {
+func (r *repositoryImpl) ListGraph(ctx context.Context, viewerID int64, queryText string, limit int, documentID int64, hops int) ([]model.Entity, []model.Relation, []model.Community, error) {
 	if limit <= 0 || limit > 200 {
 		limit = 80
+	}
+	if hops <= 0 {
+		hops = 1
+	}
+	if hops > 2 {
+		hops = 2
+	}
+	if documentID > 0 {
+		return r.listDocumentScopedGraph(ctx, viewerID, documentID, queryText, limit, hops)
 	}
 	queryText = strings.TrimSpace(queryText)
 	canonical := normalizeGraphQueryKey(queryText)
@@ -294,6 +338,163 @@ func (r *repositoryImpl) ListGraph(ctx context.Context, viewerID int64, queryTex
 		}
 	}
 	return entities, relations, communities, nil
+}
+
+// DeleteDocument 删除当前用户拥有的知识文档，同时清理它的分块、图谱关系和孤立实体。
+// 这里要求 owner_id 精确匹配 viewerID，避免公共文档被普通可见用户删除。
+func (r *repositoryImpl) DeleteDocument(ctx context.Context, viewerID, documentID int64) error {
+	if viewerID <= 0 || documentID <= 0 {
+		return errors.New("无效的用户或文档ID")
+	}
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var doc model.Document
+		if err := tx.Where("id = ? AND owner_id = ? AND deleted_at IS NULL", documentID, viewerID).First(&doc).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return errors.New("文档不存在或无权删除")
+			}
+			return err
+		}
+		if err := tx.Where("document_id = ? AND owner_id = ?", documentID, viewerID).Delete(&model.Relation{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("document_id = ? AND owner_id = ?", documentID, viewerID).Delete(&model.Chunk{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Delete(&doc).Error; err != nil {
+			return err
+		}
+		return cleanupOrphanGraphRows(ctx, tx, viewerID)
+	})
+}
+
+// DeleteDocumentGraph 只删除某篇文档贡献的图谱关系，文档和检索 chunk 保留。
+func (r *repositoryImpl) DeleteDocumentGraph(ctx context.Context, viewerID, documentID int64) error {
+	if viewerID <= 0 || documentID <= 0 {
+		return errors.New("无效的用户或文档ID")
+	}
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var doc model.Document
+		if err := tx.Where("id = ? AND owner_id = ? AND deleted_at IS NULL", documentID, viewerID).First(&doc).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return errors.New("文档不存在或无权删除图谱")
+			}
+			return err
+		}
+		if err := tx.Where("document_id = ? AND owner_id = ?", documentID, viewerID).Delete(&model.Relation{}).Error; err != nil {
+			return err
+		}
+		return cleanupOrphanGraphRows(ctx, tx, viewerID)
+	})
+}
+
+func cleanupOrphanGraphRows(ctx context.Context, tx *gorm.DB, ownerID int64) error {
+	var usedRows []struct {
+		ID int64 `gorm:"column:id"`
+	}
+	if err := tx.WithContext(ctx).Raw(`
+		SELECT source_id AS id FROM rag_relations WHERE owner_id = ? AND deleted_at IS NULL
+		UNION
+		SELECT target_id AS id FROM rag_relations WHERE owner_id = ? AND deleted_at IS NULL
+	`, ownerID, ownerID).Scan(&usedRows).Error; err != nil {
+		return err
+	}
+	usedIDs := make([]int64, 0, len(usedRows))
+	for _, row := range usedRows {
+		if row.ID > 0 {
+			usedIDs = append(usedIDs, row.ID)
+		}
+	}
+	query := tx.WithContext(ctx).Where("owner_id = ?", ownerID)
+	if len(usedIDs) > 0 {
+		query = query.Where("id NOT IN ?", usedIDs)
+	}
+	if err := query.Delete(&model.Entity{}).Error; err != nil {
+		return err
+	}
+	return tx.WithContext(ctx).Where("owner_id = ?", ownerID).Delete(&model.Community{}).Error
+}
+
+func (r *repositoryImpl) listDocumentScopedGraph(ctx context.Context, viewerID, documentID int64, queryText string, limit, hops int) ([]model.Entity, []model.Relation, []model.Community, error) {
+	queryText = strings.TrimSpace(queryText)
+	canonical := normalizeGraphQueryKey(queryText)
+	relationQuery := r.db.WithContext(ctx).Table("rag_relations").
+		Select("rag_relations.*").
+		Joins("JOIN rag_documents ON rag_documents.id = rag_relations.document_id AND rag_documents.deleted_at IS NULL").
+		Where("rag_relations.deleted_at IS NULL AND rag_relations.document_id = ?", documentID)
+	relationQuery = visibleDocuments(relationQuery, viewerID)
+	if queryText != "" {
+		like := "%" + queryText + "%"
+		canonicalLike := "%" + canonical + "%"
+		relationQuery = relationQuery.Joins("LEFT JOIN rag_entities src ON src.id = rag_relations.source_id").
+			Joins("LEFT JOIN rag_entities dst ON dst.id = rag_relations.target_id").
+			Where("src.name LIKE ? OR src.summary LIKE ? OR src.aliases_json LIKE ? OR src.canonical_key LIKE ? OR dst.name LIKE ? OR dst.summary LIKE ? OR dst.aliases_json LIKE ? OR dst.canonical_key LIKE ? OR rag_relations.description LIKE ? OR rag_relations.evidence LIKE ?",
+				like, like, like, canonicalLike, like, like, like, canonicalLike, like, like)
+	}
+	var seedRelations []model.Relation
+	if err := relationQuery.Order("rag_relations.weight DESC, rag_relations.updated_at DESC").Limit(limit * 3).Find(&seedRelations).Error; err != nil {
+		return nil, nil, nil, err
+	}
+	entityIDs := map[int64]bool{}
+	for _, relation := range seedRelations {
+		entityIDs[relation.SourceID] = true
+		entityIDs[relation.TargetID] = true
+	}
+	if len(entityIDs) == 0 {
+		return nil, nil, nil, nil
+	}
+	allRelations := append([]model.Relation{}, seedRelations...)
+	if hops > 1 && len(entityIDs) > 0 {
+		ids := int64SetToSlice(entityIDs)
+		var neighborRelations []model.Relation
+		if err := r.db.WithContext(ctx).Where("(owner_id = ? OR owner_id = 0) AND document_id <> ? AND (source_id IN ? OR target_id IN ?)", viewerID, documentID, ids, ids).
+			Order("weight DESC, updated_at DESC").
+			Limit(limit).
+			Find(&neighborRelations).Error; err != nil {
+			return nil, nil, nil, err
+		}
+		for _, relation := range neighborRelations {
+			allRelations = append(allRelations, relation)
+			entityIDs[relation.SourceID] = true
+			entityIDs[relation.TargetID] = true
+		}
+	}
+	if len(entityIDs) == 0 {
+		return nil, nil, nil, nil
+	}
+	var entities []model.Entity
+	if err := r.db.WithContext(ctx).Where("id IN ?", int64SetToSlice(entityIDs)).Find(&entities).Error; err != nil {
+		return nil, nil, nil, err
+	}
+	communityIDs := make([]int64, 0, len(entities))
+	for _, entity := range entities {
+		if entity.CommunityID > 0 {
+			communityIDs = append(communityIDs, entity.CommunityID)
+		}
+	}
+	var communities []model.Community
+	if len(communityIDs) > 0 {
+		if err := r.db.WithContext(ctx).Where("id IN ?", communityIDs).Find(&communities).Error; err != nil {
+			return nil, nil, nil, err
+		}
+	}
+	sort.Slice(entities, func(i, j int) bool {
+		if entities[i].Score == entities[j].Score {
+			return entities[i].UpdatedAt.After(entities[j].UpdatedAt)
+		}
+		return entities[i].Score > entities[j].Score
+	})
+	return entities, allRelations, communities, nil
+}
+
+func int64SetToSlice(values map[int64]bool) []int64 {
+	out := make([]int64, 0, len(values))
+	for value := range values {
+		if value > 0 {
+			out = append(out, value)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+	return out
 }
 
 func visibleDocuments(query *gorm.DB, viewerID int64) *gorm.DB {

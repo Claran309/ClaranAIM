@@ -28,6 +28,8 @@ type RAGService interface {
 	Search(ctx context.Context, input SearchInput) (SearchResult, error)
 	GetGraph(ctx context.Context, input GraphInput) (GraphResult, error)
 	ListDocuments(ctx context.Context, viewerID int64, limit, offset int) ([]rag.RAGDocument, int64, error)
+	DeleteDocument(ctx context.Context, viewerID, documentID int64) error
+	DeleteDocumentGraph(ctx context.Context, viewerID, documentID int64) error
 }
 
 type IngestInput struct {
@@ -55,14 +57,17 @@ type SearchInput struct {
 	Limit          int
 	GroupID        int64
 	ConversationID int64
+	DocumentID     int64
 }
 
 type SearchResult = rag.SearchResp
 
 type GraphInput struct {
-	ViewerID int64
-	Query    string
-	Limit    int
+	ViewerID   int64
+	Query      string
+	Limit      int
+	DocumentID int64
+	Hops       int
 }
 
 type GraphResult = rag.GraphResp
@@ -93,6 +98,7 @@ type ragServiceImpl struct {
 	routerFactory   func(settingsclient.ResolvedLLMConfig) RAGRouter
 	embeddingDim    int
 	defaultMode     string
+	llmGraphEnabled bool
 }
 
 // NewRAGService 创建 RAG 业务服务。
@@ -154,7 +160,8 @@ func NewRAGServiceWithRouterRerankerCRAGAndSelfJudge(repo dao.Repository, vector
 func NewRAGServiceWithGraphExtractor(repo dao.Repository, vectorIndex VectorIndex, embeddingDim int, defaultMode string, embedder EmbeddingProvider, router RAGRouter, reranker Reranker, cragEvaluator CRAGEvaluator, selfJudge SelfRAGJudge, extractor graphExtractor, summarizer graphCommunitySummarizer) RAGService {
 	svc := NewRAGServiceWithRouterRerankerCRAGAndSelfJudge(repo, vectorIndex, embeddingDim, defaultMode, embedder, router, reranker, cragEvaluator, selfJudge).(*ragServiceImpl)
 	if extractor != nil {
-		svc.graphExtractor = fallbackGraphExtractor{primary: extractor, fallback: ruleGraphExtractor{}}
+		svc.graphExtractor = fallbackGraphExtractor{primary: extractor}
+		svc.llmGraphEnabled = true
 	}
 	if summarizer != nil {
 		svc.graphSummarizer = fallbackGraphCommunitySummarizer{primary: summarizer, fallback: ruleGraphCommunitySummarizer{}}
@@ -224,16 +231,16 @@ func (s *ragServiceImpl) IngestDocument(ctx context.Context, input IngestInput) 
 	if err := s.repo.CreateDocumentWithChunks(ctx, doc, chunks); err != nil {
 		return IngestResult{}, err
 	}
-	storedChunks, err := s.repo.ListChunks(ctx, dao.SearchFilter{ViewerID: input.OwnerID, Limit: 500})
-	if err == nil {
-		for _, row := range storedChunks {
-			if row.Chunk.DocumentID != doc.ID || normalizedChunkLevel(row.Chunk) != model.ChunkLevelChild {
-				continue
-			}
-			_ = s.vectorIndex.Upsert(ctx, row.Chunk.ID, s.embedding(ctx, row.Chunk.Content), map[string]string{"document_id": fmt.Sprint(doc.ID)})
+	for _, chunk := range chunks {
+		if chunk.ID <= 0 || normalizedChunkLevel(chunk) != model.ChunkLevelChild {
+			continue
 		}
+		_ = s.vectorIndex.Upsert(ctx, chunk.ID, s.embedding(ctx, chunk.Content), map[string]string{"document_id": fmt.Sprint(doc.ID)})
 	}
-	entityCount, relationCount := s.buildGraph(ctx, input.OwnerID, doc.ID, chunks)
+	entityCount, relationCount := int64(0), int64(0)
+	if shouldBuildGraphForSourceType(doc.SourceType) {
+		entityCount, relationCount = s.buildGraph(ctx, input.OwnerID, doc.ID, doc.SourceType, chunks)
+	}
 	dto := documentToRPC(doc)
 	return IngestResult{Document: dto, ChunkCount: int64(countChildChunks(chunks)), EntityCount: entityCount, RelationCount: relationCount}, nil
 }
@@ -256,7 +263,13 @@ func (s *ragServiceImpl) Search(ctx context.Context, input SearchInput) (SearchR
 	}
 	mode := strings.TrimSpace(input.Mode)
 	decision := RouterDecision{Route: AdaptiveRouteProjectRAG, Mode: sanitizeRAGMode(mode, s.defaultMode), Complexity: "medium", Retrieve: true, RetrievalSource: "project_docs", Sources: []string{"project_docs"}, Strategy: "hybrid_rerank", Query: query, Reason: "用户指定检索路线"}
-	if mode == "" || mode == "adaptive" {
+	if mode == "document" {
+		reason := "用户指定文档检索，强制查询知识库"
+		if input.DocumentID > 0 {
+			reason = "用户指定文档检索，已按文档ID限定知识范围"
+		}
+		decision = RouterDecision{Route: AdaptiveRouteProjectRAG, Mode: "document", Complexity: "medium", Retrieve: true, RetrievalSource: "project_docs", Sources: []string{"project_docs"}, Strategy: "document_search", Query: query, Reason: reason}
+	} else if mode == "" || mode == "adaptive" {
 		decision = s.route(ctx, input)
 		mode = decision.Mode
 	} else {
@@ -267,9 +280,10 @@ func (s *ragServiceImpl) Search(ctx context.Context, input SearchInput) (SearchR
 		self.IsRel = true
 		self.IsSup = true
 		self.IsUse = true
+		answer := s.synthesizeDirectAnswer(ctx, input.ViewerID, query, decision)
 		return SearchResult{
 			Success:    true,
-			Answer:     "这个问题不需要检索知识库，可以直接由对话模型回答。RAG Router 判断原因：" + defaultString(decision.Reason, "无需检索"),
+			Answer:     answer,
 			Route:      "direct",
 			CragAction: "skip_vector",
 			SelfCheck:  self,
@@ -295,8 +309,8 @@ func (s *ragServiceImpl) Search(ctx context.Context, input SearchInput) (SearchR
 	reranked := s.rerank(ctx, retrievalQuery, rows, limit)
 	cragEval := s.evaluateCRAG(ctx, query, reranked)
 	cragAction := cragActionForLabel(cragEval.Label)
-	graph, _ := s.GetGraph(ctx, GraphInput{ViewerID: input.ViewerID, Query: query, Limit: 30})
-	answer := synthesizeAnswer(query, mode, cragAction, reranked, graph.Nodes)
+	graph, _ := s.GetGraph(ctx, GraphInput{ViewerID: input.ViewerID, Query: query, Limit: 30, DocumentID: input.DocumentID})
+	answer := s.synthesizeAnswer(ctx, input.ViewerID, query, mode, cragAction, reranked, graph.Nodes)
 	judgement := s.judgeSelfRAG(ctx, query, answer, reranked, cragEval, mode)
 	self.IsRel = judgement.IsRel
 	self.IsSup = judgement.IsSup
@@ -319,11 +333,70 @@ func (s *ragServiceImpl) GetGraph(ctx context.Context, input GraphInput) (GraphR
 	if s.repo == nil {
 		return GraphResult{}, errors.New("rag repository未配置")
 	}
-	nodes, edges, communities, err := s.repo.ListGraph(ctx, input.ViewerID, input.Query, input.Limit)
+	nodes, edges, communities, err := s.repo.ListGraph(ctx, input.ViewerID, input.Query, input.Limit, input.DocumentID, input.Hops)
 	if err != nil {
 		return GraphResult{}, err
 	}
-	return GraphResult{Success: true, Nodes: entitiesToRPC(nodes), Edges: relationsToRPC(edges), Communities: communitiesToRPC(communities)}, nil
+	if input.DocumentID > 0 && len(edges) == 0 {
+		s.rebuildDocumentGraphIfMissing(ctx, input.ViewerID, input.DocumentID)
+		nodes, edges, communities, err = s.repo.ListGraph(ctx, input.ViewerID, input.Query, input.Limit, input.DocumentID, input.Hops)
+		if err != nil {
+			return GraphResult{}, err
+		}
+	}
+	nodes, edges = filterGraphForDisplay(nodes, edges)
+	msg := ""
+	if len(nodes) == 0 || len(edges) == 0 {
+		msg = s.describeEmptyGraph(ctx, input.ViewerID, input.DocumentID, len(nodes), len(edges))
+	}
+	return GraphResult{Success: true, Nodes: entitiesToRPC(nodes), Edges: relationsToRPC(edges), Communities: communitiesToRPC(communities), Msg: msg}, nil
+}
+
+func (s *ragServiceImpl) rebuildDocumentGraphIfMissing(ctx context.Context, viewerID, documentID int64) {
+	if s.repo == nil || documentID <= 0 {
+		return
+	}
+	rows, err := s.repo.ListChunks(ctx, dao.SearchFilter{ViewerID: viewerID, DocumentID: documentID, Limit: 1200})
+	if err != nil || len(rows) == 0 {
+		return
+	}
+	chunks := make([]model.Chunk, 0, len(rows))
+	sourceType := rows[0].Document.SourceType
+	ownerID := rows[0].Document.OwnerID
+	for _, row := range rows {
+		chunks = append(chunks, row.Chunk)
+		if strings.TrimSpace(sourceType) == "" {
+			sourceType = row.Document.SourceType
+		}
+		if ownerID <= 0 {
+			ownerID = row.Document.OwnerID
+		}
+	}
+	if ownerID <= 0 || !shouldBuildGraphForSourceType(sourceType) {
+		return
+	}
+	s.buildGraph(ctx, ownerID, documentID, sourceType, chunks)
+}
+
+func (s *ragServiceImpl) describeEmptyGraph(ctx context.Context, viewerID, documentID int64, nodeCount, edgeCount int) string {
+	if documentID <= 0 {
+		if nodeCount == 0 {
+			return "当前可见知识库没有可展示的图谱节点。请先上传适合 GraphRAG 的文档，或检查 RAG Router/GraphRAG 小模型配置。"
+		}
+		return "当前图谱实体存在，但没有可展示的有效关系；可能是关系被质量过滤、关系证据不足，或只命中了孤立实体。"
+	}
+	rows, err := s.repo.ListChunks(ctx, dao.SearchFilter{ViewerID: viewerID, DocumentID: documentID, Limit: 2000})
+	if err != nil || len(rows) == 0 {
+		return "该文档没有可读取的 RAG 分块，无法构建知识图谱。请确认文档已成功解析入库。"
+	}
+	sourceType := rows[0].Document.SourceType
+	if !shouldBuildGraphForSourceType(sourceType) {
+		return "该文档属于会话摘要/聊天归档类型，系统不会把它写入知识图谱。"
+	}
+	if nodeCount == 0 {
+		return fmt.Sprintf("该文档共有 %d 个可读分块，但没有通过 GraphRAG 实体/关系质量过滤。请检查 GraphRAG 小模型配置，或确认文档中是否有明确的主体、概念和关系。", len(rows))
+	}
+	return fmt.Sprintf("该文档共有 %d 个可读分块，已抽取实体但缺少有效关系；可能是关系证据不足或被关系类型规则过滤。", len(rows))
 }
 
 func (s *ragServiceImpl) ListDocuments(ctx context.Context, viewerID int64, limit, offset int) ([]rag.RAGDocument, int64, error) {
@@ -331,11 +404,35 @@ func (s *ragServiceImpl) ListDocuments(ctx context.Context, viewerID int64, limi
 	if err != nil {
 		return nil, 0, err
 	}
+	ids := make([]int64, 0, len(docs))
+	for i := range docs {
+		ids = append(ids, docs[i].ID)
+	}
+	chunkCounts, err := s.repo.CountChildChunksByDocumentIDs(ctx, ids)
+	if err != nil {
+		return nil, 0, err
+	}
 	out := make([]rag.RAGDocument, 0, len(docs))
 	for i := range docs {
-		out = append(out, documentToRPC(&docs[i]))
+		dto := documentToRPC(&docs[i])
+		dto.ChunkCount = chunkCounts[docs[i].ID]
+		out = append(out, dto)
 	}
 	return out, total, nil
+}
+
+func (s *ragServiceImpl) DeleteDocument(ctx context.Context, viewerID, documentID int64) error {
+	if s.repo == nil {
+		return errors.New("rag repository未配置")
+	}
+	return s.repo.DeleteDocument(ctx, viewerID, documentID)
+}
+
+func (s *ragServiceImpl) DeleteDocumentGraph(ctx context.Context, viewerID, documentID int64) error {
+	if s.repo == nil {
+		return errors.New("rag repository未配置")
+	}
+	return s.repo.DeleteDocumentGraph(ctx, viewerID, documentID)
 }
 
 func (s *ragServiceImpl) route(ctx context.Context, input SearchInput) RouterDecision {
@@ -605,12 +702,62 @@ func splitParagraphs(content string) []string {
 	for _, part := range parts {
 		part = strings.TrimSpace(part)
 		if part != "" {
-			out = append(out, part)
+			out = append(out, splitLongParagraph(part, 1100)...)
 		}
 	}
 	if len(out) == 0 && strings.TrimSpace(content) != "" {
 		out = splitIntoChunks(content, 1200)
 	}
+	return out
+}
+
+func splitLongParagraph(text string, maxRunes int) []string {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return nil
+	}
+	if maxRunes <= 0 {
+		maxRunes = 1100
+	}
+	if len([]rune(text)) <= maxRunes {
+		return []string{text}
+	}
+	lines := strings.Split(text, "\n")
+	nonEmptyLines := make([]string, 0, len(lines))
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			nonEmptyLines = append(nonEmptyLines, line)
+		}
+	}
+	if len(nonEmptyLines) <= 1 {
+		return splitIntoChunks(text, maxRunes)
+	}
+	out := make([]string, 0, len(nonEmptyLines)/4+1)
+	var current []string
+	currentLen := 0
+	flush := func() {
+		if len(current) == 0 {
+			return
+		}
+		out = append(out, strings.Join(current, "\n"))
+		current = nil
+		currentLen = 0
+	}
+	for _, line := range nonEmptyLines {
+		lineLen := len([]rune(line))
+		if currentLen > 0 && currentLen+lineLen > maxRunes {
+			flush()
+		}
+		if lineLen > maxRunes {
+			flush()
+			out = append(out, splitIntoChunks(line, maxRunes)...)
+			continue
+		}
+		current = append(current, line)
+		currentLen += lineLen
+	}
+	flush()
 	return out
 }
 
@@ -754,7 +901,11 @@ func normalizedChunkLevel(chunk model.Chunk) string {
 }
 
 func (s *ragServiceImpl) hybridRetrieve(ctx context.Context, input SearchInput, limit int) ([]rankedChunk, error) {
-	rows, err := s.repo.ListChunks(ctx, dao.SearchFilter{ViewerID: input.ViewerID, GroupID: input.GroupID, ConversationID: input.ConversationID, Limit: 300})
+	rowLimit := 300
+	if input.DocumentID > 0 {
+		rowLimit = 1500
+	}
+	rows, err := s.repo.ListChunks(ctx, dao.SearchFilter{ViewerID: input.ViewerID, GroupID: input.GroupID, ConversationID: input.ConversationID, DocumentID: input.DocumentID, Limit: rowLimit})
 	if err != nil {
 		return nil, err
 	}
@@ -1065,6 +1216,18 @@ type graphExtractResult struct {
 	Relationships []extractedRelationship
 }
 
+type graphEntityMention struct {
+	Name  string
+	Start int
+	End   int
+}
+
+type graphRelationTrigger struct {
+	Type  string
+	Index int
+	End   int
+}
+
 type graphExtractor interface {
 	Extract(ctx context.Context, input graphExtractInput) (graphExtractResult, error)
 }
@@ -1075,22 +1238,35 @@ type graphCommunitySummarizer interface {
 
 type ruleGraphExtractor struct{}
 
-func (s *ragServiceImpl) buildGraph(ctx context.Context, ownerID, documentID int64, chunks []model.Chunk) (int64, int64) {
+func shouldBuildGraphForSourceType(sourceType string) bool {
+	switch strings.ToLower(strings.TrimSpace(sourceType)) {
+	case "conversation", "chat", "conversation_summary", "conversation_topic", "conversation_digest":
+		return false
+	default:
+		return true
+	}
+}
+
+func (s *ragServiceImpl) buildGraph(ctx context.Context, ownerID, documentID int64, sourceType string, chunks []model.Chunk) (int64, int64) {
+	if !shouldBuildGraphForSourceType(sourceType) {
+		return 0, 0
+	}
+	hasConfiguredExtractor := s.llmGraphEnabled
 	extractor := s.graphExtractor
 	if extractor == nil {
 		extractor = ruleGraphExtractor{}
 	}
+	candidates := graphExtractionCandidates(chunks)
 	entityByCanonical := map[string]*model.Entity{}
+	seenRelations := map[string]bool{}
 	entityCount := int64(0)
 	relationCount := int64(0)
-	for _, chunk := range chunks {
-		if normalizedChunkLevel(chunk) != model.ChunkLevelChild {
-			continue
-		}
+	for _, chunk := range candidates {
 		result, err := extractor.Extract(ctx, graphExtractInput{DocumentID: documentID, Chunk: chunk})
 		if err != nil {
 			continue
 		}
+		result = filterGraphExtractResult(result, chunk.Content)
 		for _, extracted := range result.Entities {
 			entity := s.upsertGraphEntity(ctx, ownerID, extracted)
 			if entity == nil {
@@ -1111,11 +1287,17 @@ func (s *ragServiceImpl) buildGraph(ctx context.Context, ownerID, documentID int
 			if confidence <= 0 {
 				confidence = 0.72
 			}
+			relationType := normalizeRelationType(extracted.Type)
+			relationKey := fmt.Sprintf("%d:%d:%s:%d", source.ID, target.ID, relationType, chunk.ID)
+			if seenRelations[relationKey] {
+				continue
+			}
+			seenRelations[relationKey] = true
 			relation := &model.Relation{
 				OwnerID:         ownerID,
 				SourceID:        source.ID,
 				TargetID:        target.ID,
-				Relation:        normalizeRelationType(extracted.Type),
+				Relation:        relationType,
 				Description:     defaultString(extracted.Description, source.Name+" 与 "+target.Name+" 存在知识图谱关系"),
 				Weight:          confidence,
 				Confidence:      confidence,
@@ -1127,8 +1309,174 @@ func (s *ragServiceImpl) buildGraph(ctx context.Context, ownerID, documentID int
 			relationCount++
 		}
 	}
+	if (!hasConfiguredExtractor || shouldUseSparseGraphFallback(candidates)) && entityCount == 0 && relationCount == 0 {
+		fallbackEntities, fallbackRelations := s.buildFallbackTopicGraph(ctx, ownerID, documentID, candidates)
+		entityCount += fallbackEntities
+		relationCount += fallbackRelations
+	}
 	s.rebuildGraphCommunities(ctx, ownerID)
 	return entityCount, relationCount
+}
+
+func shouldUseSparseGraphFallback(chunks []model.Chunk) bool {
+	if len(chunks) >= 4 {
+		return true
+	}
+	total := 0
+	for _, chunk := range chunks {
+		total += len([]rune(strings.TrimSpace(chunk.Content)))
+	}
+	return total >= 1800
+}
+
+func (s *ragServiceImpl) buildFallbackTopicGraph(ctx context.Context, ownerID, documentID int64, chunks []model.Chunk) (int64, int64) {
+	if s.repo == nil || len(chunks) == 0 {
+		return 0, 0
+	}
+	entityByKey := map[string]*model.Entity{}
+	entityCount := int64(0)
+	relationCount := int64(0)
+	for _, chunk := range chunks {
+		entities := fallbackTopicEntities(chunk)
+		if len(entities) < 2 {
+			continue
+		}
+		var saved []*model.Entity
+		for _, extracted := range entities {
+			entity := s.upsertGraphEntity(ctx, ownerID, extracted)
+			if entity == nil {
+				continue
+			}
+			if _, ok := entityByKey[entity.CanonicalKey]; !ok {
+				entityCount++
+			}
+			entityByKey[entity.CanonicalKey] = entity
+			saved = append(saved, entity)
+		}
+		for i := 0; i+1 < len(saved) && i < 3; i++ {
+			source := saved[i]
+			target := saved[i+1]
+			if source == nil || target == nil || source.ID == target.ID {
+				continue
+			}
+			relation := &model.Relation{
+				OwnerID:         ownerID,
+				SourceID:        source.ID,
+				TargetID:        target.ID,
+				Relation:        "RELATED_TO",
+				Description:     "同一文档章节的核心主题关系，用于在规则抽取为空时保留可视化骨架",
+				Weight:          0.9,
+				Confidence:      0.9,
+				Evidence:        truncate(chunk.Content, 500),
+				EvidenceChunkID: chunk.ID,
+				DocumentID:      documentID,
+			}
+			_ = s.repo.SaveRelation(ctx, relation)
+			relationCount++
+		}
+		if entityCount >= 10 || relationCount >= 8 {
+			break
+		}
+	}
+	return entityCount, relationCount
+}
+
+func fallbackTopicEntities(chunk model.Chunk) []extractedEntity {
+	text := strings.TrimSpace(chunk.Summary + " " + chunk.Content)
+	keywords := extractKeywords(text, 24)
+	out := make([]extractedEntity, 0, 4)
+	seen := map[string]bool{}
+	for _, keyword := range keywords {
+		name := normalizeFallbackTopicName(keyword)
+		if name == "" || seen[canonicalEntityKey(name)] {
+			continue
+		}
+		seen[canonicalEntityKey(name)] = true
+		out = append(out, extractedEntity{
+			Name:        name,
+			Type:        "Concept",
+			Description: "文档章节中的核心主题词，用于辅助知识图谱可视化和后续人工审核",
+			Aliases:     []string{name},
+		})
+		if len(out) >= 4 {
+			break
+		}
+	}
+	return out
+}
+
+func normalizeFallbackTopicName(keyword string) string {
+	name := strings.Trim(strings.TrimSpace(keyword), "，。；;,.、:：()（）[]【】")
+	if name == "" || len([]rune(name)) < 3 {
+		return ""
+	}
+	lower := strings.ToLower(name)
+	if regexp.MustCompile(`^\d+$`).MatchString(lower) || regexp.MustCompile(`^p?\d+[-_]\d+$`).MatchString(lower) {
+		return ""
+	}
+	blocked := map[string]bool{
+		"文档": true, "内容": true, "信息": true, "数据": true, "图片": true, "文件": true, "页面": true,
+		"用户": true, "系统": true, "示例": true, "步骤": true, "章节": true, "标题": true, "正文": true,
+		"document": true, "content": true, "image": true, "file": true, "example": true,
+	}
+	if blocked[lower] || isGenericDocumentSectionEntity(name) || isGraphStopEntityName(name) {
+		return ""
+	}
+	return name
+}
+
+func graphExtractionCandidates(chunks []model.Chunk) []model.Chunk {
+	const maxParentCandidates = 36
+	const maxChildFallbackCandidates = 36
+	parents := make([]model.Chunk, 0)
+	children := make([]model.Chunk, 0)
+	for _, chunk := range chunks {
+		content := strings.TrimSpace(chunk.Content)
+		if len([]rune(content)) < 80 {
+			continue
+		}
+		switch normalizedChunkLevel(chunk) {
+		case model.ChunkLevelParent:
+			enriched := chunk
+			if summary := strings.TrimSpace(chunk.Summary); summary != "" && !strings.Contains(content, summary) {
+				enriched.Content = strings.TrimSpace("章节摘要： " + summary + "\n\n章节正文：\n" + content)
+			}
+			parents = append(parents, enriched)
+		case model.ChunkLevelChild:
+			children = append(children, chunk)
+		}
+	}
+	if len(parents) == 0 && len(children) == 0 {
+		for _, chunk := range chunks {
+			if strings.TrimSpace(chunk.Content) == "" {
+				continue
+			}
+			if normalizedChunkLevel(chunk) == model.ChunkLevelParent {
+				parents = append(parents, chunk)
+			} else {
+				children = append(children, chunk)
+			}
+			if len(parents)+len(children) >= 8 {
+				break
+			}
+		}
+	}
+	sort.SliceStable(parents, func(i, j int) bool {
+		return parents[i].QualityScore > parents[j].QualityScore
+	})
+	sort.SliceStable(children, func(i, j int) bool {
+		return children[i].QualityScore > children[j].QualityScore
+	})
+	if len(parents) > 0 {
+		if len(parents) > maxParentCandidates {
+			parents = parents[:maxParentCandidates]
+		}
+		return parents
+	}
+	if len(children) > maxChildFallbackCandidates {
+		children = children[:maxChildFallbackCandidates]
+	}
+	return children
 }
 
 func (s *ragServiceImpl) upsertGraphEntity(ctx context.Context, ownerID int64, extracted extractedEntity) *model.Entity {
@@ -1215,7 +1563,7 @@ func (e *LLMGraphExtractor) Extract(ctx context.Context, input graphExtractInput
 		"messages": []map[string]string{
 			{
 				"role":    "system",
-				"content": "你是GraphRAG indexing extractor。只输出JSON，不要解释。请从文本中抽取实体和关系。实体类型只能是 Service、DatabaseTable、EventTopic、API、Module、Concept、Person、Organization、Product。关系类型只能是 CALLS、PUBLISHES、CONSUMES、STORES、OWNS、DEPENDS_ON、CONFIGURES、TRIGGERS、READS、WRITES、RELATED_TO。JSON格式: {\"entities\":[{\"name\":\"...\",\"type\":\"Service\",\"description\":\"...\",\"aliases\":[]}],\"relationships\":[{\"source\":\"...\",\"target\":\"...\",\"type\":\"CALLS\",\"description\":\"...\",\"evidence\":\"原文证据\",\"confidence\":0.8}]}。source和target必须引用已抽取实体name。",
+				"content": "你是 ClaranAIM 的 GraphRAG indexing analyst。只输出 JSON，不要解释。你的任务不是抽取所有名词，而是阅读一篇文档的章节/父块，判断“这段文章真正想让读者记住的核心实体和关系”。\n\n分析步骤必须在心里完成，不要输出步骤：\n1. 先判断本章节的主题和作者真正讨论的对象。\n2. 只保留解释该主题不可缺少的实体。一个词如果删掉后不影响理解，就不要抽。\n3. 只抽明确关系：A 调用/写入/依赖/配置/触发/发布/消费/拥有/读取/存储 B。只是同段出现、举例、列表项、标题编号、页面元素，不算关系。\n4. 章节如果只是寒暄、会话摘要、目录、题号、步骤流水、截图 OCR 噪声、普通示例代码或无长期价值内容，返回空数组。\n\n硬性规则：\n- 每段最多 6 个实体、6 条关系；宁缺毋滥。\n- 不要抽取普通数字、序号、页码、字段名、状态词、文件名、图片名、临时变量、普通英文人名样例、Teacher/Student/Customer/Linux 这类教学例子，除非文章明确就是在定义它们。\n- 不要把“会话摘要、会话主题、文档、内容、数据、信息、用户、系统、示例、页面、图片、文件”作为实体。\n- 实体 description 必须说明它在本文中的业务/技术含义，不能写泛泛定义。\n- source/target 必须引用 entities 中的 name；关系必须有原文证据；没有明确动作就不要输出 RELATED_TO。\n\n实体类型只能是 Service、DatabaseTable、EventTopic、API、Module、Concept、Person、Organization、Product。关系类型只能是 CALLS、PUBLISHES、CONSUMES、STORES、OWNS、DEPENDS_ON、CONFIGURES、TRIGGERS、READS、WRITES、RELATED_TO。\n\nJSON格式：{\"entities\":[{\"name\":\"...\",\"type\":\"Concept\",\"description\":\"它在本文中的具体含义\",\"aliases\":[]}],\"relationships\":[{\"source\":\"...\",\"target\":\"...\",\"type\":\"DEPENDS_ON\",\"description\":\"说明关系含义\",\"evidence\":\"原文证据\",\"confidence\":0.85}]}。",
 			},
 			{
 				"role":    "user",
@@ -1357,19 +1705,310 @@ func (ruleGraphExtractor) Extract(ctx context.Context, input graphExtractInput) 
 	}
 	sort.Slice(out.Entities, func(i, j int) bool { return out.Entities[i].Name < out.Entities[j].Name })
 	out.Relationships = extractGraphRelationships(text, out.Entities)
-	if len(out.Relationships) == 0 && len(out.Entities) > 1 {
-		for i := 0; i < len(out.Entities)-1 && i < 3; i++ {
-			out.Relationships = append(out.Relationships, extractedRelationship{
-				Source:      out.Entities[i].Name,
-				Target:      out.Entities[i+1].Name,
-				Type:        "RELATED_TO",
-				Description: "两个实体在同一知识分块中共同出现",
-				Evidence:    truncate(text, 240),
-				Confidence:  0.45,
-			})
+	return out, nil
+}
+
+func filterGraphExtractResult(result graphExtractResult, evidence string) graphExtractResult {
+	validEntities := make([]extractedEntity, 0, len(result.Entities))
+	validKeys := map[string]bool{}
+	validEntityTypeByKey := map[string]string{}
+	usedInRelation := map[string]bool{}
+	for _, relation := range result.Relationships {
+		if strings.TrimSpace(relation.Evidence) == "" && strings.TrimSpace(relation.Description) == "" {
+			continue
+		}
+		sourceKey := canonicalEntityKey(relation.Source)
+		targetKey := canonicalEntityKey(relation.Target)
+		if sourceKey == "" || targetKey == "" || sourceKey == targetKey {
+			continue
+		}
+		usedInRelation[sourceKey] = true
+		usedInRelation[targetKey] = true
+	}
+	for _, entity := range result.Entities {
+		if !isUsefulGraphEntity(entity, evidence, usedInRelation[canonicalEntityKey(entity.Name)]) {
+			continue
+		}
+		key := canonicalEntityKey(entity.Name)
+		if key == "" || validKeys[key] {
+			continue
+		}
+		validKeys[key] = true
+		validEntityTypeByKey[key] = normalizeEntityType(entity.Type, entity.Name)
+		validEntities = append(validEntities, entity)
+	}
+	validRelations := make([]extractedRelationship, 0, len(result.Relationships))
+	seenRelation := map[string]bool{}
+	for _, relation := range result.Relationships {
+		relation.Type = normalizeRelationType(relation.Type)
+		sourceKey := canonicalEntityKey(relation.Source)
+		targetKey := canonicalEntityKey(relation.Target)
+		if sourceKey == "" || targetKey == "" || sourceKey == targetKey || !validKeys[sourceKey] || !validKeys[targetKey] {
+			continue
+		}
+		if relation.Type == "RELATED_TO" && relation.Confidence < 0.82 {
+			continue
+		}
+		if !relationAllowedByEntityTypes(relation.Type, validEntityTypeByKey[sourceKey], validEntityTypeByKey[targetKey]) {
+			continue
+		}
+		if !isUsefulGraphRelation(relation, evidence) {
+			continue
+		}
+		key := sourceKey + "->" + targetKey + ":" + relation.Type + ":" + canonicalEntityKey(relation.Evidence)
+		if seenRelation[key] {
+			continue
+		}
+		seenRelation[key] = true
+		validRelations = append(validRelations, relation)
+	}
+	if !graphExtractResultQualified(validEntities, validRelations) {
+		return graphExtractResult{}
+	}
+	validRelations = capGraphRelations(validRelations, 6)
+	relatedKeys := map[string]bool{}
+	for _, relation := range validRelations {
+		relatedKeys[canonicalEntityKey(relation.Source)] = true
+		relatedKeys[canonicalEntityKey(relation.Target)] = true
+	}
+	connectedEntities := make([]extractedEntity, 0, len(validEntities))
+	for _, entity := range validEntities {
+		if relatedKeys[canonicalEntityKey(entity.Name)] {
+			connectedEntities = append(connectedEntities, entity)
 		}
 	}
-	return out, nil
+	if len(connectedEntities) > 8 {
+		connectedEntities = connectedEntities[:8]
+	}
+	return graphExtractResult{Entities: connectedEntities, Relationships: validRelations}
+}
+
+func graphExtractResultQualified(entities []extractedEntity, relations []extractedRelationship) bool {
+	if len(entities) < 2 || len(relations) == 0 {
+		return false
+	}
+	strongRelations := 0
+	semanticRelations := 0
+	for _, relation := range relations {
+		if normalizeRelationType(relation.Type) != "RELATED_TO" {
+			strongRelations++
+			continue
+		}
+		if isHighQualitySemanticRelation(relation) {
+			semanticRelations++
+		}
+	}
+	return strongRelations > 0 || semanticRelations > 0
+}
+
+func isHighQualitySemanticRelation(relation extractedRelationship) bool {
+	if normalizeRelationType(relation.Type) != "RELATED_TO" {
+		return false
+	}
+	if relation.Confidence < 0.9 {
+		return false
+	}
+	text := strings.TrimSpace(relation.Description + " " + relation.Evidence)
+	if text == "" {
+		return false
+	}
+	lower := strings.ToLower(text)
+	weakPhrases := []string{"同段出现", "同时出现", "一起出现", "相关", "提到了", "mentioned", "co-occur", "cooccur"}
+	for _, phrase := range weakPhrases {
+		if strings.Contains(lower, phrase) || strings.Contains(text, phrase) {
+			return false
+		}
+	}
+	semanticPhrases := []string{"包含", "组成", "属于", "用于说明", "用于解释", "是", "定义", "体现", "支撑", "描述", "面向", "覆盖", "适用于", "组成部分", "核心内容", "关键维度"}
+	for _, phrase := range semanticPhrases {
+		if strings.Contains(text, phrase) {
+			return true
+		}
+	}
+	return len([]rune(text)) >= 18
+}
+
+func capGraphRelations(relations []extractedRelationship, limit int) []extractedRelationship {
+	if limit <= 0 || len(relations) <= limit {
+		return relations
+	}
+	sort.SliceStable(relations, func(i, j int) bool {
+		leftRelated := normalizeRelationType(relations[i].Type) == "RELATED_TO"
+		rightRelated := normalizeRelationType(relations[j].Type) == "RELATED_TO"
+		if leftRelated != rightRelated {
+			return !leftRelated
+		}
+		return relations[i].Confidence > relations[j].Confidence
+	})
+	return relations[:limit]
+}
+
+func isUsefulGraphRelation(relation extractedRelationship, evidence string) bool {
+	if relation.Source == "" || relation.Target == "" {
+		return false
+	}
+	if relation.Confidence > 0 && relation.Confidence < 0.62 {
+		return false
+	}
+	relationEvidence := strings.TrimSpace(relation.Evidence)
+	relationDescription := strings.TrimSpace(relation.Description)
+	if relationEvidence == "" && relationDescription == "" {
+		return false
+	}
+	sourceKey := canonicalEntityKey(relation.Source)
+	targetKey := canonicalEntityKey(relation.Target)
+	evidenceText := strings.TrimSpace(relationEvidence + " " + relationDescription + " " + evidence)
+	evidenceLower := strings.ToLower(evidenceText)
+	if evidenceLower != "" {
+		compactEvidence := canonicalEntityKey(evidenceLower)
+		sourceMentioned := strings.Contains(evidenceLower, strings.ToLower(relation.Source)) || strings.Contains(compactEvidence, sourceKey)
+		targetMentioned := strings.Contains(evidenceLower, strings.ToLower(relation.Target)) || strings.Contains(compactEvidence, targetKey)
+		if !sourceMentioned && !targetMentioned {
+			return false
+		}
+	}
+	return true
+}
+
+func isUsefulGraphEntity(entity extractedEntity, evidence string, usedInRelation bool) bool {
+	name := strings.TrimSpace(entity.Name)
+	if name == "" {
+		return false
+	}
+	key := canonicalEntityKey(name)
+	if len([]rune(key)) < 2 {
+		return false
+	}
+	lower := strings.ToLower(name)
+	noise := []string{
+		"product image file", "image file", "screenshot", "unknown", "none", "n/a", "todo",
+		"正文", "标题", "内容", "图片", "文件", "截图", "页面", "文本", "示例", "未知实体", "系统", "用户", "数据", "信息", "说明", "文档",
+		"在线用户", "当前用户", "普通用户", "触发用户", "用户身份", "文件内容", "文本内容", "页面内容", "图片内容",
+		"会话摘要", "会话主题", "聊天摘要", "聊天主题",
+		"目录", "章节", "步骤", "材料", "资料", "个人经历", "工作经历", "项目经历", "教育背景", "个人技能", "求职目标", "自我评价", "联系方式",
+	}
+	for _, item := range noise {
+		if lower == item || strings.EqualFold(name, item) || name == item {
+			return false
+		}
+	}
+	if isGraphStopEntityName(name) {
+		return false
+	}
+	if isWeakChineseGraphEntity(name) {
+		return false
+	}
+	if isGenericDocumentSectionEntity(name) {
+		return false
+	}
+	if regexp.MustCompile(`(?i)^[a-f0-9]{16,}\.(png|jpg|jpeg|webp|gif|bmp|tif|tiff)$`).MatchString(lower) {
+		return false
+	}
+	if regexp.MustCompile(`(?i)^p?\d{1,4}[-_]\d{1,4}$`).MatchString(lower) {
+		return false
+	}
+	if isGraphFieldOrStatusName(name) {
+		return false
+	}
+	if normalizeEntityType(entity.Type, name) == "Concept" && len([]rune(name)) <= 2 {
+		return false
+	}
+	if !usedInRelation && isRuleExtractedGraphEntity(entity) {
+		return false
+	}
+	if strings.TrimSpace(evidence) != "" && !usedInRelation && !entityMentionedByEvidence(entity, evidence) {
+		return false
+	}
+	return true
+}
+
+func isGenericDocumentSectionEntity(name string) bool {
+	trimmed := strings.TrimSpace(name)
+	switch trimmed {
+	case "个人经历", "工作经历", "实习经历", "项目经历", "教育背景", "专业技能", "个人技能", "求职目标", "自我评价", "联系方式", "获奖经历", "校园经历", "目录", "章节", "步骤":
+		return true
+	default:
+		return false
+	}
+}
+
+func isRuleExtractedGraphEntity(entity extractedEntity) bool {
+	return strings.Contains(strings.TrimSpace(entity.Description), "从知识分块中识别")
+}
+
+func entityMentionedByEvidence(entity extractedEntity, evidence string) bool {
+	evidenceLower := strings.ToLower(evidence)
+	if strings.Contains(evidenceLower, strings.ToLower(strings.TrimSpace(entity.Name))) {
+		return true
+	}
+	for _, alias := range entity.Aliases {
+		alias = strings.TrimSpace(alias)
+		if alias != "" && strings.Contains(evidenceLower, strings.ToLower(alias)) {
+			return true
+		}
+	}
+	return false
+}
+
+func isGraphFieldOrStatusName(name string) bool {
+	lower := strings.ToLower(strings.TrimSpace(name))
+	fieldNames := map[string]bool{
+		"id": true, "user_id": true, "sender_id": true, "owner_id": true, "group_id": true, "conversation_id": true,
+		"message_id": true, "msg_id": true, "reply_to_id": true, "event_id": true, "source_event_id": true,
+		"client_msg_id": true, "trace_id": true, "agent_trace_id": true, "agent_user_id": true, "bot_id": true,
+		"created_at": true, "updated_at": true, "deleted_at": true, "status": true, "type": true,
+		"pending": true, "processing": true, "completed": true, "failed": true, "success": true, "error": true,
+	}
+	if fieldNames[lower] {
+		return true
+	}
+	if regexp.MustCompile(`(?i)^(.*_)?(id|ids|status|type|time|at)$`).MatchString(lower) && !strings.HasSuffix(lower, "_service") {
+		return true
+	}
+	return false
+}
+
+func isGraphStopEntityName(name string) bool {
+	trimmed := strings.TrimSpace(name)
+	if trimmed == "" {
+		return true
+	}
+	lower := strings.ToLower(trimmed)
+	if strings.HasPrefix(lower, "http") || strings.HasPrefix(lower, "data:") {
+		return true
+	}
+	if regexp.MustCompile(`(?i)\.(png|jpg|jpeg|webp|gif|bmp|tif|tiff|pdf|docx?|pptx?|md|markdown|txt|go|js|ts|tsx|jsx|py|java|c|cc|cpp|h|hpp|rs|sql|json|ya?ml|toml|xml|html|css|scss|sh|bat|ps1)$`).MatchString(lower) {
+		return true
+	}
+	if regexp.MustCompile(`(?i)^[a-z]:[\\/]|[\\/]{2,}`).MatchString(lower) {
+		return true
+	}
+	if regexp.MustCompile(`^\d+(\.\d+)*$`).MatchString(lower) {
+		return true
+	}
+	if regexp.MustCompile(`^[第]?\d+[章节页课]$`).MatchString(trimmed) {
+		return true
+	}
+	return false
+}
+
+func isWeakChineseGraphEntity(name string) bool {
+	trimmed := strings.TrimSpace(name)
+	if trimmed == "" {
+		return true
+	}
+	weakSuffixes := []string{"内容", "文本", "页面", "截图", "图片", "文件", "数据", "信息", "说明", "示例", "用户"}
+	for _, suffix := range weakSuffixes {
+		if strings.HasSuffix(trimmed, suffix) {
+			switch trimmed {
+			case "用户服务", "用户系统", "用户模块", "用户画像", "用户记忆":
+				return false
+			default:
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func extractGraphEntities(text string) []extractedEntity {
@@ -1377,7 +2016,10 @@ func extractGraphEntities(text string) []extractedEntity {
 	var out []extractedEntity
 	add := func(name string, aliases ...string) {
 		name = strings.Trim(strings.TrimSpace(name), "，。,.；;:：()（）[]【】")
-		if name == "" {
+		if name == "" || isGraphStopEntityName(name) || hasGraphRelationPrefixNoise(name) {
+			return
+		}
+		if !isStrongRuleGraphEntity(name) {
 			return
 		}
 		canonical := canonicalEntityKey(name)
@@ -1404,10 +2046,6 @@ func extractGraphEntities(text string) []extractedEntity {
 	for _, match := range identifierRe.FindAllString(text, -1) {
 		add(match)
 	}
-	camelRe := regexp.MustCompile(`[A-Z][A-Za-z0-9]{2,}(?:\s+[A-Z][A-Za-z0-9]{2,})?`)
-	for _, match := range camelRe.FindAllString(text, -1) {
-		add(match)
-	}
 	if strings.Contains(strings.ToLower(text), "msg core service") {
 		add("msg core service", "msg-core-service", "消息核心服务")
 	}
@@ -1418,11 +2056,73 @@ func extractGraphEntities(text string) []extractedEntity {
 			add(match[2], match[1])
 		}
 	}
-	chineseRe := regexp.MustCompile(`[\p{Han}]{2,16}(?:服务|模块|系统|平台|产品|组织|团队|用户|助手|数据库|表|事件|主题|知识库|图谱)`)
+	chineseRe := regexp.MustCompile(`[\p{Han}]{2,18}(?:服务|模块|系统|平台|助手|数据库|数据表|事件|接口|知识库|知识图谱|图谱)`)
 	for _, match := range chineseRe.FindAllString(text, -1) {
 		add(match)
 	}
 	return out
+}
+
+func isStrongRuleGraphEntity(name string) bool {
+	trimmed := strings.TrimSpace(name)
+	if trimmed == "" {
+		return false
+	}
+	lower := strings.ToLower(trimmed)
+	if lower == "msg core service" {
+		return true
+	}
+	if strings.Contains(lower, "-service") ||
+		strings.Contains(lower, "_service") ||
+		strings.Contains(lower, "-gateway") ||
+		strings.Contains(lower, "_gateway") ||
+		strings.Contains(lower, "-manager") ||
+		strings.Contains(lower, "_manager") ||
+		strings.Contains(lower, "-runtime") ||
+		strings.Contains(lower, "_runtime") ||
+		strings.Contains(lower, ".events") ||
+		strings.Contains(lower, ".event") ||
+		strings.Contains(lower, "_events") ||
+		strings.Contains(lower, "_event") ||
+		strings.Contains(lower, "_records") ||
+		strings.Contains(lower, "_outbox") ||
+		strings.Contains(lower, "_table") ||
+		strings.Contains(lower, "_tasks") ||
+		strings.Contains(lower, "_messages") ||
+		strings.Contains(lower, "_settings") ||
+		strings.Contains(lower, "_memory") ||
+		strings.Contains(lower, "_chunks") ||
+		strings.Contains(lower, "_entities") ||
+		strings.Contains(lower, "_relationships") {
+		return true
+	}
+	if strings.HasPrefix(lower, "/api/") || strings.HasPrefix(lower, "api/") {
+		return true
+	}
+	if regexp.MustCompile(`^[A-Z][A-Za-z0-9]*(Service|Gateway|Manager|Runtime|Controller|Repository|Client)$`).MatchString(trimmed) {
+		return true
+	}
+	if regexp.MustCompile(`^[a-z][a-z0-9]+(?:_[a-z0-9]+){1,}$`).MatchString(lower) {
+		for _, suffix := range []string{"service", "gateway", "manager", "runtime", "events", "event", "records", "outbox", "table", "tasks", "messages", "settings", "memory", "chunks", "entities", "relationships"} {
+			if strings.HasSuffix(lower, "_"+suffix) || strings.Contains(lower, "_"+suffix+"_") {
+				return true
+			}
+		}
+	}
+	if regexp.MustCompile(`[\p{Han}]{2,18}(服务|模块|系统|平台|助手|数据库|数据表|事件|接口|知识库|知识图谱|图谱)$`).MatchString(trimmed) {
+		return !isWeakChineseGraphEntity(trimmed)
+	}
+	return false
+}
+
+func hasGraphRelationPrefixNoise(name string) bool {
+	trimmed := strings.TrimSpace(name)
+	for _, prefix := range []string{"也叫", "又称", "负责把", "用于", "应该成为", "不应该成为"} {
+		if strings.HasPrefix(trimmed, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func extractGraphRelationships(text string, entities []extractedEntity) []extractedRelationship {
@@ -1430,27 +2130,45 @@ func extractGraphRelationships(text string, entities []extractedEntity) []extrac
 		return nil
 	}
 	var out []extractedRelationship
+	seen := map[string]bool{}
+	entityTypeByKey := map[string]string{}
+	for _, entity := range entities {
+		entityTypeByKey[canonicalEntityKey(entity.Name)] = normalizeEntityType(entity.Type, entity.Name)
+	}
 	for _, sentence := range splitGraphSentences(text) {
-		names := entityNamesInText(sentence, entities)
-		if len(names) < 2 {
+		mentions := entityMentionsInText(sentence, entities)
+		if len(mentions) < 2 {
 			continue
 		}
-		relationType := relationTypeFromSentence(sentence)
-		if relationType == "" {
+		triggers := relationTriggersInSentence(sentence)
+		if len(triggers) == 0 {
 			continue
 		}
-		source, target := names[0], names[1]
-		if relationType == "CONSUMES" || relationType == "READS" || relationType == "WRITES" || relationType == "PUBLISHES" || relationType == "CALLS" {
-			source, target = relationDirection(sentence, names, relationType)
+		defaultSubject := mentions[0].Name
+		for _, trigger := range triggers {
+			source, target := relationDirectionAt(sentence, mentions, trigger, defaultSubject)
+			if source == "" || target == "" || canonicalEntityKey(source) == canonicalEntityKey(target) {
+				continue
+			}
+			sourceKey := canonicalEntityKey(source)
+			targetKey := canonicalEntityKey(target)
+			if !relationAllowedByEntityTypes(trigger.Type, entityTypeByKey[sourceKey], entityTypeByKey[targetKey]) {
+				continue
+			}
+			key := sourceKey + "->" + targetKey + ":" + trigger.Type
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			out = append(out, extractedRelationship{
+				Source:      source,
+				Target:      target,
+				Type:        trigger.Type,
+				Description: relationDescription(source, target, trigger.Type),
+				Evidence:    sentence,
+				Confidence:  0.84,
+			})
 		}
-		out = append(out, extractedRelationship{
-			Source:      source,
-			Target:      target,
-			Type:        relationType,
-			Description: relationDescription(source, target, relationType),
-			Evidence:    sentence,
-			Confidence:  0.82,
-		})
 	}
 	return out
 }
@@ -1950,8 +2668,17 @@ func splitGraphSentences(text string) []string {
 }
 
 func entityNamesInText(sentence string, entities []extractedEntity) []string {
+	mentions := entityMentionsInText(sentence, entities)
+	names := make([]string, 0, len(mentions))
+	for _, mention := range mentions {
+		names = append(names, mention.Name)
+	}
+	return names
+}
+
+func entityMentionsInText(sentence string, entities []extractedEntity) []graphEntityMention {
 	lowerSentence := strings.ToLower(sentence)
-	var names []string
+	var mentions []graphEntityMention
 	seen := map[string]bool{}
 	for _, entity := range entities {
 		candidates := append([]string{entity.Name}, entity.Aliases...)
@@ -1960,20 +2687,21 @@ func entityNamesInText(sentence string, entities []extractedEntity) []string {
 			if candidate == "" {
 				continue
 			}
-			if strings.Contains(lowerSentence, strings.ToLower(candidate)) {
+			index := strings.Index(lowerSentence, strings.ToLower(candidate))
+			if index >= 0 {
 				key := canonicalEntityKey(entity.Name)
 				if !seen[key] {
 					seen[key] = true
-					names = append(names, entity.Name)
+					mentions = append(mentions, graphEntityMention{Name: entity.Name, Start: index, End: index + len(candidate)})
 				}
 				break
 			}
 		}
 	}
-	sort.SliceStable(names, func(i, j int) bool {
-		return strings.Index(lowerSentence, strings.ToLower(names[i])) < strings.Index(lowerSentence, strings.ToLower(names[j]))
+	sort.SliceStable(mentions, func(i, j int) bool {
+		return mentions[i].Start < mentions[j].Start
 	})
-	return names
+	return mentions
 }
 
 func relationTypeFromSentence(sentence string) string {
@@ -2004,15 +2732,192 @@ func relationTypeFromSentence(sentence string) string {
 	}
 }
 
-func relationDirection(sentence string, names []string, relationType string) (string, string) {
-	if len(names) < 2 {
+func relationTriggersInSentence(sentence string) []graphRelationTrigger {
+	lower := strings.ToLower(sentence)
+	relationTypes := []string{"WRITES", "READS", "CONSUMES", "PUBLISHES", "CALLS", "STORES", "DEPENDS_ON", "CONFIGURES", "TRIGGERS", "OWNS"}
+	triggers := make([]graphRelationTrigger, 0, 2)
+	for _, relationType := range relationTypes {
+		for _, term := range relationTriggerTerms(relationType) {
+			needle := strings.ToLower(term)
+			searchFrom := 0
+			for {
+				idx := strings.Index(lower[searchFrom:], needle)
+				if idx < 0 {
+					break
+				}
+				absolute := searchFrom + idx
+				if isASCIIWord(needle) && !isRelationTermBoundary(lower, absolute, absolute+len(needle)) {
+					searchFrom = absolute + len(needle)
+					continue
+				}
+				triggers = append(triggers, graphRelationTrigger{Type: relationType, Index: absolute, End: absolute + len(needle)})
+				searchFrom = absolute + len(needle)
+			}
+		}
+	}
+	sort.SliceStable(triggers, func(i, j int) bool {
+		if triggers[i].Index == triggers[j].Index {
+			return triggers[i].End > triggers[j].End
+		}
+		return triggers[i].Index < triggers[j].Index
+	})
+	return dedupeRelationTriggers(triggers)
+}
+
+func dedupeRelationTriggers(triggers []graphRelationTrigger) []graphRelationTrigger {
+	out := make([]graphRelationTrigger, 0, len(triggers))
+	for _, trigger := range triggers {
+		if len(out) > 0 {
+			prev := out[len(out)-1]
+			if trigger.Index >= prev.Index && trigger.End <= prev.End {
+				continue
+			}
+			if trigger.Index == prev.Index && trigger.End > prev.End {
+				out[len(out)-1] = trigger
+				continue
+			}
+		}
+		out = append(out, trigger)
+	}
+	return out
+}
+
+func isASCIIWord(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, r := range value {
+		if r < 'a' || r > 'z' {
+			return false
+		}
+	}
+	return true
+}
+
+func isRelationTermBoundary(text string, start, end int) bool {
+	if start > 0 {
+		prev := rune(text[start-1])
+		if (prev >= 'a' && prev <= 'z') || (prev >= '0' && prev <= '9') || prev == '_' {
+			return false
+		}
+	}
+	if end < len(text) {
+		next := rune(text[end])
+		if (next >= 'a' && next <= 'z') || (next >= '0' && next <= '9') || next == '_' {
+			return false
+		}
+	}
+	return true
+}
+
+func relationDirectionAt(sentence string, mentions []graphEntityMention, trigger graphRelationTrigger, defaultSubject string) (string, string) {
+	if len(mentions) < 2 {
 		return "", ""
 	}
+	before := -1
+	after := -1
+	for i, mention := range mentions {
+		if mention.End <= trigger.Index {
+			before = i
+		}
+		if mention.Start >= trigger.Index && after == -1 {
+			after = i
+		}
+	}
+	if before < 0 || after < 0 || before == after {
+		return "", ""
+	}
+	if isPassiveRelation(sentence, mentions[before], trigger) {
+		return mentions[after].Name, mentions[before].Name
+	}
+	if shouldUseDefaultSubject(sentence, mentions[before], trigger, defaultSubject) {
+		return defaultSubject, mentions[after].Name
+	}
+	return mentions[before].Name, mentions[after].Name
+}
+
+func isPassiveRelation(sentence string, target graphEntityMention, trigger graphRelationTrigger) bool {
+	if target.End < 0 || trigger.Index <= target.End || trigger.Index > len(sentence) {
+		return false
+	}
+	between := sentence[target.End:trigger.Index]
+	return strings.Contains(between, "被") || strings.Contains(strings.ToLower(between), " by ")
+}
+
+func shouldUseDefaultSubject(sentence string, before graphEntityMention, trigger graphRelationTrigger, defaultSubject string) bool {
+	if defaultSubject == "" || canonicalEntityKey(before.Name) == canonicalEntityKey(defaultSubject) {
+		return false
+	}
+	if before.End < 0 || trigger.Index <= before.End || trigger.Index > len(sentence) {
+		return false
+	}
+	between := strings.TrimSpace(sentence[before.End:trigger.Index])
+	if between == "" {
+		return false
+	}
+	return regexp.MustCompile(`^[，,、\s]*(并|并且|然后|同时)?[，,、\s]*$`).MatchString(between)
+}
+
+func relationDirection(sentence string, mentions []graphEntityMention, relationType string) (string, string) {
+	if len(mentions) < 2 {
+		return "", ""
+	}
+	verbIndex := relationVerbIndex(sentence, relationType)
+	if verbIndex >= 0 {
+		before := -1
+		after := -1
+		for i, mention := range mentions {
+			if mention.End <= verbIndex {
+				before = i
+			}
+			if mention.Start >= verbIndex && after == -1 {
+				after = i
+			}
+		}
+		if before >= 0 && after >= 0 && before != after {
+			return mentions[before].Name, mentions[after].Name
+		}
+	}
+	return mentions[0].Name, mentions[1].Name
+}
+
+func relationVerbIndex(sentence, relationType string) int {
+	terms := relationTriggerTerms(relationType)
+	lower := strings.ToLower(sentence)
+	best := -1
+	for _, term := range terms {
+		idx := strings.Index(lower, strings.ToLower(term))
+		if idx >= 0 && (best < 0 || idx < best) {
+			best = idx
+		}
+	}
+	return best
+}
+
+func relationTriggerTerms(relationType string) []string {
 	switch relationType {
-	case "PUBLISHES", "WRITES", "CALLS", "CONSUMES", "READS", "STORES", "CONFIGURES", "TRIGGERS":
-		return names[0], names[1]
+	case "WRITES":
+		return []string{"写入", "写", "write", "writes"}
+	case "READS":
+		return []string{"读取", "read", "reads"}
+	case "CONSUMES":
+		return []string{"消费", "consume", "consumes"}
+	case "PUBLISHES":
+		return []string{"发布", "publish", "publishes"}
+	case "CALLS":
+		return []string{"调用", "call", "calls"}
+	case "STORES":
+		return []string{"存储", "保存", "store", "stores"}
+	case "DEPENDS_ON":
+		return []string{"依赖", "depend", "depends"}
+	case "CONFIGURES":
+		return []string{"配置", "config", "configures"}
+	case "TRIGGERS":
+		return []string{"触发", "trigger", "triggers"}
+	case "OWNS":
+		return []string{"拥有", "负责", "own", "owns"}
 	default:
-		return names[0], names[1]
+		return nil
 	}
 }
 
@@ -2032,6 +2937,73 @@ func relationDescription(source, target, relationType string) string {
 	}
 	verb := defaultString(verbs[relationType], "关联")
 	return source + " " + verb + " " + target
+}
+
+func relationAllowedByEntityTypes(relationType, sourceType, targetType string) bool {
+	relationType = normalizeRelationType(relationType)
+	sourceType = normalizeGraphEntityTypeForPolicy(sourceType)
+	targetType = normalizeGraphEntityTypeForPolicy(targetType)
+	if sourceType == "" || targetType == "" {
+		return true
+	}
+	switch relationType {
+	case "CALLS":
+		return isExecutableGraphEntityType(sourceType) && isCallableGraphEntityType(targetType)
+	case "PUBLISHES":
+		return isExecutableGraphEntityType(sourceType) && targetType == "EventTopic"
+	case "CONSUMES":
+		return isExecutableGraphEntityType(sourceType) && targetType == "EventTopic"
+	case "WRITES", "READS", "STORES":
+		return isExecutableGraphEntityType(sourceType) && isStorageGraphEntityType(targetType)
+	case "CONFIGURES":
+		return isExecutableGraphEntityType(sourceType) && targetType != "Person"
+	case "TRIGGERS":
+		return sourceType != "DatabaseTable" && targetType != "DatabaseTable"
+	case "DEPENDS_ON":
+		return sourceType != "DatabaseTable" || targetType != "Person"
+	case "OWNS":
+		return sourceType != "DatabaseTable" && targetType != "EventTopic"
+	case "RELATED_TO":
+		return true
+	default:
+		return true
+	}
+}
+
+func normalizeGraphEntityTypeForPolicy(entityType string) string {
+	switch strings.TrimSpace(entityType) {
+	case "Service", "DatabaseTable", "EventTopic", "API", "Module", "Concept", "Person", "Organization", "Product":
+		return strings.TrimSpace(entityType)
+	default:
+		return ""
+	}
+}
+
+func isExecutableGraphEntityType(entityType string) bool {
+	switch entityType {
+	case "Service", "API", "Module", "Product":
+		return true
+	default:
+		return false
+	}
+}
+
+func isCallableGraphEntityType(entityType string) bool {
+	switch entityType {
+	case "Service", "API", "Module":
+		return true
+	default:
+		return false
+	}
+}
+
+func isStorageGraphEntityType(entityType string) bool {
+	switch entityType {
+	case "DatabaseTable", "Concept", "Product":
+		return true
+	default:
+		return false
+	}
 }
 
 func canonicalEntityKey(name string) string {
@@ -2218,28 +3190,175 @@ func retrievalQuality(chunks []rankedChunk) float64 {
 	return quality
 }
 
-func synthesizeAnswer(query, mode, crag string, chunks []rankedChunk, nodes []*rag.RAGGraphNode) string {
+func (s *ragServiceImpl) synthesizeDirectAnswer(ctx context.Context, viewerID int64, query string, decision RouterDecision) string {
+	router := s.resolveUserRouter(ctx, viewerID)
+	llm, ok := unwrapLLMRouter(router)
+	if ok && llm != nil && strings.TrimSpace(llm.APIKey) != "" && strings.TrimSpace(llm.BaseURL) != "" {
+		systemPrompt := "你是 ClaranAIM 的知识助手。当前 RAG Router 判断这个问题不需要检索内部知识库。请直接回答用户问题，面向业务用户写成清晰 Markdown。不要输出 Router JSON，不要说“我可以帮你”，不要编造内部知识库来源。"
+		userPrompt := fmt.Sprintf("用户问题：%s\n\nRouter判断：%s\n\n请生成当前页面要展示的最终回答。", query, defaultString(decision.Reason, "无需检索"))
+		if answer, err := llm.chat(ctx, systemPrompt, userPrompt); err == nil && strings.TrimSpace(answer) != "" {
+			return answer
+		}
+	}
+	return synthesizeDirectAnswerFallback(query, decision)
+}
+
+func synthesizeDirectAnswerFallback(query string, decision RouterDecision) string {
 	var b strings.Builder
-	b.WriteString("RAG 路线：")
-	b.WriteString(mode)
-	b.WriteString("；CRAG：")
-	b.WriteString(crag)
-	b.WriteString("\n\n")
+	b.WriteString("这个问题当前被判断为可以直接回答，不需要检索内部知识库。\n\n")
+	b.WriteString("**直接建议**\n")
+	b.WriteString("- 请围绕问题「")
+	b.WriteString(escapePlainForMarkdown(query))
+	b.WriteString("」补充你的目标、素材和约束；如果你想查找已经上传的文档，请切换到“文档检索”模式，系统会强制检索知识库。\n")
+	if strings.TrimSpace(decision.Reason) != "" {
+		b.WriteString("\n**路由原因**\n")
+		b.WriteString(escapePlainForMarkdown(decision.Reason))
+	}
+	b.WriteString("\n\n> 当前使用本地兜底直答；配置可用的小模型后会在这里生成完整回答。")
+	return b.String()
+}
+
+func (s *ragServiceImpl) synthesizeAnswer(ctx context.Context, viewerID int64, query, mode, crag string, chunks []rankedChunk, nodes []*rag.RAGGraphNode) string {
+	if answer, err := s.synthesizeAnswerWithLLM(ctx, viewerID, query, mode, crag, chunks, nodes); err == nil && strings.TrimSpace(answer) != "" {
+		return answer
+	}
+	return synthesizeAnswerFallback(query, mode, crag, chunks, nodes)
+}
+
+func (s *ragServiceImpl) synthesizeAnswerWithLLM(ctx context.Context, viewerID int64, query, mode, crag string, chunks []rankedChunk, nodes []*rag.RAGGraphNode) (string, error) {
 	if len(chunks) == 0 {
-		b.WriteString("内部知识库没有找到足够相关资料。")
+		return "", errors.New("没有可供生成的内部来源")
+	}
+	router := s.resolveUserRouter(ctx, viewerID)
+	llm, ok := unwrapLLMRouter(router)
+	if !ok || llm == nil || strings.TrimSpace(llm.APIKey) == "" || strings.TrimSpace(llm.BaseURL) == "" {
+		return "", errors.New("RAG答案生成模型未配置")
+	}
+	var sourceBuilder strings.Builder
+	for i, chunk := range chunks {
+		if i >= 6 {
+			break
+		}
+		content := cleanRAGContextText(chunk.Chunk.Content)
+		sourceBuilder.WriteString(fmt.Sprintf("[来源%d] 标题：%s\n路径/来源：%s\n相关度：%.4f\n内容：%s\n\n", i+1, chunk.Document.Title, chunk.Document.Source, chunk.Score, truncate(content, 1600)))
+	}
+	if len(nodes) > 0 {
+		sourceBuilder.WriteString("相关图谱实体：")
+		for i, node := range nodes {
+			if i >= 8 {
+				break
+			}
+			if i > 0 {
+				sourceBuilder.WriteString("；")
+			}
+			sourceBuilder.WriteString(fmt.Sprintf("%s(%s): %s", node.Name, node.Type, truncate(node.Summary, 120)))
+		}
+		sourceBuilder.WriteString("\n")
+	}
+	systemPrompt := "你是 ClaranAIM 的知识库问答助手。请只依据给定内部来源回答用户问题，面向普通用户写成清晰 Markdown。不要输出原始 chunk 列表；先给直接答案，再给依据。若资料不足，明确说明缺口。引用来源时用文档标题，不编造不存在的信息。"
+	userPrompt := fmt.Sprintf("用户问题：%s\n\n检索模式：%s\nCRAG结果：%s\n\n内部来源：\n%s\n\n请生成最终回答。", query, mode, crag, sourceBuilder.String())
+	return llm.chat(ctx, systemPrompt, userPrompt)
+}
+
+func unwrapLLMRouter(router RAGRouter) (*LLMRouter, bool) {
+	switch typed := router.(type) {
+	case *LLMRouter:
+		return typed, true
+	case HybridAdaptiveRouter:
+		if llm, ok := typed.LLM.(*LLMRouter); ok {
+			return llm, true
+		}
+	case fallbackRouter:
+		if llm, ok := unwrapLLMRouter(typed.primary); ok {
+			return llm, true
+		}
+		return unwrapLLMRouter(typed.fallback)
+	}
+	return nil, false
+}
+
+func (r *LLMRouter) chat(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+	if r == nil || r.APIKey == "" || r.BaseURL == "" {
+		return "", errors.New("llm未配置")
+	}
+	payload := map[string]interface{}{
+		"model": r.Model,
+		"messages": []map[string]string{
+			{"role": "system", "content": systemPrompt},
+			{"role": "user", "content": userPrompt},
+		},
+		"temperature": 0.2,
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return "", err
+	}
+	endpoint := strings.TrimRight(r.BaseURL, "/")
+	if !strings.HasSuffix(endpoint, "/chat/completions") {
+		endpoint += "/chat/completions"
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Authorization", "Bearer "+r.APIKey)
+	req.Header.Set("Content-Type", "application/json")
+	client := r.Client
+	if client == nil {
+		client = http.DefaultClient
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", fmt.Errorf("llm调用失败: status=%d", resp.StatusCode)
+	}
+	var decoded struct {
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&decoded); err != nil {
+		return "", err
+	}
+	if len(decoded.Choices) == 0 {
+		return "", errors.New("llm未返回答案")
+	}
+	return strings.TrimSpace(decoded.Choices[0].Message.Content), nil
+}
+
+func synthesizeAnswerFallback(query, mode, crag string, chunks []rankedChunk, nodes []*rag.RAGGraphNode) string {
+	var b strings.Builder
+	if len(chunks) == 0 {
+		b.WriteString("没有在内部知识库中找到足够相关的资料。")
 		if crag == "web_fallback" {
-			b.WriteString("建议回退到 Web 搜索或让 Agent 调用 web_search 后合并结果。")
+			b.WriteString("建议继续使用联网增强，或补充更明确的文档标题、关键词和范围。")
 		}
 		return b.String()
 	}
-	b.WriteString("基于内部知识库，和问题「")
-	b.WriteString(query)
-	b.WriteString("」最相关的信息如下：\n")
+	b.WriteString("根据知识库中命中的资料，问题「")
+	b.WriteString(escapePlainForMarkdown(query))
+	b.WriteString("」可以这样理解：\n\n")
+	b.WriteString("- 主要依据来自 ")
+	titles := make([]string, 0, len(chunks))
 	for i, chunk := range chunks {
 		if i >= 5 {
 			break
 		}
-		b.WriteString(fmt.Sprintf("%d. %s：%s\n", i+1, chunk.Document.Title, truncate(chunk.Chunk.Content, 160)))
+		titles = append(titles, chunk.Document.Title)
+	}
+	b.WriteString(escapePlainForMarkdown(strings.Join(uniqueStrings(titles), "、")))
+	b.WriteString("。\n")
+	best := cleanRAGContextText(chunks[0].Chunk.Content)
+	b.WriteString("- 最相关内容显示：")
+	b.WriteString(escapePlainForMarkdown(truncate(best, 360)))
+	b.WriteString("\n")
+	if len(chunks) > 1 {
+		b.WriteString("- 其他来源提供了补充证据，建议结合下方“来源”逐条核对。\n")
 	}
 	if len(nodes) > 0 {
 		b.WriteString("\n相关图谱实体：")
@@ -2253,7 +3372,38 @@ func synthesizeAnswer(query, mode, crag string, chunks []rankedChunk, nodes []*r
 			b.WriteString(node.Name)
 		}
 	}
+	b.WriteString("\n\n> 当前回答使用本地兜底生成；如果配置了可用的小模型/大模型，系统会进一步生成更自然的总结。")
 	return b.String()
+}
+
+func cleanRAGContextText(text string) string {
+	text = strings.TrimSpace(text)
+	replacer := strings.NewReplacer("<br>", "\n", "<br/>", "\n", "<br />", "\n", "&nbsp;", " ", "&amp;", "&", "&lt;", "<", "&gt;", ">")
+	text = replacer.Replace(text)
+	text = regexp.MustCompile(`(?is)<script.*?</script>|<style.*?</style>`).ReplaceAllString(text, " ")
+	text = regexp.MustCompile(`(?is)</?(table|thead|tbody|tr|td|th|p|div|span|strong|em|ul|ol|li|h[1-6])[^>]*>`).ReplaceAllString(text, " ")
+	text = regexp.MustCompile(`(?is)<[^>]+>`).ReplaceAllString(text, " ")
+	text = regexp.MustCompile(`[ \t]+`).ReplaceAllString(text, " ")
+	text = regexp.MustCompile(`\n{3,}`).ReplaceAllString(text, "\n\n")
+	return strings.TrimSpace(text)
+}
+
+func escapePlainForMarkdown(text string) string {
+	return strings.ReplaceAll(strings.TrimSpace(text), "\n", " ")
+}
+
+func uniqueStrings(values []string) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		out = append(out, value)
+	}
+	return out
 }
 
 func chunksToSources(chunks []rankedChunk) []*rag.RAGSource {
@@ -2382,7 +3532,7 @@ func extractEntities(text string) []string {
 
 func inferEntityType(name string) string {
 	lower := strings.ToLower(name)
-	if strings.Contains(lower, "-service") || strings.Contains(name, "服务") {
+	if strings.Contains(lower, "-service") || strings.Contains(lower, "-gateway") || strings.Contains(name, "服务") || strings.Contains(name, "网关") {
 		return "Service"
 	}
 	if strings.Contains(lower, "_") || strings.HasSuffix(lower, "table") || strings.Contains(name, "表") {
@@ -2467,9 +3617,48 @@ func entitiesToRPC(entities []model.Entity) []*rag.RAGGraphNode {
 func relationsToRPC(relations []model.Relation) []*rag.RAGGraphEdge {
 	out := make([]*rag.RAGGraphEdge, 0, len(relations))
 	for _, r := range relations {
-		out = append(out, &rag.RAGGraphEdge{Id: r.ID, SourceId: r.SourceID, TargetId: r.TargetID, Relation: r.Relation, Weight: r.Weight, Evidence: r.Evidence})
+		out = append(out, &rag.RAGGraphEdge{Id: r.ID, SourceId: r.SourceID, TargetId: r.TargetID, Relation: r.Relation, Weight: r.Weight, Evidence: r.Evidence, DocumentId: r.DocumentID})
 	}
 	return out
+}
+
+func filterGraphForDisplay(entities []model.Entity, relations []model.Relation) ([]model.Entity, []model.Relation) {
+	validID := map[int64]bool{}
+	entityByID := map[int64]model.Entity{}
+	filteredEntities := make([]model.Entity, 0, len(entities))
+	for _, entity := range entities {
+		extracted := extractedEntity{Name: entity.Name, Type: entity.Type, Description: entity.Summary, Aliases: decodeAliases(entity.AliasesJSON)}
+		if !isUsefulGraphEntity(extracted, entity.Summary, true) {
+			continue
+		}
+		entity.Type = normalizeEntityType(entity.Type, entity.Name)
+		filteredEntities = append(filteredEntities, entity)
+		validID[entity.ID] = true
+		entityByID[entity.ID] = entity
+	}
+	filteredRelations := make([]model.Relation, 0, len(relations))
+	seen := map[string]bool{}
+	for _, relation := range relations {
+		if !validID[relation.SourceID] || !validID[relation.TargetID] || relation.SourceID == relation.TargetID {
+			continue
+		}
+		relation.Relation = normalizeRelationType(relation.Relation)
+		source := entityByID[relation.SourceID]
+		target := entityByID[relation.TargetID]
+		if !relationAllowedByEntityTypes(relation.Relation, source.Type, target.Type) {
+			continue
+		}
+		if relation.Relation == "RELATED_TO" && relation.Weight < 0.82 {
+			continue
+		}
+		key := fmt.Sprintf("%d-%s-%d", relation.SourceID, relation.Relation, relation.TargetID)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		filteredRelations = append(filteredRelations, relation)
+	}
+	return filteredEntities, filteredRelations
 }
 
 func communitiesToRPC(communities []model.Community) []*rag.RAGGraphCommunity {

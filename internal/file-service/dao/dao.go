@@ -6,6 +6,7 @@ import (
 	"ClaranAIM/internal/file-service/model"
 	"context"
 	"errors"
+	"strings"
 
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
@@ -81,7 +82,18 @@ func (r *fileRepositoryImpl) ListFiles(ctx context.Context, uploaderID int64, fi
 		query = query.Where("uploader_id = ?", uploaderID)
 	}
 	if fileType != "" {
-		query = query.Where("file_type = ?", fileType)
+		switch strings.ToLower(strings.TrimSpace(fileType)) {
+		case "image":
+			query = query.Where("file_type = ? OR content_type LIKE ?", "image", "image/%")
+		case "video":
+			query = query.Where("file_type = ? OR content_type LIKE ?", "video", "video/%")
+		case "audio", "voice":
+			query = query.Where("file_type IN ? OR content_type LIKE ?", []string{"audio", "voice"}, "audio/%")
+		case "file", "document":
+			query = query.Where("(file_type = ? OR file_type = ? OR file_type = '') AND content_type NOT LIKE ? AND content_type NOT LIKE ? AND content_type NOT LIKE ?", "file", "document", "image/%", "video/%", "audio/%")
+		default:
+			query = query.Where("file_type = ? OR content_type = ?", fileType, fileType)
+		}
 	}
 
 	if err := query.Count(&total).Error; err != nil {

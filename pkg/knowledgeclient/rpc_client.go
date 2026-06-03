@@ -28,6 +28,7 @@ func (c *RPCClient) GetGraphView(ctx context.Context, viewerID int64, input Grap
 		CommunityId:     input.CommunityID,
 		Hops:            int64(input.Hops),
 		Limit:           int64(input.Limit),
+		DocumentId:      input.DocumentID,
 	})
 	if err != nil {
 		return nil, err
@@ -41,10 +42,12 @@ func (c *RPCClient) GetGraphView(ctx context.Context, viewerID int64, input Grap
 // GetNodeDetail 查询节点详情和邻居关系。
 func (c *RPCClient) GetNodeDetail(ctx context.Context, viewerID, nodeID int64, input GraphQuery) (*NodeDetail, error) {
 	resp, err := c.client.GetNodeDetail(ctx, &knowledge.KnowledgeNodeDetailReq{
-		ViewerId: viewerID,
-		NodeId:   nodeID,
-		Query:    input.Query,
-		Limit:    int64(input.Limit),
+		ViewerId:   viewerID,
+		NodeId:     nodeID,
+		Query:      input.Query,
+		Limit:      int64(input.Limit),
+		DocumentId: input.DocumentID,
+		Hops:       int64(input.Hops),
 	})
 	if err != nil {
 		return nil, err
@@ -58,10 +61,12 @@ func (c *RPCClient) GetNodeDetail(ctx context.Context, viewerID, nodeID int64, i
 // GetEdgeDetail 查询关系详情和两端节点。
 func (c *RPCClient) GetEdgeDetail(ctx context.Context, viewerID, edgeID int64, input GraphQuery) (*EdgeDetail, error) {
 	resp, err := c.client.GetEdgeDetail(ctx, &knowledge.KnowledgeEdgeDetailReq{
-		ViewerId: viewerID,
-		EdgeId:   edgeID,
-		Query:    input.Query,
-		Limit:    int64(input.Limit),
+		ViewerId:   viewerID,
+		EdgeId:     edgeID,
+		Query:      input.Query,
+		Limit:      int64(input.Limit),
+		DocumentId: input.DocumentID,
+		Hops:       int64(input.Hops),
 	})
 	if err != nil {
 		return nil, err
@@ -83,6 +88,7 @@ func (c *RPCClient) GetNeighborhood(ctx context.Context, viewerID, nodeID int64,
 		CommunityId:     input.CommunityID,
 		Hops:            int64(input.Hops),
 		Limit:           int64(input.Limit),
+		DocumentId:      input.DocumentID,
 	})
 	if err != nil {
 		return nil, err
@@ -96,11 +102,13 @@ func (c *RPCClient) GetNeighborhood(ctx context.Context, viewerID, nodeID int64,
 // GetPath 查询两个节点之间的最短可见路径。
 func (c *RPCClient) GetPath(ctx context.Context, viewerID, sourceID, targetID int64, input GraphQuery) (*PathDetail, error) {
 	resp, err := c.client.GetPath(ctx, &knowledge.KnowledgePathReq{
-		ViewerId: viewerID,
-		SourceId: sourceID,
-		TargetId: targetID,
-		Query:    input.Query,
-		Limit:    int64(input.Limit),
+		ViewerId:   viewerID,
+		SourceId:   sourceID,
+		TargetId:   targetID,
+		Query:      input.Query,
+		Limit:      int64(input.Limit),
+		DocumentId: input.DocumentID,
+		Hops:       int64(input.Hops),
 	})
 	if err != nil {
 		return nil, err
@@ -274,6 +282,7 @@ func fromRPCEdge(edge *knowledge.KnowledgeGraphEdge) GraphEdge {
 		Weight:      edge.GetWeight(),
 		Evidence:    edge.GetEvidence(),
 		Color:       edge.GetColor(),
+		DocumentID:  edge.GetDocumentId(),
 	}
 }
 

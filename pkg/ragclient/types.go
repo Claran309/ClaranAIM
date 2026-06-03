@@ -31,12 +31,15 @@ type SearchInput struct {
 	Limit          int
 	GroupID        int64
 	ConversationID int64
+	DocumentID     int64
 }
 
 // GraphInput 是知识图谱读取的跨服务入参。
 type GraphInput struct {
-	Query string
-	Limit int
+	Query      string
+	Limit      int
+	DocumentID int64
+	Hops       int
 }
 
 // Service 是 api-gateway、Agent 服务调用 rag-service 的最小接口。
@@ -45,4 +48,6 @@ type Service interface {
 	Search(ctx context.Context, viewerID int64, input SearchInput) (*rag.SearchResp, error)
 	GetGraph(ctx context.Context, viewerID int64, input GraphInput) (*rag.GraphResp, error)
 	ListDocuments(ctx context.Context, viewerID int64, limit, offset int) (*rag.ListDocumentsResp, error)
+	DeleteDocument(ctx context.Context, viewerID, documentID int64) (*rag.DeleteDocumentResp, error)
+	DeleteDocumentGraph(ctx context.Context, viewerID, documentID int64) (*rag.DeleteGraphResp, error)
 }

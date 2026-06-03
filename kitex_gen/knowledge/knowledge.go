@@ -117,6 +117,7 @@ type KnowledgeGraphEdge struct {
 	Weight      float64 `thrift:"weight,6" frugal:"6,default,double" json:"weight"`
 	Evidence    string  `thrift:"evidence,7" frugal:"7,default,string" json:"evidence"`
 	Color       string  `thrift:"color,8" frugal:"8,default,string" json:"color"`
+	DocumentId  int64   `thrift:"document_id,9" frugal:"9,default,i64" json:"document_id"`
 }
 
 func NewKnowledgeGraphEdge() *KnowledgeGraphEdge {
@@ -157,6 +158,10 @@ func (p *KnowledgeGraphEdge) GetEvidence() (v string) {
 func (p *KnowledgeGraphEdge) GetColor() (v string) {
 	return p.Color
 }
+
+func (p *KnowledgeGraphEdge) GetDocumentId() (v int64) {
+	return p.DocumentId
+}
 func (p *KnowledgeGraphEdge) SetId(val int64) {
 	p.Id = val
 }
@@ -181,6 +186,9 @@ func (p *KnowledgeGraphEdge) SetEvidence(val string) {
 func (p *KnowledgeGraphEdge) SetColor(val string) {
 	p.Color = val
 }
+func (p *KnowledgeGraphEdge) SetDocumentId(val int64) {
+	p.DocumentId = val
+}
 
 func (p *KnowledgeGraphEdge) String() string {
 	if p == nil {
@@ -198,6 +206,7 @@ var fieldIDToName_KnowledgeGraphEdge = map[int16]string{
 	6: "weight",
 	7: "evidence",
 	8: "color",
+	9: "document_id",
 }
 
 type KnowledgeGraphCommunity struct {
@@ -338,6 +347,7 @@ type KnowledgeGraphReq struct {
 	CommunityId     int64    `thrift:"community_id,5" frugal:"5,default,i64" json:"community_id"`
 	Hops            int64    `thrift:"hops,6" frugal:"6,default,i64" json:"hops"`
 	Limit           int64    `thrift:"limit,7" frugal:"7,default,i64" json:"limit"`
+	DocumentId      int64    `thrift:"document_id,8" frugal:"8,default,i64" json:"document_id"`
 }
 
 func NewKnowledgeGraphReq() *KnowledgeGraphReq {
@@ -374,6 +384,10 @@ func (p *KnowledgeGraphReq) GetHops() (v int64) {
 func (p *KnowledgeGraphReq) GetLimit() (v int64) {
 	return p.Limit
 }
+
+func (p *KnowledgeGraphReq) GetDocumentId() (v int64) {
+	return p.DocumentId
+}
 func (p *KnowledgeGraphReq) SetViewerId(val int64) {
 	p.ViewerId = val
 }
@@ -395,6 +409,9 @@ func (p *KnowledgeGraphReq) SetHops(val int64) {
 func (p *KnowledgeGraphReq) SetLimit(val int64) {
 	p.Limit = val
 }
+func (p *KnowledgeGraphReq) SetDocumentId(val int64) {
+	p.DocumentId = val
+}
 
 func (p *KnowledgeGraphReq) String() string {
 	if p == nil {
@@ -411,6 +428,7 @@ var fieldIDToName_KnowledgeGraphReq = map[int16]string{
 	5: "community_id",
 	6: "hops",
 	7: "limit",
+	8: "document_id",
 }
 
 type KnowledgeGraphResp struct {
@@ -497,10 +515,12 @@ var fieldIDToName_KnowledgeGraphResp = map[int16]string{
 }
 
 type KnowledgeNodeDetailReq struct {
-	ViewerId int64  `thrift:"viewer_id,1" frugal:"1,default,i64" json:"viewer_id"`
-	NodeId   int64  `thrift:"node_id,2" frugal:"2,default,i64" json:"node_id"`
-	Query    string `thrift:"query,3" frugal:"3,default,string" json:"query"`
-	Limit    int64  `thrift:"limit,4" frugal:"4,default,i64" json:"limit"`
+	ViewerId   int64  `thrift:"viewer_id,1" frugal:"1,default,i64" json:"viewer_id"`
+	NodeId     int64  `thrift:"node_id,2" frugal:"2,default,i64" json:"node_id"`
+	Query      string `thrift:"query,3" frugal:"3,default,string" json:"query"`
+	Limit      int64  `thrift:"limit,4" frugal:"4,default,i64" json:"limit"`
+	DocumentId int64  `thrift:"document_id,5" frugal:"5,default,i64" json:"document_id"`
+	Hops       int64  `thrift:"hops,6" frugal:"6,default,i64" json:"hops"`
 }
 
 func NewKnowledgeNodeDetailReq() *KnowledgeNodeDetailReq {
@@ -525,6 +545,14 @@ func (p *KnowledgeNodeDetailReq) GetQuery() (v string) {
 func (p *KnowledgeNodeDetailReq) GetLimit() (v int64) {
 	return p.Limit
 }
+
+func (p *KnowledgeNodeDetailReq) GetDocumentId() (v int64) {
+	return p.DocumentId
+}
+
+func (p *KnowledgeNodeDetailReq) GetHops() (v int64) {
+	return p.Hops
+}
 func (p *KnowledgeNodeDetailReq) SetViewerId(val int64) {
 	p.ViewerId = val
 }
@@ -536,6 +564,12 @@ func (p *KnowledgeNodeDetailReq) SetQuery(val string) {
 }
 func (p *KnowledgeNodeDetailReq) SetLimit(val int64) {
 	p.Limit = val
+}
+func (p *KnowledgeNodeDetailReq) SetDocumentId(val int64) {
+	p.DocumentId = val
+}
+func (p *KnowledgeNodeDetailReq) SetHops(val int64) {
+	p.Hops = val
 }
 
 func (p *KnowledgeNodeDetailReq) String() string {
@@ -550,6 +584,8 @@ var fieldIDToName_KnowledgeNodeDetailReq = map[int16]string{
 	2: "node_id",
 	3: "query",
 	4: "limit",
+	5: "document_id",
+	6: "hops",
 }
 
 type KnowledgeNodeDetailResp struct {
@@ -627,10 +663,12 @@ var fieldIDToName_KnowledgeNodeDetailResp = map[int16]string{
 }
 
 type KnowledgeEdgeDetailReq struct {
-	ViewerId int64  `thrift:"viewer_id,1" frugal:"1,default,i64" json:"viewer_id"`
-	EdgeId   int64  `thrift:"edge_id,2" frugal:"2,default,i64" json:"edge_id"`
-	Query    string `thrift:"query,3" frugal:"3,default,string" json:"query"`
-	Limit    int64  `thrift:"limit,4" frugal:"4,default,i64" json:"limit"`
+	ViewerId   int64  `thrift:"viewer_id,1" frugal:"1,default,i64" json:"viewer_id"`
+	EdgeId     int64  `thrift:"edge_id,2" frugal:"2,default,i64" json:"edge_id"`
+	Query      string `thrift:"query,3" frugal:"3,default,string" json:"query"`
+	Limit      int64  `thrift:"limit,4" frugal:"4,default,i64" json:"limit"`
+	DocumentId int64  `thrift:"document_id,5" frugal:"5,default,i64" json:"document_id"`
+	Hops       int64  `thrift:"hops,6" frugal:"6,default,i64" json:"hops"`
 }
 
 func NewKnowledgeEdgeDetailReq() *KnowledgeEdgeDetailReq {
@@ -655,6 +693,14 @@ func (p *KnowledgeEdgeDetailReq) GetQuery() (v string) {
 func (p *KnowledgeEdgeDetailReq) GetLimit() (v int64) {
 	return p.Limit
 }
+
+func (p *KnowledgeEdgeDetailReq) GetDocumentId() (v int64) {
+	return p.DocumentId
+}
+
+func (p *KnowledgeEdgeDetailReq) GetHops() (v int64) {
+	return p.Hops
+}
 func (p *KnowledgeEdgeDetailReq) SetViewerId(val int64) {
 	p.ViewerId = val
 }
@@ -666,6 +712,12 @@ func (p *KnowledgeEdgeDetailReq) SetQuery(val string) {
 }
 func (p *KnowledgeEdgeDetailReq) SetLimit(val int64) {
 	p.Limit = val
+}
+func (p *KnowledgeEdgeDetailReq) SetDocumentId(val int64) {
+	p.DocumentId = val
+}
+func (p *KnowledgeEdgeDetailReq) SetHops(val int64) {
+	p.Hops = val
 }
 
 func (p *KnowledgeEdgeDetailReq) String() string {
@@ -680,6 +732,8 @@ var fieldIDToName_KnowledgeEdgeDetailReq = map[int16]string{
 	2: "edge_id",
 	3: "query",
 	4: "limit",
+	5: "document_id",
+	6: "hops",
 }
 
 type KnowledgeEdgeDetailResp struct {
@@ -783,6 +837,7 @@ type KnowledgeNeighborhoodReq struct {
 	CommunityId     int64    `thrift:"community_id,6" frugal:"6,default,i64" json:"community_id"`
 	Hops            int64    `thrift:"hops,7" frugal:"7,default,i64" json:"hops"`
 	Limit           int64    `thrift:"limit,8" frugal:"8,default,i64" json:"limit"`
+	DocumentId      int64    `thrift:"document_id,9" frugal:"9,default,i64" json:"document_id"`
 }
 
 func NewKnowledgeNeighborhoodReq() *KnowledgeNeighborhoodReq {
@@ -823,6 +878,10 @@ func (p *KnowledgeNeighborhoodReq) GetHops() (v int64) {
 func (p *KnowledgeNeighborhoodReq) GetLimit() (v int64) {
 	return p.Limit
 }
+
+func (p *KnowledgeNeighborhoodReq) GetDocumentId() (v int64) {
+	return p.DocumentId
+}
 func (p *KnowledgeNeighborhoodReq) SetViewerId(val int64) {
 	p.ViewerId = val
 }
@@ -847,6 +906,9 @@ func (p *KnowledgeNeighborhoodReq) SetHops(val int64) {
 func (p *KnowledgeNeighborhoodReq) SetLimit(val int64) {
 	p.Limit = val
 }
+func (p *KnowledgeNeighborhoodReq) SetDocumentId(val int64) {
+	p.DocumentId = val
+}
 
 func (p *KnowledgeNeighborhoodReq) String() string {
 	if p == nil {
@@ -864,14 +926,17 @@ var fieldIDToName_KnowledgeNeighborhoodReq = map[int16]string{
 	6: "community_id",
 	7: "hops",
 	8: "limit",
+	9: "document_id",
 }
 
 type KnowledgePathReq struct {
-	ViewerId int64  `thrift:"viewer_id,1" frugal:"1,default,i64" json:"viewer_id"`
-	SourceId int64  `thrift:"source_id,2" frugal:"2,default,i64" json:"source_id"`
-	TargetId int64  `thrift:"target_id,3" frugal:"3,default,i64" json:"target_id"`
-	Query    string `thrift:"query,4" frugal:"4,default,string" json:"query"`
-	Limit    int64  `thrift:"limit,5" frugal:"5,default,i64" json:"limit"`
+	ViewerId   int64  `thrift:"viewer_id,1" frugal:"1,default,i64" json:"viewer_id"`
+	SourceId   int64  `thrift:"source_id,2" frugal:"2,default,i64" json:"source_id"`
+	TargetId   int64  `thrift:"target_id,3" frugal:"3,default,i64" json:"target_id"`
+	Query      string `thrift:"query,4" frugal:"4,default,string" json:"query"`
+	Limit      int64  `thrift:"limit,5" frugal:"5,default,i64" json:"limit"`
+	DocumentId int64  `thrift:"document_id,6" frugal:"6,default,i64" json:"document_id"`
+	Hops       int64  `thrift:"hops,7" frugal:"7,default,i64" json:"hops"`
 }
 
 func NewKnowledgePathReq() *KnowledgePathReq {
@@ -900,6 +965,14 @@ func (p *KnowledgePathReq) GetQuery() (v string) {
 func (p *KnowledgePathReq) GetLimit() (v int64) {
 	return p.Limit
 }
+
+func (p *KnowledgePathReq) GetDocumentId() (v int64) {
+	return p.DocumentId
+}
+
+func (p *KnowledgePathReq) GetHops() (v int64) {
+	return p.Hops
+}
 func (p *KnowledgePathReq) SetViewerId(val int64) {
 	p.ViewerId = val
 }
@@ -915,6 +988,12 @@ func (p *KnowledgePathReq) SetQuery(val string) {
 func (p *KnowledgePathReq) SetLimit(val int64) {
 	p.Limit = val
 }
+func (p *KnowledgePathReq) SetDocumentId(val int64) {
+	p.DocumentId = val
+}
+func (p *KnowledgePathReq) SetHops(val int64) {
+	p.Hops = val
+}
 
 func (p *KnowledgePathReq) String() string {
 	if p == nil {
@@ -929,6 +1008,8 @@ var fieldIDToName_KnowledgePathReq = map[int16]string{
 	3: "target_id",
 	4: "query",
 	5: "limit",
+	6: "document_id",
+	7: "hops",
 }
 
 type KnowledgePathResp struct {

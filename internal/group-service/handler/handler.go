@@ -205,7 +205,21 @@ func (h *GroupServiceImpl) AdminListGroups(ctx context.Context, req *group.Admin
 	return &group.AdminListGroupsResp{Success: true, Groups: list, Total: total, Msg: "获取成功"}, nil
 }
 
+// AdminUpdateGroupStatus 更新群聊治理状态。
+// 该 RPC 必须由 api-gateway 的 admin 路由保护，group-service 只执行状态落库和缓存失效。
+func (h *GroupServiceImpl) AdminUpdateGroupStatus(ctx context.Context, req *group.AdminUpdateGroupStatusReq) (resp *group.AdminUpdateGroupStatusResp, err error) {
+	g, err := h.svc.AdminUpdateGroupStatus(ctx, req.GetAdminId(), req.GetGroupId(), req.GetStatus(), req.GetReason())
+	if err != nil {
+		return &group.AdminUpdateGroupStatusResp{Success: false, Msg: err.Error()}, nil
+	}
+	return &group.AdminUpdateGroupStatusResp{Success: true, Msg: "更新群状态成功", Group: toRPCGroup(*g)}, nil
+}
+
 func toRPCGroup(g model.Group) *group.Group {
+	status := g.Status
+	if status == "" {
+		status = "active"
+	}
 	return &group.Group{
 		Id:           g.ID,
 		Name:         g.Name,
@@ -213,6 +227,7 @@ func toRPCGroup(g model.Group) *group.Group {
 		OwnerId:      g.OwnerID,
 		Announcement: g.Announcement,
 		IsPinned:     g.IsPinned,
+		Status:       status,
 		CreatedAt:    g.CreatedAt.Format("2006-01-02 15:04:05"),
 		UpdatedAt:    g.UpdatedAt.Format("2006-01-02 15:04:05"),
 	}

@@ -244,6 +244,7 @@ func parseKnowledgeGraphQuery(c *app.RequestContext) knowledgeclient.GraphQuery 
 		CommunityID:     parseKnowledgeInt64(c.DefaultQuery("community_id", "0"), 0),
 		Hops:            int(parseKnowledgeInt64(c.DefaultQuery("hops", "1"), 1)),
 		Limit:           int(parseKnowledgeInt64(c.DefaultQuery("limit", "160"), 160)),
+		DocumentID:      parseKnowledgeInt64(c.DefaultQuery("document_id", "0"), 0),
 	}
 }
 

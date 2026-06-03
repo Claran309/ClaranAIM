@@ -53,12 +53,15 @@ func main() {
 		logger.Fatal("创建etcd resolver失败", "error", err)
 	}
 	clientOptions := append([]client.Option{client.WithResolver(resolver)}, governance.ClientOptions(cfg.Governance.RPC)...)
+	longRPC := cfg.Governance.RPC
+	longRPC.TimeoutMS = 0
+	longClientOptions := append([]client.Option{client.WithResolver(resolver)}, governance.LongRunningClientOptions(longRPC)...)
 
 	settingsRPCClient, err := settingsservice.NewClient("settings-service", clientOptions...)
 	if err != nil {
 		logger.Fatal("创建settings-service客户端失败", "error", err)
 	}
-	webSearchRPCClient, err := websearchservice.NewClient("web-search-service", clientOptions...)
+	webSearchRPCClient, err := websearchservice.NewClient("web-search-service", longClientOptions...)
 	if err != nil {
 		logger.Warn("创建web-search-service客户端失败，web_search工具将不可用", "error", err)
 	}
@@ -74,7 +77,7 @@ func main() {
 	if err != nil {
 		logger.Warn("创建knowledge-service客户端失败，query_knowledge_graph工具将不可用", "error", err)
 	}
-	conversationRPCClient, err := conversationintelligenceservice.NewClient("conversation-intelligence-service", clientOptions...)
+	conversationRPCClient, err := conversationintelligenceservice.NewClient("conversation-intelligence-service", longClientOptions...)
 	if err != nil {
 		logger.Warn("创建conversation-intelligence-service客户端失败，summarize_conversation工具将不可用", "error", err)
 	}

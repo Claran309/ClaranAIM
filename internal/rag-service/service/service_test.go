@@ -5,6 +5,7 @@ import (
 	"ClaranAIM/internal/rag-service/model"
 	"ClaranAIM/pkg/settingsclient"
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -17,7 +18,7 @@ func TestIngestDocumentBuildsChunksAndGraph(t *testing.T) {
 	result, err := svc.IngestDocument(context.Background(), IngestInput{
 		OwnerID:    1001,
 		Title:      "ClaranAIM RAG 设计",
-		Content:    "ClaranAIM 使用 Agent Runtime 调用 RagService。RagService 负责 Hybrid Search、GraphRAG、CRAG 和 Self-RAG。",
+		Content:    "agent-manager-service 写入 agent_dispatch_records，并调用 agent-runtime-service。agent-manager-service 消费 claran.im.events。",
 		Source:     "unit-test",
 		Visibility: model.VisibilityPrivate,
 	})
@@ -72,8 +73,51 @@ func TestSearchReturnsSourcesAndSelfRAGCheckpoints(t *testing.T) {
 	if result.SelfCheck == nil {
 		t.Fatalf("SelfCheck is nil")
 	}
-	if !strings.Contains(result.Answer, "RAG 路线") {
-		t.Fatalf("Answer = %q, want synthesized RAG answer", result.Answer)
+	if !strings.Contains(result.Answer, "根据知识库") || !strings.Contains(result.Answer, "Agent RAG 手册") {
+		t.Fatalf("Answer = %q, want user-facing synthesized RAG answer with source title", result.Answer)
+	}
+}
+
+func TestIngestDocumentSplitsSingleNewlineStructuredText(t *testing.T) {
+	repo := newFakeRAGRepo()
+	index := NewLocalVectorIndex()
+	svc := NewRAGService(repo, index, 64, "hybrid")
+	lines := make([]string, 0, 80)
+	for i := 0; i < 80; i++ {
+		lines = append(lines, fmt.Sprintf("第%d段说明：这里模拟 DOCX 或 OCR 解析后的单换行长文本，内容包含 RAG 分片、父块摘要、子块检索和权限过滤。", i+1))
+	}
+	result, err := svc.IngestDocument(context.Background(), IngestInput{
+		OwnerID:    1001,
+		Title:      "单换行文档",
+		Content:    strings.Join(lines, "\n"),
+		SourceType: "docx",
+		Visibility: model.VisibilityPrivate,
+	})
+	if err != nil {
+		t.Fatalf("IngestDocument returned error: %v", err)
+	}
+	parentCount := 0
+	childCount := 0
+	for _, chunk := range repo.chunks {
+		switch normalizedChunkLevel(chunk) {
+		case model.ChunkLevelParent:
+			parentCount++
+		case model.ChunkLevelChild:
+			childCount++
+		}
+	}
+	if parentCount < 2 {
+		t.Fatalf("parent chunks = %d, want multiple parent chunks for single-newline document", parentCount)
+	}
+	if childCount < 4 || result.ChunkCount != int64(childCount) {
+		t.Fatalf("child chunks = %d result=%d, want multiple child chunks and accurate count", childCount, result.ChunkCount)
+	}
+	hits, err := index.Search(context.Background(), hashEmbedding("父块摘要 子块检索 权限过滤", 64), 200)
+	if err != nil {
+		t.Fatalf("index.Search returned error: %v", err)
+	}
+	if len(hits) != childCount {
+		t.Fatalf("indexed child chunks = %d, want %d", len(hits), childCount)
 	}
 }
 
@@ -117,6 +161,57 @@ func TestHybridRetrieveUsesDenseBM25AndRRF(t *testing.T) {
 		if !strings.Contains(reason, want) {
 			t.Fatalf("source reason = %q, want %s", reason, want)
 		}
+	}
+}
+
+func TestDocumentSearchRestrictsSourcesToSelectedDocument(t *testing.T) {
+	repo := newFakeRAGRepo()
+	svc := NewRAGService(repo, NewLocalVectorIndex(), 64, "adaptive")
+	first, err := svc.IngestDocument(context.Background(), IngestInput{
+		OwnerID:    1001,
+		Title:      "Go 并发学习笔记",
+		Content:    "学习 Go 并发要理解 goroutine、channel、select 和调度器。这个文档不包含融媒体中心面试简历。",
+		Visibility: model.VisibilityPrivate,
+	})
+	if err != nil {
+		t.Fatalf("first IngestDocument returned error: %v", err)
+	}
+	second, err := svc.IngestDocument(context.Background(), IngestInput{
+		OwnerID:    1001,
+		Title:      "融媒体中心面试简历",
+		Content:    "融媒体中心面试简历应突出新闻采编、短视频剪辑、公众号运营、活动策划和跨部门沟通经历。",
+		Visibility: model.VisibilityPrivate,
+	})
+	if err != nil {
+		t.Fatalf("second IngestDocument returned error: %v", err)
+	}
+	if first.Document.Id == 0 || second.Document.Id == 0 || first.Document.Id == second.Document.Id {
+		t.Fatalf("document ids invalid: first=%d second=%d", first.Document.Id, second.Document.Id)
+	}
+
+	result, err := svc.Search(context.Background(), SearchInput{
+		ViewerID:   1001,
+		Query:      "如何写这份简历",
+		Mode:       "document",
+		DocumentID: second.Document.Id,
+		Limit:      5,
+	})
+	if err != nil {
+		t.Fatalf("Search returned error: %v", err)
+	}
+	if len(result.Sources) == 0 {
+		t.Fatalf("sources empty, want selected document hit")
+	}
+	for _, source := range result.Sources {
+		if source.DocumentId != second.Document.Id {
+			t.Fatalf("source document_id=%d title=%q, want only selected document_id=%d", source.DocumentId, source.Title, second.Document.Id)
+		}
+		if source.DocumentId == first.Document.Id {
+			t.Fatalf("source leaked first document: %#v", source)
+		}
+	}
+	if !strings.Contains(result.Answer, "融媒体中心面试简历") {
+		t.Fatalf("answer=%q, want selected document title", result.Answer)
 	}
 }
 
@@ -460,8 +555,8 @@ func TestGraphRAGCanonicalizesEntityAliasesAndKeepsTypedRelations(t *testing.T) 
 	if countMsgCore != 1 {
 		t.Fatalf("msg-core-service canonical entity count = %d, want 1; entities=%#v", countMsgCore, repo.entities)
 	}
-	if !strings.Contains(msgCore.AliasesJSON, "msg core service") || !strings.Contains(msgCore.AliasesJSON, "消息核心服务") {
-		t.Fatalf("aliases = %q, want merged English and Chinese aliases", msgCore.AliasesJSON)
+	if !strings.Contains(msgCore.AliasesJSON, "msg core service") {
+		t.Fatalf("aliases = %q, want merged strong English aliases", msgCore.AliasesJSON)
 	}
 
 	var hasWrites, hasConsumes bool
@@ -532,6 +627,313 @@ func TestParseGraphExtractResultAcceptsLLMJSONAndKeepsEvidence(t *testing.T) {
 	}
 }
 
+func TestFilterGraphExtractResultDropsNoiseAndKeepsGroundedRelations(t *testing.T) {
+	result := filterGraphExtractResult(graphExtractResult{
+		Entities: []extractedEntity{
+			{Name: "agent-manager-service", Type: "Service", Description: "Agent 管理服务"},
+			{Name: "agent_dispatch_records", Type: "DatabaseTable", Description: "Agent 调度幂等表"},
+			{Name: "agent-runtime-service", Type: "Service", Description: "Agent 运行服务"},
+			{Name: "截图", Type: "Concept", Description: "无意义噪声"},
+			{Name: "35ec16e3cc97f5f5dd482af5d901220d.png", Type: "Concept", Description: "图片文件名"},
+			{Name: "页面", Type: "Concept", Description: "泛词"},
+		},
+		Relationships: []extractedRelationship{
+			{Source: "agent-manager-service", Target: "agent_dispatch_records", Type: "WRITES", Description: "agent-manager-service 写入 agent_dispatch_records", Evidence: "agent-manager-service 写入 agent_dispatch_records", Confidence: 0.91},
+			{Source: "agent-manager-service", Target: "agent-runtime-service", Type: "CALLS", Description: "agent-manager-service 调用 agent-runtime-service", Evidence: "agent-manager-service 调用 agent-runtime-service", Confidence: 0.89},
+			{Source: "截图", Target: "页面", Type: "RELATED_TO", Description: "噪声关系", Evidence: "截图和页面", Confidence: 0.95},
+		},
+	}, "agent-manager-service 写入 agent_dispatch_records，并调用 agent-runtime-service。截图 文件 页面 35ec16e3cc97f5f5dd482af5d901220d.png")
+
+	names := map[string]bool{}
+	for _, entity := range result.Entities {
+		names[entity.Name] = true
+	}
+	if !names["agent-manager-service"] || !names["agent_dispatch_records"] || !names["agent-runtime-service"] {
+		t.Fatalf("entities=%#v, want useful service/table entities kept", result.Entities)
+	}
+	if names["截图"] || names["页面"] || names["35ec16e3cc97f5f5dd482af5d901220d.png"] {
+		t.Fatalf("entities=%#v, want screenshot/page/file noise dropped", result.Entities)
+	}
+	if len(result.Relationships) != 2 {
+		t.Fatalf("relationships=%#v, want only grounded technical relations", result.Relationships)
+	}
+	relations := map[string]bool{}
+	for _, relation := range result.Relationships {
+		relations[relation.Source+" "+relation.Type+" "+relation.Target] = true
+	}
+	if !relations["agent-manager-service WRITES agent_dispatch_records"] || !relations["agent-manager-service CALLS agent-runtime-service"] {
+		t.Fatalf("relationships=%#v, want WRITES and CALLS technical relations", result.Relationships)
+	}
+}
+
+func TestFilterGraphExtractResultDropsIsolatedLLMEntities(t *testing.T) {
+	result := filterGraphExtractResult(graphExtractResult{
+		Entities: []extractedEntity{
+			{Name: "融媒体中心面试简历", Type: "Concept", Description: "文档主题"},
+			{Name: "个人经历", Type: "Concept", Description: "简历中的经历信息"},
+			{Name: "求职目标", Type: "Concept", Description: "候选人的求职目标"},
+		},
+		Relationships: nil,
+	}, "这份文档主要讨论融媒体中心面试简历、个人经历和求职目标。")
+
+	if len(result.Entities) != 0 || len(result.Relationships) != 0 {
+		t.Fatalf("result=%#v, want isolated LLM entities dropped when no relationship is supported", result)
+	}
+}
+
+func TestFilterGraphExtractResultRequiresStrongRelationshipEvidence(t *testing.T) {
+	result := filterGraphExtractResult(graphExtractResult{
+		Entities: []extractedEntity{
+			{Name: "GraphRAG", Type: "Concept", Description: "图谱增强检索方法"},
+			{Name: "Milvus", Type: "Product", Description: "向量数据库"},
+			{Name: "课堂示例", Type: "Concept", Description: "普通示例"},
+		},
+		Relationships: []extractedRelationship{
+			{Source: "GraphRAG", Target: "Milvus", Type: "DEPENDS_ON", Description: "GraphRAG 结合 Milvus 做召回", Evidence: "GraphRAG 结合 Milvus 做召回", Confidence: 0.91},
+			{Source: "课堂示例", Target: "Milvus", Type: "RELATED_TO", Description: "同段出现", Evidence: "课堂示例中提到了 Milvus", Confidence: 0.6},
+		},
+	}, "GraphRAG 结合 Milvus 做召回。课堂示例中提到了 Milvus。")
+
+	names := map[string]bool{}
+	for _, entity := range result.Entities {
+		names[entity.Name] = true
+	}
+	if !names["GraphRAG"] || !names["Milvus"] {
+		t.Fatalf("entities=%#v, want strongly related entities kept", result.Entities)
+	}
+	if names["课堂示例"] {
+		t.Fatalf("entities=%#v, want weak related example entity dropped", result.Entities)
+	}
+	if len(result.Relationships) != 1 || result.Relationships[0].Type != "DEPENDS_ON" {
+		t.Fatalf("relationships=%#v, want only strong DEPENDS_ON kept", result.Relationships)
+	}
+}
+
+func TestFilterGraphExtractResultRejectsWeakOnlyRelatedToGraph(t *testing.T) {
+	result := filterGraphExtractResult(graphExtractResult{
+		Entities: []extractedEntity{
+			{Name: "融媒体中心面试简历", Type: "Concept", Description: "文档主题"},
+			{Name: "求职目标", Type: "Concept", Description: "简历栏目"},
+		},
+		Relationships: []extractedRelationship{
+			{Source: "融媒体中心面试简历", Target: "求职目标", Type: "RELATED_TO", Description: "同一份简历中出现", Evidence: "融媒体中心面试简历包含求职目标", Confidence: 0.95},
+		},
+	}, "融媒体中心面试简历包含求职目标。")
+
+	if len(result.Entities) != 0 || len(result.Relationships) != 0 {
+		t.Fatalf("result=%#v, want only-RELATED_TO graph rejected", result)
+	}
+}
+
+func TestFilterGraphExtractResultAllowsHighQualitySemanticRelatedGraph(t *testing.T) {
+	result := filterGraphExtractResult(graphExtractResult{
+		Entities: []extractedEntity{
+			{Name: "融媒体中心面试简历", Type: "Concept", Description: "面向融媒体中心岗位的简历文档"},
+			{Name: "新闻采编能力", Type: "Concept", Description: "简历中的岗位能力重点"},
+		},
+		Relationships: []extractedRelationship{
+			{Source: "融媒体中心面试简历", Target: "新闻采编能力", Type: "RELATED_TO", Description: "新闻采编能力是融媒体中心面试简历的核心能力维度", Evidence: "简历需要体现新闻采编能力、内容策划能力和新媒体运营能力", Confidence: 0.94},
+		},
+	}, "简历需要体现新闻采编能力、内容策划能力和新媒体运营能力。")
+
+	if len(result.Entities) != 2 || len(result.Relationships) != 1 {
+		t.Fatalf("result=%#v, want high-quality semantic RELATED_TO graph kept", result)
+	}
+}
+
+func TestFilterGraphExtractResultCapsLLMOverExtraction(t *testing.T) {
+	entities := []extractedEntity{{Name: "agent-manager-service", Type: "Service", Description: "Agent 管理服务"}}
+	relations := make([]extractedRelationship, 0, 10)
+	evidenceParts := []string{"agent-manager-service"}
+	for i := 0; i < 10; i++ {
+		target := fmt.Sprintf("agent_table_%02d_records", i)
+		entities = append(entities, extractedEntity{Name: target, Type: "DatabaseTable", Description: "Agent 数据表"})
+		relations = append(relations, extractedRelationship{
+			Source:      "agent-manager-service",
+			Target:      target,
+			Type:        "WRITES",
+			Description: "agent-manager-service 写入 " + target,
+			Evidence:    "agent-manager-service 写入 " + target,
+			Confidence:  0.9 - float64(i)*0.01,
+		})
+		evidenceParts = append(evidenceParts, target)
+	}
+	result := filterGraphExtractResult(graphExtractResult{Entities: entities, Relationships: relations}, strings.Join(evidenceParts, " "))
+	if len(result.Relationships) != 6 {
+		t.Fatalf("relationships len=%d, want capped to 6", len(result.Relationships))
+	}
+	if len(result.Entities) > 8 {
+		t.Fatalf("entities len=%d, want capped to at most 8", len(result.Entities))
+	}
+}
+
+func TestRuleGraphExtractorBuildsMultipleDirectedRelationsFromSentence(t *testing.T) {
+	entities := []extractedEntity{
+		{Name: "agent-manager-service", Type: "Service", Aliases: []string{"agent-manager-service"}},
+		{Name: "agent_dispatch_records", Type: "DatabaseTable", Aliases: []string{"agent_dispatch_records"}},
+		{Name: "agent-runtime-service", Type: "Service", Aliases: []string{"agent-runtime-service"}},
+		{Name: "claran.im.events", Type: "EventTopic", Aliases: []string{"claran.im.events"}},
+	}
+	relations := extractGraphRelationships("agent-manager-service 消费 claran.im.events，写入 agent_dispatch_records，并调用 agent-runtime-service。", entities)
+	got := map[string]bool{}
+	for _, relation := range relations {
+		got[relation.Source+" "+relation.Type+" "+relation.Target] = true
+	}
+	for _, want := range []string{
+		"agent-manager-service CONSUMES claran.im.events",
+		"agent-manager-service WRITES agent_dispatch_records",
+		"agent-manager-service CALLS agent-runtime-service",
+	} {
+		if !got[want] {
+			t.Fatalf("relations=%#v, want %s", relations, want)
+		}
+	}
+}
+
+func TestRuleGraphExtractorDropsMetadataFieldsStatusAndFileNames(t *testing.T) {
+	result, err := (ruleGraphExtractor{}).Extract(context.Background(), graphExtractInput{
+		Chunk: model.Chunk{Content: strings.Join([]string{
+			"agent-manager-service 写入 agent_dispatch_records，并发布 claran.im.events。",
+			"字段 event_id、client_msg_id、status、created_at 用于审计，不应该成为知识图谱节点。",
+			"文件 internal/agent-manager-service/eventconsumer/agent_consumer.go 和截图 35ec16e3cc97f5f5dd482af5d901220d.png 只是证据来源。",
+			"状态 pending、completed、failed 只是枚举值。",
+		}, "\n")},
+	})
+	if err != nil {
+		t.Fatalf("Extract returned error: %v", err)
+	}
+	filtered := filterGraphExtractResult(result, strings.Join([]string{
+		"agent-manager-service 写入 agent_dispatch_records，并发布 claran.im.events。",
+		"字段 event_id、client_msg_id、status、created_at 用于审计，不应该成为知识图谱节点。",
+		"文件 internal/agent-manager-service/eventconsumer/agent_consumer.go 和截图 35ec16e3cc97f5f5dd482af5d901220d.png 只是证据来源。",
+		"状态 pending、completed、failed 只是枚举值。",
+	}, "\n"))
+	names := map[string]bool{}
+	for _, entity := range filtered.Entities {
+		names[entity.Name] = true
+	}
+	for _, want := range []string{"agent-manager-service", "agent_dispatch_records", "claran.im.events"} {
+		if !names[want] {
+			t.Fatalf("entities=%#v, want useful entity %s kept", filtered.Entities, want)
+		}
+	}
+	for _, noise := range []string{"event_id", "client_msg_id", "status", "created_at", "agent_consumer.go", "35ec16e3cc97f5f5dd482af5d901220d.png", "pending", "completed", "failed"} {
+		if names[noise] {
+			t.Fatalf("entities=%#v, want metadata/status/file noise %s dropped", filtered.Entities, noise)
+		}
+	}
+}
+
+func TestRuleGraphExtractorDoesNotCollectOrdinaryExamples(t *testing.T) {
+	result, err := (ruleGraphExtractor{}).Extract(context.Background(), graphExtractInput{
+		Chunk: model.Chunk{Content: strings.Join([]string{
+			"Teacher、Student、Customer 和 Linux 只是课堂示例，不应该成为知识图谱实体。",
+			"这一段没有服务、数据表、事件主题或 API 之间的明确关系。",
+			"agent-manager-service 写入 agent_dispatch_records 才是强结构关系。",
+		}, "\n")},
+	})
+	if err != nil {
+		t.Fatalf("Extract returned error: %v", err)
+	}
+	filtered := filterGraphExtractResult(result, strings.Join([]string{
+		"Teacher、Student、Customer 和 Linux 只是课堂示例，不应该成为知识图谱实体。",
+		"这一段没有服务、数据表、事件主题或 API 之间的明确关系。",
+		"agent-manager-service 写入 agent_dispatch_records 才是强结构关系。",
+	}, "\n"))
+	names := map[string]bool{}
+	for _, entity := range filtered.Entities {
+		names[entity.Name] = true
+	}
+	for _, noise := range []string{"Teacher", "Student", "Customer", "Linux"} {
+		if names[noise] {
+			t.Fatalf("entities=%#v, want ordinary example %s dropped", filtered.Entities, noise)
+		}
+	}
+	if !names["agent-manager-service"] || !names["agent_dispatch_records"] {
+		t.Fatalf("entities=%#v, want strong technical entities kept", filtered.Entities)
+	}
+}
+
+func TestRelationTriggersRequireEnglishWordBoundaries(t *testing.T) {
+	triggers := relationTriggersInSentence("agent-runtime-service keeps readiness metadata for thread_local_state")
+	if len(triggers) != 0 {
+		t.Fatalf("triggers=%#v, want no READ trigger inside readiness/thread", triggers)
+	}
+	triggers = relationTriggersInSentence("agent-manager-service calls agent-runtime-service and writes agent_dispatch_records")
+	got := map[string]bool{}
+	for _, trigger := range triggers {
+		got[trigger.Type] = true
+	}
+	if !got["CALLS"] || !got["WRITES"] {
+		t.Fatalf("triggers=%#v, want CALLS and WRITES", triggers)
+	}
+}
+
+func TestGraphRelationPolicyRejectsImpossibleTypedEdges(t *testing.T) {
+	tests := []struct {
+		name       string
+		relation   string
+		sourceType string
+		targetType string
+		want       bool
+	}{
+		{name: "service writes table", relation: "WRITES", sourceType: "Service", targetType: "DatabaseTable", want: true},
+		{name: "service consumes topic", relation: "CONSUMES", sourceType: "Service", targetType: "EventTopic", want: true},
+		{name: "service calls service", relation: "CALLS", sourceType: "Service", targetType: "Service", want: true},
+		{name: "table cannot call service", relation: "CALLS", sourceType: "DatabaseTable", targetType: "Service", want: false},
+		{name: "topic cannot write table", relation: "WRITES", sourceType: "EventTopic", targetType: "DatabaseTable", want: false},
+		{name: "table cannot own topic", relation: "OWNS", sourceType: "DatabaseTable", targetType: "EventTopic", want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := relationAllowedByEntityTypes(tt.relation, tt.sourceType, tt.targetType)
+			if got != tt.want {
+				t.Fatalf("relationAllowedByEntityTypes(%s,%s,%s)=%v, want %v", tt.relation, tt.sourceType, tt.targetType, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestFilterGraphExtractResultDropsImpossibleTypedRelations(t *testing.T) {
+	result := filterGraphExtractResult(graphExtractResult{
+		Entities: []extractedEntity{
+			{Name: "agent-manager-service", Type: "Service", Description: "Agent 管理服务"},
+			{Name: "agent_dispatch_records", Type: "DatabaseTable", Description: "Agent 调度表"},
+			{Name: "agent-runtime-service", Type: "Service", Description: "Agent 运行服务"},
+			{Name: "claran.im.events", Type: "EventTopic", Description: "IM 事件 Topic"},
+		},
+		Relationships: []extractedRelationship{
+			{Source: "agent-manager-service", Target: "agent_dispatch_records", Type: "WRITES", Description: "服务写入调度表", Evidence: "agent-manager-service 写入 agent_dispatch_records", Confidence: 0.9},
+			{Source: "agent-manager-service", Target: "agent-runtime-service", Type: "CALLS", Description: "服务调用运行时", Evidence: "agent-manager-service 调用 agent-runtime-service", Confidence: 0.9},
+			{Source: "agent-manager-service", Target: "claran.im.events", Type: "CONSUMES", Description: "服务消费事件", Evidence: "agent-manager-service 消费 claran.im.events", Confidence: 0.9},
+			{Source: "agent_dispatch_records", Target: "agent-runtime-service", Type: "CALLS", Description: "错误：表调用服务", Evidence: "agent_dispatch_records 调用 agent-runtime-service", Confidence: 0.9},
+			{Source: "claran.im.events", Target: "agent_dispatch_records", Type: "WRITES", Description: "错误：Topic 写表", Evidence: "claran.im.events 写入 agent_dispatch_records", Confidence: 0.9},
+		},
+	}, "agent-manager-service 写入 agent_dispatch_records，调用 agent-runtime-service，并消费 claran.im.events。")
+
+	relations := map[string]bool{}
+	for _, relation := range result.Relationships {
+		relations[relation.Source+" "+relation.Type+" "+relation.Target] = true
+	}
+	for _, want := range []string{
+		"agent-manager-service WRITES agent_dispatch_records",
+		"agent-manager-service CALLS agent-runtime-service",
+		"agent-manager-service CONSUMES claran.im.events",
+	} {
+		if !relations[want] {
+			t.Fatalf("relationships=%#v, want %s kept", result.Relationships, want)
+		}
+	}
+	for _, impossible := range []string{
+		"agent_dispatch_records CALLS agent-runtime-service",
+		"claran.im.events WRITES agent_dispatch_records",
+	} {
+		if relations[impossible] {
+			t.Fatalf("relationships=%#v, want impossible relation %s dropped", result.Relationships, impossible)
+		}
+	}
+}
+
 func TestGraphRAGUsesInjectedLLMExtractorAndCommunitySummarizer(t *testing.T) {
 	repo := newFakeRAGRepo()
 	extractor := &fakeGraphExtractor{result: graphExtractResult{
@@ -579,6 +981,86 @@ func TestGraphRAGUsesInjectedLLMExtractorAndCommunitySummarizer(t *testing.T) {
 		if entity.CommunityID == 0 {
 			t.Fatalf("entity %s has no community id after rebuild", entity.Name)
 		}
+	}
+}
+
+func TestConversationIngestSkipsKnowledgeGraphBuild(t *testing.T) {
+	repo := newFakeRAGRepo()
+	extractor := &fakeGraphExtractor{result: graphExtractResult{
+		Entities: []extractedEntity{{Name: "会话主题", Type: "Concept", Description: "不应进入知识图谱"}},
+		Relationships: []extractedRelationship{
+			{Source: "会话主题", Target: "会话摘要", Type: "RELATED_TO", Description: "会话归档关系", Evidence: "会话摘要", Confidence: 0.9},
+		},
+	}}
+	svc := NewRAGServiceWithGraphExtractor(repo, NewLocalVectorIndex(), 64, "hybrid", nil, nil, nil, nil, nil, extractor, nil)
+
+	result, err := svc.IngestDocument(context.Background(), IngestInput{
+		OwnerID:    1001,
+		Title:      "会话摘要",
+		SourceType: "conversation",
+		Content:    "这一小时大家主要讨论了 RAG 和 Memory。",
+		Visibility: model.VisibilityPrivate,
+	})
+	if err != nil {
+		t.Fatalf("IngestDocument returned error: %v", err)
+	}
+	if extractor.called || result.EntityCount != 0 || result.RelationCount != 0 {
+		t.Fatalf("conversation graph build = called %v entities %d relations %d, want skipped", extractor.called, result.EntityCount, result.RelationCount)
+	}
+}
+
+func TestGraphRAGExtractsFromParentChunksFirst(t *testing.T) {
+	repo := newFakeRAGRepo()
+	extractor := &fakeGraphExtractor{result: graphExtractResult{
+		Entities: []extractedEntity{
+			{Name: "GraphRAG", Type: "Concept", Description: "知识图谱增强检索"},
+			{Name: "Milvus", Type: "Product", Description: "向量数据库"},
+		},
+		Relationships: []extractedRelationship{
+			{Source: "GraphRAG", Target: "Milvus", Type: "DEPENDS_ON", Description: "结合向量库召回", Evidence: "GraphRAG 结合 Milvus 做召回", Confidence: 0.9},
+		},
+	}}
+	svc := NewRAGServiceWithGraphExtractor(repo, NewLocalVectorIndex(), 64, "hybrid", nil, nil, nil, nil, nil, extractor, nil)
+
+	_, err := svc.IngestDocument(context.Background(), IngestInput{
+		OwnerID:    1001,
+		Title:      "长文档",
+		SourceType: "markdown",
+		Content: strings.Join([]string{
+			"# RAG 文档",
+			"## GraphRAG 章节",
+			"GraphRAG 结合 Milvus 做召回，并用社区摘要解释实体关系。",
+			"这段补充更多背景，让父块足够长，便于模型抽取章节级实体和关系。",
+		}, "\n"),
+		Visibility: model.VisibilityPrivate,
+	})
+	if err != nil {
+		t.Fatalf("IngestDocument returned error: %v", err)
+	}
+	if len(extractor.inputs) == 0 {
+		t.Fatalf("graph extractor was not called")
+	}
+	if normalizedChunkLevel(extractor.inputs[0].Chunk) != model.ChunkLevelParent {
+		t.Fatalf("first graph extraction chunk level = %q, want parent", extractor.inputs[0].Chunk.ChunkLevel)
+	}
+}
+
+func TestConfiguredLLMGraphExtractorDoesNotFallbackToRuleNoise(t *testing.T) {
+	repo := newFakeRAGRepo()
+	extractor := &fakeGraphExtractor{result: graphExtractResult{}}
+	svc := NewRAGServiceWithGraphExtractor(repo, NewLocalVectorIndex(), 64, "hybrid", nil, nil, nil, nil, nil, extractor, nil)
+
+	result, err := svc.IngestDocument(context.Background(), IngestInput{
+		OwnerID:    1001,
+		Title:      "规则可抽取但LLM为空",
+		Content:    "agent-manager-service 消费 claran.im.events，并调用 agent-runtime-service。agent-manager-service 写入 agent_dispatch_records。",
+		Visibility: model.VisibilityPrivate,
+	})
+	if err != nil {
+		t.Fatalf("IngestDocument returned error: %v", err)
+	}
+	if result.EntityCount != 0 || result.RelationCount != 0 {
+		t.Fatalf("graph counts = entities %d relations %d, want no rule fallback when LLM extractor is configured", result.EntityCount, result.RelationCount)
 	}
 }
 
@@ -651,6 +1133,75 @@ func TestGraphRAGQueryExpandsOneHopSubgraph(t *testing.T) {
 	}
 	if len(graph.Communities) == 0 || !strings.Contains(graph.Communities[0].Summary, "实体") {
 		t.Fatalf("communities=%#v, want community summary", graph.Communities)
+	}
+}
+
+func TestGetGraphRebuildsMissingDocumentGraphFromStoredChunks(t *testing.T) {
+	repo := newFakeRAGRepo()
+	doc := &model.Document{OwnerID: 1001, Title: "已有长文档", SourceType: "markdown", Visibility: model.VisibilityPrivate}
+	chunks := []model.Chunk{
+		{ChunkLevel: model.ChunkLevelParent, Content: "GraphRAG 结合 Milvus 做召回，并用知识图谱解释实体关系。", Summary: "GraphRAG 与 Milvus", QualityScore: 0.9},
+		{ChunkLevel: model.ChunkLevelChild, Content: "GraphRAG 结合 Milvus 做召回。", Summary: "GraphRAG 与 Milvus", QualityScore: 0.8},
+	}
+	if err := repo.CreateDocumentWithChunks(context.Background(), doc, chunks); err != nil {
+		t.Fatalf("CreateDocumentWithChunks returned error: %v", err)
+	}
+	extractor := &fakeGraphExtractor{result: graphExtractResult{
+		Entities: []extractedEntity{
+			{Name: "GraphRAG", Type: "Concept", Description: "知识图谱增强检索"},
+			{Name: "Milvus", Type: "Product", Description: "向量数据库"},
+		},
+		Relationships: []extractedRelationship{
+			{Source: "GraphRAG", Target: "Milvus", Type: "DEPENDS_ON", Description: "结合向量库召回", Evidence: "GraphRAG 结合 Milvus 做召回", Confidence: 0.9},
+		},
+	}}
+	svc := NewRAGServiceWithGraphExtractor(repo, NewLocalVectorIndex(), 64, "hybrid", nil, nil, nil, nil, nil, extractor, nil)
+
+	graph, err := svc.GetGraph(context.Background(), GraphInput{ViewerID: 1001, DocumentID: doc.ID, Limit: 20})
+	if err != nil {
+		t.Fatalf("GetGraph returned error: %v", err)
+	}
+	if !extractor.called {
+		t.Fatalf("missing document graph should trigger one rebuild from stored chunks")
+	}
+	if len(graph.Nodes) != 2 || len(graph.Edges) != 1 {
+		t.Fatalf("graph nodes=%d edges=%d, want rebuilt scoped graph", len(graph.Nodes), len(graph.Edges))
+	}
+}
+
+func TestFilterGraphForDisplayDropsNoiseAndImpossibleRelations(t *testing.T) {
+	entities := []model.Entity{
+		{ID: 1, Name: "agent-manager-service", Type: "Service", Summary: "Agent 管理服务", Score: 2},
+		{ID: 2, Name: "agent_dispatch_records", Type: "DatabaseTable", Summary: "Agent 调度幂等表", Score: 1.5},
+		{ID: 3, Name: "agent-runtime-service", Type: "Service", Summary: "Agent 运行服务", Score: 1.4},
+		{ID: 4, Name: "0", Type: "Concept", Summary: "无意义实体", Score: 1},
+		{ID: 5, Name: "event_id", Type: "Concept", Summary: "字段名", Score: 1},
+	}
+	relations := []model.Relation{
+		{ID: 101, SourceID: 1, TargetID: 2, Relation: "WRITES", Weight: 0.92, Evidence: "agent-manager-service 写入 agent_dispatch_records"},
+		{ID: 102, SourceID: 1, TargetID: 3, Relation: "CALLS", Weight: 0.9, Evidence: "agent-manager-service 调用 agent-runtime-service"},
+		{ID: 103, SourceID: 2, TargetID: 3, Relation: "CALLS", Weight: 0.9, Evidence: "错误：表调用服务"},
+		{ID: 104, SourceID: 1, TargetID: 4, Relation: "RELATED_TO", Weight: 0.9, Evidence: "错误：连接数字实体"},
+		{ID: 105, SourceID: 5, TargetID: 3, Relation: "RELATED_TO", Weight: 0.9, Evidence: "错误：连接字段名"},
+	}
+
+	filteredEntities, filteredRelations := filterGraphForDisplay(entities, relations)
+	names := map[string]bool{}
+	for _, entity := range filteredEntities {
+		names[entity.Name] = true
+	}
+	if names["0"] || names["event_id"] {
+		t.Fatalf("entities=%#v, want numeric and field-name nodes dropped", filteredEntities)
+	}
+	edges := map[string]bool{}
+	for _, relation := range filteredRelations {
+		edges[fmt.Sprintf("%d-%s-%d", relation.SourceID, relation.Relation, relation.TargetID)] = true
+	}
+	if !edges["1-WRITES-2"] || !edges["1-CALLS-3"] {
+		t.Fatalf("relations=%#v, want meaningful service relations kept", filteredRelations)
+	}
+	if edges["2-CALLS-3"] || edges["1-RELATED_TO-4"] || edges["5-RELATED_TO-3"] {
+		t.Fatalf("relations=%#v, want impossible/noisy relations dropped", filteredRelations)
 	}
 }
 
@@ -834,6 +1385,7 @@ type fakeGraphExtractor struct {
 	result graphExtractResult
 	err    error
 	called bool
+	inputs []graphExtractInput
 }
 
 type fakeGraphCommunitySummarizer struct {
@@ -845,8 +1397,8 @@ type fakeGraphCommunitySummarizer struct {
 
 func (e *fakeGraphExtractor) Extract(ctx context.Context, input graphExtractInput) (graphExtractResult, error) {
 	_ = ctx
-	_ = input
 	e.called = true
+	e.inputs = append(e.inputs, input)
 	return e.result, e.err
 }
 
@@ -930,6 +1482,22 @@ func (r *fakeRAGRepo) ListDocuments(ctx context.Context, filter dao.SearchFilter
 	return out, int64(len(out)), nil
 }
 
+func (r *fakeRAGRepo) CountChildChunksByDocumentIDs(ctx context.Context, documentIDs []int64) (map[int64]int64, error) {
+	_ = ctx
+	allowed := map[int64]bool{}
+	for _, id := range documentIDs {
+		allowed[id] = true
+	}
+	out := map[int64]int64{}
+	for _, chunk := range r.chunks {
+		if !allowed[chunk.DocumentID] || normalizedChunkLevel(chunk) != model.ChunkLevelChild {
+			continue
+		}
+		out[chunk.DocumentID]++
+	}
+	return out, nil
+}
+
 func (r *fakeRAGRepo) ListChunks(ctx context.Context, filter dao.SearchFilter) ([]dao.ChunkWithDocument, error) {
 	_ = ctx
 	docByID := map[int64]model.Document{}
@@ -949,6 +1517,9 @@ func (r *fakeRAGRepo) ListChunks(ctx context.Context, filter dao.SearchFilter) (
 			continue
 		}
 		if filter.ConversationID > 0 && doc.ConversationID != 0 && doc.ConversationID != filter.ConversationID {
+			continue
+		}
+		if filter.DocumentID > 0 && doc.ID != filter.DocumentID {
 			continue
 		}
 		out = append(out, dao.ChunkWithDocument{Chunk: chunk, Document: doc})
@@ -999,6 +1570,52 @@ func (r *fakeRAGRepo) SaveRelation(ctx context.Context, relation *model.Relation
 		relation.ID = r.allocID()
 	}
 	r.relations = append(r.relations, *relation)
+	return nil
+}
+
+func (r *fakeRAGRepo) DeleteDocument(ctx context.Context, viewerID, documentID int64) error {
+	_ = ctx
+	r.DeleteDocumentGraph(ctx, viewerID, documentID)
+	docs := make([]model.Document, 0, len(r.docs))
+	for _, doc := range r.docs {
+		if doc.ID == documentID && doc.OwnerID == viewerID {
+			continue
+		}
+		docs = append(docs, doc)
+	}
+	r.docs = docs
+	chunks := make([]model.Chunk, 0, len(r.chunks))
+	for _, chunk := range r.chunks {
+		if chunk.DocumentID == documentID && chunk.OwnerID == viewerID {
+			continue
+		}
+		chunks = append(chunks, chunk)
+	}
+	r.chunks = chunks
+	return nil
+}
+
+func (r *fakeRAGRepo) DeleteDocumentGraph(ctx context.Context, viewerID, documentID int64) error {
+	_ = ctx
+	relations := make([]model.Relation, 0, len(r.relations))
+	used := map[int64]bool{}
+	for _, relation := range r.relations {
+		if relation.DocumentID == documentID && relation.OwnerID == viewerID {
+			continue
+		}
+		relations = append(relations, relation)
+		used[relation.SourceID] = true
+		used[relation.TargetID] = true
+	}
+	r.relations = relations
+	entities := make([]model.Entity, 0, len(r.entities))
+	for _, entity := range r.entities {
+		if entity.OwnerID == viewerID && !used[entity.ID] {
+			continue
+		}
+		entities = append(entities, entity)
+	}
+	r.entities = entities
 	return nil
 }
 
@@ -1063,11 +1680,12 @@ func (r *fakeRAGRepo) ReplaceOwnerCommunities(ctx context.Context, ownerID int64
 	return nil
 }
 
-func (r *fakeRAGRepo) ListGraph(ctx context.Context, viewerID int64, query string, limit int) ([]model.Entity, []model.Relation, []model.Community, error) {
+func (r *fakeRAGRepo) ListGraph(ctx context.Context, viewerID int64, query string, limit int, documentID int64, hops int) ([]model.Entity, []model.Relation, []model.Community, error) {
 	_ = ctx
 	if limit <= 0 {
 		limit = 80
 	}
+	_ = hops
 	query = strings.ToLower(strings.TrimSpace(query))
 	canonicalQuery := canonicalEntityKey(query)
 	seeds := make([]model.Entity, 0, len(r.entities))
@@ -1103,6 +1721,9 @@ func (r *fakeRAGRepo) ListGraph(ctx context.Context, viewerID int64, query strin
 	var relations []model.Relation
 	for _, relation := range r.relations {
 		if relation.OwnerID != viewerID && relation.OwnerID != 0 {
+			continue
+		}
+		if documentID > 0 && relation.DocumentID != documentID {
 			continue
 		}
 		if !seedIDs[relation.SourceID] && !seedIDs[relation.TargetID] {
@@ -1150,6 +1771,10 @@ func (s *fakeRouterSettings) ListLLMProfiles(ctx context.Context, ownerID int64,
 
 func (s *fakeRouterSettings) DeleteLLMProfile(ctx context.Context, ownerID, profileID int64) error {
 	return nil
+}
+
+func (s *fakeRouterSettings) TestLLMProfile(ctx context.Context, ownerID int64, input settingsclient.TestLLMProfileInput) (settingsclient.TestLLMProfileResult, error) {
+	return settingsclient.TestLLMProfileResult{OK: true, Msg: "ok"}, nil
 }
 
 func (s *fakeRouterSettings) SavePrompt(ctx context.Context, ownerID int64, input settingsclient.SavePromptInput) (*settingsclient.PromptTemplate, error) {

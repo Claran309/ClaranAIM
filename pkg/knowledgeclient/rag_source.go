@@ -16,5 +16,5 @@ func NewRAGSource(svc ragclient.Service) GraphSource {
 }
 
 func (s *ragServiceSource) GetGraph(ctx context.Context, viewerID int64, input GraphInput) (*rag.GraphResp, error) {
-	return s.svc.GetGraph(ctx, viewerID, ragclient.GraphInput{Query: input.Query, Limit: input.Limit})
+	return s.svc.GetGraph(ctx, viewerID, ragclient.GraphInput{Query: input.Query, Limit: input.Limit, DocumentID: input.DocumentID, Hops: input.Hops})
 }

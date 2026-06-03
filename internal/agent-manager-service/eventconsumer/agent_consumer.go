@@ -106,6 +106,8 @@ type agentEvent struct {
 	MentionAll       bool
 	AttachmentRefs   []events.AttachmentRef
 	IdempotencyKey   string
+	ClientMsgID      string
+	Metadata         map[string]string
 }
 
 // agentDispatchDecision 表示某个 Agent 对当前事件的处理结果。
@@ -129,6 +131,12 @@ func (d *AgentEventDispatcher) Handle(ctx context.Context, envelope events.Envel
 	if event == nil {
 		return nil
 	}
+	if event.isAgentGenerated() {
+		return nil
+	}
+	if event.looksLikeAgentEcho() {
+		return nil
+	}
 	if d.isAgentSender(ctx, event.SenderID) {
 		return nil
 	}
@@ -145,6 +153,9 @@ func (d *AgentEventDispatcher) Handle(ctx context.Context, envelope events.Envel
 			return err
 		}
 		if bot == nil || !bot.IsActive || bot.AgentUserID == event.SenderID {
+			continue
+		}
+		if event.sentByKnownAgent(bot) {
 			continue
 		}
 		sourceEventID := event.dispatchEventID(envelope.EventID)
@@ -199,6 +210,12 @@ func (d *AgentEventDispatcher) Handle(ctx context.Context, envelope events.Envel
 		reply := ""
 		if result != nil {
 			reply = result.Reply
+		}
+		if strings.TrimSpace(reply) == "" {
+			_ = d.dispatchRepo.MarkCompleted(ctx, sourceEventID, bot.AgentUserID, 0)
+			_ = d.markTaskCompleted(ctx, sourceEventID)
+			_ = d.audit(ctx, envelope, *event, bot, "silent", "Agent返回空回复，已静默完成", traceID)
+			continue
 		}
 		clientMsgID := fmt.Sprintf("agent:%s:%d", sourceEventID, bot.AgentUserID)
 		resp, err := d.messageClient.SendMessage(ctx, &message.SendMessageReq{
@@ -319,6 +336,8 @@ func decodeAgentEvent(envelope events.Envelope) (*agentEvent, error) {
 			MentionUserIDs:   payload.MentionUserIDs,
 			MentionAll:       payload.MentionAll,
 			IdempotencyKey:   envelope.EventID,
+			ClientMsgID:      payload.ClientMsgID,
+			Metadata:         map[string]string{},
 		}, nil
 	case events.EventTypeIMMessageEdited, events.EventTypeIMMessageRecalled, events.EventTypeIMMessageRead, events.EventTypeReactionAdded, events.EventTypeFileUploaded, events.EventTypeVoiceTranscribed, events.EventTypeGroupMemberJoined, events.EventTypeGroupMemberLeft, events.EventTypeSystemNotice, events.EventTypeTaskChanged:
 		payload, err := events.DecodePayload[events.IMEventPayload](envelope)
@@ -342,10 +361,60 @@ func decodeAgentEvent(envelope events.Envelope) (*agentEvent, error) {
 			MentionAll:       payload.MentionAll,
 			AttachmentRefs:   payload.AttachmentRefs,
 			IdempotencyKey:   payload.IdempotencyKey,
+			ClientMsgID:      payload.Metadata["client_msg_id"],
+			Metadata:         payload.Metadata,
 		}, nil
 	default:
 		return nil, nil
 	}
+}
+
+func (e agentEvent) isAgentGenerated() bool {
+	if e.Metadata != nil {
+		if strings.EqualFold(strings.TrimSpace(e.Metadata["agent_generated"]), "true") || strings.EqualFold(strings.TrimSpace(e.Metadata["source"]), "agent") {
+			return true
+		}
+	}
+	clientMsgID := strings.TrimSpace(e.ClientMsgID)
+	if strings.HasPrefix(clientMsgID, "agent:") {
+		return true
+	}
+	idempotencyKey := strings.TrimSpace(e.IdempotencyKey)
+	if strings.HasPrefix(idempotencyKey, "agent:") {
+		return true
+	}
+	return false
+}
+
+func (e agentEvent) looksLikeAgentEcho() bool {
+	if strings.HasPrefix(strings.TrimSpace(e.ClientMsgID), "agent:") || strings.HasPrefix(strings.TrimSpace(e.IdempotencyKey), "agent:") {
+		return true
+	}
+	if e.Metadata != nil {
+		source := strings.ToLower(strings.TrimSpace(e.Metadata["source"]))
+		if source == "agent" || source == "agent-runtime" || source == "agent-manager" {
+			return true
+		}
+	}
+	return false
+}
+
+func (e agentEvent) sentByKnownAgent(bot *model.Bot) bool {
+	if bot == nil || bot.AgentUserID <= 0 {
+		return false
+	}
+	if e.SenderID == bot.AgentUserID {
+		return true
+	}
+	if strings.Contains(strings.TrimSpace(e.ClientMsgID), fmt.Sprintf(":%d", bot.AgentUserID)) && strings.HasPrefix(strings.TrimSpace(e.ClientMsgID), "agent:") {
+		return true
+	}
+	for _, participantID := range e.ParticipantIDs {
+		if participantID == bot.AgentUserID && e.ConversationType == "private" && e.SenderID <= 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func isMediaMessagePayload(msgType, content string) bool {

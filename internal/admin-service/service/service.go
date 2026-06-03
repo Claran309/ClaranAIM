@@ -34,6 +34,7 @@ type AdminService interface {
 	GetDashboard(ctx context.Context, adminID int64) (*admin.DashboardResp, error)
 	ListUsers(ctx context.Context, req *admin.ListUsersReq) (*admin.ListUsersResp, error)
 	ListGroups(ctx context.Context, req *admin.ListGroupsReq) (*admin.ListGroupsResp, error)
+	UpdateGroupStatus(ctx context.Context, req *admin.UpdateGroupStatusReq) (*admin.UpdateGroupStatusResp, error)
 	ListFiles(ctx context.Context, req *admin.ListFilesReq) (*admin.ListFilesResp, error)
 	ListAgents(ctx context.Context, req *admin.ListAgentsReq) (*admin.ListAgentsResp, error)
 	ListBilling(ctx context.Context, req *admin.ListBillingReq) (*admin.ListBillingResp, error)
@@ -125,9 +126,30 @@ func (s *adminServiceImpl) ListGroups(ctx context.Context, req *admin.ListGroups
 	}
 	out := make([]*admin.AdminGroup, 0, len(resp.GetGroups()))
 	for _, g := range resp.GetGroups() {
-		out = append(out, &admin.AdminGroup{Id: g.Id, Name: g.Name, OwnerId: g.OwnerId, Announcement: g.Announcement, CreatedAt: g.CreatedAt})
+		out = append(out, toAdminGroup(g))
 	}
 	return &admin.ListGroupsResp{Success: true, Groups: out, Total: resp.GetTotal(), Msg: "ok"}, nil
+}
+
+func (s *adminServiceImpl) UpdateGroupStatus(ctx context.Context, req *admin.UpdateGroupStatusReq) (*admin.UpdateGroupStatusResp, error) {
+	status := strings.ToLower(strings.TrimSpace(req.GetStatus()))
+	if status != "active" && status != "banned" {
+		return &admin.UpdateGroupStatusResp{Success: false, Msg: "status只能是active或banned"}, nil
+	}
+	resp, err := s.deps.Groups.AdminUpdateGroupStatus(ctx, &group.AdminUpdateGroupStatusReq{
+		AdminId: req.GetAdminId(),
+		GroupId: req.GetGroupId(),
+		Status:  status,
+		Reason:  req.GetReason(),
+	})
+	if err != nil {
+		return nil, err
+	}
+	if resp == nil || !resp.GetSuccess() {
+		return &admin.UpdateGroupStatusResp{Success: false, Msg: getGroupStatusMsg(resp)}, nil
+	}
+	s.audit(ctx, req.GetAdminId(), "update_group_status", "group", strconv.FormatInt(req.GetGroupId(), 10), status+" "+req.GetReason())
+	return &admin.UpdateGroupStatusResp{Success: true, Msg: resp.GetMsg(), Group: toAdminGroup(resp.GetGroup())}, nil
 }
 
 func (s *adminServiceImpl) ListFiles(ctx context.Context, req *admin.ListFilesReq) (*admin.ListFilesResp, error) {
@@ -422,6 +444,24 @@ func getGroupMsg(resp *group.AdminListGroupsResp) string {
 		return "group-service返回空响应"
 	}
 	return resp.GetMsg()
+}
+
+func getGroupStatusMsg(resp *group.AdminUpdateGroupStatusResp) string {
+	if resp == nil {
+		return "group-service返回空响应"
+	}
+	return resp.GetMsg()
+}
+
+func toAdminGroup(g *group.Group) *admin.AdminGroup {
+	if g == nil {
+		return nil
+	}
+	status := g.GetStatus()
+	if status == "" {
+		status = "active"
+	}
+	return &admin.AdminGroup{Id: g.Id, Name: g.Name, OwnerId: g.OwnerId, Announcement: g.Announcement, CreatedAt: g.CreatedAt, Status: status}
 }
 
 func getFileMsg(resp *file.ListFilesResp) string {

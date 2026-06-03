@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -346,6 +347,7 @@ func (s *conversationIntelligenceServiceImpl) ProcessDigestJob(ctx context.Conte
 	if err != nil {
 		return s.failJob(ctx, job, err)
 	}
+	bundle.MemoryCandidates = filterMemoryCandidates(bundle.MemoryCandidates)
 	artifacts := artifactsFromBundle(job, bundle)
 	if err := s.repo.CreateArtifacts(ctx, artifacts); err != nil {
 		return s.failJob(ctx, job, err)
@@ -561,6 +563,102 @@ func (s *conversationIntelligenceServiceImpl) archiveMemoryCandidates(ctx contex
 			Confidence:     candidate.Confidence,
 		})
 	}
+}
+
+func filterMemoryCandidates(candidates []MemoryCandidate) []MemoryCandidate {
+	if len(candidates) == 0 {
+		return nil
+	}
+	filtered := make([]MemoryCandidate, 0, len(candidates))
+	seen := map[string]bool{}
+	for _, candidate := range candidates {
+		if !shouldKeepMemoryCandidate(candidate) {
+			continue
+		}
+		key := canonicalMemoryCandidateKey(candidate.Content)
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		filtered = append(filtered, candidate)
+	}
+	sort.SliceStable(filtered, func(i, j int) bool {
+		return memoryCandidateScore(filtered[i]) > memoryCandidateScore(filtered[j])
+	})
+	if len(filtered) > 5 {
+		filtered = filtered[:5]
+	}
+	return filtered
+}
+
+func shouldKeepMemoryCandidate(candidate MemoryCandidate) bool {
+	content := strings.TrimSpace(candidate.Content)
+	runeLen := len([]rune(content))
+	if runeLen < 18 {
+		return false
+	}
+	if candidate.Confidence < 0.65 || candidate.Importance < 0.45 {
+		return false
+	}
+	lower := strings.ToLower(content)
+	noiseTokens := []string{
+		"system prompt", "系统提示词", "好的", "收到", "可以", "明白", "谢谢", "测试",
+		"无有效信息", "没有有效信息", "暂无", "不知道", "随便", "嗯", "好",
+	}
+	for _, token := range noiseTokens {
+		if lower == strings.ToLower(token) || strings.Contains(lower, "这段会话是废话") || strings.Contains(lower, strings.ToLower(token)) && len([]rune(content)) <= 20 {
+			return false
+		}
+	}
+	if looksLikeEphemeralMemoryCandidate(lower) {
+		return false
+	}
+	durableSignals := []string{
+		"偏好", "目标", "长期", "长期记住", "候选记忆", "pending memory candidate",
+		"习惯", "背景", "长期目标", "长期计划", "反复", "一直", "倾向",
+		"prefer", "preference", "goal", "long-term", "habit",
+	}
+	projectSignals := []string{"项目", "学习", "掌握", "不懂", "困惑", "计划", "关注", "正在", "已经", "配置", "要求"}
+	for _, signal := range durableSignals {
+		if strings.Contains(lower, strings.ToLower(signal)) {
+			return true
+		}
+	}
+	hasProjectSignal := false
+	for _, signal := range projectSignals {
+		if strings.Contains(lower, strings.ToLower(signal)) {
+			hasProjectSignal = true
+			break
+		}
+	}
+	if hasProjectSignal && (strings.Contains(lower, "用户") || strings.Contains(lower, "user")) && runeLen >= 24 {
+		return true
+	}
+	return candidate.Importance >= 0.82 && candidate.Confidence >= 0.84 && runeLen >= 36
+}
+
+func looksLikeEphemeralMemoryCandidate(lower string) bool {
+	ephemeral := []string{
+		"刚刚", "刚才", "这次", "这轮", "这条消息", "今天", "明天", "昨天",
+		"临时", "暂时", "随手", "当前页面", "本次会话", "短期",
+	}
+	for _, item := range ephemeral {
+		if strings.Contains(lower, item) {
+			return true
+		}
+	}
+	return false
+}
+
+func canonicalMemoryCandidateKey(content string) string {
+	content = strings.TrimSpace(strings.ToLower(content))
+	content = regexp.MustCompile(`\s+`).ReplaceAllString(content, " ")
+	content = regexp.MustCompile(`[[:punct:]\p{P}]`).ReplaceAllString(content, "")
+	return content
+}
+
+func memoryCandidateScore(candidate MemoryCandidate) float64 {
+	return candidate.Confidence*0.45 + candidate.Importance*0.55
 }
 
 func normalizeOptions(options ConversationIntelligenceOptions) ConversationIntelligenceOptions {

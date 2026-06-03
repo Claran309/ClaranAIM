@@ -1,5 +1,8 @@
-const API_BASE = 'http://localhost:8080/api/v1';
-const WS_BASE = 'ws://localhost:8081/ws';
+const API_HOST = '127.0.0.1';
+const API_ORIGIN = `http://${API_HOST}:18080`;
+const WS_ORIGIN = `ws://${API_HOST}:8081`;
+const API_BASE = `${API_ORIGIN}/api/v1`;
+const WS_BASE = `${WS_ORIGIN}/ws`;
 const API_LOG_KEY = 'claran_frontend_logs';
 const API_LOG_LIMIT = 500;
 const LOCAL_MESSAGE_CACHE_KEY = 'claran_local_message_cache_v1';
@@ -336,7 +339,7 @@ const fileAPI = {
     },
     get: (id) => request('GET', `/file/${id}`),
     ocr: (id) => request('POST', `/file/${id}/ocr`),
-    previewURL: (id) => `http://localhost:8080/file/preview/${id}`,
+    previewURL: (id) => `${API_ORIGIN}/file/preview/${id}`,
     downloadURL: (id) => `${API_BASE}/file/download/${id}`,
     fetchBlob: async (id) => {
         const downloadOnce = () => fetch(`${API_BASE}/file/download/${id}`, { headers: authHeaders() });
@@ -464,7 +467,7 @@ const conversationIntelligenceAPI = {
 
 const ragAPI = {
     ingest: (data) => request('POST', '/rag/ingest', data),
-    upload: async ({ fileList, title = '', visibility = 'private', groupID = '', conversationID = '' }) => {
+    upload: async ({ fileList, title = '', visibility = 'private', groupID = '', conversationID = '', onProgress = null }) => {
         const formData = new FormData();
         Array.from(fileList || []).forEach(file => formData.append('file', file, file.name));
         formData.append('title', title);
@@ -475,20 +478,48 @@ const ragAPI = {
         if (conversationID !== undefined && conversationID !== null && String(conversationID) !== '') {
             formData.append('conversation_id', String(conversationID));
         }
-        const uploadOnce = () => fetch(`${API_BASE}/rag/upload`, {
-            method: 'POST',
-            headers: authHeaders(),
-            body: formData,
+        const uploadOnce = () => new Promise((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', `${API_BASE}/rag/upload`);
+            if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+            xhr.upload.onprogress = event => {
+                if (!event.lengthComputable || typeof onProgress !== 'function') return;
+                onProgress({
+                    phase: 'uploading',
+                    loaded: event.loaded,
+                    total: event.total,
+                    percent: Math.max(1, Math.min(99, Math.round((event.loaded / event.total) * 100))),
+                });
+            };
+            xhr.onload = () => {
+                let result = null;
+                if (xhr.responseText) {
+                    try {
+                        result = parseJSONSafeInt(xhr.responseText);
+                    } catch (err) {
+                        result = { code: xhr.status || 500, message: xhr.responseText.slice(0, 200) };
+                    }
+                }
+                resolve({ status: xhr.status, ok: xhr.status >= 200 && xhr.status < 300, result });
+            };
+            xhr.onerror = () => reject(new Error('上传连接失败'));
+            xhr.onabort = () => reject(new Error('上传已取消'));
+            xhr.send(formData);
         });
         try {
+            if (typeof onProgress === 'function') {
+                onProgress({ phase: 'preparing', loaded: 0, total: 0, percent: 0 });
+            }
             let resp = await uploadOnce();
             if (resp.status === 401 && await refreshAccessToken()) {
                 resp = await uploadOnce();
             }
-            const text = await resp.text();
-            const result = text ? parseJSONSafeInt(text) : null;
+            const result = resp.result;
             if (!resp.ok || result?.code !== 0) {
                 showToast(result?.message || '知识文件上传失败', 'error');
+            }
+            if (typeof onProgress === 'function' && resp.ok && result?.code === 0) {
+                onProgress({ phase: 'submitted', loaded: 1, total: 1, percent: 100 });
             }
             return result;
         } catch (err) {
@@ -497,20 +528,32 @@ const ragAPI = {
             return null;
         }
     },
+    uploadStatus: (jobID) => request('GET', `/rag/upload/${apiID(jobID)}`),
     search: (data) => request('POST', '/rag/search', data),
-    graph: (query = '', limit = 80) =>
-        request('GET', `/rag/graph?query=${encodeURIComponent(query)}&limit=${limit}`),
+    graph: (query = '', limit = 80, documentID = 0, hops = 1) => {
+        const params = new URLSearchParams();
+        if (query) params.set('query', query);
+        params.set('limit', String(limit || 80));
+        if (documentID) params.set('document_id', apiID(documentID));
+        if (hops) params.set('hops', String(hops));
+        return request('GET', `/rag/graph?${params.toString()}`);
+    },
     documents: (limit = 50, offset = 0) =>
         request('GET', `/rag/documents?limit=${limit}&offset=${offset}`),
+    deleteDocument: (id) =>
+        request('DELETE', `/rag/documents/${apiID(id)}`),
+    deleteDocumentGraph: (id) =>
+        request('DELETE', `/rag/documents/${apiID(id)}/graph`),
 };
 
 const knowledgeAPI = {
-    graph: ({ query = '', types = [], relations = [], communityID = 0, hops = 1, limit = 160 } = {}) => {
+    graph: ({ query = '', types = [], relations = [], communityID = 0, hops = 1, limit = 160, documentID = 0 } = {}) => {
         const params = new URLSearchParams();
         if (query) params.set('query', query);
         if (types.length) params.set('types', types.join(','));
         if (relations.length) params.set('relations', relations.join(','));
         if (communityID) params.set('community_id', apiID(communityID));
+        if (documentID) params.set('document_id', apiID(documentID));
         params.set('hops', String(hops || 1));
         params.set('limit', String(limit || 160));
         return request('GET', `/knowledge/graph?${params.toString()}`);
@@ -524,6 +567,7 @@ const knowledgeAPI = {
             if (options.types?.length) params.set('types', options.types.join(','));
             if (options.relations?.length) params.set('relations', options.relations.join(','));
             if (options.communityID) params.set('community_id', apiID(options.communityID));
+            if (options.documentID) params.set('document_id', apiID(options.documentID));
             if (options.hops) params.set('hops', String(options.hops));
             if (options.limit) params.set('limit', String(options.limit));
         }
@@ -539,6 +583,7 @@ const knowledgeAPI = {
             if (options.types?.length) params.set('types', options.types.join(','));
             if (options.relations?.length) params.set('relations', options.relations.join(','));
             if (options.communityID) params.set('community_id', apiID(options.communityID));
+            if (options.documentID) params.set('document_id', apiID(options.documentID));
             if (options.hops) params.set('hops', String(options.hops));
             if (options.limit) params.set('limit', String(options.limit));
         }
@@ -551,16 +596,19 @@ const knowledgeAPI = {
         if (options.types?.length) params.set('types', options.types.join(','));
         if (options.relations?.length) params.set('relations', options.relations.join(','));
         if (options.communityID) params.set('community_id', apiID(options.communityID));
+        if (options.documentID) params.set('document_id', apiID(options.documentID));
         if (options.hops) params.set('hops', String(options.hops));
         if (options.limit) params.set('limit', String(options.limit));
         const suffix = params.toString() ? `?${params.toString()}` : '';
         return request('GET', `/knowledge/node/${apiID(id)}/neighborhood${suffix}`);
     },
-    path: ({ sourceID, targetID, query = '', limit = 180 } = {}) => {
+    path: ({ sourceID, targetID, query = '', limit = 180, documentID = 0, hops = 1 } = {}) => {
         const params = new URLSearchParams();
         params.set('source_id', apiID(sourceID));
         params.set('target_id', apiID(targetID));
         if (query) params.set('query', query);
+        if (documentID) params.set('document_id', apiID(documentID));
+        if (hops) params.set('hops', String(hops));
         params.set('limit', String(limit || 180));
         return request('GET', `/knowledge/path?${params.toString()}`);
     },
@@ -588,6 +636,8 @@ const settingsAPI = {
         request('GET', `/settings/llm-profiles?usage_type=${encodeURIComponent(usageType)}`),
     saveLLMProfile: (profile) =>
         request('POST', '/settings/llm-profiles', profile),
+    testLLMProfile: (profile) =>
+        request('POST', '/settings/llm-profiles/test', profile),
     deleteLLMProfile: (id) =>
         request('DELETE', `/settings/llm-profiles/${apiID(id)}`),
     listPrompts: () => request('GET', '/settings/prompts'),
@@ -677,7 +727,11 @@ const mcpAPI = {
 const adminAPI = {
     dashboard: () => request('GET', '/admin/dashboard'),
     users: (params = {}) => request('GET', `/admin/users?${new URLSearchParams(params).toString()}`),
+    updateUserStatus: (id, status, reason = '') =>
+        request('POST', `/admin/users/${apiID(id)}/status`, { status, reason }),
     groups: (params = {}) => request('GET', `/admin/groups?${new URLSearchParams(params).toString()}`),
+    updateGroupStatus: (id, status, reason = '') =>
+        request('POST', `/admin/groups/${apiID(id)}/status`, { status, reason }),
     files: (params = {}) => request('GET', `/admin/files?${new URLSearchParams(params).toString()}`),
     agents: (params = {}) => request('GET', `/admin/agents?${new URLSearchParams(params).toString()}`),
     billing: (params = {}) => request('GET', `/admin/billing?${new URLSearchParams(params).toString()}`),
@@ -687,6 +741,10 @@ const adminAPI = {
     notices: (params = {}) => request('GET', `/admin/notices?${new URLSearchParams(params).toString()}`),
     saveNotice: (payload) => request('POST', '/admin/notices', payload),
     audits: (params = {}) => request('GET', `/admin/audits?${new URLSearchParams(params).toString()}`),
+};
+
+const systemAPI = {
+    notices: (params = {}) => request('GET', `/system/notices?${new URLSearchParams(params).toString()}`),
 };
 
 async function connectWS() {

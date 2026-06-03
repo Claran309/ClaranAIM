@@ -5,7 +5,6 @@ package rag
 import (
 	"context"
 	"fmt"
-	"strings"
 )
 
 type RAGDocument struct {
@@ -20,6 +19,7 @@ type RAGDocument struct {
 	Status         string `thrift:"status,9" frugal:"9,default,string" json:"status"`
 	CreatedAt      string `thrift:"created_at,10" frugal:"10,default,string" json:"created_at"`
 	UpdatedAt      string `thrift:"updated_at,11" frugal:"11,default,string" json:"updated_at"`
+	ChunkCount     int64  `thrift:"chunk_count,12" frugal:"12,default,i64" json:"chunk_count"`
 }
 
 func NewRAGDocument() *RAGDocument {
@@ -72,6 +72,10 @@ func (p *RAGDocument) GetCreatedAt() (v string) {
 func (p *RAGDocument) GetUpdatedAt() (v string) {
 	return p.UpdatedAt
 }
+
+func (p *RAGDocument) GetChunkCount() (v int64) {
+	return p.ChunkCount
+}
 func (p *RAGDocument) SetId(val int64) {
 	p.Id = val
 }
@@ -105,132 +109,15 @@ func (p *RAGDocument) SetCreatedAt(val string) {
 func (p *RAGDocument) SetUpdatedAt(val string) {
 	p.UpdatedAt = val
 }
+func (p *RAGDocument) SetChunkCount(val int64) {
+	p.ChunkCount = val
+}
 
 func (p *RAGDocument) String() string {
 	if p == nil {
 		return "<nil>"
 	}
 	return fmt.Sprintf("RAGDocument(%+v)", *p)
-}
-
-func (p *RAGDocument) DeepEqual(ano *RAGDocument) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Id) {
-		return false
-	}
-	if !p.Field2DeepEqual(ano.OwnerId) {
-		return false
-	}
-	if !p.Field3DeepEqual(ano.Title) {
-		return false
-	}
-	if !p.Field4DeepEqual(ano.Source) {
-		return false
-	}
-	if !p.Field5DeepEqual(ano.SourceType) {
-		return false
-	}
-	if !p.Field6DeepEqual(ano.Visibility) {
-		return false
-	}
-	if !p.Field7DeepEqual(ano.GroupId) {
-		return false
-	}
-	if !p.Field8DeepEqual(ano.ConversationId) {
-		return false
-	}
-	if !p.Field9DeepEqual(ano.Status) {
-		return false
-	}
-	if !p.Field10DeepEqual(ano.CreatedAt) {
-		return false
-	}
-	if !p.Field11DeepEqual(ano.UpdatedAt) {
-		return false
-	}
-	return true
-}
-
-func (p *RAGDocument) Field1DeepEqual(src int64) bool {
-
-	if p.Id != src {
-		return false
-	}
-	return true
-}
-func (p *RAGDocument) Field2DeepEqual(src int64) bool {
-
-	if p.OwnerId != src {
-		return false
-	}
-	return true
-}
-func (p *RAGDocument) Field3DeepEqual(src string) bool {
-
-	if strings.Compare(p.Title, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *RAGDocument) Field4DeepEqual(src string) bool {
-
-	if strings.Compare(p.Source, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *RAGDocument) Field5DeepEqual(src string) bool {
-
-	if strings.Compare(p.SourceType, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *RAGDocument) Field6DeepEqual(src string) bool {
-
-	if strings.Compare(p.Visibility, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *RAGDocument) Field7DeepEqual(src int64) bool {
-
-	if p.GroupId != src {
-		return false
-	}
-	return true
-}
-func (p *RAGDocument) Field8DeepEqual(src int64) bool {
-
-	if p.ConversationId != src {
-		return false
-	}
-	return true
-}
-func (p *RAGDocument) Field9DeepEqual(src string) bool {
-
-	if strings.Compare(p.Status, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *RAGDocument) Field10DeepEqual(src string) bool {
-
-	if strings.Compare(p.CreatedAt, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *RAGDocument) Field11DeepEqual(src string) bool {
-
-	if strings.Compare(p.UpdatedAt, src) != 0 {
-		return false
-	}
-	return true
 }
 
 var fieldIDToName_RAGDocument = map[int16]string{
@@ -245,6 +132,7 @@ var fieldIDToName_RAGDocument = map[int16]string{
 	9:  "status",
 	10: "created_at",
 	11: "updated_at",
+	12: "chunk_count",
 }
 
 type RAGSource struct {
@@ -318,86 +206,6 @@ func (p *RAGSource) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("RAGSource(%+v)", *p)
-}
-
-func (p *RAGSource) DeepEqual(ano *RAGSource) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.DocumentId) {
-		return false
-	}
-	if !p.Field2DeepEqual(ano.ChunkId) {
-		return false
-	}
-	if !p.Field3DeepEqual(ano.Title) {
-		return false
-	}
-	if !p.Field4DeepEqual(ano.Content) {
-		return false
-	}
-	if !p.Field5DeepEqual(ano.Source) {
-		return false
-	}
-	if !p.Field6DeepEqual(ano.Score) {
-		return false
-	}
-	if !p.Field7DeepEqual(ano.Reason) {
-		return false
-	}
-	return true
-}
-
-func (p *RAGSource) Field1DeepEqual(src int64) bool {
-
-	if p.DocumentId != src {
-		return false
-	}
-	return true
-}
-func (p *RAGSource) Field2DeepEqual(src int64) bool {
-
-	if p.ChunkId != src {
-		return false
-	}
-	return true
-}
-func (p *RAGSource) Field3DeepEqual(src string) bool {
-
-	if strings.Compare(p.Title, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *RAGSource) Field4DeepEqual(src string) bool {
-
-	if strings.Compare(p.Content, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *RAGSource) Field5DeepEqual(src string) bool {
-
-	if strings.Compare(p.Source, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *RAGSource) Field6DeepEqual(src float64) bool {
-
-	if p.Score != src {
-		return false
-	}
-	return true
-}
-func (p *RAGSource) Field7DeepEqual(src string) bool {
-
-	if strings.Compare(p.Reason, src) != 0 {
-		return false
-	}
-	return true
 }
 
 var fieldIDToName_RAGSource = map[int16]string{
@@ -475,76 +283,6 @@ func (p *RAGGraphNode) String() string {
 	return fmt.Sprintf("RAGGraphNode(%+v)", *p)
 }
 
-func (p *RAGGraphNode) DeepEqual(ano *RAGGraphNode) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Id) {
-		return false
-	}
-	if !p.Field2DeepEqual(ano.Name) {
-		return false
-	}
-	if !p.Field3DeepEqual(ano.Type) {
-		return false
-	}
-	if !p.Field4DeepEqual(ano.Summary) {
-		return false
-	}
-	if !p.Field5DeepEqual(ano.CommunityId) {
-		return false
-	}
-	if !p.Field6DeepEqual(ano.Score) {
-		return false
-	}
-	return true
-}
-
-func (p *RAGGraphNode) Field1DeepEqual(src int64) bool {
-
-	if p.Id != src {
-		return false
-	}
-	return true
-}
-func (p *RAGGraphNode) Field2DeepEqual(src string) bool {
-
-	if strings.Compare(p.Name, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *RAGGraphNode) Field3DeepEqual(src string) bool {
-
-	if strings.Compare(p.Type, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *RAGGraphNode) Field4DeepEqual(src string) bool {
-
-	if strings.Compare(p.Summary, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *RAGGraphNode) Field5DeepEqual(src int64) bool {
-
-	if p.CommunityId != src {
-		return false
-	}
-	return true
-}
-func (p *RAGGraphNode) Field6DeepEqual(src float64) bool {
-
-	if p.Score != src {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_RAGGraphNode = map[int16]string{
 	1: "id",
 	2: "name",
@@ -555,12 +293,13 @@ var fieldIDToName_RAGGraphNode = map[int16]string{
 }
 
 type RAGGraphEdge struct {
-	Id       int64   `thrift:"id,1" frugal:"1,default,i64" json:"id"`
-	SourceId int64   `thrift:"source_id,2" frugal:"2,default,i64" json:"source_id"`
-	TargetId int64   `thrift:"target_id,3" frugal:"3,default,i64" json:"target_id"`
-	Relation string  `thrift:"relation,4" frugal:"4,default,string" json:"relation"`
-	Weight   float64 `thrift:"weight,5" frugal:"5,default,double" json:"weight"`
-	Evidence string  `thrift:"evidence,6" frugal:"6,default,string" json:"evidence"`
+	Id         int64   `thrift:"id,1" frugal:"1,default,i64" json:"id"`
+	SourceId   int64   `thrift:"source_id,2" frugal:"2,default,i64" json:"source_id"`
+	TargetId   int64   `thrift:"target_id,3" frugal:"3,default,i64" json:"target_id"`
+	Relation   string  `thrift:"relation,4" frugal:"4,default,string" json:"relation"`
+	Weight     float64 `thrift:"weight,5" frugal:"5,default,double" json:"weight"`
+	Evidence   string  `thrift:"evidence,6" frugal:"6,default,string" json:"evidence"`
+	DocumentId int64   `thrift:"document_id,7" frugal:"7,default,i64" json:"document_id"`
 }
 
 func NewRAGGraphEdge() *RAGGraphEdge {
@@ -593,6 +332,10 @@ func (p *RAGGraphEdge) GetWeight() (v float64) {
 func (p *RAGGraphEdge) GetEvidence() (v string) {
 	return p.Evidence
 }
+
+func (p *RAGGraphEdge) GetDocumentId() (v int64) {
+	return p.DocumentId
+}
 func (p *RAGGraphEdge) SetId(val int64) {
 	p.Id = val
 }
@@ -611,82 +354,15 @@ func (p *RAGGraphEdge) SetWeight(val float64) {
 func (p *RAGGraphEdge) SetEvidence(val string) {
 	p.Evidence = val
 }
+func (p *RAGGraphEdge) SetDocumentId(val int64) {
+	p.DocumentId = val
+}
 
 func (p *RAGGraphEdge) String() string {
 	if p == nil {
 		return "<nil>"
 	}
 	return fmt.Sprintf("RAGGraphEdge(%+v)", *p)
-}
-
-func (p *RAGGraphEdge) DeepEqual(ano *RAGGraphEdge) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Id) {
-		return false
-	}
-	if !p.Field2DeepEqual(ano.SourceId) {
-		return false
-	}
-	if !p.Field3DeepEqual(ano.TargetId) {
-		return false
-	}
-	if !p.Field4DeepEqual(ano.Relation) {
-		return false
-	}
-	if !p.Field5DeepEqual(ano.Weight) {
-		return false
-	}
-	if !p.Field6DeepEqual(ano.Evidence) {
-		return false
-	}
-	return true
-}
-
-func (p *RAGGraphEdge) Field1DeepEqual(src int64) bool {
-
-	if p.Id != src {
-		return false
-	}
-	return true
-}
-func (p *RAGGraphEdge) Field2DeepEqual(src int64) bool {
-
-	if p.SourceId != src {
-		return false
-	}
-	return true
-}
-func (p *RAGGraphEdge) Field3DeepEqual(src int64) bool {
-
-	if p.TargetId != src {
-		return false
-	}
-	return true
-}
-func (p *RAGGraphEdge) Field4DeepEqual(src string) bool {
-
-	if strings.Compare(p.Relation, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *RAGGraphEdge) Field5DeepEqual(src float64) bool {
-
-	if p.Weight != src {
-		return false
-	}
-	return true
-}
-func (p *RAGGraphEdge) Field6DeepEqual(src string) bool {
-
-	if strings.Compare(p.Evidence, src) != 0 {
-		return false
-	}
-	return true
 }
 
 var fieldIDToName_RAGGraphEdge = map[int16]string{
@@ -696,6 +372,7 @@ var fieldIDToName_RAGGraphEdge = map[int16]string{
 	4: "relation",
 	5: "weight",
 	6: "evidence",
+	7: "document_id",
 }
 
 type RAGGraphCommunity struct {
@@ -745,56 +422,6 @@ func (p *RAGGraphCommunity) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("RAGGraphCommunity(%+v)", *p)
-}
-
-func (p *RAGGraphCommunity) DeepEqual(ano *RAGGraphCommunity) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Id) {
-		return false
-	}
-	if !p.Field2DeepEqual(ano.Name) {
-		return false
-	}
-	if !p.Field3DeepEqual(ano.Summary) {
-		return false
-	}
-	if !p.Field4DeepEqual(ano.Level) {
-		return false
-	}
-	return true
-}
-
-func (p *RAGGraphCommunity) Field1DeepEqual(src int64) bool {
-
-	if p.Id != src {
-		return false
-	}
-	return true
-}
-func (p *RAGGraphCommunity) Field2DeepEqual(src string) bool {
-
-	if strings.Compare(p.Name, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *RAGGraphCommunity) Field3DeepEqual(src string) bool {
-
-	if strings.Compare(p.Summary, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *RAGGraphCommunity) Field4DeepEqual(src int64) bool {
-
-	if p.Level != src {
-		return false
-	}
-	return true
 }
 
 var fieldIDToName_RAGGraphCommunity = map[int16]string{
@@ -885,96 +512,6 @@ func (p *IngestDocumentReq) String() string {
 	return fmt.Sprintf("IngestDocumentReq(%+v)", *p)
 }
 
-func (p *IngestDocumentReq) DeepEqual(ano *IngestDocumentReq) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.OwnerId) {
-		return false
-	}
-	if !p.Field2DeepEqual(ano.Title) {
-		return false
-	}
-	if !p.Field3DeepEqual(ano.Content) {
-		return false
-	}
-	if !p.Field4DeepEqual(ano.Source) {
-		return false
-	}
-	if !p.Field5DeepEqual(ano.SourceType) {
-		return false
-	}
-	if !p.Field6DeepEqual(ano.Visibility) {
-		return false
-	}
-	if !p.Field7DeepEqual(ano.GroupId) {
-		return false
-	}
-	if !p.Field8DeepEqual(ano.ConversationId) {
-		return false
-	}
-	return true
-}
-
-func (p *IngestDocumentReq) Field1DeepEqual(src int64) bool {
-
-	if p.OwnerId != src {
-		return false
-	}
-	return true
-}
-func (p *IngestDocumentReq) Field2DeepEqual(src string) bool {
-
-	if strings.Compare(p.Title, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *IngestDocumentReq) Field3DeepEqual(src string) bool {
-
-	if strings.Compare(p.Content, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *IngestDocumentReq) Field4DeepEqual(src string) bool {
-
-	if strings.Compare(p.Source, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *IngestDocumentReq) Field5DeepEqual(src string) bool {
-
-	if strings.Compare(p.SourceType, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *IngestDocumentReq) Field6DeepEqual(src string) bool {
-
-	if strings.Compare(p.Visibility, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *IngestDocumentReq) Field7DeepEqual(src int64) bool {
-
-	if p.GroupId != src {
-		return false
-	}
-	return true
-}
-func (p *IngestDocumentReq) Field8DeepEqual(src int64) bool {
-
-	if p.ConversationId != src {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_IngestDocumentReq = map[int16]string{
 	1: "owner_id",
 	2: "title",
@@ -1060,76 +597,6 @@ func (p *IngestDocumentResp) String() string {
 	return fmt.Sprintf("IngestDocumentResp(%+v)", *p)
 }
 
-func (p *IngestDocumentResp) DeepEqual(ano *IngestDocumentResp) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Success) {
-		return false
-	}
-	if !p.Field2DeepEqual(ano.Document) {
-		return false
-	}
-	if !p.Field3DeepEqual(ano.ChunkCount) {
-		return false
-	}
-	if !p.Field4DeepEqual(ano.EntityCount) {
-		return false
-	}
-	if !p.Field5DeepEqual(ano.RelationCount) {
-		return false
-	}
-	if !p.Field6DeepEqual(ano.Msg) {
-		return false
-	}
-	return true
-}
-
-func (p *IngestDocumentResp) Field1DeepEqual(src bool) bool {
-
-	if p.Success != src {
-		return false
-	}
-	return true
-}
-func (p *IngestDocumentResp) Field2DeepEqual(src *RAGDocument) bool {
-
-	if !p.Document.DeepEqual(src) {
-		return false
-	}
-	return true
-}
-func (p *IngestDocumentResp) Field3DeepEqual(src int64) bool {
-
-	if p.ChunkCount != src {
-		return false
-	}
-	return true
-}
-func (p *IngestDocumentResp) Field4DeepEqual(src int64) bool {
-
-	if p.EntityCount != src {
-		return false
-	}
-	return true
-}
-func (p *IngestDocumentResp) Field5DeepEqual(src int64) bool {
-
-	if p.RelationCount != src {
-		return false
-	}
-	return true
-}
-func (p *IngestDocumentResp) Field6DeepEqual(src string) bool {
-
-	if strings.Compare(p.Msg, src) != 0 {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_IngestDocumentResp = map[int16]string{
 	1: "success",
 	2: "document",
@@ -1146,6 +613,7 @@ type SearchReq struct {
 	Limit          int64  `thrift:"limit,4" frugal:"4,default,i64" json:"limit"`
 	GroupId        int64  `thrift:"group_id,5" frugal:"5,default,i64" json:"group_id"`
 	ConversationId int64  `thrift:"conversation_id,6" frugal:"6,default,i64" json:"conversation_id"`
+	DocumentId     int64  `thrift:"document_id,7" frugal:"7,default,i64" json:"document_id"`
 }
 
 func NewSearchReq() *SearchReq {
@@ -1178,6 +646,10 @@ func (p *SearchReq) GetGroupId() (v int64) {
 func (p *SearchReq) GetConversationId() (v int64) {
 	return p.ConversationId
 }
+
+func (p *SearchReq) GetDocumentId() (v int64) {
+	return p.DocumentId
+}
 func (p *SearchReq) SetViewerId(val int64) {
 	p.ViewerId = val
 }
@@ -1196,82 +668,15 @@ func (p *SearchReq) SetGroupId(val int64) {
 func (p *SearchReq) SetConversationId(val int64) {
 	p.ConversationId = val
 }
+func (p *SearchReq) SetDocumentId(val int64) {
+	p.DocumentId = val
+}
 
 func (p *SearchReq) String() string {
 	if p == nil {
 		return "<nil>"
 	}
 	return fmt.Sprintf("SearchReq(%+v)", *p)
-}
-
-func (p *SearchReq) DeepEqual(ano *SearchReq) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.ViewerId) {
-		return false
-	}
-	if !p.Field2DeepEqual(ano.Query) {
-		return false
-	}
-	if !p.Field3DeepEqual(ano.Mode) {
-		return false
-	}
-	if !p.Field4DeepEqual(ano.Limit) {
-		return false
-	}
-	if !p.Field5DeepEqual(ano.GroupId) {
-		return false
-	}
-	if !p.Field6DeepEqual(ano.ConversationId) {
-		return false
-	}
-	return true
-}
-
-func (p *SearchReq) Field1DeepEqual(src int64) bool {
-
-	if p.ViewerId != src {
-		return false
-	}
-	return true
-}
-func (p *SearchReq) Field2DeepEqual(src string) bool {
-
-	if strings.Compare(p.Query, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *SearchReq) Field3DeepEqual(src string) bool {
-
-	if strings.Compare(p.Mode, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *SearchReq) Field4DeepEqual(src int64) bool {
-
-	if p.Limit != src {
-		return false
-	}
-	return true
-}
-func (p *SearchReq) Field5DeepEqual(src int64) bool {
-
-	if p.GroupId != src {
-		return false
-	}
-	return true
-}
-func (p *SearchReq) Field6DeepEqual(src int64) bool {
-
-	if p.ConversationId != src {
-		return false
-	}
-	return true
 }
 
 var fieldIDToName_SearchReq = map[int16]string{
@@ -1281,6 +686,7 @@ var fieldIDToName_SearchReq = map[int16]string{
 	4: "limit",
 	5: "group_id",
 	6: "conversation_id",
+	7: "document_id",
 }
 
 type SelfRAGCheckpoints struct {
@@ -1338,66 +744,6 @@ func (p *SelfRAGCheckpoints) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("SelfRAGCheckpoints(%+v)", *p)
-}
-
-func (p *SelfRAGCheckpoints) DeepEqual(ano *SelfRAGCheckpoints) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Retrieve) {
-		return false
-	}
-	if !p.Field2DeepEqual(ano.IsRel) {
-		return false
-	}
-	if !p.Field3DeepEqual(ano.IsSup) {
-		return false
-	}
-	if !p.Field4DeepEqual(ano.IsUse) {
-		return false
-	}
-	if !p.Field5DeepEqual(ano.Note) {
-		return false
-	}
-	return true
-}
-
-func (p *SelfRAGCheckpoints) Field1DeepEqual(src bool) bool {
-
-	if p.Retrieve != src {
-		return false
-	}
-	return true
-}
-func (p *SelfRAGCheckpoints) Field2DeepEqual(src bool) bool {
-
-	if p.IsRel != src {
-		return false
-	}
-	return true
-}
-func (p *SelfRAGCheckpoints) Field3DeepEqual(src bool) bool {
-
-	if p.IsSup != src {
-		return false
-	}
-	return true
-}
-func (p *SelfRAGCheckpoints) Field4DeepEqual(src bool) bool {
-
-	if p.IsUse != src {
-		return false
-	}
-	return true
-}
-func (p *SelfRAGCheckpoints) Field5DeepEqual(src string) bool {
-
-	if strings.Compare(p.Note, src) != 0 {
-		return false
-	}
-	return true
 }
 
 var fieldIDToName_SelfRAGCheckpoints = map[int16]string{
@@ -1506,124 +852,6 @@ func (p *SearchResp) String() string {
 	return fmt.Sprintf("SearchResp(%+v)", *p)
 }
 
-func (p *SearchResp) DeepEqual(ano *SearchResp) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Success) {
-		return false
-	}
-	if !p.Field2DeepEqual(ano.Answer) {
-		return false
-	}
-	if !p.Field3DeepEqual(ano.Sources) {
-		return false
-	}
-	if !p.Field4DeepEqual(ano.GraphNodes) {
-		return false
-	}
-	if !p.Field5DeepEqual(ano.GraphEdges) {
-		return false
-	}
-	if !p.Field6DeepEqual(ano.Route) {
-		return false
-	}
-	if !p.Field7DeepEqual(ano.CragAction) {
-		return false
-	}
-	if !p.Field8DeepEqual(ano.SelfCheck) {
-		return false
-	}
-	if !p.Field9DeepEqual(ano.Msg) {
-		return false
-	}
-	return true
-}
-
-func (p *SearchResp) Field1DeepEqual(src bool) bool {
-
-	if p.Success != src {
-		return false
-	}
-	return true
-}
-func (p *SearchResp) Field2DeepEqual(src string) bool {
-
-	if strings.Compare(p.Answer, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *SearchResp) Field3DeepEqual(src []*RAGSource) bool {
-
-	if len(p.Sources) != len(src) {
-		return false
-	}
-	for i, v := range p.Sources {
-		_src := src[i]
-		if !v.DeepEqual(_src) {
-			return false
-		}
-	}
-	return true
-}
-func (p *SearchResp) Field4DeepEqual(src []*RAGGraphNode) bool {
-
-	if len(p.GraphNodes) != len(src) {
-		return false
-	}
-	for i, v := range p.GraphNodes {
-		_src := src[i]
-		if !v.DeepEqual(_src) {
-			return false
-		}
-	}
-	return true
-}
-func (p *SearchResp) Field5DeepEqual(src []*RAGGraphEdge) bool {
-
-	if len(p.GraphEdges) != len(src) {
-		return false
-	}
-	for i, v := range p.GraphEdges {
-		_src := src[i]
-		if !v.DeepEqual(_src) {
-			return false
-		}
-	}
-	return true
-}
-func (p *SearchResp) Field6DeepEqual(src string) bool {
-
-	if strings.Compare(p.Route, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *SearchResp) Field7DeepEqual(src string) bool {
-
-	if strings.Compare(p.CragAction, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *SearchResp) Field8DeepEqual(src *SelfRAGCheckpoints) bool {
-
-	if !p.SelfCheck.DeepEqual(src) {
-		return false
-	}
-	return true
-}
-func (p *SearchResp) Field9DeepEqual(src string) bool {
-
-	if strings.Compare(p.Msg, src) != 0 {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_SearchResp = map[int16]string{
 	1: "success",
 	2: "answer",
@@ -1637,9 +865,11 @@ var fieldIDToName_SearchResp = map[int16]string{
 }
 
 type GraphReq struct {
-	ViewerId int64  `thrift:"viewer_id,1" frugal:"1,default,i64" json:"viewer_id"`
-	Query    string `thrift:"query,2" frugal:"2,default,string" json:"query"`
-	Limit    int64  `thrift:"limit,3" frugal:"3,default,i64" json:"limit"`
+	ViewerId   int64  `thrift:"viewer_id,1" frugal:"1,default,i64" json:"viewer_id"`
+	Query      string `thrift:"query,2" frugal:"2,default,string" json:"query"`
+	Limit      int64  `thrift:"limit,3" frugal:"3,default,i64" json:"limit"`
+	DocumentId int64  `thrift:"document_id,4" frugal:"4,default,i64" json:"document_id"`
+	Hops       int64  `thrift:"hops,5" frugal:"5,default,i64" json:"hops"`
 }
 
 func NewGraphReq() *GraphReq {
@@ -1660,6 +890,14 @@ func (p *GraphReq) GetQuery() (v string) {
 func (p *GraphReq) GetLimit() (v int64) {
 	return p.Limit
 }
+
+func (p *GraphReq) GetDocumentId() (v int64) {
+	return p.DocumentId
+}
+
+func (p *GraphReq) GetHops() (v int64) {
+	return p.Hops
+}
 func (p *GraphReq) SetViewerId(val int64) {
 	p.ViewerId = val
 }
@@ -1669,6 +907,12 @@ func (p *GraphReq) SetQuery(val string) {
 func (p *GraphReq) SetLimit(val int64) {
 	p.Limit = val
 }
+func (p *GraphReq) SetDocumentId(val int64) {
+	p.DocumentId = val
+}
+func (p *GraphReq) SetHops(val int64) {
+	p.Hops = val
+}
 
 func (p *GraphReq) String() string {
 	if p == nil {
@@ -1677,50 +921,12 @@ func (p *GraphReq) String() string {
 	return fmt.Sprintf("GraphReq(%+v)", *p)
 }
 
-func (p *GraphReq) DeepEqual(ano *GraphReq) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.ViewerId) {
-		return false
-	}
-	if !p.Field2DeepEqual(ano.Query) {
-		return false
-	}
-	if !p.Field3DeepEqual(ano.Limit) {
-		return false
-	}
-	return true
-}
-
-func (p *GraphReq) Field1DeepEqual(src int64) bool {
-
-	if p.ViewerId != src {
-		return false
-	}
-	return true
-}
-func (p *GraphReq) Field2DeepEqual(src string) bool {
-
-	if strings.Compare(p.Query, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *GraphReq) Field3DeepEqual(src int64) bool {
-
-	if p.Limit != src {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_GraphReq = map[int16]string{
 	1: "viewer_id",
 	2: "query",
 	3: "limit",
+	4: "document_id",
+	5: "hops",
 }
 
 type GraphResp struct {
@@ -1780,84 +986,6 @@ func (p *GraphResp) String() string {
 	return fmt.Sprintf("GraphResp(%+v)", *p)
 }
 
-func (p *GraphResp) DeepEqual(ano *GraphResp) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Success) {
-		return false
-	}
-	if !p.Field2DeepEqual(ano.Nodes) {
-		return false
-	}
-	if !p.Field3DeepEqual(ano.Edges) {
-		return false
-	}
-	if !p.Field4DeepEqual(ano.Communities) {
-		return false
-	}
-	if !p.Field5DeepEqual(ano.Msg) {
-		return false
-	}
-	return true
-}
-
-func (p *GraphResp) Field1DeepEqual(src bool) bool {
-
-	if p.Success != src {
-		return false
-	}
-	return true
-}
-func (p *GraphResp) Field2DeepEqual(src []*RAGGraphNode) bool {
-
-	if len(p.Nodes) != len(src) {
-		return false
-	}
-	for i, v := range p.Nodes {
-		_src := src[i]
-		if !v.DeepEqual(_src) {
-			return false
-		}
-	}
-	return true
-}
-func (p *GraphResp) Field3DeepEqual(src []*RAGGraphEdge) bool {
-
-	if len(p.Edges) != len(src) {
-		return false
-	}
-	for i, v := range p.Edges {
-		_src := src[i]
-		if !v.DeepEqual(_src) {
-			return false
-		}
-	}
-	return true
-}
-func (p *GraphResp) Field4DeepEqual(src []*RAGGraphCommunity) bool {
-
-	if len(p.Communities) != len(src) {
-		return false
-	}
-	for i, v := range p.Communities {
-		_src := src[i]
-		if !v.DeepEqual(_src) {
-			return false
-		}
-	}
-	return true
-}
-func (p *GraphResp) Field5DeepEqual(src string) bool {
-
-	if strings.Compare(p.Msg, src) != 0 {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_GraphResp = map[int16]string{
 	1: "success",
 	2: "nodes",
@@ -1905,46 +1033,6 @@ func (p *ListDocumentsReq) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("ListDocumentsReq(%+v)", *p)
-}
-
-func (p *ListDocumentsReq) DeepEqual(ano *ListDocumentsReq) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.ViewerId) {
-		return false
-	}
-	if !p.Field2DeepEqual(ano.Limit) {
-		return false
-	}
-	if !p.Field3DeepEqual(ano.Offset) {
-		return false
-	}
-	return true
-}
-
-func (p *ListDocumentsReq) Field1DeepEqual(src int64) bool {
-
-	if p.ViewerId != src {
-		return false
-	}
-	return true
-}
-func (p *ListDocumentsReq) Field2DeepEqual(src int64) bool {
-
-	if p.Limit != src {
-		return false
-	}
-	return true
-}
-func (p *ListDocumentsReq) Field3DeepEqual(src int64) bool {
-
-	if p.Offset != src {
-		return false
-	}
-	return true
 }
 
 var fieldIDToName_ListDocumentsReq = map[int16]string{
@@ -2002,67 +1090,163 @@ func (p *ListDocumentsResp) String() string {
 	return fmt.Sprintf("ListDocumentsResp(%+v)", *p)
 }
 
-func (p *ListDocumentsResp) DeepEqual(ano *ListDocumentsResp) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Success) {
-		return false
-	}
-	if !p.Field2DeepEqual(ano.Documents) {
-		return false
-	}
-	if !p.Field3DeepEqual(ano.Total) {
-		return false
-	}
-	if !p.Field4DeepEqual(ano.Msg) {
-		return false
-	}
-	return true
-}
-
-func (p *ListDocumentsResp) Field1DeepEqual(src bool) bool {
-
-	if p.Success != src {
-		return false
-	}
-	return true
-}
-func (p *ListDocumentsResp) Field2DeepEqual(src []*RAGDocument) bool {
-
-	if len(p.Documents) != len(src) {
-		return false
-	}
-	for i, v := range p.Documents {
-		_src := src[i]
-		if !v.DeepEqual(_src) {
-			return false
-		}
-	}
-	return true
-}
-func (p *ListDocumentsResp) Field3DeepEqual(src int64) bool {
-
-	if p.Total != src {
-		return false
-	}
-	return true
-}
-func (p *ListDocumentsResp) Field4DeepEqual(src string) bool {
-
-	if strings.Compare(p.Msg, src) != 0 {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_ListDocumentsResp = map[int16]string{
 	1: "success",
 	2: "documents",
 	3: "total",
 	4: "msg",
+}
+
+type DeleteDocumentReq struct {
+	ViewerId   int64 `thrift:"viewer_id,1" frugal:"1,default,i64" json:"viewer_id"`
+	DocumentId int64 `thrift:"document_id,2" frugal:"2,default,i64" json:"document_id"`
+}
+
+func NewDeleteDocumentReq() *DeleteDocumentReq {
+	return &DeleteDocumentReq{}
+}
+
+func (p *DeleteDocumentReq) InitDefault() {
+}
+
+func (p *DeleteDocumentReq) GetViewerId() (v int64) {
+	return p.ViewerId
+}
+
+func (p *DeleteDocumentReq) GetDocumentId() (v int64) {
+	return p.DocumentId
+}
+func (p *DeleteDocumentReq) SetViewerId(val int64) {
+	p.ViewerId = val
+}
+func (p *DeleteDocumentReq) SetDocumentId(val int64) {
+	p.DocumentId = val
+}
+
+func (p *DeleteDocumentReq) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("DeleteDocumentReq(%+v)", *p)
+}
+
+var fieldIDToName_DeleteDocumentReq = map[int16]string{
+	1: "viewer_id",
+	2: "document_id",
+}
+
+type DeleteDocumentResp struct {
+	Success bool   `thrift:"success,1" frugal:"1,default,bool" json:"success"`
+	Msg     string `thrift:"msg,2" frugal:"2,default,string" json:"msg"`
+}
+
+func NewDeleteDocumentResp() *DeleteDocumentResp {
+	return &DeleteDocumentResp{}
+}
+
+func (p *DeleteDocumentResp) InitDefault() {
+}
+
+func (p *DeleteDocumentResp) GetSuccess() (v bool) {
+	return p.Success
+}
+
+func (p *DeleteDocumentResp) GetMsg() (v string) {
+	return p.Msg
+}
+func (p *DeleteDocumentResp) SetSuccess(val bool) {
+	p.Success = val
+}
+func (p *DeleteDocumentResp) SetMsg(val string) {
+	p.Msg = val
+}
+
+func (p *DeleteDocumentResp) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("DeleteDocumentResp(%+v)", *p)
+}
+
+var fieldIDToName_DeleteDocumentResp = map[int16]string{
+	1: "success",
+	2: "msg",
+}
+
+type DeleteGraphReq struct {
+	ViewerId   int64 `thrift:"viewer_id,1" frugal:"1,default,i64" json:"viewer_id"`
+	DocumentId int64 `thrift:"document_id,2" frugal:"2,default,i64" json:"document_id"`
+}
+
+func NewDeleteGraphReq() *DeleteGraphReq {
+	return &DeleteGraphReq{}
+}
+
+func (p *DeleteGraphReq) InitDefault() {
+}
+
+func (p *DeleteGraphReq) GetViewerId() (v int64) {
+	return p.ViewerId
+}
+
+func (p *DeleteGraphReq) GetDocumentId() (v int64) {
+	return p.DocumentId
+}
+func (p *DeleteGraphReq) SetViewerId(val int64) {
+	p.ViewerId = val
+}
+func (p *DeleteGraphReq) SetDocumentId(val int64) {
+	p.DocumentId = val
+}
+
+func (p *DeleteGraphReq) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("DeleteGraphReq(%+v)", *p)
+}
+
+var fieldIDToName_DeleteGraphReq = map[int16]string{
+	1: "viewer_id",
+	2: "document_id",
+}
+
+type DeleteGraphResp struct {
+	Success bool   `thrift:"success,1" frugal:"1,default,bool" json:"success"`
+	Msg     string `thrift:"msg,2" frugal:"2,default,string" json:"msg"`
+}
+
+func NewDeleteGraphResp() *DeleteGraphResp {
+	return &DeleteGraphResp{}
+}
+
+func (p *DeleteGraphResp) InitDefault() {
+}
+
+func (p *DeleteGraphResp) GetSuccess() (v bool) {
+	return p.Success
+}
+
+func (p *DeleteGraphResp) GetMsg() (v string) {
+	return p.Msg
+}
+func (p *DeleteGraphResp) SetSuccess(val bool) {
+	p.Success = val
+}
+func (p *DeleteGraphResp) SetMsg(val string) {
+	p.Msg = val
+}
+
+func (p *DeleteGraphResp) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("DeleteGraphResp(%+v)", *p)
+}
+
+var fieldIDToName_DeleteGraphResp = map[int16]string{
+	1: "success",
+	2: "msg",
 }
 
 type RAGService interface {
@@ -2073,6 +1257,10 @@ type RAGService interface {
 	GetGraph(ctx context.Context, req *GraphReq) (r *GraphResp, err error)
 
 	ListDocuments(ctx context.Context, req *ListDocumentsReq) (r *ListDocumentsResp, err error)
+
+	DeleteDocument(ctx context.Context, req *DeleteDocumentReq) (r *DeleteDocumentResp, err error)
+
+	DeleteDocumentGraph(ctx context.Context, req *DeleteGraphReq) (r *DeleteGraphResp, err error)
 }
 
 type RAGServiceIngestDocumentArgs struct {
@@ -2107,26 +1295,6 @@ func (p *RAGServiceIngestDocumentArgs) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("RAGServiceIngestDocumentArgs(%+v)", *p)
-}
-
-func (p *RAGServiceIngestDocumentArgs) DeepEqual(ano *RAGServiceIngestDocumentArgs) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Req) {
-		return false
-	}
-	return true
-}
-
-func (p *RAGServiceIngestDocumentArgs) Field1DeepEqual(src *IngestDocumentReq) bool {
-
-	if !p.Req.DeepEqual(src) {
-		return false
-	}
-	return true
 }
 
 var fieldIDToName_RAGServiceIngestDocumentArgs = map[int16]string{
@@ -2167,26 +1335,6 @@ func (p *RAGServiceIngestDocumentResult) String() string {
 	return fmt.Sprintf("RAGServiceIngestDocumentResult(%+v)", *p)
 }
 
-func (p *RAGServiceIngestDocumentResult) DeepEqual(ano *RAGServiceIngestDocumentResult) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field0DeepEqual(ano.Success) {
-		return false
-	}
-	return true
-}
-
-func (p *RAGServiceIngestDocumentResult) Field0DeepEqual(src *IngestDocumentResp) bool {
-
-	if !p.Success.DeepEqual(src) {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_RAGServiceIngestDocumentResult = map[int16]string{
 	0: "success",
 }
@@ -2223,26 +1371,6 @@ func (p *RAGServiceSearchArgs) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("RAGServiceSearchArgs(%+v)", *p)
-}
-
-func (p *RAGServiceSearchArgs) DeepEqual(ano *RAGServiceSearchArgs) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Req) {
-		return false
-	}
-	return true
-}
-
-func (p *RAGServiceSearchArgs) Field1DeepEqual(src *SearchReq) bool {
-
-	if !p.Req.DeepEqual(src) {
-		return false
-	}
-	return true
 }
 
 var fieldIDToName_RAGServiceSearchArgs = map[int16]string{
@@ -2283,26 +1411,6 @@ func (p *RAGServiceSearchResult) String() string {
 	return fmt.Sprintf("RAGServiceSearchResult(%+v)", *p)
 }
 
-func (p *RAGServiceSearchResult) DeepEqual(ano *RAGServiceSearchResult) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field0DeepEqual(ano.Success) {
-		return false
-	}
-	return true
-}
-
-func (p *RAGServiceSearchResult) Field0DeepEqual(src *SearchResp) bool {
-
-	if !p.Success.DeepEqual(src) {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_RAGServiceSearchResult = map[int16]string{
 	0: "success",
 }
@@ -2339,26 +1447,6 @@ func (p *RAGServiceGetGraphArgs) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("RAGServiceGetGraphArgs(%+v)", *p)
-}
-
-func (p *RAGServiceGetGraphArgs) DeepEqual(ano *RAGServiceGetGraphArgs) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Req) {
-		return false
-	}
-	return true
-}
-
-func (p *RAGServiceGetGraphArgs) Field1DeepEqual(src *GraphReq) bool {
-
-	if !p.Req.DeepEqual(src) {
-		return false
-	}
-	return true
 }
 
 var fieldIDToName_RAGServiceGetGraphArgs = map[int16]string{
@@ -2399,26 +1487,6 @@ func (p *RAGServiceGetGraphResult) String() string {
 	return fmt.Sprintf("RAGServiceGetGraphResult(%+v)", *p)
 }
 
-func (p *RAGServiceGetGraphResult) DeepEqual(ano *RAGServiceGetGraphResult) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field0DeepEqual(ano.Success) {
-		return false
-	}
-	return true
-}
-
-func (p *RAGServiceGetGraphResult) Field0DeepEqual(src *GraphResp) bool {
-
-	if !p.Success.DeepEqual(src) {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_RAGServiceGetGraphResult = map[int16]string{
 	0: "success",
 }
@@ -2455,26 +1523,6 @@ func (p *RAGServiceListDocumentsArgs) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("RAGServiceListDocumentsArgs(%+v)", *p)
-}
-
-func (p *RAGServiceListDocumentsArgs) DeepEqual(ano *RAGServiceListDocumentsArgs) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Req) {
-		return false
-	}
-	return true
-}
-
-func (p *RAGServiceListDocumentsArgs) Field1DeepEqual(src *ListDocumentsReq) bool {
-
-	if !p.Req.DeepEqual(src) {
-		return false
-	}
-	return true
 }
 
 var fieldIDToName_RAGServiceListDocumentsArgs = map[int16]string{
@@ -2515,26 +1563,158 @@ func (p *RAGServiceListDocumentsResult) String() string {
 	return fmt.Sprintf("RAGServiceListDocumentsResult(%+v)", *p)
 }
 
-func (p *RAGServiceListDocumentsResult) DeepEqual(ano *RAGServiceListDocumentsResult) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field0DeepEqual(ano.Success) {
-		return false
-	}
-	return true
-}
-
-func (p *RAGServiceListDocumentsResult) Field0DeepEqual(src *ListDocumentsResp) bool {
-
-	if !p.Success.DeepEqual(src) {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_RAGServiceListDocumentsResult = map[int16]string{
+	0: "success",
+}
+
+type RAGServiceDeleteDocumentArgs struct {
+	Req *DeleteDocumentReq `thrift:"req,1" frugal:"1,default,DeleteDocumentReq" json:"req"`
+}
+
+func NewRAGServiceDeleteDocumentArgs() *RAGServiceDeleteDocumentArgs {
+	return &RAGServiceDeleteDocumentArgs{}
+}
+
+func (p *RAGServiceDeleteDocumentArgs) InitDefault() {
+}
+
+var RAGServiceDeleteDocumentArgs_Req_DEFAULT *DeleteDocumentReq
+
+func (p *RAGServiceDeleteDocumentArgs) GetReq() (v *DeleteDocumentReq) {
+	if !p.IsSetReq() {
+		return RAGServiceDeleteDocumentArgs_Req_DEFAULT
+	}
+	return p.Req
+}
+func (p *RAGServiceDeleteDocumentArgs) SetReq(val *DeleteDocumentReq) {
+	p.Req = val
+}
+
+func (p *RAGServiceDeleteDocumentArgs) IsSetReq() bool {
+	return p.Req != nil
+}
+
+func (p *RAGServiceDeleteDocumentArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("RAGServiceDeleteDocumentArgs(%+v)", *p)
+}
+
+var fieldIDToName_RAGServiceDeleteDocumentArgs = map[int16]string{
+	1: "req",
+}
+
+type RAGServiceDeleteDocumentResult struct {
+	Success *DeleteDocumentResp `thrift:"success,0,optional" frugal:"0,optional,DeleteDocumentResp" json:"success,omitempty"`
+}
+
+func NewRAGServiceDeleteDocumentResult() *RAGServiceDeleteDocumentResult {
+	return &RAGServiceDeleteDocumentResult{}
+}
+
+func (p *RAGServiceDeleteDocumentResult) InitDefault() {
+}
+
+var RAGServiceDeleteDocumentResult_Success_DEFAULT *DeleteDocumentResp
+
+func (p *RAGServiceDeleteDocumentResult) GetSuccess() (v *DeleteDocumentResp) {
+	if !p.IsSetSuccess() {
+		return RAGServiceDeleteDocumentResult_Success_DEFAULT
+	}
+	return p.Success
+}
+func (p *RAGServiceDeleteDocumentResult) SetSuccess(x interface{}) {
+	p.Success = x.(*DeleteDocumentResp)
+}
+
+func (p *RAGServiceDeleteDocumentResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *RAGServiceDeleteDocumentResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("RAGServiceDeleteDocumentResult(%+v)", *p)
+}
+
+var fieldIDToName_RAGServiceDeleteDocumentResult = map[int16]string{
+	0: "success",
+}
+
+type RAGServiceDeleteDocumentGraphArgs struct {
+	Req *DeleteGraphReq `thrift:"req,1" frugal:"1,default,DeleteGraphReq" json:"req"`
+}
+
+func NewRAGServiceDeleteDocumentGraphArgs() *RAGServiceDeleteDocumentGraphArgs {
+	return &RAGServiceDeleteDocumentGraphArgs{}
+}
+
+func (p *RAGServiceDeleteDocumentGraphArgs) InitDefault() {
+}
+
+var RAGServiceDeleteDocumentGraphArgs_Req_DEFAULT *DeleteGraphReq
+
+func (p *RAGServiceDeleteDocumentGraphArgs) GetReq() (v *DeleteGraphReq) {
+	if !p.IsSetReq() {
+		return RAGServiceDeleteDocumentGraphArgs_Req_DEFAULT
+	}
+	return p.Req
+}
+func (p *RAGServiceDeleteDocumentGraphArgs) SetReq(val *DeleteGraphReq) {
+	p.Req = val
+}
+
+func (p *RAGServiceDeleteDocumentGraphArgs) IsSetReq() bool {
+	return p.Req != nil
+}
+
+func (p *RAGServiceDeleteDocumentGraphArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("RAGServiceDeleteDocumentGraphArgs(%+v)", *p)
+}
+
+var fieldIDToName_RAGServiceDeleteDocumentGraphArgs = map[int16]string{
+	1: "req",
+}
+
+type RAGServiceDeleteDocumentGraphResult struct {
+	Success *DeleteGraphResp `thrift:"success,0,optional" frugal:"0,optional,DeleteGraphResp" json:"success,omitempty"`
+}
+
+func NewRAGServiceDeleteDocumentGraphResult() *RAGServiceDeleteDocumentGraphResult {
+	return &RAGServiceDeleteDocumentGraphResult{}
+}
+
+func (p *RAGServiceDeleteDocumentGraphResult) InitDefault() {
+}
+
+var RAGServiceDeleteDocumentGraphResult_Success_DEFAULT *DeleteGraphResp
+
+func (p *RAGServiceDeleteDocumentGraphResult) GetSuccess() (v *DeleteGraphResp) {
+	if !p.IsSetSuccess() {
+		return RAGServiceDeleteDocumentGraphResult_Success_DEFAULT
+	}
+	return p.Success
+}
+func (p *RAGServiceDeleteDocumentGraphResult) SetSuccess(x interface{}) {
+	p.Success = x.(*DeleteGraphResp)
+}
+
+func (p *RAGServiceDeleteDocumentGraphResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *RAGServiceDeleteDocumentGraphResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("RAGServiceDeleteDocumentGraphResult(%+v)", *p)
+}
+
+var fieldIDToName_RAGServiceDeleteDocumentGraphResult = map[int16]string{
 	0: "success",
 }

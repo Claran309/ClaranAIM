@@ -161,6 +161,7 @@ type AdminGroup struct {
 	OwnerId      int64  `thrift:"owner_id,3" frugal:"3,default,i64" json:"owner_id"`
 	Announcement string `thrift:"announcement,4" frugal:"4,default,string" json:"announcement"`
 	CreatedAt    string `thrift:"created_at,5" frugal:"5,default,string" json:"created_at"`
+	Status       string `thrift:"status,6" frugal:"6,default,string" json:"status"`
 }
 
 func NewAdminGroup() *AdminGroup {
@@ -189,6 +190,10 @@ func (p *AdminGroup) GetAnnouncement() (v string) {
 func (p *AdminGroup) GetCreatedAt() (v string) {
 	return p.CreatedAt
 }
+
+func (p *AdminGroup) GetStatus() (v string) {
+	return p.Status
+}
 func (p *AdminGroup) SetId(val int64) {
 	p.Id = val
 }
@@ -204,6 +209,9 @@ func (p *AdminGroup) SetAnnouncement(val string) {
 func (p *AdminGroup) SetCreatedAt(val string) {
 	p.CreatedAt = val
 }
+func (p *AdminGroup) SetStatus(val string) {
+	p.Status = val
+}
 
 func (p *AdminGroup) String() string {
 	if p == nil {
@@ -218,6 +226,7 @@ var fieldIDToName_AdminGroup = map[int16]string{
 	3: "owner_id",
 	4: "announcement",
 	5: "created_at",
+	6: "status",
 }
 
 type AdminFile struct {
@@ -1252,6 +1261,118 @@ var fieldIDToName_ListGroupsResp = map[int16]string{
 	2: "groups",
 	3: "total",
 	4: "msg",
+}
+
+type UpdateGroupStatusReq struct {
+	AdminId int64  `thrift:"admin_id,1" frugal:"1,default,i64" json:"admin_id"`
+	GroupId int64  `thrift:"group_id,2" frugal:"2,default,i64" json:"group_id"`
+	Status  string `thrift:"status,3" frugal:"3,default,string" json:"status"`
+	Reason  string `thrift:"reason,4" frugal:"4,default,string" json:"reason"`
+}
+
+func NewUpdateGroupStatusReq() *UpdateGroupStatusReq {
+	return &UpdateGroupStatusReq{}
+}
+
+func (p *UpdateGroupStatusReq) InitDefault() {
+}
+
+func (p *UpdateGroupStatusReq) GetAdminId() (v int64) {
+	return p.AdminId
+}
+
+func (p *UpdateGroupStatusReq) GetGroupId() (v int64) {
+	return p.GroupId
+}
+
+func (p *UpdateGroupStatusReq) GetStatus() (v string) {
+	return p.Status
+}
+
+func (p *UpdateGroupStatusReq) GetReason() (v string) {
+	return p.Reason
+}
+func (p *UpdateGroupStatusReq) SetAdminId(val int64) {
+	p.AdminId = val
+}
+func (p *UpdateGroupStatusReq) SetGroupId(val int64) {
+	p.GroupId = val
+}
+func (p *UpdateGroupStatusReq) SetStatus(val string) {
+	p.Status = val
+}
+func (p *UpdateGroupStatusReq) SetReason(val string) {
+	p.Reason = val
+}
+
+func (p *UpdateGroupStatusReq) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("UpdateGroupStatusReq(%+v)", *p)
+}
+
+var fieldIDToName_UpdateGroupStatusReq = map[int16]string{
+	1: "admin_id",
+	2: "group_id",
+	3: "status",
+	4: "reason",
+}
+
+type UpdateGroupStatusResp struct {
+	Success bool        `thrift:"success,1" frugal:"1,default,bool" json:"success"`
+	Msg     string      `thrift:"msg,2" frugal:"2,default,string" json:"msg"`
+	Group   *AdminGroup `thrift:"group,3" frugal:"3,default,AdminGroup" json:"group"`
+}
+
+func NewUpdateGroupStatusResp() *UpdateGroupStatusResp {
+	return &UpdateGroupStatusResp{}
+}
+
+func (p *UpdateGroupStatusResp) InitDefault() {
+}
+
+func (p *UpdateGroupStatusResp) GetSuccess() (v bool) {
+	return p.Success
+}
+
+func (p *UpdateGroupStatusResp) GetMsg() (v string) {
+	return p.Msg
+}
+
+var UpdateGroupStatusResp_Group_DEFAULT *AdminGroup
+
+func (p *UpdateGroupStatusResp) GetGroup() (v *AdminGroup) {
+	if !p.IsSetGroup() {
+		return UpdateGroupStatusResp_Group_DEFAULT
+	}
+	return p.Group
+}
+func (p *UpdateGroupStatusResp) SetSuccess(val bool) {
+	p.Success = val
+}
+func (p *UpdateGroupStatusResp) SetMsg(val string) {
+	p.Msg = val
+}
+func (p *UpdateGroupStatusResp) SetGroup(val *AdminGroup) {
+	p.Group = val
+}
+
+func (p *UpdateGroupStatusResp) IsSetGroup() bool {
+	return p.Group != nil
+}
+
+func (p *UpdateGroupStatusResp) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("UpdateGroupStatusResp(%+v)", *p)
+}
+
+var fieldIDToName_UpdateGroupStatusResp = map[int16]string{
+	1: "success",
+	2: "msg",
+	3: "group",
 }
 
 type ListFilesReq struct {
@@ -2350,6 +2471,8 @@ type AdminService interface {
 
 	ListGroups(ctx context.Context, req *ListGroupsReq) (r *ListGroupsResp, err error)
 
+	UpdateGroupStatus(ctx context.Context, req *UpdateGroupStatusReq) (r *UpdateGroupStatusResp, err error)
+
 	ListFiles(ctx context.Context, req *ListFilesReq) (r *ListFilesResp, err error)
 
 	ListAgents(ctx context.Context, req *ListAgentsReq) (r *ListAgentsResp, err error)
@@ -2594,6 +2717,82 @@ func (p *AdminServiceListGroupsResult) String() string {
 }
 
 var fieldIDToName_AdminServiceListGroupsResult = map[int16]string{
+	0: "success",
+}
+
+type AdminServiceUpdateGroupStatusArgs struct {
+	Req *UpdateGroupStatusReq `thrift:"req,1" frugal:"1,default,UpdateGroupStatusReq" json:"req"`
+}
+
+func NewAdminServiceUpdateGroupStatusArgs() *AdminServiceUpdateGroupStatusArgs {
+	return &AdminServiceUpdateGroupStatusArgs{}
+}
+
+func (p *AdminServiceUpdateGroupStatusArgs) InitDefault() {
+}
+
+var AdminServiceUpdateGroupStatusArgs_Req_DEFAULT *UpdateGroupStatusReq
+
+func (p *AdminServiceUpdateGroupStatusArgs) GetReq() (v *UpdateGroupStatusReq) {
+	if !p.IsSetReq() {
+		return AdminServiceUpdateGroupStatusArgs_Req_DEFAULT
+	}
+	return p.Req
+}
+func (p *AdminServiceUpdateGroupStatusArgs) SetReq(val *UpdateGroupStatusReq) {
+	p.Req = val
+}
+
+func (p *AdminServiceUpdateGroupStatusArgs) IsSetReq() bool {
+	return p.Req != nil
+}
+
+func (p *AdminServiceUpdateGroupStatusArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("AdminServiceUpdateGroupStatusArgs(%+v)", *p)
+}
+
+var fieldIDToName_AdminServiceUpdateGroupStatusArgs = map[int16]string{
+	1: "req",
+}
+
+type AdminServiceUpdateGroupStatusResult struct {
+	Success *UpdateGroupStatusResp `thrift:"success,0,optional" frugal:"0,optional,UpdateGroupStatusResp" json:"success,omitempty"`
+}
+
+func NewAdminServiceUpdateGroupStatusResult() *AdminServiceUpdateGroupStatusResult {
+	return &AdminServiceUpdateGroupStatusResult{}
+}
+
+func (p *AdminServiceUpdateGroupStatusResult) InitDefault() {
+}
+
+var AdminServiceUpdateGroupStatusResult_Success_DEFAULT *UpdateGroupStatusResp
+
+func (p *AdminServiceUpdateGroupStatusResult) GetSuccess() (v *UpdateGroupStatusResp) {
+	if !p.IsSetSuccess() {
+		return AdminServiceUpdateGroupStatusResult_Success_DEFAULT
+	}
+	return p.Success
+}
+func (p *AdminServiceUpdateGroupStatusResult) SetSuccess(x interface{}) {
+	p.Success = x.(*UpdateGroupStatusResp)
+}
+
+func (p *AdminServiceUpdateGroupStatusResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *AdminServiceUpdateGroupStatusResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("AdminServiceUpdateGroupStatusResult(%+v)", *p)
+}
+
+var fieldIDToName_AdminServiceUpdateGroupStatusResult = map[int16]string{
 	0: "success",
 }
 

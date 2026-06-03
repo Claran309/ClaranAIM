@@ -15,12 +15,15 @@ type GraphQuery struct {
 	CommunityID     int64
 	Hops            int
 	Limit           int
+	DocumentID      int64
 }
 
 // GraphInput 是底层 GraphRAG 数据源支持的最小查询条件。
 type GraphInput struct {
-	Query string
-	Limit int
+	Query      string
+	Limit      int
+	DocumentID int64
+	Hops       int
 }
 
 // GraphView 是前端可视化画布使用的完整图谱视图。
@@ -56,6 +59,7 @@ type GraphEdge struct {
 	Weight      float64 `json:"weight"`
 	Evidence    string  `json:"evidence"`
 	Color       string  `json:"color"`
+	DocumentID  int64   `json:"document_id"`
 }
 
 // GraphCommunity 是社区摘要，用于图例和社区过滤。
