@@ -79,6 +79,7 @@ const (
 	MaxMemoryRecallLimit int64 = 50
 	// DefaultGroupTriggerMode 表示群聊中默认只响应 @ 或命令式触发。
 	DefaultGroupTriggerMode = "mention"
+	skillSmokePrefix        = "[[CLARAN_SKILL_SMOKE_TEST]]"
 )
 
 // AgentMemoryService 是 agent-manager-service 依赖的最小 memory-service 契约。
@@ -352,6 +353,10 @@ func (s *agentServiceImpl) ChatWithBot(ctx context.Context, botID, userID, conve
 	if !botInfo.IsActive {
 		return nil, errors.New("bot已停用")
 	}
+	if botInfo.AgentUserID > 0 && userID == botInfo.AgentUserID {
+		log.Printf("Agent自回声静默: trigger_path=ChatWithBot bot_id=%d user_id=%d agent_user_id=%d conversation_id=%d", botID, userID, botInfo.AgentUserID, conversationID)
+		return &ChatResult{ConversationID: conversationID, Status: "silent_agent_echo"}, nil
+	}
 	s.applyDefaultProvider(botInfo)
 	if botInfo.APIKey == "" {
 		return nil, errors.New("bot未配置API Key，请联系管理员或配置自部署Bot的API Key")
@@ -367,9 +372,20 @@ func (s *agentServiceImpl) ChatWithBot(ctx context.Context, botID, userID, conve
 		return nil, errors.New("agent-runtime-service未配置")
 	}
 	sessionID := defaultAgentSessionID(botID, userID, conversationID)
+	skillSmoke := strings.HasPrefix(strings.TrimSpace(message), skillSmokePrefix)
+	if skillSmoke {
+		sessionID = fmt.Sprintf("skill_smoke_%d_user_%d_%d", botID, userID, time.Now().UnixNano())
+	}
 	runtimeInput := s.buildInputWithMemory(ctx, botInfo, userID, conversationID, sessionID, message)
+	runtimeBot := s.runtimeConfig(botInfo)
+	if skillSmoke {
+		runtimeBot.IncludeDomainTools = false
+		runtimeBot.ToolPolicy = "disabled"
+		runtimeInput = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(message), skillSmokePrefix))
+		log.Printf("Skill smoke test runtime: bot_id=%d user_id=%d skills_dir=%s include_domain_tools=false session_id=%s", botID, userID, runtimeBot.SkillsDir, sessionID)
+	}
 	resp, err := s.runtimeClient.RunAgent(ctx, &bot_runtime.RunAgentReq{
-		Bot:            s.runtimeConfig(botInfo),
+		Bot:            runtimeBot,
 		UserId:         userID,
 		ConversationId: conversationID,
 		SessionId:      sessionID,
@@ -534,23 +550,33 @@ func agentRunHasLongTermValue(userMessage, reply string) bool {
 	if len([]rune(combined)) < 28 {
 		return false
 	}
-	noise := []string{"你好", "hello", "hi", "好的", "收到", "谢谢", "测试", "在吗", "嗯", "可以", "没事"}
+	noise := []string{"你好", "hello", "hi", "好的", "收到", "谢谢", "测试", "在吗", "嗯", "可以", "没事", "总结一下", "帮我看看", "解释一下"}
 	for _, item := range noise {
 		if combined == item || (strings.Contains(combined, item) && len([]rune(combined)) < 40) {
 			return false
 		}
 	}
-	longTermSignals := []string{
-		"长期", "记住", "偏好", "习惯", "目标", "计划", "项目", "需求", "配置", "apikey", "api key",
-		"baseurl", "工作目录", "知识库", "知识图谱", "rag", "memory", "milvus", "agent", "skill",
-		"不懂", "困惑", "正在学习", "已经掌握", "以后", "下次", "总是", "倾向",
+	negativeSignals := []string{
+		"system prompt", "系统提示词", "会话材料", "以下是可能相关的长期记忆", "当前触发内容",
+		"根据上文", "本轮对话", "最近消息", "搜索结果", "检索结果", "命中来源", "参考资料",
+		"这段会话", "总结如下", "临时", "刚才", "今天先", "等会", "稍后",
 	}
-	for _, signal := range longTermSignals {
+	for _, signal := range negativeSignals {
+		if strings.Contains(combined, strings.ToLower(signal)) {
+			return false
+		}
+	}
+	explicitSignals := []string{
+		"长期记住", "请记住", "帮我记住", "记住：", "我的偏好", "我偏好", "我习惯", "我总是",
+		"我的长期目标", "长期目标", "以后都", "下次请", "我正在学习", "我已经掌握", "我不懂", "我困惑",
+		"我的项目", "项目状态", "我的配置", "我的工作目录", "我的 api key", "我的apikey",
+	}
+	for _, signal := range explicitSignals {
 		if strings.Contains(combined, strings.ToLower(signal)) {
 			return true
 		}
 	}
-	return len([]rune(combined)) >= 180
+	return false
 }
 
 // extractTriggeredContentForMemory 从 Agent-Native 包装输入中抽出真正的用户触发内容。

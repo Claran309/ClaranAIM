@@ -127,6 +127,52 @@ func TestHandleAgentMentionEventTriggersPrivateAgentConversation(t *testing.T) {
 	}
 }
 
+func TestHandleAgentMentionEventSkipsPrivateAgentSelfMessageWithoutClientMsgID(t *testing.T) {
+	envelope, err := events.NewEnvelope(events.EventTypeMessageCreated, "10", events.MessagePayload{
+		ConversationID:   10,
+		ConversationType: "private",
+		SenderID:         2001,
+		Content:          "这是 Agent 自己刚发出的回复",
+		MsgID:            100,
+		ParticipantIDs:   []int64{1001, 2001},
+	})
+	if err != nil {
+		t.Fatalf("NewEnvelope returned error: %v", err)
+	}
+	botSvc := &fakeBotService{bot: &model.Bot{ID: 1, AgentUserID: 2001, IsActive: true}, reply: "reply"}
+
+	err = handleAgentMentionEvent(context.Background(), envelope, botSvc, &fakeDispatchRepo{}, &fakeMessageClient{sendResp: &message.SendMessageResp{Success: true, MsgId: 101}})
+	if err != nil {
+		t.Fatalf("handleAgentMentionEvent returned error: %v", err)
+	}
+	if botSvc.chatCalls != 0 {
+		t.Fatalf("chat calls = %d, want 0 for private agent self message", botSvc.chatCalls)
+	}
+}
+
+func TestHandleAgentMentionEventSkipsPrivateEventWithMissingSenderAndAgentParticipant(t *testing.T) {
+	envelope, err := events.NewEnvelope(events.EventTypeMessageCreated, "10", events.MessagePayload{
+		ConversationID:   10,
+		ConversationType: "private",
+		SenderID:         0,
+		Content:          "旧事件缺 sender，不应让 Agent 猜测并回复自己",
+		MsgID:            100,
+		ParticipantIDs:   []int64{1001, 2001},
+	})
+	if err != nil {
+		t.Fatalf("NewEnvelope returned error: %v", err)
+	}
+	botSvc := &fakeBotService{bot: &model.Bot{ID: 1, AgentUserID: 2001, IsActive: true}, reply: "reply"}
+
+	err = handleAgentMentionEvent(context.Background(), envelope, botSvc, &fakeDispatchRepo{}, &fakeMessageClient{sendResp: &message.SendMessageResp{Success: true, MsgId: 101}})
+	if err != nil {
+		t.Fatalf("handleAgentMentionEvent returned error: %v", err)
+	}
+	if botSvc.chatCalls != 0 {
+		t.Fatalf("chat calls = %d, want 0 for missing sender private agent participant event", botSvc.chatCalls)
+	}
+}
+
 func TestHandleAgentMentionEventInjectsGroupContext(t *testing.T) {
 	envelope, err := events.NewEnvelope(events.EventTypeMessageCreated, "10", events.MessagePayload{
 		ConversationID:   10,
@@ -465,15 +511,42 @@ func TestAgentEventDispatcherIgnoresResolvedBotSelfMessageWithoutClientMsgID(t *
 		t.Fatalf("NewEnvelope returned error: %v", err)
 	}
 	botSvc := &fakeBotService{bot: &model.Bot{ID: 1, AgentUserID: 2001, IsActive: true}}
+	audits := &fakeAuditRepo{}
 	dispatcher := NewAgentEventDispatcher(botSvc, &fakeDispatchRepo{}, &fakeSubscriptionRepo{rules: []model.AgentSubscriptionRule{
 		{BotID: 1, AgentUserID: 2001, ConversationID: 10, EventTypes: events.EventTypeMessageCreated, TriggerMode: "mention", Action: "trigger", IsActive: true},
-	}}, &fakeAuditRepo{}, &fakeMessageClient{sendResp: &message.SendMessageResp{Success: true, MsgId: 102}})
+	}}, audits, &fakeMessageClient{sendResp: &message.SendMessageResp{Success: true, MsgId: 102}})
 
 	if err := dispatcher.Handle(context.Background(), envelope); err != nil {
 		t.Fatalf("dispatcher.Handle returned error: %v", err)
 	}
 	if botSvc.chatCalls != 0 {
 		t.Fatalf("chat calls = %d, want 0 for resolved Agent self message without client_msg_id", botSvc.chatCalls)
+	}
+	if !audits.hasDecision("silent_agent_echo") {
+		t.Fatalf("expected silent_agent_echo audit, got %#v", audits.records)
+	}
+}
+
+func TestAgentEventDispatcherIgnoresPrivateEventWithMissingSenderAndAgentParticipant(t *testing.T) {
+	envelope, err := events.NewEnvelope(events.EventTypeMessageCreated, "10", events.MessagePayload{
+		ConversationID:   10,
+		ConversationType: "private",
+		SenderID:         0,
+		Content:          "旧事件 sender 缺失时不能让 Agent 猜测并回复自己",
+		MsgID:            102,
+		ParticipantIDs:   []int64{1001, 2001},
+	})
+	if err != nil {
+		t.Fatalf("NewEnvelope returned error: %v", err)
+	}
+	botSvc := &fakeBotService{bot: &model.Bot{ID: 1, AgentUserID: 2001, IsActive: true}}
+	dispatcher := NewAgentEventDispatcher(botSvc, &fakeDispatchRepo{}, nil, &fakeAuditRepo{}, &fakeMessageClient{sendResp: &message.SendMessageResp{Success: true, MsgId: 103}})
+
+	if err := dispatcher.Handle(context.Background(), envelope); err != nil {
+		t.Fatalf("dispatcher.Handle returned error: %v", err)
+	}
+	if botSvc.chatCalls != 0 {
+		t.Fatalf("chat calls = %d, want 0 for private event with missing sender and agent participant", botSvc.chatCalls)
 	}
 }
 

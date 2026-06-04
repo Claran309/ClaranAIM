@@ -1,0 +1,63 @@
+networks:
+  claran-observability:
+    driver: bridge
+
+services:
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    volumes:
+      - ../config/collector.yaml:/etc/otelcol-contrib/config.yaml:ro
+    ports:
+      - "8079:4317"
+      - "8082:4318"
+      - "8889:8889"
+    networks:
+      - claran-observability
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:latest
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ../config/prometheus.yaml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "8084:9090"
+    networks:
+      - claran-observability
+    restart: unless-stopped
+    depends_on:
+      - otel-collector
+
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    ports:
+      - "8085:16686"
+    networks:
+      - claran-observability
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:latest
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin123
+      - GF_USERS_DEFAULT_THEME=light
+    ports:
+      - "8086:3000"
+    volumes:
+      - claran-grafana-data:/var/lib/grafana
+      - ../config/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ../config/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    networks:
+      - claran-observability
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+      - jaeger
+
+volumes:
+  claran-grafana-data:

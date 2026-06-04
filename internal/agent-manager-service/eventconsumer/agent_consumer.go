@@ -132,12 +132,16 @@ func (d *AgentEventDispatcher) Handle(ctx context.Context, envelope events.Envel
 		return nil
 	}
 	if event.isAgentGenerated() {
+		log.Printf("Agent事件静默: agent_generated event_id=%s type=%s conversation_id=%d sender_id=%d msg_id=%d client_msg_id=%s", envelope.EventID, event.EventType, event.ConversationID, event.SenderID, event.MsgID, event.ClientMsgID)
 		return nil
 	}
 	if event.looksLikeAgentEcho() {
+		log.Printf("Agent事件静默: agent_echo_marker event_id=%s type=%s conversation_id=%d sender_id=%d msg_id=%d client_msg_id=%s", envelope.EventID, event.EventType, event.ConversationID, event.SenderID, event.MsgID, event.ClientMsgID)
 		return nil
 	}
-	if d.isAgentSender(ctx, event.SenderID) {
+	if reason := d.agentEchoIgnoreReason(ctx, *event); reason != "" {
+		log.Printf("Agent事件静默: %s event_id=%s type=%s conversation_id=%d sender_id=%d msg_id=%d client_msg_id=%s participants=%v mentions=%v", reason, envelope.EventID, event.EventType, event.ConversationID, event.SenderID, event.MsgID, event.ClientMsgID, event.ParticipantIDs, event.MentionUserIDs)
+		_ = d.auditSilentAgentEcho(ctx, envelope, *event, reason)
 		return nil
 	}
 	decisions, err := d.decide(ctx, *event)
@@ -153,9 +157,17 @@ func (d *AgentEventDispatcher) Handle(ctx context.Context, envelope events.Envel
 			return err
 		}
 		if bot == nil || !bot.IsActive || bot.AgentUserID == event.SenderID {
+			if bot != nil && bot.AgentUserID == event.SenderID {
+				traceID := fmt.Sprintf("agent:%s:%d", event.dispatchEventID(envelope.EventID), bot.AgentUserID)
+				_ = d.audit(ctx, envelope, *event, bot, "silent_agent_echo", "resolved_bot_sender_is_agent_user", traceID)
+				log.Printf("Agent事件静默: resolved_bot_sender_is_agent_user event_id=%s type=%s conversation_id=%d sender_id=%d bot_id=%d agent_user_id=%d msg_id=%d client_msg_id=%s participants=%v metadata=%v", envelope.EventID, event.EventType, event.ConversationID, event.SenderID, bot.ID, bot.AgentUserID, event.MsgID, event.ClientMsgID, event.ParticipantIDs, event.Metadata)
+			}
 			continue
 		}
 		if event.sentByKnownAgent(bot) {
+			traceID := fmt.Sprintf("agent:%s:%d", event.dispatchEventID(envelope.EventID), bot.AgentUserID)
+			_ = d.audit(ctx, envelope, *event, bot, "silent_agent_echo", "event_sent_by_known_agent", traceID)
+			log.Printf("Agent事件静默: event_sent_by_known_agent event_id=%s type=%s conversation_id=%d sender_id=%d bot_id=%d agent_user_id=%d msg_id=%d client_msg_id=%s participants=%v metadata=%v", envelope.EventID, event.EventType, event.ConversationID, event.SenderID, bot.ID, bot.AgentUserID, event.MsgID, event.ClientMsgID, event.ParticipantIDs, event.Metadata)
 			continue
 		}
 		sourceEventID := event.dispatchEventID(envelope.EventID)
@@ -259,7 +271,72 @@ func (d *AgentEventDispatcher) isAgentSender(ctx context.Context, senderID int64
 		return false
 	}
 	bot, err := d.agentService.GetBotByAgentUserID(ctx, senderID)
-	return err == nil && bot != nil && bot.AgentUserID == senderID
+	if err != nil {
+		log.Printf("Agent sender lookup failed sender_id=%d err=%v", senderID, err)
+		return false
+	}
+	return bot != nil && bot.AgentUserID == senderID
+}
+
+func (d *AgentEventDispatcher) shouldIgnoreAgentEcho(ctx context.Context, event agentEvent) bool {
+	return d.agentEchoIgnoreReason(ctx, event) != ""
+}
+
+func (d *AgentEventDispatcher) auditSilentAgentEcho(ctx context.Context, envelope events.Envelope, event agentEvent, reason string) error {
+	if d == nil || d.auditRepo == nil || d.agentService == nil {
+		return nil
+	}
+	var bot *model.Bot
+	if event.SenderID > 0 {
+		if resolved, err := d.agentService.GetBotByAgentUserID(ctx, event.SenderID); err == nil && resolved != nil {
+			bot = resolved
+		}
+	}
+	if bot == nil {
+		for _, participantID := range event.ParticipantIDs {
+			if participantID <= 0 {
+				continue
+			}
+			resolved, err := d.agentService.GetBotByAgentUserID(ctx, participantID)
+			if err == nil && resolved != nil {
+				bot = resolved
+				break
+			}
+		}
+	}
+	if bot == nil {
+		return nil
+	}
+	traceID := fmt.Sprintf("agent:%s:%d", event.dispatchEventID(envelope.EventID), bot.AgentUserID)
+	return d.audit(ctx, envelope, event, bot, "silent_agent_echo", reason, traceID)
+}
+
+func (d *AgentEventDispatcher) agentEchoIgnoreReason(ctx context.Context, event agentEvent) string {
+	if event.isAgentGenerated() || event.looksLikeAgentEcho() {
+		return "agent_echo_marker"
+	}
+	if d.isAgentSender(ctx, event.SenderID) {
+		return "sender_is_agent_user"
+	}
+	if event.ConversationType != "private" {
+		return ""
+	}
+	agentParticipants := 0
+	for _, participantID := range event.ParticipantIDs {
+		if participantID <= 0 {
+			continue
+		}
+		if d.isAgentSender(ctx, participantID) {
+			agentParticipants++
+			if participantID == event.SenderID {
+				return "private_sender_is_agent_participant"
+			}
+		}
+	}
+	if event.SenderID <= 0 && agentParticipants > 0 {
+		return "private_missing_sender_with_agent_participant"
+	}
+	return ""
 }
 
 func (d *AgentEventDispatcher) queueTask(ctx context.Context, bot *model.Bot, event agentEvent, sourceEventID, traceID string) error {

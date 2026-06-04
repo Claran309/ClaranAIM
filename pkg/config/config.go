@@ -35,6 +35,7 @@ type Config struct {
 	Document                 DocumentConfig                 `yaml:"document"`
 	Milvus                   MilvusConfig                   `yaml:"milvus"`
 	Governance               GovernanceConfig               `yaml:"governance"`
+	Observability            ObservabilityConfig            `yaml:"observability"`
 }
 
 // MySQLConfig MySQL数据库配置
@@ -239,6 +240,19 @@ type RPCGovernanceConfig struct {
 	MaxQPS         int  `yaml:"max_qps"`
 }
 
+// ObservabilityConfig 控制 Prometheus、OpenTelemetry、Jaeger、Grafana 和 ELK 本地观测入口。
+type ObservabilityConfig struct {
+	Enabled          bool   `yaml:"enabled"`
+	Environment      string `yaml:"environment"`
+	OTLPEndpoint     string `yaml:"otlp_endpoint"`
+	MetricsAddress   string `yaml:"metrics_address"`
+	GrafanaURL       string `yaml:"grafana_url"`
+	JaegerURL        string `yaml:"jaeger_url"`
+	KibanaURL        string `yaml:"kibana_url"`
+	PrometheusURL    string `yaml:"prometheus_url"`
+	DashboardBaseURL string `yaml:"dashboard_base_url"`
+}
+
 // Load 加载配置文件
 // 流程：加载.env文件 → 读取YAML配置 → 环境变量覆盖敏感信息
 // configPath: YAML配置文件路径（如 config/user-service.yaml）
@@ -268,6 +282,15 @@ func Load(configPath string) (*Config, error) {
 	v.SetDefault("governance.agent_rpc.circuit_breaker", true)
 	v.SetDefault("governance.agent_rpc.max_connections", 1000)
 	v.SetDefault("governance.agent_rpc.max_qps", 500)
+	v.SetDefault("observability.enabled", true)
+	v.SetDefault("observability.environment", "dev")
+	v.SetDefault("observability.otlp_endpoint", "http://127.0.0.1:8082")
+	v.SetDefault("observability.metrics_address", "")
+	v.SetDefault("observability.grafana_url", "http://127.0.0.1:8086")
+	v.SetDefault("observability.jaeger_url", "http://127.0.0.1:8085")
+	v.SetDefault("observability.kibana_url", "http://127.0.0.1:5601")
+	v.SetDefault("observability.prometheus_url", "http://127.0.0.1:8084")
+	v.SetDefault("observability.dashboard_base_url", "http://127.0.0.1:8086")
 	v.SetDefault("rag.embedding_dim", 256)
 	v.SetDefault("rag.default_mode", "adaptive")
 	v.SetDefault("rag.embedding_provider", "hash")
@@ -792,6 +815,36 @@ func applyEnvOverrides(cfg *Config) {
 		if v, err := strconv.Atoi(maxQPS); err == nil {
 			cfg.Governance.AgentRPC.MaxQPS = v
 		}
+	}
+
+	if enabled := os.Getenv("OBSERVABILITY_ENABLED"); enabled != "" {
+		if v, err := strconv.ParseBool(enabled); err == nil {
+			cfg.Observability.Enabled = v
+		}
+	}
+	if environment := os.Getenv("OBSERVABILITY_ENVIRONMENT"); environment != "" {
+		cfg.Observability.Environment = environment
+	}
+	if endpoint := os.Getenv("OBSERVABILITY_OTLP_ENDPOINT"); endpoint != "" {
+		cfg.Observability.OTLPEndpoint = endpoint
+	}
+	if address := os.Getenv("OBSERVABILITY_METRICS_ADDRESS"); address != "" {
+		cfg.Observability.MetricsAddress = address
+	}
+	if url := os.Getenv("OBSERVABILITY_GRAFANA_URL"); url != "" {
+		cfg.Observability.GrafanaURL = url
+	}
+	if url := os.Getenv("OBSERVABILITY_JAEGER_URL"); url != "" {
+		cfg.Observability.JaegerURL = url
+	}
+	if url := os.Getenv("OBSERVABILITY_KIBANA_URL"); url != "" {
+		cfg.Observability.KibanaURL = url
+	}
+	if url := os.Getenv("OBSERVABILITY_PROMETHEUS_URL"); url != "" {
+		cfg.Observability.PrometheusURL = url
+	}
+	if url := os.Getenv("OBSERVABILITY_DASHBOARD_BASE_URL"); url != "" {
+		cfg.Observability.DashboardBaseURL = url
 	}
 
 }

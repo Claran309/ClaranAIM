@@ -64,7 +64,20 @@ func NewAgentRuntimeService(cfg RuntimeConfig) AgentRuntimeService {
 
 // RunAgent 使用长会话上下文执行一轮用户指令。
 func (s *runtimeServiceImpl) RunAgent(ctx context.Context, req *bot_runtime.RunAgentReq) (*bot_runtime.RunAgentResp, error) {
+	var cancel context.CancelFunc
+	ctx, cancel = withDefaultAgentRunTimeout(ctx)
+	defer cancel()
 	return s.runAgent(ctx, req, true)
+}
+
+func withDefaultAgentRunTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if _, ok := ctx.Deadline(); ok {
+		return context.WithCancel(ctx)
+	}
+	return context.WithTimeout(ctx, 10*time.Minute)
 }
 
 // runAgent 执行 Agent 主流程：校验配置、恢复历史消息、调用 Eino ADK、收集回复和 token usage。

@@ -11,6 +11,7 @@ import (
 	"ClaranAIM/pkg/health"
 	"ClaranAIM/pkg/jwt"
 	"ClaranAIM/pkg/logger"
+	"ClaranAIM/pkg/observability"
 	"context"
 	"encoding/json"
 	"io"
@@ -28,6 +29,9 @@ func main() {
 	if err != nil {
 		logger.Fatal("加载配置失败", "error", err)
 	}
+
+	obsShutdown := observability.InitService(cfg.Service.Name, cfg)
+	defer obsShutdown()
 
 	jwt.SetSecretKey(cfg.JWT.SecretKey)
 

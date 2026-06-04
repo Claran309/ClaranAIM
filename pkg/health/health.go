@@ -3,6 +3,7 @@ package health
 
 import (
 	"ClaranAIM/pkg/logger"
+	"ClaranAIM/pkg/observability"
 	"context"
 	"database/sql"
 	"fmt"
@@ -18,8 +19,10 @@ func CheckMySQL(db *sql.DB, serviceName string) bool {
 
 	if err := db.PingContext(ctx); err != nil {
 		logger.Error("MySQL连接检查失败", "service", serviceName, "error", err)
+		observability.RecordDependencyCheck("mysql", "error")
 		return false
 	}
+	observability.RecordDependencyCheck("mysql", "ok")
 
 	var version string
 	if err := db.QueryRowContext(ctx, "SELECT VERSION()").Scan(&version); err != nil {
@@ -37,8 +40,10 @@ func CheckRedis(rdb *redis.Client, serviceName string) bool {
 
 	if err := rdb.Ping(ctx).Err(); err != nil {
 		logger.Error("Redis连接检查失败", "service", serviceName, "error", err)
+		observability.RecordDependencyCheck("redis", "error")
 		return false
 	}
+	observability.RecordDependencyCheck("redis", "ok")
 
 	info, err := rdb.Info(ctx, "server").Result()
 	if err != nil {
@@ -54,6 +59,11 @@ func CheckRedis(rdb *redis.Client, serviceName string) bool {
 // Kitex 注册流程会在服务启动时执行真正的连通性检查，这里主要用于日志可观测性。
 func CheckEtcd(endpoints []string, serviceName string) bool {
 	logger.Info("Etcd注册地址", "service", serviceName, "endpoints", fmt.Sprintf("%v", endpoints))
+	status := "configured"
+	if len(endpoints) == 0 {
+		status = "empty"
+	}
+	observability.RecordDependencyCheck("etcd", status)
 	return true
 }
 

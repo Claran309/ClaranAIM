@@ -10,6 +10,7 @@ import (
 	"ClaranAIM/pkg/governance"
 	"ClaranAIM/pkg/health"
 	"ClaranAIM/pkg/logger"
+	"ClaranAIM/pkg/observability"
 	"ClaranAIM/pkg/settingsclient"
 	"context"
 	"net"
@@ -31,6 +32,9 @@ func main() {
 	if err != nil {
 		logger.Fatal("加载配置失败", "error", err)
 	}
+
+	obsShutdown := observability.InitService(cfg.Service.Name, cfg)
+	defer obsShutdown()
 
 	db, err := ragdao.InitDB(cfg.MySQL.DSN)
 	if err != nil {

@@ -1,0 +1,18 @@
+server.name: kibana
+server.host: 0.0.0.0
+server.port: 5601
+elasticsearch.hosts: ["http://elasticsearch:9200"]
+
+# 安全设置
+xpack.security.enabled: false
+xpack.encryptedSavedObjects.encryptionKey: "something_at_least_32_characters"
+xpack.reporting.encryptionKey: "something_at_least_32_characters"
+
+# 监控
+monitoring.ui.container.elasticsearch.enabled: true
+monitoring.ui.container.logstash.enabled: true
+
+# 数据视图默认设置
+kibana:
+  autocompleteTimeout: 1000
+  autocompleteTerminateAfter: 100000

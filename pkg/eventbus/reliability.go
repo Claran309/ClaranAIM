@@ -2,6 +2,7 @@ package eventbus
 
 import (
 	"ClaranAIM/pkg/events"
+	"ClaranAIM/pkg/observability"
 	"context"
 	"errors"
 	"fmt"
@@ -71,22 +72,32 @@ func NewReliableHandler(store ReliabilityStore, consumer string, maxAttempts int
 			return err
 		}
 		if processed {
+			observability.RecordBusinessEvent("kafka_consumer", consumer, "already_processed")
 			return nil
 		}
 		if err := next(ctx, envelope); err != nil {
 			attempts, recordErr := store.RecordFailure(ctx, key, envelope, err)
 			if recordErr != nil {
+				observability.RecordBusinessEvent("kafka_consumer", consumer, "record_failure_error")
 				return errors.Join(err, recordErr)
 			}
 			if attempts >= maxAttempts {
 				if deadErr := store.MarkDeadLetter(ctx, key, envelope, err); deadErr != nil {
+					observability.RecordBusinessEvent("kafka_consumer", consumer, "dead_letter_error")
 					return errors.Join(err, deadErr)
 				}
+				observability.RecordBusinessEvent("kafka_consumer", consumer, "dead")
 				return nil
 			}
+			observability.RecordBusinessEvent("kafka_consumer", consumer, "failed")
 			return err
 		}
-		return store.MarkProcessed(ctx, key, envelope)
+		if err := store.MarkProcessed(ctx, key, envelope); err != nil {
+			observability.RecordBusinessEvent("kafka_consumer", consumer, "mark_processed_error")
+			return err
+		}
+		observability.RecordBusinessEvent("kafka_consumer", consumer, "success")
+		return nil
 	}
 }
 

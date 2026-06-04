@@ -5,8 +5,10 @@ import (
 	"ClaranAIM/internal/api-gateway/client"
 	"ClaranAIM/kitex_gen/admin"
 	"ClaranAIM/kitex_gen/user"
+	"ClaranAIM/pkg/config"
 	"ClaranAIM/pkg/response"
 	"context"
+	"fmt"
 	"strconv"
 	"strings"
 
@@ -15,8 +17,14 @@ import (
 
 type AdminHandler struct{}
 
+var adminObservabilityConfig config.ObservabilityConfig
+
 func NewAdminHandler() *AdminHandler {
 	return &AdminHandler{}
+}
+
+func InitAdminObservabilityLinks(cfg config.ObservabilityConfig) {
+	adminObservabilityConfig = cfg
 }
 
 func (h *AdminHandler) Dashboard(ctx context.Context, c *app.RequestContext) {
@@ -171,6 +179,10 @@ func (h *AdminHandler) ListMCPTraces(ctx context.Context, c *app.RequestContext)
 		Limit:          queryInt(c, "limit", 50),
 		Offset:         queryInt(c, "offset", 0),
 	})
+	if err == nil && strings.EqualFold(strings.TrimSpace(c.Query("group_by")), "trace_id") && resp != nil && resp.Success {
+		response.Success(c, groupAdminMCPTraces(resp))
+		return
+	}
 	writeAdminResp(c, resp, err)
 }
 
@@ -222,6 +234,54 @@ func (h *AdminHandler) ListAuditLogs(ctx context.Context, c *app.RequestContext)
 	writeAdminResp(c, resp, err)
 }
 
+func (h *AdminHandler) ObservabilityLinks(ctx context.Context, c *app.RequestContext) {
+	cfg := adminObservabilityConfig
+	environment := strings.TrimSpace(cfg.Environment)
+	if environment == "" {
+		environment = "dev"
+	}
+	links := []map[string]string{
+		{
+			"key":         "grafana",
+			"title":       "Grafana 总览",
+			"description": "统一查看服务 QPS、延迟、错误率、依赖检查和业务指标；No Data 通常表示 Prometheus target 未 up。",
+			"url":         firstConfiguredURL(cfg.GrafanaURL, cfg.DashboardBaseURL, "http://127.0.0.1:8086"),
+		},
+		{
+			"key":         "jaeger",
+			"title":       "Jaeger Trace",
+			"description": "查看 api-gateway 到内部 Kitex 服务的调用链。",
+			"url":         firstConfiguredURL(cfg.JaegerURL, "http://127.0.0.1:8085"),
+		},
+		{
+			"key":         "kibana",
+			"title":       "Kibana 日志",
+			"description": "检索 logs/ 下由 Filebeat 汇入 ELK 的结构化服务日志；Data View 使用 claran-services-*，时间字段 @timestamp。",
+			"url":         firstConfiguredURL(cfg.KibanaURL, "http://127.0.0.1:5601"),
+		},
+		{
+			"key":         "prometheus",
+			"title":       "Prometheus Targets",
+			"description": "检查各服务 metrics 端口是否被 Prometheus 成功抓取。",
+			"url":         strings.TrimRight(firstConfiguredURL(cfg.PrometheusURL, "http://127.0.0.1:8084"), "/") + "/targets",
+		},
+	}
+	response.Success(c, map[string]interface{}{
+		"success":         true,
+		"enabled":         cfg.Enabled,
+		"environment":     environment,
+		"otlp_endpoint":   cfg.OTLPEndpoint,
+		"metrics_address": cfg.MetricsAddress,
+		"hints": []string{
+			"Prometheus Targets 先确认 claran-go-services 是否 up；如果 host.docker.internal 解析失败，检查 prometheus compose 的 extra_hosts。",
+			"Grafana No Data 通常不是前端问题，而是 Prometheus 没抓到对应 metrics。",
+			"Kibana 首次使用需要创建 Data View：claran-services-*，时间字段 @timestamp。",
+			"Jaeger 只有服务发出 OTLP trace 后才会出现调用链。",
+		},
+		"links": links,
+	})
+}
+
 func currentAdminID(c *app.RequestContext) int64 {
 	id, _ := c.Get("userID")
 	if v, ok := id.(int64); ok {
@@ -268,4 +328,78 @@ func writeAdminResp(c *app.RequestContext, data interface{}, err error) {
 		return
 	}
 	response.Success(c, data)
+}
+
+func groupAdminMCPTraces(resp *admin.ListMCPTracesResp) map[string]interface{} {
+	groups := make([]map[string]interface{}, 0)
+	index := map[string]int{}
+	for _, trace := range resp.GetTraces() {
+		if trace == nil {
+			continue
+		}
+		key := strings.TrimSpace(trace.TraceId)
+		if key == "" {
+			key = fmt.Sprintf("trace:%d", trace.Id)
+		}
+		pos, ok := index[key]
+		if !ok {
+			pos = len(groups)
+			index[key] = pos
+			groups = append(groups, map[string]interface{}{
+				"id":               trace.Id,
+				"trace_id":         trace.TraceId,
+				"user_id":          trace.UserId,
+				"agent_id":         trace.AgentId,
+				"conversation_id":  trace.ConversationId,
+				"tool_name":        trace.ToolName,
+				"source":           trace.Source,
+				"server_name":      trace.ServerName,
+				"status":           trace.Status,
+				"latency_ms":       trace.LatencyMs,
+				"error_message":    trace.ErrorMessage,
+				"created_at":       trace.CreatedAt,
+				"call_count":       int64(0),
+				"total_latency_ms": int64(0),
+				"tools":            []string{},
+				"calls":            []*admin.AdminMCPTrace{},
+			})
+		}
+		group := groups[pos]
+		group["call_count"] = group["call_count"].(int64) + 1
+		group["total_latency_ms"] = group["total_latency_ms"].(int64) + trace.LatencyMs
+		if strings.EqualFold(trace.Status, "error") || strings.EqualFold(trace.Status, "failed") {
+			group["status"] = trace.Status
+			group["error_message"] = trace.ErrorMessage
+		}
+		tools := group["tools"].([]string)
+		if trace.ToolName != "" && !stringSliceContains(tools, trace.ToolName) {
+			group["tools"] = append(tools, trace.ToolName)
+		}
+		group["calls"] = append(group["calls"].([]*admin.AdminMCPTrace), trace)
+	}
+	return map[string]interface{}{
+		"success": true,
+		"traces":  groups,
+		"total":   resp.GetTotal(),
+		"msg":     resp.GetMsg(),
+	}
+}
+
+func stringSliceContains(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
+}
+
+func firstConfiguredURL(values ...string) string {
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }

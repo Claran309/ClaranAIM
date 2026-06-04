@@ -604,6 +604,7 @@ func shouldKeepMemoryCandidate(candidate MemoryCandidate) bool {
 	noiseTokens := []string{
 		"system prompt", "系统提示词", "好的", "收到", "可以", "明白", "谢谢", "测试",
 		"无有效信息", "没有有效信息", "暂无", "不知道", "随便", "嗯", "好",
+		"最近会话", "最近消息", "当前会话", "本轮对话", "这轮对话", "聊天记录", "会话上下文",
 	}
 	for _, token := range noiseTokens {
 		if lower == strings.ToLower(token) || strings.Contains(lower, "这段会话是废话") || strings.Contains(lower, strings.ToLower(token)) && len([]rune(content)) <= 20 {
@@ -641,6 +642,7 @@ func looksLikeEphemeralMemoryCandidate(lower string) bool {
 	ephemeral := []string{
 		"刚刚", "刚才", "这次", "这轮", "这条消息", "今天", "明天", "昨天",
 		"临时", "暂时", "随手", "当前页面", "本次会话", "短期",
+		"最近会话", "最近消息", "当前会话", "本轮对话", "这轮对话", "最近聊天", "这段聊天",
 	}
 	for _, item := range ephemeral {
 		if strings.Contains(lower, item) {

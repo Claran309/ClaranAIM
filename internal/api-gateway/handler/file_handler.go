@@ -236,7 +236,7 @@ func (h *FileHandler) PreviewFile(ctx context.Context, c *app.RequestContext) {
 // AnalyzeImage 对聊天图片做一次 OCR / 版面解析，供前端和 Agent 工具解释截图使用。
 func (h *FileHandler) AnalyzeImage(ctx context.Context, c *app.RequestContext) {
 	if fileOCRProvider == nil {
-		response.BadRequest(c, "OCR服务未配置")
+		response.BadRequest(c, "图片OCR未启用：api-gateway 未初始化 OCR provider。请检查 config/api-gateway.yaml 的 document.ocr_provider/ocr_url/ocr_api_key/ocr_model，或先在设置页配置可用 OCR 模型并重启 api-gateway。")
 		return
 	}
 	fileID := c.Param("id")

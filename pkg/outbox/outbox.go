@@ -6,6 +6,7 @@ package outbox
 import (
 	"ClaranAIM/pkg/events"
 	"ClaranAIM/pkg/idgen"
+	"ClaranAIM/pkg/observability"
 	"context"
 	"errors"
 	"fmt"
@@ -317,30 +318,38 @@ func (w *Worker) ProcessOnce(ctx context.Context) error {
 	}
 	records, err := w.store.FetchDue(ctx, w.limit, w.lockFor)
 	if err != nil {
+		observability.RecordBusinessEvent("outbox", "fetch_due", "error")
 		return err
 	}
+	observability.SetBusinessGauge("outbox", "due_batch_size", float64(len(records)))
 	for _, record := range records {
 		envelope, err := record.Envelope()
 		if err != nil {
 			decodeErr := fmt.Errorf("decode envelope: %w", err)
 			if record.RetryCount+1 >= w.maxRetries {
 				_ = w.store.MarkDead(ctx, record.ID, decodeErr)
+				observability.RecordBusinessEvent("outbox", "publish", "dead")
 				continue
 			}
 			_ = w.store.MarkRetry(ctx, record.ID, decodeErr)
+			observability.RecordBusinessEvent("outbox", "publish", "retry")
 			continue
 		}
 		if err := w.publisher.Publish(ctx, envelope); err != nil {
 			if record.RetryCount+1 >= w.maxRetries {
 				_ = w.store.MarkDead(ctx, record.ID, err)
+				observability.RecordBusinessEvent("outbox", "publish", "dead")
 				continue
 			}
 			_ = w.store.MarkRetry(ctx, record.ID, err)
+			observability.RecordBusinessEvent("outbox", "publish", "retry")
 			continue
 		}
 		if err := w.store.MarkPublished(ctx, record.ID); err != nil {
+			observability.RecordBusinessEvent("outbox", "mark_published", "error")
 			return err
 		}
+		observability.RecordBusinessEvent("outbox", "publish", "success")
 	}
 	return nil
 }

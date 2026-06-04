@@ -11,6 +11,7 @@ import (
 	"ClaranAIM/pkg/health"
 	"ClaranAIM/pkg/knowledgeclient"
 	"ClaranAIM/pkg/logger"
+	"ClaranAIM/pkg/observability"
 	"ClaranAIM/pkg/ragclient"
 	"net"
 
@@ -31,6 +32,9 @@ func main() {
 	if err != nil {
 		logger.Fatal("加载配置失败", "error", err)
 	}
+
+	obsShutdown := observability.InitService(cfg.Service.Name, cfg)
+	defer obsShutdown()
 
 	resolver, err := etcd.NewEtcdResolver(cfg.Etcd.Endpoints)
 	if err != nil {

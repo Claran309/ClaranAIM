@@ -304,6 +304,31 @@ func TestLLMArtifactExtractorParsesStructuredConversationArtifacts(t *testing.T)
 	}
 }
 
+func TestFilterMemoryCandidatesDropsRecentConversationNoise(t *testing.T) {
+	candidates := filterMemoryCandidates([]MemoryCandidate{
+		{
+			Title:      "最近会话",
+			Content:    "用户最近会话中提到了上传文档和查看知识图谱，这类短期上下文应在调用时召回，不应进入长期记忆。",
+			Evidence:   "最近会话提到上传文档",
+			Confidence: 0.95,
+			Importance: 0.9,
+		},
+		{
+			Title:      "长期偏好",
+			Content:    "用户长期偏好先修复核心功能链路，再打磨前端视觉和动效。",
+			Evidence:   "用户多次强调先解决 bug 和功能链路",
+			Confidence: 0.9,
+			Importance: 0.86,
+		},
+	})
+	if len(candidates) != 1 {
+		t.Fatalf("candidates=%#v, want only durable long-term candidate", candidates)
+	}
+	if !strings.Contains(candidates[0].Content, "长期偏好") {
+		t.Fatalf("candidate=%#v, want long-term preference kept", candidates[0])
+	}
+}
+
 type fakeMessageWindowFetcher struct {
 	messages     []ConversationMessage
 	participants []int64

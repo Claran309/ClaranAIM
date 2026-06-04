@@ -153,6 +153,10 @@ func InitTools(ctx context.Context, chatModel model.BaseChatModel, includeDomain
 		}
 	}
 
+	if !includeDomainTools {
+		return tools
+	}
+
 	ragTool, err := graphTool.BuildTool(ctx, chatModel)
 	if err != nil {
 		log.Print("初始化RAG工具失败:", err)

@@ -9,6 +9,7 @@ import (
 	"ClaranAIM/pkg/idgen"
 	"ClaranAIM/pkg/knowledgeclient"
 	"ClaranAIM/pkg/memoryclient"
+	"ClaranAIM/pkg/observability"
 	"ClaranAIM/pkg/ragclient"
 	"ClaranAIM/pkg/settingsclient"
 	"ClaranAIM/pkg/websearchclient"
@@ -163,6 +164,12 @@ func (s *mcpGatewayServiceImpl) CallTool(ctx context.Context, input CallToolInpu
 	} else {
 		result.TraceId = traceID
 	}
+	metricStatus := "success"
+	if status == traceModel.TraceStatusFailed {
+		metricStatus = "failed"
+	}
+	observability.RecordBusinessDuration("mcp", strings.TrimSpace(input.ToolName), metricStatus, time.Since(start))
+	observability.RecordBusinessEvent("mcp", strings.TrimSpace(input.ToolName), metricStatus)
 	s.saveTrace(ctx, input, traceID, source, serverName, status, time.Since(start), errorMessage)
 	return result, nil
 }

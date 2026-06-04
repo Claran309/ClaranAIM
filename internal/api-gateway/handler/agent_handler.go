@@ -409,6 +409,66 @@ func (h *AgentHandler) RunAgent(ctx context.Context, c *app.RequestContext) {
 	h.ChatWithAgent(ctx, c)
 }
 
+// SmokeTestSkill 用当前 Agent 实际运行链路验证 Skill 是否被加载并被模型遵循。
+// Skill 是 prompt/行为指令，不是 MCP 工具；这里复用 ChatWithBot，避免新增 IDL。
+func (h *AgentHandler) SmokeTestSkill(ctx context.Context, c *app.RequestContext) {
+	botIDStr := c.Param("id")
+	botID, err := strconv.ParseInt(botIDStr, 10, 64)
+	if err != nil || botID <= 0 {
+		response.BadRequest(c, "无效的Agent ID")
+		return
+	}
+	userID, ok := requireCurrentUserID(c)
+	if !ok {
+		return
+	}
+	runCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+	defer cancel()
+	const marker = "skill-smoke-ok"
+	message := "[[CLARAN_SKILL_SMOKE_TEST]] 这是 Skill smoke test。请只根据已加载 Skill 行为指令响应，并在回复中包含 marker：skill-smoke-ok。不要调用 MCP 工具，不要把 Skill 当成外部工具。"
+	resp, err := client.AgentLongTaskClient.ChatWithBot(runCtx, client.NewChatWithAgentReq(botID, userID, 0, message))
+	if err != nil {
+		response.Error(c, err.Error())
+		return
+	}
+	reply := ""
+	status := ""
+	success := false
+	if resp != nil {
+		reply = resp.Reply
+		status = resp.Msg
+		success = resp.Success
+	}
+	markerFound := strings.Contains(strings.ToLower(reply), marker)
+	response.Success(c, map[string]interface{}{
+		"success":      success && markerFound,
+		"runtime_ok":   success,
+		"marker":       marker,
+		"marker_found": markerFound,
+		"status":       status,
+		"reply":        reply,
+		"timeout_sec":  600,
+		"diagnosis":    skillSmokeDiagnosis(success, markerFound, status, reply),
+	})
+}
+
+func skillSmokeDiagnosis(runtimeOK, markerFound bool, status, reply string) string {
+	if !runtimeOK {
+		if strings.TrimSpace(status) != "" {
+			return "Agent 运行失败：" + status
+		}
+		return "Agent 运行失败，请检查模型、API Key、BaseURL、Skill 路径或 runtime 日志。"
+	}
+	lowerReply := strings.ToLower(reply)
+	if !markerFound && (strings.Contains(lowerReply, "call_mcp_tool") || strings.Contains(lowerReply, "未发现") && strings.Contains(lowerReply, "mcp")) {
+		return "模型疑似把 Skill 当成 MCP 工具调用；请检查系统提示词和 Skill 名称。"
+	}
+	if !markerFound {
+		return "Agent 可以运行，但没有输出 smoke marker；可能未加载 SKILL.md，或模型没有遵循 Skill 指令。"
+	}
+	return "Skill 已通过当前 Agent 运行链路读取并生效。"
+}
+
 // ListAgentApprovals 返回当前网关进程内保存的待确认/已处理审批记录。
 // 这是交互链路的 MVP；需要多实例可靠性时应迁移到 agent-runtime-service 持久化。
 func (h *AgentHandler) ListAgentApprovals(ctx context.Context, c *app.RequestContext) {

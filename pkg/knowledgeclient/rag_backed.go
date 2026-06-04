@@ -232,7 +232,7 @@ func normalizeGraph(resp *rag.GraphResp) ([]GraphNode, []GraphEdge, []GraphCommu
 		nodes = append(nodes, GraphNode{
 			ID:          node.GetId(),
 			Name:        node.GetName(),
-			Type:        displayEntityType(defaultString(node.GetType(), "Concept")),
+			Type:        displayEntityType(defaultString(node.GetType(), "主题")),
 			Summary:     node.GetSummary(),
 			CommunityID: node.GetCommunityId(),
 			Score:       node.GetScore(),
@@ -246,11 +246,15 @@ func normalizeGraph(resp *rag.GraphResp) ([]GraphNode, []GraphEdge, []GraphCommu
 		if edge.GetSourceId() <= 0 || edge.GetTargetId() <= 0 || edge.GetSourceId() == edge.GetTargetId() {
 			continue
 		}
+		relation := normalizeRelation(edge.GetRelation())
+		if relation == "" {
+			continue
+		}
 		edges = append(edges, GraphEdge{
 			ID:          edge.GetId(),
 			SourceID:    edge.GetSourceId(),
 			TargetID:    edge.GetTargetId(),
-			Relation:    normalizeRelation(edge.GetRelation()),
+			Relation:    relation,
 			Description: relationDescription(edge.GetRelation(), edge.GetEvidence()),
 			Weight:      edge.GetWeight(),
 			Evidence:    edge.GetEvidence(),
@@ -574,43 +578,32 @@ func sortedKeys(values map[string]bool) []string {
 }
 
 func normalizeRelation(value string) string {
-	value = strings.ToUpper(strings.TrimSpace(value))
-	value = strings.ReplaceAll(value, "-", "_")
-	value = strings.ReplaceAll(value, " ", "_")
-	if value == "" {
-		return "RELATED_TO"
-	}
-	switch value {
-	case "EVENT_FLOW", "DATA_FLOW":
-		return value
-	case "PUBLISHES", "CONSUMES", "TRIGGERS":
-		return "EVENT_FLOW"
-	case "READS", "WRITES", "STORES":
-		return "DATA_FLOW"
-	case "CALLS", "DEPENDS_ON", "RELATED_TO":
-		return value
-	case "CONFIGURES", "OWNS":
-		return "DEPENDS_ON"
+	raw := strings.Trim(value, " \t\r\n，。,.；;:：()（）[]【】\"'")
+	raw = strings.Join(strings.Fields(raw), " ")
+	upper := strings.ToUpper(raw)
+	upper = strings.ReplaceAll(upper, "-", "_")
+	upper = strings.ReplaceAll(upper, " ", "_")
+	switch upper {
+	case "CALLS", "PUBLISHES", "CONSUMES", "STORES", "OWNS", "DEPENDS_ON", "CONFIGURES", "TRIGGERS", "READS", "WRITES", "RELATED_TO", "CONTAINS":
+		if upper == "RELATED_TO" {
+			return ""
+		}
+		return upper
 	default:
-		return "RELATED_TO"
+		if isGenericGraphRelation(raw) || len([]rune(raw)) > 24 {
+			return ""
+		}
+		return raw
 	}
 }
 
 func displayEntityType(value string) string {
-	switch strings.TrimSpace(value) {
-	case "DatabaseTable", "Product":
-		return "Data"
-	case "EventTopic":
-		return "Event"
-	case "API", "Module":
-		return "Interface"
-	case "Person", "Organization":
-		return "Concept"
-	case "Service", "Interface", "Concept", "Data", "Event":
-		return strings.TrimSpace(value)
-	default:
-		return "Concept"
+	value = strings.Trim(value, " \t\r\n，。,.；;:：()（）[]【】\"'")
+	value = strings.Join(strings.Fields(value), " ")
+	if value == "" || len([]rune(value)) > 24 || isGenericGraphEntityType(value) {
+		return "主题"
 	}
+	return value
 }
 
 func relationDescription(relation, evidence string) string {
@@ -626,15 +619,49 @@ func relationLabel(relation string) string {
 	switch normalizeRelation(relation) {
 	case "CALLS":
 		return "调用关系"
-	case "EVENT_FLOW":
-		return "事件流关系"
-	case "DATA_FLOW":
-		return "数据流关系"
+	case "PUBLISHES":
+		return "发布关系"
+	case "CONSUMES":
+		return "消费关系"
+	case "STORES":
+		return "存储关系"
+	case "OWNS":
+		return "负责关系"
 	case "DEPENDS_ON":
 		return "依赖关系"
+	case "CONFIGURES":
+		return "配置关系"
+	case "TRIGGERS":
+		return "触发关系"
+	case "READS":
+		return "读取关系"
+	case "WRITES":
+		return "写入关系"
+	case "CONTAINS":
+		return "包含关系"
 	default:
-		return "相关关系"
+		return defaultString(relation, "关系")
 	}
+}
+
+func isGenericGraphEntityType(value string) bool {
+	lower := strings.ToLower(strings.TrimSpace(value))
+	for _, item := range []string{"entity", "node", "object", "content", "data", "information", "unknown", "实体", "节点", "对象", "内容", "数据", "信息", "未知", "concept", "概念"} {
+		if lower == strings.ToLower(item) {
+			return true
+		}
+	}
+	return false
+}
+
+func isGenericGraphRelation(value string) bool {
+	lower := strings.ToLower(strings.TrimSpace(value))
+	for _, item := range []string{"related_to", "relates_to", "related", "associated_with", "associates_with", "相关", "关联", "有关", "提到", "提及", "同现", "一起出现", "co-occur", "mentioned"} {
+		if lower == strings.ToLower(item) || strings.Contains(lower, strings.ToLower(item)) {
+			return true
+		}
+	}
+	return false
 }
 
 func isDisplayableGraphNode(name, entityType, summary string) bool {
@@ -706,12 +733,20 @@ func typeColor(entityType string) string {
 	switch entityType {
 	case "Service":
 		return "#0ea5e9"
-	case "Data":
+	case "DatabaseTable":
 		return "#22c55e"
-	case "Event":
+	case "EventTopic":
 		return "#f97316"
-	case "Interface":
+	case "API":
 		return "#a855f7"
+	case "Module":
+		return "#6366f1"
+	case "Person":
+		return "#ec4899"
+	case "Organization":
+		return "#14b8a6"
+	case "Product":
+		return "#84cc16"
 	default:
 		return "#64748b"
 	}
@@ -719,14 +754,16 @@ func typeColor(entityType string) string {
 
 func relationColor(relation string) string {
 	switch normalizeRelation(relation) {
-	case "DATA_FLOW":
+	case "READS", "WRITES", "STORES":
 		return "#16a34a"
 	case "CALLS":
 		return "#2563eb"
-	case "EVENT_FLOW":
+	case "PUBLISHES", "CONSUMES", "TRIGGERS":
 		return "#ea580c"
-	case "DEPENDS_ON":
+	case "DEPENDS_ON", "CONFIGURES", "OWNS":
 		return "#9333ea"
+	case "CONTAINS":
+		return "#64748b"
 	default:
 		return "#64748b"
 	}

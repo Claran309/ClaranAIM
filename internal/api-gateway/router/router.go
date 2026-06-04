@@ -34,6 +34,7 @@ func RegisterRoutes(r *route.Engine, cfg ...*config.Config) {
 	adminHandler := handler.NewAdminHandler()
 
 	r.Use(middleware.CORSMiddleware())
+	r.Use(middleware.ObservabilityMiddleware())
 	if len(cfg) > 0 && cfg[0] != nil {
 		r.Use(middleware.RateLimitMiddleware(
 			cfg[0].Governance.RateLimit.Enabled,
@@ -122,6 +123,7 @@ func RegisterRoutes(r *route.Engine, cfg ...*config.Config) {
 		auth.POST("/agent/add-friend", agentHandler.AddAgentAsFriend)
 		auth.POST("/agent/permission/grant", agentHandler.GrantPermission)
 		auth.POST("/agent/permission/revoke", agentHandler.RevokePermission)
+		auth.POST("/agent/:id/skill/smoke-test", agentHandler.SmokeTestSkill)
 		auth.GET("/agent/:id", agentHandler.GetAgent)
 		auth.GET("/agent/:id/routes", agentHandler.ListRoutes)
 		auth.GET("/agent/:id/billing", agentHandler.GetBilling)
@@ -140,11 +142,16 @@ func RegisterRoutes(r *route.Engine, cfg ...*config.Config) {
 		auth.POST("/rag/ingest", ragHandler.IngestDocument)
 		auth.POST("/rag/upload", ragHandler.UploadDocument)
 		auth.GET("/rag/upload/:id", ragHandler.GetUploadJob)
+		auth.POST("/rag/upload/:id/retry", ragHandler.RetryUploadJob)
+		auth.DELETE("/rag/upload/:id", ragHandler.CancelUploadJob)
+		auth.DELETE("/rag/upload", ragHandler.CancelAllUploadJobs)
 		auth.POST("/rag/search", ragHandler.Search)
 		auth.GET("/rag/graph", ragHandler.GetGraph)
+		auth.POST("/rag/graph/rebuild", ragHandler.RebuildAllGraphs)
 		auth.GET("/rag/documents", ragHandler.ListDocuments)
 		auth.DELETE("/rag/documents/:id", ragHandler.DeleteDocument)
 		auth.DELETE("/rag/documents/:id/graph", ragHandler.DeleteDocumentGraph)
+		auth.POST("/rag/documents/:id/graph/rebuild", ragHandler.RebuildDocumentGraph)
 
 		auth.GET("/web-search/search", webSearchHandler.Search)
 		auth.POST("/web-search/augment", webSearchHandler.Augment)
@@ -199,6 +206,7 @@ func RegisterRoutes(r *route.Engine, cfg ...*config.Config) {
 		admin.GET("/reviews", adminHandler.ListReviews)
 		admin.POST("/reviews/action", adminHandler.ReviewItem)
 		admin.GET("/mcp/traces", adminHandler.ListMCPTraces)
+		admin.GET("/observability/links", adminHandler.ObservabilityLinks)
 		admin.GET("/notices", adminHandler.ListNotices)
 		admin.POST("/notices", adminHandler.SaveNotice)
 		admin.GET("/audits", adminHandler.ListAuditLogs)

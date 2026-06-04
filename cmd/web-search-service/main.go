@@ -8,6 +8,7 @@ import (
 	"ClaranAIM/pkg/governance"
 	"ClaranAIM/pkg/health"
 	"ClaranAIM/pkg/logger"
+	"ClaranAIM/pkg/observability"
 	"net"
 	"strings"
 	"time"
@@ -26,6 +27,9 @@ func main() {
 	if err != nil {
 		logger.Fatal("加载配置失败", "error", err)
 	}
+
+	obsShutdown := observability.InitService(cfg.Service.Name, cfg)
+	defer obsShutdown()
 
 	r, err := etcd.NewEtcdRegistry(cfg.Etcd.Endpoints)
 	if err != nil {

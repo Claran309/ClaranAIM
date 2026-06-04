@@ -13,8 +13,8 @@ func TestGraphViewFiltersAndComputesVisualAttributes(t *testing.T) {
 
 	view, err := svc.GetGraphView(context.Background(), 1001, GraphQuery{
 		Query:           "agent",
-		TypeFilters:     []string{"Service", "Data"},
-		RelationFilters: []string{"DATA_FLOW", "CALLS"},
+		TypeFilters:     []string{"Service", "DatabaseTable"},
+		RelationFilters: []string{"WRITES", "CALLS"},
 		Hops:            1,
 		Limit:           20,
 	})
@@ -41,7 +41,7 @@ func TestGraphViewFiltersAndComputesVisualAttributes(t *testing.T) {
 	if view.Stats.NodeCount != len(view.Nodes) || view.Stats.EdgeCount != len(view.Edges) {
 		t.Fatalf("stats = %#v, want counts to match view", view.Stats)
 	}
-	if !containsString(view.Stats.Types, "Service") || !containsString(view.Stats.Relations, "DATA_FLOW") {
+	if !containsString(view.Stats.Types, "Service") || !containsString(view.Stats.Relations, "WRITES") {
 		t.Fatalf("stats = %#v, want type and relation facets", view.Stats)
 	}
 	if view.Nodes[0].Name != "agent-manager-service" || view.Nodes[0].Degree != 2 {
@@ -74,8 +74,8 @@ func TestEdgeDetailReturnsEndpointsAndEvidence(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetEdgeDetail returned error: %v", err)
 	}
-	if !detail.Success || detail.Edge.Relation != "DATA_FLOW" {
-		t.Fatalf("detail = %#v, want DATA_FLOW edge", detail)
+	if !detail.Success || detail.Edge.Relation != "WRITES" {
+		t.Fatalf("detail = %#v, want WRITES edge", detail)
 	}
 	if detail.Source == nil || detail.Source.Name != "agent-manager-service" {
 		t.Fatalf("source = %#v, want agent-manager-service", detail.Source)
@@ -207,6 +207,51 @@ func TestGraphViewPreservesEmptyGraphDiagnosticMessage(t *testing.T) {
 	}
 	if view.Msg == "" || !strings.Contains(view.Msg, "601") {
 		t.Fatalf("view msg = %q, want rag-service diagnostic message preserved", view.Msg)
+	}
+}
+
+func TestGraphViewPreservesOriginalEntityTypesForFrontendFilters(t *testing.T) {
+	graph := sampleGraph()
+	graph.Nodes = append(graph.Nodes,
+		&rag.RAGGraphNode{Id: 8, Name: "Milvus", Type: "Product", Summary: "向量数据库产品", Score: 1.2},
+		&rag.RAGGraphNode{Id: 9, Name: "Claran", Type: "Person", Summary: "项目创建者", Score: 1.1},
+		&rag.RAGGraphNode{Id: 10, Name: "OpenAI", Type: "Organization", Summary: "模型供应商", Score: 1.1},
+		&rag.RAGGraphNode{Id: 11, Name: "新闻采编能力", Type: "能力", Summary: "融媒体岗位需要体现的能力", Score: 1.1},
+		&rag.RAGGraphNode{Id: 12, Name: "融媒体中心岗位", Type: "岗位", Summary: "简历面向的岗位", Score: 1.1},
+	)
+	graph.Edges = append(graph.Edges,
+		&rag.RAGGraphEdge{Id: 109, SourceId: 1, TargetId: 8, Relation: "DEPENDS_ON", Weight: 0.9},
+		&rag.RAGGraphEdge{Id: 110, SourceId: 9, TargetId: 10, Relation: "配置", Weight: 0.95, Evidence: "用户配置模型供应商"},
+		&rag.RAGGraphEdge{Id: 111, SourceId: 11, TargetId: 12, Relation: "面向", Weight: 0.94, Evidence: "新闻采编能力面向融媒体中心岗位"},
+	)
+	svc := NewRAGBackedService(&fakeGraphSource{graph: graph})
+
+	view, err := svc.GetGraphView(context.Background(), 1001, GraphQuery{Limit: 20})
+	if err != nil {
+		t.Fatalf("GetGraphView returned error: %v", err)
+	}
+	types := map[string]bool{}
+	for _, node := range view.Nodes {
+		types[node.Type] = true
+	}
+	for _, want := range []string{"DatabaseTable", "EventTopic", "Product", "Person", "Organization", "能力", "岗位"} {
+		if !types[want] {
+			t.Fatalf("types=%#v, want original type %s preserved", types, want)
+		}
+	}
+	for _, collapsed := range []string{"Data", "Event", "Interface"} {
+		if types[collapsed] {
+			t.Fatalf("types=%#v, did not want display-collapsed type %s", types, collapsed)
+		}
+	}
+	relations := map[string]bool{}
+	for _, edge := range view.Edges {
+		relations[edge.Relation] = true
+	}
+	for _, want := range []string{"配置", "面向"} {
+		if !relations[want] {
+			t.Fatalf("relations=%#v, want free LLM relation %s preserved", relations, want)
+		}
 	}
 }
 

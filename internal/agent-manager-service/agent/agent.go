@@ -91,15 +91,13 @@ func NewDeepAgent(ctx context.Context, model *openai.ChatModel, agentRoot string
 			BaseDir: skillsDir,
 		})
 		if sbErr != nil {
-			_, _ = fmt.Fprintln(os.Stderr, sbErr)
-			os.Exit(1)
+			return nil, fmt.Errorf("加载Skill后端失败 skills_dir=%s: %w", skillsDir, sbErr)
 		}
 		skillMiddleware, smErr := skill.NewMiddleware(ctx, &skill.Config{
 			Backend: skillBackend,
 		})
 		if smErr != nil {
-			_, _ = fmt.Fprintln(os.Stderr, smErr)
-			os.Exit(1)
+			return nil, fmt.Errorf("加载Skill中间件失败 skills_dir=%s: %w", skillsDir, smErr)
 		}
 		handlers = append(handlers, skillMiddleware)
 	}
@@ -151,7 +149,7 @@ func NewDeepAgent(ctx context.Context, model *openai.ChatModel, agentRoot string
 	return agent, nil
 }
 
-// resolveSkillsDir 只接受已经存在的本地目录。
+// resolveSkillsDir 只接受已经存在且包含非空 SKILL.md 的本地目录。
 // settings-service 保存用户上传的 Skill 后会返回目录路径；目录不存在时跳过 Skill 中间件，
 // 避免因为单个 Agent 的 Skill 配置损坏而让整个 runtime 初始化失败。
 func resolveSkillsDir(skillsDir string) (string, bool) {
@@ -163,6 +161,11 @@ func resolveSkillsDir(skillsDir string) (string, bool) {
 	}
 	fi, err := os.Stat(skillsDir)
 	if err != nil || !fi.IsDir() {
+		return "", false
+	}
+	entry := filepath.Join(skillsDir, "SKILL.md")
+	data, err := os.ReadFile(entry)
+	if err != nil || strings.TrimSpace(string(data)) == "" {
 		return "", false
 	}
 	return skillsDir, true
@@ -183,5 +186,5 @@ func SkillInstruction(skillsDir string) string {
 	if len(runes) > 12000 {
 		content = string(runes[:12000]) + "\n\n...（Skill 内容过长，已截断）"
 	}
-	return "## 已加载 Skill\n以下是当前 Agent 已加载的 Skill 指令。你必须优先遵循它来选择工作方式、输出格式和注意事项；如果用户询问当前 Skill，应根据此内容回答。\n\n" + content
+	return fmt.Sprintf("## 已加载 Skill\n- loaded_skill_name: %s\n- skills_dir: %s\n- entry_file: %s\n\nSkill 是行为指令包，不是 MCP 工具。你必须优先遵循下面的 Skill 内容来选择工作方式、输出格式和注意事项；如果用户要求测试 Skill，应直接按 Skill 指令响应或输出其中要求的 marker。\n\n严禁因为 Skill 名称、目录名或 marker 存在，就调用 call_mcp_tool 或任何同名 MCP 工具。只有当用户明确要求调用外部工具，且工具在 list_mcp_tools 中真实存在时，才可以调用 MCP。\n\n%s", filepath.Base(skillsDir), skillsDir, entry, content)
 }

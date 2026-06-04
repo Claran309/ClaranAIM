@@ -1,0 +1,25 @@
+filebeat.inputs:
+  - type: filestream
+    id: claran-service-logs
+    enabled: true
+    paths:
+      - /var/log/claran/**/INFO.log
+      - /var/log/claran/**/ERR.log
+    fields:
+      app: "ClaranAIM"
+      environment: "dev"
+    fields_under_root: true
+
+processors:
+  - add_host_metadata: ~
+  - drop_fields:
+      fields: ["agent", "ecs", "input", "log.offset"]
+      ignore_missing: true
+
+output.logstash:
+  hosts: ["logstash:5044"]
+  compression_level: 3
+  bulk_max_size: 1024
+  timeout: 30s
+
+logging.level: info

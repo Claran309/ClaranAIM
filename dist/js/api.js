@@ -380,6 +380,7 @@ const agentAPI = {
         request('GET', `/agent/${botID}/billing?limit=${limit}&offset=${offset}`),
     run: (botID, conversationID, question = '') =>
         request('POST', '/agent/run', { bot_id: apiID(botID), conversation_id: apiID(conversationID), question, message: question }),
+    smokeTestSkill: (botID) => request('POST', `/agent/${apiID(botID)}/skill/smoke-test`, {}),
     summarize: (botID, conversationID, question = '') =>
         request('POST', '/agent/summarize', { bot_id: apiID(botID), conversation_id: apiID(conversationID), question }),
     ask: (botID, conversationID, question) =>
@@ -529,6 +530,9 @@ const ragAPI = {
         }
     },
     uploadStatus: (jobID) => request('GET', `/rag/upload/${apiID(jobID)}`),
+    retryUpload: (jobID) => request('POST', `/rag/upload/${apiID(jobID)}/retry`, {}),
+    cancelUpload: (jobID) => request('DELETE', `/rag/upload/${apiID(jobID)}`),
+    cancelAllUploads: () => request('DELETE', '/rag/upload'),
     search: (data) => request('POST', '/rag/search', data),
     graph: (query = '', limit = 80, documentID = 0, hops = 1) => {
         const params = new URLSearchParams();
@@ -544,14 +548,17 @@ const ragAPI = {
         request('DELETE', `/rag/documents/${apiID(id)}`),
     deleteDocumentGraph: (id) =>
         request('DELETE', `/rag/documents/${apiID(id)}/graph`),
+    rebuildDocumentGraph: (id) =>
+        request('POST', `/rag/documents/${apiID(id)}/graph/rebuild`),
+    rebuildAllGraphs: () =>
+        request('POST', '/rag/graph/rebuild'),
 };
 
 const knowledgeAPI = {
-    graph: ({ query = '', types = [], relations = [], communityID = 0, hops = 1, limit = 160, documentID = 0 } = {}) => {
+    graph: ({ query = '', types = [], communityID = 0, hops = 1, limit = 160, documentID = 0 } = {}) => {
         const params = new URLSearchParams();
         if (query) params.set('query', query);
         if (types.length) params.set('types', types.join(','));
-        if (relations.length) params.set('relations', relations.join(','));
         if (communityID) params.set('community_id', apiID(communityID));
         if (documentID) params.set('document_id', apiID(documentID));
         params.set('hops', String(hops || 1));
@@ -565,7 +572,6 @@ const knowledgeAPI = {
         } else if (options && typeof options === 'object') {
             if (options.query) params.set('query', options.query);
             if (options.types?.length) params.set('types', options.types.join(','));
-            if (options.relations?.length) params.set('relations', options.relations.join(','));
             if (options.communityID) params.set('community_id', apiID(options.communityID));
             if (options.documentID) params.set('document_id', apiID(options.documentID));
             if (options.hops) params.set('hops', String(options.hops));
@@ -581,7 +587,6 @@ const knowledgeAPI = {
         } else if (options && typeof options === 'object') {
             if (options.query) params.set('query', options.query);
             if (options.types?.length) params.set('types', options.types.join(','));
-            if (options.relations?.length) params.set('relations', options.relations.join(','));
             if (options.communityID) params.set('community_id', apiID(options.communityID));
             if (options.documentID) params.set('document_id', apiID(options.documentID));
             if (options.hops) params.set('hops', String(options.hops));
@@ -594,7 +599,6 @@ const knowledgeAPI = {
         const params = new URLSearchParams();
         if (options.query) params.set('query', options.query);
         if (options.types?.length) params.set('types', options.types.join(','));
-        if (options.relations?.length) params.set('relations', options.relations.join(','));
         if (options.communityID) params.set('community_id', apiID(options.communityID));
         if (options.documentID) params.set('document_id', apiID(options.documentID));
         if (options.hops) params.set('hops', String(options.hops));
@@ -737,7 +741,11 @@ const adminAPI = {
     billing: (params = {}) => request('GET', `/admin/billing?${new URLSearchParams(params).toString()}`),
     reviews: (params = {}) => request('GET', `/admin/reviews?${new URLSearchParams(params).toString()}`),
     reviewAction: (payload) => request('POST', '/admin/reviews/action', payload),
-    mcpTraces: (params = {}) => request('GET', `/admin/mcp/traces?${new URLSearchParams(params).toString()}`),
+    mcpTraces: (params = {}) => {
+        const next = { group_by: 'trace_id', ...params };
+        return request('GET', `/admin/mcp/traces?${new URLSearchParams(next).toString()}`);
+    },
+    observabilityLinks: () => request('GET', '/admin/observability/links'),
     notices: (params = {}) => request('GET', `/admin/notices?${new URLSearchParams(params).toString()}`),
     saveNotice: (payload) => request('POST', '/admin/notices', payload),
     audits: (params = {}) => request('GET', `/admin/audits?${new URLSearchParams(params).toString()}`),

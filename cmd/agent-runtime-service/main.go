@@ -13,6 +13,7 @@ import (
 	"ClaranAIM/pkg/health"
 	"ClaranAIM/pkg/logger"
 	"ClaranAIM/pkg/mcpclient"
+	"ClaranAIM/pkg/observability"
 	"ClaranAIM/pkg/ragclient"
 	"ClaranAIM/pkg/websearchclient"
 	"net"
@@ -33,6 +34,9 @@ func main() {
 	if err != nil {
 		logger.Fatal("加载配置失败", "error", err)
 	}
+
+	obsShutdown := observability.InitService(cfg.Service.Name, cfg)
+	defer obsShutdown()
 
 	runtimeSvc := service.NewAgentRuntimeService(service.RuntimeConfig{
 		SessionDir:          cfg.Agent.SessionDir,

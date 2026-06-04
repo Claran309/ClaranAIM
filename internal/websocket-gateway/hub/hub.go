@@ -1,6 +1,7 @@
 package hub
 
 import (
+	"ClaranAIM/pkg/observability"
 	"sync"
 )
 
@@ -67,6 +68,7 @@ func (h *Hub) Run() {
 				h.clients[client.UserID] = make(map[*Client]bool)
 			}
 			h.clients[client.UserID][client] = true
+			observability.SetBusinessGauge("websocket", "online_connections", float64(h.connectionCountLocked()))
 			h.mu.Unlock()
 
 		case client := <-h.unregister:
@@ -81,11 +83,12 @@ func (h *Hub) Run() {
 					}
 				}
 			}
+			observability.SetBusinessGauge("websocket", "online_connections", float64(h.connectionCountLocked()))
 			h.mu.Unlock()
 
 		case msg := <-h.broadcast:
 			// 消息广播：向每个目标用户的所有连接推送消息
-			h.mu.RLock()
+			h.mu.Lock()
 			for _, uid := range msg.TargetUserIDs {
 				if clients, ok := h.clients[uid]; ok {
 					for c := range clients {
@@ -97,13 +100,26 @@ func (h *Hub) Run() {
 							// 关闭通道并移除该连接
 							close(c.Send)
 							delete(clients, c)
+							if len(clients) == 0 {
+								delete(h.clients, uid)
+							}
 						}
 					}
 				}
 			}
-			h.mu.RUnlock()
+			observability.SetBusinessGauge("websocket", "online_connections", float64(h.connectionCountLocked()))
+			observability.RecordBusinessEvent("websocket", "broadcast", "attempted")
+			h.mu.Unlock()
 		}
 	}
+}
+
+func (h *Hub) connectionCountLocked() int {
+	total := 0
+	for _, clients := range h.clients {
+		total += len(clients)
+	}
+	return total
 }
 
 // Register 注册客户端连接

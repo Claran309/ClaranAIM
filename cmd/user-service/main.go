@@ -10,6 +10,7 @@ import (
 	"ClaranAIM/pkg/governance"
 	"ClaranAIM/pkg/health"
 	"ClaranAIM/pkg/logger"
+	"ClaranAIM/pkg/observability"
 	"net"
 
 	"github.com/cloudwego/kitex/pkg/rpcinfo"
@@ -26,6 +27,9 @@ func main() {
 	if err != nil {
 		logger.Fatal("加载配置失败", "error", err)
 	}
+
+	obsShutdown := observability.InitService(cfg.Service.Name, cfg)
+	defer obsShutdown()
 
 	db, err := dao.InitDB(cfg.MySQL.DSN)
 	if err != nil {

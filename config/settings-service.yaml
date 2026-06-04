@@ -23,3 +23,14 @@ governance:
     circuit_breaker: true
     max_connections: 1000
     max_qps: 1000
+observability:
+  enabled: true
+  environment: "dev"
+  otlp_endpoint: "http://127.0.0.1:8082"
+  metrics_address: "127.0.0.1:19009"
+  dashboard_base_url: "http://127.0.0.1:8086"
+  grafana_url: "http://127.0.0.1:8086"
+  jaeger_url: "http://127.0.0.1:8085"
+  kibana_url: "http://127.0.0.1:5601"
+  prometheus_url: "http://127.0.0.1:8084"
+

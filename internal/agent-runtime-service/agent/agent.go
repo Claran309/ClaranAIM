@@ -88,15 +88,13 @@ func NewDeepAgent(ctx context.Context, model *openai.ChatModel, agentRoot string
 			BaseDir: skillsDir,
 		})
 		if sbErr != nil {
-			_, _ = fmt.Fprintln(os.Stderr, sbErr)
-			os.Exit(1)
+			return nil, fmt.Errorf("加载Skill后端失败 skills_dir=%s: %w", skillsDir, sbErr)
 		}
 		skillMiddleware, smErr := skill.NewMiddleware(ctx, &skill.Config{
 			Backend: skillBackend,
 		})
 		if smErr != nil {
-			_, _ = fmt.Fprintln(os.Stderr, smErr)
-			os.Exit(1)
+			return nil, fmt.Errorf("加载Skill中间件失败 skills_dir=%s: %w", skillsDir, smErr)
 		}
 		handlers = append(handlers, skillMiddleware)
 	}
@@ -117,7 +115,13 @@ func NewDeepAgent(ctx context.Context, model *openai.ChatModel, agentRoot string
 	if instruction == "" {
 		instruction = DefaultAgentInstruction
 	}
-	instruction = instruction + "\n\n" + ToolPolicyInstruction(toolPolicy) + "\n\n" + extInstruction + "\n\n" + skillInstruction
+	if strings.TrimSpace(skillInstruction) != "" {
+		instruction = skillInstruction + "\n\n" + instruction
+		log.Printf("Skill加载成功: loaded_skill_name=%s skills_dir=%s entry_file=%s include_domain_tools=%v", filepath.Base(skillsDir), skillsDir, filepath.Join(skillsDir, "SKILL.md"), includeDomainTools)
+	} else if strings.TrimSpace(skillDir) != "" {
+		log.Printf("Skill加载失败或为空: configured_skill_dir=%s include_domain_tools=%v", skillDir, includeDomainTools)
+	}
+	instruction = instruction + "\n\n" + ToolPolicyInstruction(toolPolicy) + "\n\n" + extInstruction
 
 	agentConfig := &deep.Config{
 		Name:           effectiveName,
@@ -172,7 +176,7 @@ func ToolPolicyInstruction(toolPolicy string) string {
 	}
 }
 
-// resolveSkillsDir 将 Skill 目录解析为绝对路径，并确认目录真实存在。
+// resolveSkillsDir 将 Skill 目录解析为绝对路径，并确认 SKILL.md 真实存在且非空。
 func resolveSkillsDir(skillsDir string) (string, bool) {
 	if skillsDir == "" {
 		return "", false
@@ -182,6 +186,11 @@ func resolveSkillsDir(skillsDir string) (string, bool) {
 	}
 	fi, err := os.Stat(skillsDir)
 	if err != nil || !fi.IsDir() {
+		return "", false
+	}
+	entry := filepath.Join(skillsDir, "SKILL.md")
+	data, err := os.ReadFile(entry)
+	if err != nil || strings.TrimSpace(string(data)) == "" {
 		return "", false
 	}
 	return skillsDir, true
@@ -203,5 +212,5 @@ func SkillInstruction(skillsDir string) string {
 	if len(runes) > 12000 {
 		content = string(runes[:12000]) + "\n\n...（Skill 内容过长，已截断）"
 	}
-	return "## 已加载 Skill\n以下是当前 Agent 已加载的 Skill 指令。你必须优先遵循它来选择工作方式、输出格式和注意事项；如果用户询问当前 Skill，应根据此内容回答。\n\n" + content
+	return fmt.Sprintf("## 已加载 Skill\n- loaded_skill_name: %s\n- skills_dir: %s\n- entry_file: %s\n\nSkill 是行为指令包，不是 MCP 工具。你必须优先遵循下面的 Skill 内容来选择工作方式、输出格式和注意事项；如果用户要求测试 Skill，应直接按 Skill 指令响应或输出其中要求的 marker。\n\n严禁因为 Skill 名称、目录名或 marker 存在，就调用 call_mcp_tool 或任何同名 MCP 工具。只有当用户明确要求调用外部工具，且工具在 list_mcp_tools 中真实存在时，才可以调用 MCP。\n\n%s", filepath.Base(skillsDir), skillsDir, entry, content)
 }

@@ -18,6 +18,7 @@ import (
 	"ClaranAIM/pkg/knowledgeclient"
 	"ClaranAIM/pkg/logger"
 	"ClaranAIM/pkg/memoryclient"
+	"ClaranAIM/pkg/observability"
 	"ClaranAIM/pkg/ragclient"
 	"ClaranAIM/pkg/settingsclient"
 	"ClaranAIM/pkg/websearchclient"
@@ -40,6 +41,9 @@ func main() {
 	if err != nil {
 		logger.Fatal("加载配置失败", "error", err)
 	}
+
+	obsShutdown := observability.InitService(cfg.Service.Name, cfg)
+	defer obsShutdown()
 
 	db, err := mcpdao.InitDB(cfg.MySQL.DSN)
 	if err != nil {

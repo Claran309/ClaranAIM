@@ -96,3 +96,44 @@ service:
 		t.Fatalf("settings secret key = %q", cfg.Settings.SecretKey)
 	}
 }
+
+func TestLoadObservabilityDefaultsAndEnvOverrides(t *testing.T) {
+	t.Setenv("OBSERVABILITY_ENABLED", "true")
+	t.Setenv("OBSERVABILITY_METRICS_ADDRESS", "127.0.0.1:19999")
+	t.Setenv("OBSERVABILITY_GRAFANA_URL", "http://grafana.local")
+	dir := t.TempDir()
+	path := filepath.Join(dir, "observability.yaml")
+	if err := os.WriteFile(path, []byte(`
+service:
+  name: api-gateway
+  address: "127.0.0.1:8080"
+observability:
+  environment: "test"
+  otlp_endpoint: "http://127.0.0.1:4318"
+`), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if !cfg.Observability.Enabled {
+		t.Fatal("observability enabled = false, want true")
+	}
+	if cfg.Observability.Environment != "test" {
+		t.Fatalf("environment=%q, want test", cfg.Observability.Environment)
+	}
+	if cfg.Observability.OTLPEndpoint != "http://127.0.0.1:4318" {
+		t.Fatalf("otlp endpoint=%q", cfg.Observability.OTLPEndpoint)
+	}
+	if cfg.Observability.MetricsAddress != "127.0.0.1:19999" {
+		t.Fatalf("metrics address=%q", cfg.Observability.MetricsAddress)
+	}
+	if cfg.Observability.GrafanaURL != "http://grafana.local" {
+		t.Fatalf("grafana url=%q", cfg.Observability.GrafanaURL)
+	}
+	if cfg.Observability.JaegerURL == "" || cfg.Observability.KibanaURL == "" || cfg.Observability.PrometheusURL == "" {
+		t.Fatalf("observability panel defaults missing: %#v", cfg.Observability)
+	}
+}

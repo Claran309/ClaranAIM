@@ -390,6 +390,34 @@ func TestChatWithBotStoresHighValueRunSummary(t *testing.T) {
 	}
 }
 
+func TestChatWithBotSilencesAgentUserSelfEcho(t *testing.T) {
+	runtime := &fakeRuntimeClient{}
+	svc := NewAgentService(&fakeBotRepo{byID: &model.Bot{
+		ID:                  1,
+		Name:                "Agent",
+		Type:                "custom",
+		ModelName:           "glm-4.7",
+		APIKey:              "key",
+		BaseURL:             "https://llm.example/v1",
+		OwnerID:             1001,
+		AgentUserID:         3636191554,
+		IsActive:            true,
+		ContextMessageLimit: DefaultContextMessageLimit,
+		MemoryRecallLimit:   DefaultMemoryRecallLimit,
+	}}, &fakePermissionRepo{}, nil, &fakeBillingRepo{}, runtime, nil, "storage/agent/files")
+
+	result, err := svc.ChatWithBot(context.Background(), 1, 3636191554, 33, "Agent 自己刚发出的回复")
+	if err != nil {
+		t.Fatalf("ChatWithBot returned error: %v", err)
+	}
+	if result == nil || result.Status != "silent_agent_echo" || result.Reply != "" {
+		t.Fatalf("result=%#v, want silent empty self echo", result)
+	}
+	if runtime.lastReq != nil {
+		t.Fatalf("runtime should not be called for agent self echo: %#v", runtime.lastReq)
+	}
+}
+
 func TestInternalAgentUsesLatestDefaultProviderAtRuntime(t *testing.T) {
 	runtime := &fakeRuntimeClient{}
 	svc := NewAgentService(&fakeBotRepo{byID: &model.Bot{
@@ -428,6 +456,20 @@ func TestSummarizeAgentRunMemoryUsesTriggeredContentNotSystemEnvelope(t *testing
 	}
 	if !strings.Contains(got, "请长期记住") || !strings.Contains(got, "RAG 知识图谱") {
 		t.Fatalf("summary = %q, want triggered content and reply", got)
+	}
+}
+
+func TestSummarizeAgentRunMemoryFiltersRecentConversationNoise(t *testing.T) {
+	got := summarizeAgentRunMemory("总结一下最近这段会话，并根据检索结果回答我刚才问的问题", "总结如下：这段会话主要讨论了上传任务、检索结果和知识图谱页面展示问题，命中来源包括多个文档片段。")
+	if got != "" {
+		t.Fatalf("recent conversation summary should not be persisted as long-term memory, got %q", got)
+	}
+}
+
+func TestSummarizeAgentRunMemoryKeepsExplicitLongTermLearningFact(t *testing.T) {
+	got := summarizeAgentRunMemory("请记住：我正在学习 RAG rerank，尤其困惑 CRAG 和 Adaptive RAG 的判断边界", "已记录：用户正在学习 RAG rerank，关注 CRAG 和 Adaptive RAG。")
+	if !strings.Contains(got, "正在学习 RAG rerank") || !strings.Contains(got, "Adaptive RAG") {
+		t.Fatalf("explicit long-term learning fact was not kept: %q", got)
 	}
 }
 

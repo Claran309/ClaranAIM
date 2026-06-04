@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/schema"
@@ -271,5 +272,33 @@ func TestRunAgentReturnsPendingApprovalOnInterrupt(t *testing.T) {
 	}
 	if !strings.Contains(resp.Reply, "需要你确认") {
 		t.Fatalf("RunAgent reply=%q, want confirmation prompt", resp.Reply)
+	}
+}
+
+func TestWithDefaultAgentRunTimeoutAddsTenMinuteDeadline(t *testing.T) {
+	ctx, cancel := withDefaultAgentRunTimeout(context.Background())
+	defer cancel()
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		t.Fatal("deadline missing, want default Agent run timeout")
+	}
+	remaining := time.Until(deadline)
+	if remaining < 9*time.Minute || remaining > 10*time.Minute {
+		t.Fatalf("remaining timeout = %v, want about 10 minutes", remaining)
+	}
+}
+
+func TestWithDefaultAgentRunTimeoutPreservesExistingDeadline(t *testing.T) {
+	base, baseCancel := context.WithTimeout(context.Background(), time.Minute)
+	defer baseCancel()
+	baseDeadline, _ := base.Deadline()
+	ctx, cancel := withDefaultAgentRunTimeout(base)
+	defer cancel()
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		t.Fatal("deadline missing")
+	}
+	if !deadline.Equal(baseDeadline) {
+		t.Fatalf("deadline = %v, want existing deadline %v", deadline, baseDeadline)
 	}
 }

@@ -24,7 +24,7 @@ ClaranAIM 是一个 AIM 系统：Agent + Instant Messaging。IM 负责用户、�
 - [x] Knowledge Graph：knowledge-service、Kitex RPC、图谱查询、节点详情、关系详情、类型/关系/社区过滤、G6 可视化、邻域查询、最短路径和路径高亮已落地。
 - [~] Knowledge Graph 增强：实体 canonical key 归一化、Leiden-like 社区划分、社区摘要持久化和图谱候选审核工作台已有 MVP；严格 Leiden 库级实现、候选结果反写 GraphRAG 和专用图数据库仍未完成。
 - [~] Tool / Skill / MCP：runtime 已有基础工具、skill-creator、用户上传 Skill 和 MCP Gateway MVP；内置 WebSearch/Memory/RAG/KnowledgeGraph/ConversationSummary 工具已统一经 MCP 暴露，远程 HTTP/SSE MCP 可配置；完整工具市场、高风险动作持久化审批和工具调用重试仍未完成。
-- [~] Governance：Kafka、Transactional Outbox、DTM 基础设施、创建群 DTM Saga、限流、熔断、RPC timeout、本地 INFO/ERR 日志和 admin-service 全局管理台 MVP 已落地；Prometheus、Jaeger、Grafana、ELK、K8s 和生产级 CI/CD 仍未完成。
+- [~] Governance：Kafka、Transactional Outbox、DTM 基础设施、创建群 DTM Saga、限流、熔断、RPC timeout、本地 INFO/ERR 日志、Prometheus、Jaeger、Grafana、ELK 和 admin-service 全局管理台 MVP 已落地；生产告警、长期存储治理、K8s 和生产级 CI/CD 仍未完成。
 - [~] Frontend：聊天、好友、群、Agent、Memory、Settings、RAG、Knowledge Graph、管理台、媒体预览、Markdown 渲染、Action Card MVP 已有；移动端、CLI/TUI、完整管理员权限矩阵和更完整的审批交互未完成。
 
 ## 3. 阶段路线图
@@ -142,9 +142,9 @@ ClaranAIM 是一个 AIM 系统：Agent + Instant Messaging。IM 负责用户、�
 - [x] API Gateway 用户/IP 令牌桶限流。
 - [x] Kitex 客户端 timeout、长运行 Agent RPC timeout 特例和 circuit breaker。
 - [x] 本地 Zap 日志，INFO 按服务分目录，ERR 集中归档。
-- [~] consumer 幂等和死信已有 `pkg/eventbus` 能力，但不是所有消费者都统一接入生产级监控。
-- [ ] Prometheus、Jaeger、Grafana、ELK、
-- [ ] 在admin-service或者前端后台管理处添加Prometheus、Jaeger、Grafana、ELK面板连接
+- [~] consumer 幂等和死信已有 `pkg/eventbus` 能力，并已接入基础业务指标；不是所有消费者都具备生产级告警和死信治理界面。
+- [~] Prometheus、Jaeger、Grafana、ELK 本地开发栈已有 MVP：服务 `/metrics`、OTLP trace/metrics、Filebeat/Logstash/Elasticsearch/Kibana 和 Grafana overview dashboard 已配置；Alertmanager、生产告警规则、长期指标/日志存储治理未完成。
+- [x] 系统管理台已增加可观测性入口，可跳转 Grafana、Jaeger、Kibana 和 Prometheus Targets。
 - [~] admin-service：独立 Kitex 服务，支持用户/群/媒体/Agent/记忆候选/知识候选/MCP/公告/成本/管理审计的全局聚合视图；细粒度管理员权限、系统消息推送、媒体审核流和成本告警仍需增强。
 - [ ] K6 压测、Kubernetes、滚动升级、灰度发布和 CI/CD（暂不考虑）
 

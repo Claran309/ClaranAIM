@@ -4,15 +4,48 @@ package middleware
 
 import (
 	"ClaranAIM/pkg/jwt"
+	"ClaranAIM/pkg/observability"
 	"ClaranAIM/pkg/response"
 	"context"
 	"fmt"
+	"net/http"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/cloudwego/hertz/pkg/app"
 )
+
+// ObservabilityMiddleware records HTTP request metrics and creates a trace span for each gateway request.
+func ObservabilityMiddleware() app.HandlerFunc {
+	return func(ctx context.Context, c *app.RequestContext) {
+		start := time.Now()
+		spanRoute := c.FullPath()
+		if spanRoute == "" {
+			spanRoute = string(c.Path())
+		}
+		method := string(c.Method())
+		spanCtx, span := observability.StartSpan(
+			ctx,
+			"HTTP "+method+" "+spanRoute,
+			observability.Attribute("http.method", method),
+			observability.Attribute("http.route", spanRoute),
+		)
+		defer span.End()
+
+		c.Next(spanCtx)
+
+		route := c.FullPath()
+		if route == "" {
+			route = spanRoute
+		}
+		status := c.Response.StatusCode()
+		if status == 0 {
+			status = http.StatusOK
+		}
+		observability.RecordHTTPRequest(method, route, status, time.Since(start))
+	}
+}
 
 // JWTAuthMiddleware JWT 认证中间件
 // 从请求头 Authorization 中提取 Bearer Token，验证签名和有效期

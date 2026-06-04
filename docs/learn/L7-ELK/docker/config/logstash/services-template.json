@@ -1,0 +1,115 @@
+{
+  "index_patterns": ["services-*", "*-error-*", "api-gateway-*"],
+  "settings": {
+    "number_of_shards": 1,
+    "number_of_replicas": 0,
+    "index.refresh_interval": "5s",
+    "index.max_result_window": 1000000,
+    "analysis": {
+      "analyzer": {
+        "standard_lowercase": {
+          "type": "custom",
+          "tokenizer": "standard",
+          "filter": ["lowercase"]
+        }
+      }
+    }
+  },
+  "mappings": {
+    "dynamic_templates": [
+      {
+        "strings_as_keywords": {
+          "match_mapping_type": "string",
+          "mapping": {
+            "type": "keyword",
+            "ignore_above": 256
+          }
+        }
+      },
+      {
+        "dates_as_date": {
+          "match": "timestamp",
+          "mapping": {
+            "type": "date"
+          }
+        }
+      },
+      {
+        "numbers_as_scaled_float": {
+          "match_mapping_type": "long",
+          "mapping": {
+            "type": "scaled_float",
+            "scaling_factor": 100
+          }
+        }
+      }
+    ],
+    "properties": {
+      "@timestamp": {
+        "type": "date"
+      },
+      "message": {
+        "type": "text",
+        "fields": {
+          "keyword": {
+            "type": "keyword",
+            "ignore_above": 256
+          }
+        }
+      },
+      "service": {
+        "type": "keyword"
+      },
+      "type": {
+        "type": "keyword"
+      },
+      "priority": {
+        "type": "keyword"
+      },
+      "log_level": {
+        "type": "keyword"
+      },
+      "env": {
+        "type": "keyword"
+      },
+      "remote_ip": {
+        "type": "ip"
+      },
+      "response_code": {
+        "type": "integer"
+      },
+      "body_sent_bytes": {
+        "type": "integer"
+      },
+      "http_method": {
+        "type": "keyword"
+      },
+      "url": {
+        "type": "keyword"
+      },
+      "user_agent": {
+        "type": "text"
+      },
+      "geoip": {
+        "dynamic": true,
+        "properties": {
+          "ip": {
+            "type": "ip"
+          },
+          "location": {
+            "type": "geo_point"
+          },
+          "latitude": {
+            "type": "half_float"
+          },
+          "longitude": {
+            "type": "half_float"
+          }
+        }
+      },
+      "tags": {
+        "type": "keyword"
+      }
+    }
+  }
+}

@@ -1,0 +1,29 @@
+# project/docker/config/elasticsearch/elasticsearch.yml
+# 集群设置
+cluster.name: "docker-cluster"
+node.name: "elasticsearch-node-1"
+network.host: 0.0.0.0
+http.port: 9200
+transport.port: 9300
+
+# 集群发现 - 单节点模式
+discovery.type: single-node
+
+# 内存设置
+bootstrap.memory_lock: false  # Windows 上必须设置为 false
+
+# 路径
+path.data: /usr/share/elasticsearch/data
+path.logs: /usr/share/elasticsearch/logs
+
+# 安全设置
+xpack.security.enabled: false
+xpack.security.enrollment.enabled: false
+xpack.security.http.ssl.enabled: false
+xpack.security.transport.ssl.enabled: false
+
+# 跨域设置
+http.cors.enabled: true
+http.cors.allow-origin: "*"
+http.cors.allow-headers: X-Requested-With,X-Auth-Token,Content-Type,Content-Length,Authorization
+http.cors.allow-credentials: true

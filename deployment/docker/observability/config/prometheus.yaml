@@ -1,0 +1,58 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  scrape_timeout: 10s
+
+scrape_configs:
+  - job_name: "otel-collector"
+    metrics_path: "/metrics"
+    static_configs:
+      - targets: ["otel-collector:8889"]
+        labels:
+          service: "otel-collector"
+          environment: "dev"
+
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]
+        labels:
+          service: "prometheus"
+          environment: "dev"
+
+  - job_name: "claran-go-services"
+    metrics_path: "/metrics"
+    static_configs:
+      - targets: ["host.docker.internal:19080"]
+        labels: { service: "api-gateway", environment: "dev" }
+      - targets: ["host.docker.internal:19081"]
+        labels: { service: "websocket-gateway", environment: "dev" }
+      - targets: ["host.docker.internal:19101"]
+        labels: { service: "user-service", environment: "dev" }
+      - targets: ["host.docker.internal:19002"]
+        labels: { service: "group-service", environment: "dev" }
+      - targets: ["host.docker.internal:19003"]
+        labels: { service: "msg-core-service", environment: "dev" }
+      - targets: ["host.docker.internal:19004"]
+        labels: { service: "msg-history-service", environment: "dev" }
+      - targets: ["host.docker.internal:19005"]
+        labels: { service: "file-service", environment: "dev" }
+      - targets: ["host.docker.internal:19006"]
+        labels: { service: "agent-manager-service", environment: "dev" }
+      - targets: ["host.docker.internal:19007"]
+        labels: { service: "agent-runtime-service", environment: "dev" }
+      - targets: ["host.docker.internal:19008"]
+        labels: { service: "memory-service", environment: "dev" }
+      - targets: ["host.docker.internal:19009"]
+        labels: { service: "settings-service", environment: "dev" }
+      - targets: ["host.docker.internal:19112"]
+        labels: { service: "rag-service", environment: "dev" }
+      - targets: ["host.docker.internal:19113"]
+        labels: { service: "knowledge-service", environment: "dev" }
+      - targets: ["host.docker.internal:19114"]
+        labels: { service: "web-search-service", environment: "dev" }
+      - targets: ["host.docker.internal:19015"]
+        labels: { service: "conversation-intelligence-service", environment: "dev" }
+      - targets: ["host.docker.internal:19016"]
+        labels: { service: "mcp-gateway-service", environment: "dev" }
+      - targets: ["host.docker.internal:19017"]
+        labels: { service: "admin-service", environment: "dev" }

@@ -1,0 +1,108 @@
+######################## Filebeat Configuration ########################
+
+# 采集器全局配置
+filebeat.config:
+  modules:
+    path: ${path.config}/modules.d/*.yml
+    reload.enabled: false
+
+# 自动重载配置（开发环境启用）
+filebeat.autodiscover:
+  providers:
+    - type: docker
+      hints.enabled: true
+
+# 输出配置
+output.logstash:
+  hosts: ["logstash:5044"]
+  enabled: true
+  compression_level: 3
+  bulk_max_size: 2048
+  timeout: 30s
+  ssl:
+    enabled: false
+
+# 监控
+monitoring:
+  enabled: true
+  elasticsearch:
+    hosts: ["http://elasticsearch:9200"]
+    username: elastic
+    password: changeme
+
+# 日志
+logging.level: info
+logging.to_files: true
+logging.files:
+  path: /var/log/filebeat
+  name: filebeat
+  keepfiles: 7
+  permissions: 0644
+
+######################## Inputs Configuration ########################
+# 修改输入配置，支持子目录和特定文件
+filebeat.inputs:
+
+  # 用户服务 - 所有 .log 文件
+  - type: filestream
+    id: user-service
+    enabled: true
+    paths:
+      - /var/log/services/user-service/**/*.log
+    fields:
+      service: "user-service"
+    fields_under_root: true
+    json:
+      keys_under_root: true
+      overwrite_keys: true
+    tags: ["user-service"]
+
+  # 帖子服务 - 所有 .log 文件
+  - type: filestream
+    id: post-service
+    enabled: true
+    paths:
+      - /var/log/services/post-service/**/*.log
+    fields:
+      service: "post-service"
+    fields_under_root: true
+    json:
+      keys_under_root: true
+      overwrite_keys: true
+    tags: ["post-service"]
+
+  # API 网关 - ERR.log
+  - type: filestream
+    id: api-gateway-error
+    enabled: true
+    paths:
+      - /var/log/services/api-gateway/**/ERR.log
+    fields:
+      service: "api-gateway"
+      log_type: "error"
+    fields_under_root: true
+    json:
+      keys_under_root: true
+      overwrite_keys: true
+    tags: ["api-gateway", "error"]
+
+  # API 网关 - INFO.log
+  - type: filestream
+    id: api-gateway-info
+    enabled: true
+    paths:
+      - /var/log/services/api-gateway/**/INFO.log
+    fields:
+      service: "api-gateway"
+      log_type: "info"
+    fields_under_root: true
+    json:
+      keys_under_root: true
+      overwrite_keys: true
+    tags: ["api-gateway", "info"]
+
+# 处理器
+processors:
+  - drop_fields:
+      fields: ["host", "agent", "ecs", "log"]
+      ignore_missing: true

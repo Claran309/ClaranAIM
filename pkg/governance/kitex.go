@@ -5,12 +5,16 @@ package governance
 
 import (
 	"ClaranAIM/pkg/config"
+	"ClaranAIM/pkg/observability"
+	"context"
 	"time"
 
 	"github.com/cloudwego/kitex/client"
 	"github.com/cloudwego/kitex/pkg/circuitbreak"
+	"github.com/cloudwego/kitex/pkg/endpoint"
 	"github.com/cloudwego/kitex/pkg/limit"
 	"github.com/cloudwego/kitex/pkg/loadbalance"
+	"github.com/cloudwego/kitex/pkg/rpcinfo"
 	"github.com/cloudwego/kitex/server"
 	"github.com/cloudwego/kitex/transport"
 )
@@ -37,6 +41,7 @@ func clientOptions(cfg config.RPCGovernanceConfig, allowDisableTimeout bool) []c
 	opts := []client.Option{
 		client.WithTransportProtocol(transport.TTHeader),
 		client.WithLoadBalancer(loadbalance.NewWeightedRoundRobinBalancer()),
+		client.WithMiddleware(observabilityMiddleware("client")),
 	}
 	if timeout, enabled := clientTimeout(cfg, allowDisableTimeout); enabled {
 		opts = append(opts, client.WithRPCTimeout(timeout))
@@ -66,13 +71,65 @@ func LongRunningClientOptions(cfg config.RPCGovernanceConfig) []client.Option {
 // MaxConnections 限制长连接数量，MaxQPS 限制服务入口吞吐；二者都小于等于 0
 // 时不追加 WithLimit，让 Kitex 使用默认行为。
 func ServerOptions(cfg config.RPCGovernanceConfig) []server.Option {
+	opts := []server.Option{server.WithMiddleware(observabilityMiddleware("server"))}
 	if cfg.MaxConnections <= 0 && cfg.MaxQPS <= 0 {
-		return nil
+		return opts
 	}
-	return []server.Option{
+	return append(opts,
 		server.WithLimit(&limit.Option{
 			MaxConnections: cfg.MaxConnections,
 			MaxQPS:         cfg.MaxQPS,
 		}),
+	)
+}
+
+func observabilityMiddleware(kind string) endpoint.Middleware {
+	return func(next endpoint.Endpoint) endpoint.Endpoint {
+		return func(ctx context.Context, req, resp interface{}) error {
+			service, method := rpcTarget(ctx)
+			spanCtx, span := observability.StartSpan(
+				ctx,
+				"Kitex "+kind+" "+service+"."+method,
+				observability.Attribute("rpc.system", "kitex"),
+				observability.Attribute("rpc.service", service),
+				observability.Attribute("rpc.method", method),
+				observability.Attribute("rpc.kind", kind),
+			)
+			defer span.End()
+			start := time.Now()
+			err := next(spanCtx, req, resp)
+			status := "success"
+			if err != nil {
+				status = "error"
+			}
+			observability.RecordRPCRequest(service, method, status, time.Since(start))
+			return err
+		}
 	}
+}
+
+func rpcTarget(ctx context.Context) (string, string) {
+	service := "unknown"
+	method := "unknown"
+	ri := rpcinfo.GetRPCInfo(ctx)
+	if ri == nil {
+		return service, method
+	}
+	if to := ri.To(); to != nil {
+		if name := to.ServiceName(); name != "" {
+			service = name
+		}
+		if m := to.Method(); m != "" {
+			method = m
+		}
+	}
+	if invocation := ri.Invocation(); invocation != nil {
+		if service == "unknown" && invocation.ServiceName() != "" {
+			service = invocation.ServiceName()
+		}
+		if method == "unknown" && invocation.MethodName() != "" {
+			method = invocation.MethodName()
+		}
+	}
+	return service, method
 }

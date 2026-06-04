@@ -666,7 +666,7 @@ func TestFilterGraphExtractResultDropsNoiseAndKeepsGroundedRelations(t *testing.
 	}
 }
 
-func TestFilterGraphExtractResultDropsIsolatedLLMEntities(t *testing.T) {
+func TestFilterGraphExtractResultKeepsUsefulEntitiesWithoutRelations(t *testing.T) {
 	result := filterGraphExtractResult(graphExtractResult{
 		Entities: []extractedEntity{
 			{Name: "融媒体中心面试简历", Type: "Concept", Description: "文档主题"},
@@ -676,8 +676,18 @@ func TestFilterGraphExtractResultDropsIsolatedLLMEntities(t *testing.T) {
 		Relationships: nil,
 	}, "这份文档主要讨论融媒体中心面试简历、个人经历和求职目标。")
 
-	if len(result.Entities) != 0 || len(result.Relationships) != 0 {
-		t.Fatalf("result=%#v, want isolated LLM entities dropped when no relationship is supported", result)
+	if len(result.Relationships) != 0 {
+		t.Fatalf("relationships=%#v, want no unsupported relation", result.Relationships)
+	}
+	names := map[string]bool{}
+	for _, entity := range result.Entities {
+		names[entity.Name] = true
+	}
+	if !names["融媒体中心面试简历"] {
+		t.Fatalf("entities=%#v, want useful document-specific entity kept even when relation extraction is empty", result.Entities)
+	}
+	if names["个人经历"] || names["求职目标"] {
+		t.Fatalf("entities=%#v, want generic resume section entities still filtered", result.Entities)
 	}
 }
 
@@ -720,32 +730,45 @@ func TestFilterGraphExtractResultRejectsWeakOnlyRelatedToGraph(t *testing.T) {
 		},
 	}, "融媒体中心面试简历包含求职目标。")
 
-	if len(result.Entities) != 0 || len(result.Relationships) != 0 {
-		t.Fatalf("result=%#v, want only-RELATED_TO graph rejected", result)
+	if len(result.Relationships) != 0 {
+		t.Fatalf("relationships=%#v, want weak RELATED_TO relation rejected", result.Relationships)
+	}
+	names := map[string]bool{}
+	for _, entity := range result.Entities {
+		names[entity.Name] = true
+	}
+	if !names["融媒体中心面试简历"] {
+		t.Fatalf("entities=%#v, want useful root topic entity kept for document graph visibility", result.Entities)
+	}
+	if names["求职目标"] {
+		t.Fatalf("entities=%#v, want generic section entity filtered", result.Entities)
 	}
 }
 
-func TestFilterGraphExtractResultAllowsHighQualitySemanticRelatedGraph(t *testing.T) {
+func TestFilterGraphExtractResultRejectsGenericRelatedEvenWithHighConfidence(t *testing.T) {
 	result := filterGraphExtractResult(graphExtractResult{
 		Entities: []extractedEntity{
-			{Name: "融媒体中心面试简历", Type: "Concept", Description: "面向融媒体中心岗位的简历文档"},
-			{Name: "新闻采编能力", Type: "Concept", Description: "简历中的岗位能力重点"},
+			{Name: "融媒体中心面试简历", Type: "文档", Description: "面向融媒体中心岗位的简历文档"},
+			{Name: "新闻采编能力", Type: "能力", Description: "简历中的岗位能力重点"},
 		},
 		Relationships: []extractedRelationship{
 			{Source: "融媒体中心面试简历", Target: "新闻采编能力", Type: "RELATED_TO", Description: "新闻采编能力是融媒体中心面试简历的核心能力维度", Evidence: "简历需要体现新闻采编能力、内容策划能力和新媒体运营能力", Confidence: 0.94},
 		},
 	}, "简历需要体现新闻采编能力、内容策划能力和新媒体运营能力。")
 
-	if len(result.Entities) != 2 || len(result.Relationships) != 1 {
-		t.Fatalf("result=%#v, want high-quality semantic RELATED_TO graph kept", result)
+	if len(result.Relationships) != 0 {
+		t.Fatalf("relationships=%#v, want generic RELATED_TO rejected; LLM should output a concrete relation such as 需要体现", result.Relationships)
+	}
+	if len(result.Entities) != 2 {
+		t.Fatalf("entities=%#v, want useful entities preserved while generic relation is dropped", result.Entities)
 	}
 }
 
-func TestFilterGraphExtractResultCapsLLMOverExtraction(t *testing.T) {
+func TestFilterGraphExtractResultPreservesBroaderLLMExtraction(t *testing.T) {
 	entities := []extractedEntity{{Name: "agent-manager-service", Type: "Service", Description: "Agent 管理服务"}}
-	relations := make([]extractedRelationship, 0, 10)
+	relations := make([]extractedRelationship, 0, 18)
 	evidenceParts := []string{"agent-manager-service"}
-	for i := 0; i < 10; i++ {
+	for i := 0; i < 18; i++ {
 		target := fmt.Sprintf("agent_table_%02d_records", i)
 		entities = append(entities, extractedEntity{Name: target, Type: "DatabaseTable", Description: "Agent 数据表"})
 		relations = append(relations, extractedRelationship{
@@ -759,11 +782,130 @@ func TestFilterGraphExtractResultCapsLLMOverExtraction(t *testing.T) {
 		evidenceParts = append(evidenceParts, target)
 	}
 	result := filterGraphExtractResult(graphExtractResult{Entities: entities, Relationships: relations}, strings.Join(evidenceParts, " "))
-	if len(result.Relationships) != 6 {
-		t.Fatalf("relationships len=%d, want capped to 6", len(result.Relationships))
+	if len(result.Relationships) != 18 {
+		t.Fatalf("relationships len=%d, want broader LLM extraction preserved", len(result.Relationships))
 	}
-	if len(result.Entities) > 8 {
-		t.Fatalf("entities len=%d, want capped to at most 8", len(result.Entities))
+	if len(result.Entities) != 19 {
+		t.Fatalf("entities len=%d, want broader connected entity set preserved", len(result.Entities))
+	}
+}
+
+func TestParseGraphExtractResultPreservesLLMCustomRelationType(t *testing.T) {
+	result, err := parseGraphExtractResult(`{
+  "entities": [
+    {"name": "面试者", "type": "岗位候选人", "description": "简历中的候选人", "aliases": []},
+    {"name": "职业装", "type": "服装", "description": "面试者穿着的服装", "aliases": []}
+  ],
+  "relationships": [
+    {"source": "面试者", "target": "职业装", "type": "穿着", "description": "面试者穿着职业装参加面试", "evidence": "面试者穿着职业装", "confidence": 0.91}
+  ]
+}`)
+	if err != nil {
+		t.Fatalf("parseGraphExtractResult returned error: %v", err)
+	}
+	if len(result.Relationships) != 1 || result.Relationships[0].Type != "穿着" {
+		t.Fatalf("relationships=%#v, want custom LLM relation type preserved", result.Relationships)
+	}
+	if result.Entities[0].Type != "岗位候选人" || result.Entities[1].Type != "服装" {
+		t.Fatalf("entities=%#v, want custom LLM entity types preserved", result.Entities)
+	}
+	filtered := filterGraphExtractResult(result, "面试者穿着职业装参加面试。")
+	if len(filtered.Relationships) != 1 || filtered.Relationships[0].Type != "穿着" {
+		t.Fatalf("filtered relationships=%#v, want custom LLM relation type kept through post-filter", filtered.Relationships)
+	}
+	if len(filtered.Entities) != 2 || filtered.Entities[0].Type == "Concept" || filtered.Entities[1].Type == "Concept" {
+		t.Fatalf("filtered entities=%#v, want custom LLM entity types not collapsed to Concept", filtered.Entities)
+	}
+}
+
+func TestGraphExtractResultPreservesFreeEntityTypesAndRelations(t *testing.T) {
+	result, err := parseGraphExtractResult(`{
+  "entities": [
+    {"name": "融媒体中心面试简历", "type": "文档", "description": "面向融媒体中心岗位的简历材料", "aliases": []},
+    {"name": "新闻采编能力", "type": "能力", "description": "简历需要体现的核心能力", "aliases": []},
+    {"name": "融媒体中心岗位", "type": "岗位", "description": "简历投递的目标岗位", "aliases": []}
+  ],
+  "relationships": [
+    {"source": "融媒体中心面试简历", "target": "新闻采编能力", "type": "需要体现", "description": "简历需要体现新闻采编能力", "evidence": "融媒体中心面试简历需要体现新闻采编能力", "confidence": 0.93},
+    {"source": "新闻采编能力", "target": "融媒体中心岗位", "type": "面向", "description": "新闻采编能力面向融媒体中心岗位要求", "evidence": "新闻采编能力适配融媒体中心岗位", "confidence": 0.9}
+  ]
+}`)
+	if err != nil {
+		t.Fatalf("parseGraphExtractResult returned error: %v", err)
+	}
+	filtered := filterGraphExtractResult(result, "融媒体中心面试简历需要体现新闻采编能力，并面向融媒体中心岗位要求。")
+	types := map[string]bool{}
+	relations := map[string]bool{}
+	for _, entity := range filtered.Entities {
+		types[entity.Type] = true
+	}
+	for _, relation := range filtered.Relationships {
+		relations[relation.Type] = true
+	}
+	for _, want := range []string{"文档", "能力", "岗位"} {
+		if !types[want] {
+			t.Fatalf("types=%#v entities=%#v, want free entity type %s preserved", types, filtered.Entities, want)
+		}
+	}
+	for _, want := range []string{"需要体现", "面向"} {
+		if !relations[want] {
+			t.Fatalf("relations=%#v raw=%#v, want free relation %s preserved", relations, filtered.Relationships, want)
+		}
+	}
+}
+
+func TestGraphExtractResultDropsGenericRelationLabels(t *testing.T) {
+	result, err := parseGraphExtractResult(`{
+  "entities": [
+    {"name": "测试实体A", "type": "主题", "description": "测试实体A", "aliases": []},
+    {"name": "测试实体B", "type": "主题", "description": "测试实体B", "aliases": []}
+  ],
+  "relationships": [
+    {"source": "测试实体A", "target": "测试实体B", "type": "相关", "description": "测试实体A和测试实体B只是同段出现", "evidence": "测试实体A和测试实体B只是同段出现", "confidence": 0.95}
+  ]
+}`)
+	if err != nil {
+		t.Fatalf("parseGraphExtractResult returned error: %v", err)
+	}
+	filtered := filterGraphExtractResult(result, "测试实体A和测试实体B只是同段出现。")
+	if len(filtered.Relationships) != 0 {
+		t.Fatalf("relationships=%#v, want generic relation dropped instead of collapsed to RELATED_TO", filtered.Relationships)
+	}
+	if len(filtered.Entities) != 2 {
+		t.Fatalf("entities=%#v, want useful entities preserved for graph diagnosis", filtered.Entities)
+	}
+}
+
+func TestFallbackTopicGraphUsesDocumentRootAndContainsInsteadOfRelatedTo(t *testing.T) {
+	repo := newFakeRAGRepo()
+	svc := NewRAGService(repo, NewLocalVectorIndex(), 64, "hybrid").(*ragServiceImpl)
+	chunk := model.Chunk{
+		ID:           1,
+		DocumentID:   99,
+		OwnerID:      1001,
+		ChunkLevel:   model.ChunkLevelParent,
+		Summary:      "RAG 系统设计",
+		Content:      "RAG 系统设计包括检索策略、向量召回、权限过滤、答案生成和来源治理，这些主题需要在知识库工作台中清晰展示。",
+		QualityScore: 0.9,
+	}
+	_, relationCount := svc.buildFallbackTopicGraph(context.Background(), 1001, 99, "RAG 系统设计文档", []model.Chunk{chunk})
+	if relationCount == 0 {
+		t.Fatalf("relationCount=0, want fallback document-root graph")
+	}
+	hasDocumentRoot := false
+	for _, entity := range repo.entities {
+		if entity.CanonicalKey == "document:99" {
+			hasDocumentRoot = true
+			break
+		}
+	}
+	if !hasDocumentRoot {
+		t.Fatalf("entities=%#v, want document title root node", repo.entities)
+	}
+	for _, relation := range repo.relations {
+		if relation.Relation == "RELATED_TO" {
+			t.Fatalf("relations=%#v, fallback graph must not create RELATED_TO skeleton", repo.relations)
+		}
 	}
 }
 
@@ -968,8 +1110,8 @@ func TestGraphRAGUsesInjectedLLMExtractorAndCommunitySummarizer(t *testing.T) {
 	if !summarizer.called {
 		t.Fatalf("community summarizer was not called")
 	}
-	if result.EntityCount != 3 || result.RelationCount != 2 {
-		t.Fatalf("ingest graph counts = entities %d relations %d, want 3 and 2", result.EntityCount, result.RelationCount)
+	if result.EntityCount != 4 || result.RelationCount != 5 {
+		t.Fatalf("ingest graph counts = entities %d relations %d, want extracted graph plus document contains links", result.EntityCount, result.RelationCount)
 	}
 	if len(repo.communities) != 1 {
 		t.Fatalf("communities len = %d, want one LLM summarized community", len(repo.communities))
@@ -981,6 +1123,72 @@ func TestGraphRAGUsesInjectedLLMExtractorAndCommunitySummarizer(t *testing.T) {
 		if entity.CommunityID == 0 {
 			t.Fatalf("entity %s has no community id after rebuild", entity.Name)
 		}
+	}
+}
+
+func TestGraphRAGKeepsDocumentTitleNodeAndContainsRelations(t *testing.T) {
+	repo := newFakeRAGRepo()
+	extractor := &fakeGraphExtractor{result: graphExtractResult{
+		Entities: []extractedEntity{
+			{Name: "msg-core-service", Type: "Service", Description: "消息事实源"},
+			{Name: "event_outbox", Type: "DatabaseTable", Description: "事务Outbox表"},
+		},
+		Relationships: []extractedRelationship{
+			{Source: "msg-core-service", Target: "event_outbox", Type: "WRITES", Description: "消息服务写入Outbox", Evidence: "msg-core-service 写入 event_outbox", Confidence: 0.93},
+		},
+	}}
+	svc := NewRAGServiceWithGraphExtractor(repo, NewLocalVectorIndex(), 64, "hybrid", nil, nil, nil, nil, nil, extractor, nil)
+
+	result, err := svc.IngestDocument(context.Background(), IngestInput{
+		OwnerID:    1001,
+		Title:      "消息链路设计",
+		Content:    "msg-core-service 写入 event_outbox。",
+		Visibility: model.VisibilityPrivate,
+	})
+	if err != nil {
+		t.Fatalf("IngestDocument returned error: %v", err)
+	}
+	if result.EntityCount < 3 || result.RelationCount < 3 {
+		t.Fatalf("graph counts = entities %d relations %d, want document node plus contains relations", result.EntityCount, result.RelationCount)
+	}
+	var documentNode *model.Entity
+	for i := range repo.entities {
+		if repo.entities[i].Type == "文档" && repo.entities[i].Name == "消息链路设计" && strings.HasPrefix(repo.entities[i].CanonicalKey, "document:") {
+			documentNode = &repo.entities[i]
+			break
+		}
+	}
+	if documentNode == nil {
+		t.Fatalf("entities=%#v, want document title node with document canonical key", repo.entities)
+	}
+	containsTargets := map[int64]bool{}
+	for _, relation := range repo.relations {
+		if relation.SourceID == documentNode.ID && relation.Relation == "CONTAINS" && relation.DocumentID == result.Document.Id {
+			containsTargets[relation.TargetID] = true
+		}
+	}
+	if len(containsTargets) < 2 {
+		t.Fatalf("relations=%#v, want document CONTAINS relation to extracted entities", repo.relations)
+	}
+}
+
+func TestGraphEntityTypeNormalizationInfersInvalidGenericType(t *testing.T) {
+	result := filterGraphExtractResult(graphExtractResult{
+		Entities: []extractedEntity{
+			{Name: "msg-core-service", Type: "实体", Description: "ClaranAIM 的消息核心服务，负责写入消息事实"},
+			{Name: "event_outbox", Type: "对象", Description: "消息事务中写入的 Outbox 数据表"},
+		},
+		Relationships: []extractedRelationship{
+			{Source: "msg-core-service", Target: "event_outbox", Type: "WRITES", Description: "消息核心服务写入Outbox表", Evidence: "msg-core-service 写入 event_outbox", Confidence: 0.93},
+		},
+	}, "msg-core-service 是消息核心服务，负责写入 event_outbox 数据表。")
+
+	typeByName := map[string]string{}
+	for _, entity := range result.Entities {
+		typeByName[entity.Name] = entity.Type
+	}
+	if typeByName["msg-core-service"] != "服务" || typeByName["event_outbox"] != "数据库表" {
+		t.Fatalf("types=%#v, want generic invalid types inferred as free Chinese labels 服务 and 数据库表", typeByName)
 	}
 }
 
@@ -1164,8 +1372,47 @@ func TestGetGraphRebuildsMissingDocumentGraphFromStoredChunks(t *testing.T) {
 	if !extractor.called {
 		t.Fatalf("missing document graph should trigger one rebuild from stored chunks")
 	}
-	if len(graph.Nodes) != 2 || len(graph.Edges) != 1 {
-		t.Fatalf("graph nodes=%d edges=%d, want rebuilt scoped graph", len(graph.Nodes), len(graph.Edges))
+	if len(graph.Nodes) != 3 || len(graph.Edges) != 3 {
+		t.Fatalf("graph nodes=%d edges=%d, want rebuilt scoped graph with document title node", len(graph.Nodes), len(graph.Edges))
+	}
+}
+
+func TestGetGraphWarnsLegacyDocumentGraphNeedsRebuild(t *testing.T) {
+	repo := newFakeRAGRepo()
+	doc := &model.Document{OwnerID: 1001, Title: "旧版图谱文档", SourceType: "markdown", Visibility: model.VisibilityPrivate}
+	if err := repo.CreateDocumentWithChunks(context.Background(), doc, []model.Chunk{
+		{ChunkLevel: model.ChunkLevelChild, Content: "旧版图谱只有相关关系。", Summary: "旧版图谱", QualityScore: 0.8},
+	}); err != nil {
+		t.Fatalf("CreateDocumentWithChunks returned error: %v", err)
+	}
+	a := &model.Entity{OwnerID: 1001, Name: "旧实体A", CanonicalKey: "old-a", Type: "Concept", Summary: "旧版实体A", Score: 1}
+	b := &model.Entity{OwnerID: 1001, Name: "旧实体B", CanonicalKey: "old-b", Type: "Concept", Summary: "旧版实体B", Score: 1}
+	if err := repo.SaveEntity(context.Background(), a); err != nil {
+		t.Fatalf("SaveEntity A returned error: %v", err)
+	}
+	if err := repo.SaveEntity(context.Background(), b); err != nil {
+		t.Fatalf("SaveEntity B returned error: %v", err)
+	}
+	if err := repo.SaveRelation(context.Background(), &model.Relation{
+		OwnerID:    1001,
+		SourceID:   a.ID,
+		TargetID:   b.ID,
+		Relation:   "RELATED_TO",
+		Weight:     0.95,
+		Confidence: 0.95,
+		Evidence:   "旧版图谱只有相关关系",
+		DocumentID: doc.ID,
+	}); err != nil {
+		t.Fatalf("SaveRelation returned error: %v", err)
+	}
+	svc := NewRAGService(repo, NewLocalVectorIndex(), 64, "hybrid")
+
+	graph, err := svc.GetGraph(context.Background(), GraphInput{ViewerID: 1001, DocumentID: doc.ID, Limit: 20})
+	if err != nil {
+		t.Fatalf("GetGraph returned error: %v", err)
+	}
+	if !strings.Contains(graph.Msg, "旧版图谱") || !strings.Contains(graph.Msg, "重建当前文档图谱") {
+		t.Fatalf("graph msg=%q, want legacy rebuild diagnostic", graph.Msg)
 	}
 }
 

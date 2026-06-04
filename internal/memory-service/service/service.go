@@ -5,6 +5,7 @@ import (
 	"ClaranAIM/internal/memory-service/dao"
 	"ClaranAIM/internal/memory-service/model"
 	"ClaranAIM/pkg/memoryclient"
+	"ClaranAIM/pkg/observability"
 	"context"
 	"errors"
 	"fmt"
@@ -134,10 +135,18 @@ func (s *memoryServiceImpl) ListMemories(ctx context.Context, viewerID int64, fi
 // Recall 只召回匹配当前 Agent、用户和上下文边界的记忆。
 // 用户级记忆可以跨会话使用；群、会话、session 级记忆必须精确匹配，避免记忆串线。
 func (s *memoryServiceImpl) Recall(ctx context.Context, input RecallInput) (RecallResult, error) {
+	start := time.Now()
+	status := "success"
+	defer func() {
+		observability.RecordBusinessDuration("memory", "recall", status, time.Since(start))
+		observability.RecordBusinessEvent("memory", "recall", status)
+	}()
 	if s.repo == nil {
+		status = "error"
 		return RecallResult{}, errors.New("memory repository未配置")
 	}
 	if input.BotID <= 0 || input.UserID <= 0 {
+		status = "error"
 		return RecallResult{}, errors.New("bot_id和user_id不能为空")
 	}
 	limit := normalizeRecallLimit(input.Limit)
@@ -147,6 +156,7 @@ func (s *memoryServiceImpl) Recall(ctx context.Context, input RecallInput) (Reca
 	}
 	candidates, err := s.collectRecallCandidates(ctx, input)
 	if err != nil {
+		status = "error"
 		return RecallResult{}, err
 	}
 	scored := scoreRecallCandidates(candidates, input, s.ragOption)
@@ -172,6 +182,7 @@ func (s *memoryServiceImpl) Recall(ctx context.Context, input RecallInput) (Reca
 		}
 		_ = s.repo.Touch(ctx, ids, time.Now())
 	}
+	observability.SetBusinessGauge("memory", "recall_hits", float64(len(facts)))
 	return RecallResult{Facts: memoryFactsToDTO(facts), ContextText: FormatMemoryContext(facts)}, nil
 }
 

@@ -7,6 +7,7 @@ import (
 	"ClaranAIM/pkg/response"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"mime/multipart"
 	"strconv"
@@ -24,6 +25,8 @@ const (
 	ragUploadStatusProcessing = "processing"
 	ragUploadStatusCompleted  = "completed"
 	ragUploadStatusFailed     = "failed"
+	ragUploadStatusCancelled  = "cancelled"
+	ragUploadStatusStalled    = "stalled"
 )
 
 // RAGHandler 暴露知识库入库、RAG 搜索和知识图谱查询接口。
@@ -124,7 +127,12 @@ func (h *RAGHandler) UploadDocument(ctx context.Context, c *app.RequestContext) 
 		items = append(items, item)
 		results = append(results, result)
 	}
-	jobID := gatewayRAGUploadJobs.create(userID, results)
+	jobID := gatewayRAGUploadJobs.create(userID, results, items, ragUploadOptions{
+		Title:          title,
+		Visibility:     visibility,
+		GroupID:        groupID,
+		ConversationID: conversationID,
+	})
 	go h.processRAGUploadJob(jobID, userID, items, ragUploadOptions{
 		Title:          title,
 		Visibility:     visibility,
@@ -152,6 +160,61 @@ func (h *RAGHandler) GetUploadJob(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 	response.Success(c, map[string]interface{}{"success": true, "job": job})
+}
+
+// CancelUploadJob 取消当前用户的某个 RAG 上传后台任务。
+func (h *RAGHandler) CancelUploadJob(ctx context.Context, c *app.RequestContext) {
+	_ = ctx
+	userID, ok := requireCurrentUserID(c)
+	if !ok {
+		return
+	}
+	jobID, err := strconv.ParseInt(strings.TrimSpace(c.Param("id")), 10, 64)
+	if err != nil || jobID <= 0 {
+		response.BadRequest(c, "任务ID无效")
+		return
+	}
+	job, ok := gatewayRAGUploadJobs.cancel(jobID, userID, "用户取消上传任务")
+	if !ok {
+		response.BadRequest(c, "任务不存在或无权取消")
+		return
+	}
+	response.Success(c, map[string]interface{}{"success": true, "job": job})
+}
+
+// RetryUploadJob 重试当前用户某个上传任务中失败、超时、卡住或已取消的文件。
+func (h *RAGHandler) RetryUploadJob(ctx context.Context, c *app.RequestContext) {
+	_ = ctx
+	if !h.ensureService(c) {
+		return
+	}
+	userID, ok := requireCurrentUserID(c)
+	if !ok {
+		return
+	}
+	jobID, err := strconv.ParseInt(strings.TrimSpace(c.Param("id")), 10, 64)
+	if err != nil || jobID <= 0 {
+		response.BadRequest(c, "任务ID无效")
+		return
+	}
+	retry, ok := gatewayRAGUploadJobs.prepareRetry(jobID, userID)
+	if !ok {
+		response.BadRequest(c, "任务不存在、无权重试或没有可重试文件")
+		return
+	}
+	go h.processRAGUploadJob(jobID, userID, retry.Items, retry.Options)
+	response.Success(c, map[string]interface{}{"success": true, "job": retry.Job})
+}
+
+// CancelAllUploadJobs 取消当前用户所有未完成的 RAG 上传后台任务。
+func (h *RAGHandler) CancelAllUploadJobs(ctx context.Context, c *app.RequestContext) {
+	_ = ctx
+	userID, ok := requireCurrentUserID(c)
+	if !ok {
+		return
+	}
+	count := gatewayRAGUploadJobs.cancelAll(userID, "用户取消全部上传任务")
+	response.Success(c, map[string]interface{}{"success": true, "cancelled": count})
 }
 
 func readRAGUploadWorkItem(header *multipart.FileHeader) (ragUploadWorkItem, *ragUploadResult) {
@@ -185,8 +248,21 @@ func readRAGUploadWorkItem(header *multipart.FileHeader) (ragUploadWorkItem, *ra
 }
 
 func (h *RAGHandler) processRAGUploadJob(jobID, userID int64, items []ragUploadWorkItem, opts ragUploadOptions) {
+	jobCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	gatewayRAGUploadJobs.setCancel(jobID, cancel)
+	if gatewayRAGUploadJobs.isCancelled(jobID) {
+		return
+	}
 	gatewayRAGUploadJobs.setStatus(jobID, ragUploadStatusProcessing, "")
 	for idx, item := range items {
+		if gatewayRAGUploadJobs.isCancelled(jobID) || jobCtx.Err() != nil {
+			gatewayRAGUploadJobs.cancel(jobID, userID, "用户取消上传任务")
+			return
+		}
+		if gatewayRAGUploadJobs.fileStatus(jobID, idx) == ragUploadStatusCompleted {
+			continue
+		}
 		gatewayRAGUploadJobs.updateFile(jobID, idx, func(result *ragUploadResult) {
 			if result.Status != ragUploadStatusFailed {
 				result.Status = ragUploadStatusProcessing
@@ -202,7 +278,11 @@ func (h *RAGHandler) processRAGUploadJob(jobID, userID int64, items []ragUploadW
 			})
 			continue
 		}
-		result := h.handleOneRAGUpload(context.Background(), userID, item, opts)
+		result := h.handleOneRAGUpload(jobCtx, userID, item, opts)
+		if gatewayRAGUploadJobs.isCancelled(jobID) || jobCtx.Err() != nil {
+			gatewayRAGUploadJobs.cancel(jobID, userID, "用户取消上传任务")
+			return
+		}
 		gatewayRAGUploadJobs.replaceFile(jobID, idx, result)
 	}
 	gatewayRAGUploadJobs.finish(jobID)
@@ -323,6 +403,67 @@ func (h *RAGHandler) DeleteDocumentGraph(ctx context.Context, c *app.RequestCont
 	response.Success(c, resp)
 }
 
+// RebuildDocumentGraph 删除旧图谱后立即按当前 GraphRAG 逻辑重建某篇文档图谱。
+func (h *RAGHandler) RebuildDocumentGraph(ctx context.Context, c *app.RequestContext) {
+	if !h.ensureService(c) {
+		return
+	}
+	userID, ok := requireCurrentUserID(c)
+	if !ok {
+		return
+	}
+	documentID := parseRAGInt64(c.Param("id"), 0)
+	if documentID <= 0 {
+		response.BadRequest(c, "文档ID无效")
+		return
+	}
+	if _, err := h.svc.DeleteDocumentGraph(ctx, userID, documentID); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	graph, err := h.svc.GetGraph(ctx, userID, ragclient.GraphInput{DocumentID: documentID, Limit: 200, Hops: 1})
+	if err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	response.Success(c, map[string]interface{}{"success": true, "document_id": documentID, "graph": graph, "msg": "图谱已重建"})
+}
+
+// RebuildAllGraphs 删除并重建当前用户可管理文档的 GraphRAG 图谱。
+func (h *RAGHandler) RebuildAllGraphs(ctx context.Context, c *app.RequestContext) {
+	if !h.ensureService(c) {
+		return
+	}
+	userID, ok := requireCurrentUserID(c)
+	if !ok {
+		return
+	}
+	resp, err := h.svc.ListDocuments(ctx, userID, 1000, 0)
+	if err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	total := 0
+	rebuilt := 0
+	failed := 0
+	for _, doc := range resp.GetDocuments() {
+		if doc == nil || doc.GetId() <= 0 {
+			continue
+		}
+		total++
+		if _, err := h.svc.DeleteDocumentGraph(ctx, userID, doc.GetId()); err != nil {
+			failed++
+			continue
+		}
+		if _, err := h.svc.GetGraph(ctx, userID, ragclient.GraphInput{DocumentID: doc.GetId(), Limit: 200, Hops: 1}); err != nil {
+			failed++
+			continue
+		}
+		rebuilt++
+	}
+	response.Success(c, map[string]interface{}{"success": true, "total": total, "rebuilt": rebuilt, "failed": failed, "msg": "图谱重建任务已执行"})
+}
+
 // GetGraph 返回知识图谱节点、边和社区摘要。
 func (h *RAGHandler) GetGraph(ctx context.Context, c *app.RequestContext) {
 	if !h.ensureService(c) {
@@ -393,6 +534,7 @@ type ragUploadResult struct {
 	EntityCount   int64       `json:"entity_count"`
 	RelationCount int64       `json:"relation_count"`
 	Msg           string      `json:"msg"`
+	Attempt       int         `json:"attempt"`
 }
 
 type ragUploadWorkItem struct {
@@ -409,17 +551,28 @@ type ragUploadOptions struct {
 }
 
 type ragUploadJob struct {
-	ID          int64              `json:"id"`
-	UserID      int64              `json:"user_id"`
-	Status      string             `json:"status"`
-	Msg         string             `json:"msg"`
-	Files       []*ragUploadResult `json:"files"`
-	Total       int                `json:"total"`
-	Completed   int                `json:"completed"`
-	Failed      int                `json:"failed"`
-	CreatedAt   string             `json:"created_at"`
-	UpdatedAt   string             `json:"updated_at"`
-	CompletedAt string             `json:"completed_at,omitempty"`
+	ID          int64               `json:"id"`
+	UserID      int64               `json:"user_id"`
+	Status      string              `json:"status"`
+	Msg         string              `json:"msg"`
+	Files       []*ragUploadResult  `json:"files"`
+	Total       int                 `json:"total"`
+	Completed   int                 `json:"completed"`
+	Failed      int                 `json:"failed"`
+	Cancelled   int                 `json:"cancelled"`
+	CreatedAt   string              `json:"created_at"`
+	UpdatedAt   string              `json:"updated_at"`
+	CompletedAt string              `json:"completed_at,omitempty"`
+	RetryCount  int                 `json:"retry_count"`
+	items       []ragUploadWorkItem `json:"-"`
+	options     ragUploadOptions    `json:"-"`
+	cancel      context.CancelFunc  `json:"-"`
+}
+
+type ragUploadRetry struct {
+	Job     *ragUploadJob
+	Items   []ragUploadWorkItem
+	Options ragUploadOptions
 }
 
 type ragUploadJobStore struct {
@@ -431,7 +584,7 @@ func newRAGUploadJobStore() *ragUploadJobStore {
 	return &ragUploadJobStore{jobs: map[int64]*ragUploadJob{}}
 }
 
-func (s *ragUploadJobStore) create(userID int64, files []*ragUploadResult) int64 {
+func (s *ragUploadJobStore) create(userID int64, files []*ragUploadResult, items []ragUploadWorkItem, opts ragUploadOptions) int64 {
 	jobID, err := idgen.NextID()
 	if err != nil {
 		jobID = time.Now().UnixNano()
@@ -447,9 +600,68 @@ func (s *ragUploadJobStore) create(userID int64, files []*ragUploadResult) int64
 		Total:     len(files),
 		CreatedAt: now,
 		UpdatedAt: now,
+		items:     cloneRAGUploadWorkItems(items),
+		options:   opts,
 	}
 	s.cleanupLocked()
 	return jobID
+}
+
+func (s *ragUploadJobStore) prepareRetry(jobID, userID int64) (ragUploadRetry, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	job := s.jobs[jobID]
+	if job == nil || job.UserID != userID {
+		return ragUploadRetry{}, false
+	}
+	if job.cancel != nil {
+		job.cancel()
+		job.cancel = nil
+	}
+	if len(job.items) == 0 || len(job.Files) == 0 {
+		return ragUploadRetry{}, false
+	}
+	retryable := 0
+	job.RetryCount++
+	attempt := job.RetryCount + 1
+	for idx, file := range job.Files {
+		if file == nil {
+			continue
+		}
+		if isRetryableRAGUploadStatus(file.Status) {
+			file.Status = ragUploadStatusPending
+			file.Msg = "等待重试"
+			file.Success = false
+			file.Attempt = attempt
+			retryable++
+			continue
+		}
+		if idx < len(job.items) && len(job.items[idx].Data) == 0 && file.Status != ragUploadStatusCompleted {
+			file.Status = ragUploadStatusFailed
+			file.Msg = "无法重试：原始文件内容未保留"
+		}
+	}
+	if retryable == 0 {
+		job.RetryCount--
+		return ragUploadRetry{}, false
+	}
+	job.Status = ragUploadStatusPending
+	job.Msg = fmt.Sprintf("已重新排队 %d 个失败文件", retryable)
+	now := time.Now().Format(time.RFC3339)
+	job.UpdatedAt = now
+	job.CompletedAt = ""
+	s.recountLocked(job)
+	return ragUploadRetry{Job: cloneRAGUploadJob(job), Items: cloneRAGUploadWorkItems(job.items), Options: job.options}, true
+}
+
+func (s *ragUploadJobStore) fileStatus(jobID int64, index int) string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	job := s.jobs[jobID]
+	if job == nil || index < 0 || index >= len(job.Files) || job.Files[index] == nil {
+		return ""
+	}
+	return job.Files[index].Status
 }
 
 func (s *ragUploadJobStore) get(jobID, userID int64) (*ragUploadJob, bool) {
@@ -459,26 +671,87 @@ func (s *ragUploadJobStore) get(jobID, userID int64) (*ragUploadJob, bool) {
 	if !ok || job.UserID != userID {
 		return nil, false
 	}
-	cp := *job
-	cp.Files = make([]*ragUploadResult, 0, len(job.Files))
-	for _, file := range job.Files {
-		if file == nil {
-			continue
-		}
-		item := *file
-		cp.Files = append(cp.Files, &item)
-	}
-	return &cp, true
+	return cloneRAGUploadJob(job), true
 }
 
 func (s *ragUploadJobStore) setStatus(jobID int64, status, msg string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if job := s.jobs[jobID]; job != nil {
+		if job.Status == ragUploadStatusCancelled && status != ragUploadStatusCancelled {
+			return
+		}
 		job.Status = status
 		job.Msg = msg
 		job.UpdatedAt = time.Now().Format(time.RFC3339)
 	}
+}
+
+func (s *ragUploadJobStore) setCancel(jobID int64, cancel context.CancelFunc) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if job := s.jobs[jobID]; job != nil {
+		job.cancel = cancel
+	}
+}
+
+func (s *ragUploadJobStore) isCancelled(jobID int64) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	job := s.jobs[jobID]
+	return job != nil && job.Status == ragUploadStatusCancelled
+}
+
+func (s *ragUploadJobStore) cancel(jobID, userID int64, msg string) (*ragUploadJob, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	job := s.jobs[jobID]
+	if job == nil || job.UserID != userID {
+		return nil, false
+	}
+	if job.cancel != nil {
+		job.cancel()
+	}
+	s.cancelLocked(job, msg)
+	return cloneRAGUploadJob(job), true
+}
+
+func (s *ragUploadJobStore) cancelAll(userID int64, msg string) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	count := 0
+	for _, job := range s.jobs {
+		if job == nil || job.UserID != userID || isTerminalRAGUploadStatus(job.Status) {
+			continue
+		}
+		if job.cancel != nil {
+			job.cancel()
+		}
+		s.cancelLocked(job, msg)
+		count++
+	}
+	return count
+}
+
+func (s *ragUploadJobStore) cancelLocked(job *ragUploadJob, msg string) {
+	if job == nil || job.Status == ragUploadStatusCancelled {
+		return
+	}
+	job.Status = ragUploadStatusCancelled
+	job.Msg = msg
+	now := time.Now().Format(time.RFC3339)
+	job.UpdatedAt = now
+	job.CompletedAt = now
+	for _, file := range job.Files {
+		if file == nil {
+			continue
+		}
+		if file.Status == ragUploadStatusPending || file.Status == ragUploadStatusProcessing || file.Status == "" {
+			file.Status = ragUploadStatusCancelled
+			file.Msg = msg
+		}
+	}
+	s.recountLocked(job)
 }
 
 func (s *ragUploadJobStore) updateFile(jobID int64, index int, fn func(*ragUploadResult)) {
@@ -486,6 +759,9 @@ func (s *ragUploadJobStore) updateFile(jobID int64, index int, fn func(*ragUploa
 	defer s.mu.Unlock()
 	job := s.jobs[jobID]
 	if job == nil || index < 0 || index >= len(job.Files) || job.Files[index] == nil {
+		return
+	}
+	if job.Status == ragUploadStatusCancelled {
 		return
 	}
 	fn(job.Files[index])
@@ -500,6 +776,9 @@ func (s *ragUploadJobStore) replaceFile(jobID int64, index int, result *ragUploa
 	if job == nil || index < 0 || index >= len(job.Files) {
 		return
 	}
+	if job.Status == ragUploadStatusCancelled {
+		return
+	}
 	job.Files[index] = result
 	job.UpdatedAt = time.Now().Format(time.RFC3339)
 	s.recountLocked(job)
@@ -510,6 +789,9 @@ func (s *ragUploadJobStore) finish(jobID int64) {
 	defer s.mu.Unlock()
 	job := s.jobs[jobID]
 	if job == nil {
+		return
+	}
+	if job.Status == ragUploadStatusCancelled {
 		return
 	}
 	s.recountLocked(job)
@@ -528,6 +810,7 @@ func (s *ragUploadJobStore) finish(jobID int64) {
 func (s *ragUploadJobStore) recountLocked(job *ragUploadJob) {
 	job.Completed = 0
 	job.Failed = 0
+	job.Cancelled = 0
 	for _, file := range job.Files {
 		if file == nil {
 			continue
@@ -537,8 +820,59 @@ func (s *ragUploadJobStore) recountLocked(job *ragUploadJob) {
 			job.Completed++
 		case ragUploadStatusFailed:
 			job.Failed++
+		case ragUploadStatusCancelled:
+			job.Cancelled++
 		}
 	}
+}
+
+func cloneRAGUploadJob(job *ragUploadJob) *ragUploadJob {
+	if job == nil {
+		return nil
+	}
+	cp := *job
+	cp.cancel = nil
+	cp.Files = make([]*ragUploadResult, 0, len(job.Files))
+	for _, file := range job.Files {
+		if file == nil {
+			continue
+		}
+		item := *file
+		cp.Files = append(cp.Files, &item)
+	}
+	return &cp
+}
+
+func isTerminalRAGUploadStatus(status string) bool {
+	switch status {
+	case ragUploadStatusCompleted, ragUploadStatusFailed, ragUploadStatusCancelled:
+		return true
+	default:
+		return false
+	}
+}
+
+func isRetryableRAGUploadStatus(status string) bool {
+	switch status {
+	case ragUploadStatusFailed, ragUploadStatusStalled, ragUploadStatusCancelled:
+		return true
+	default:
+		return false
+	}
+}
+
+func cloneRAGUploadWorkItems(items []ragUploadWorkItem) []ragUploadWorkItem {
+	if len(items) == 0 {
+		return nil
+	}
+	out := make([]ragUploadWorkItem, len(items))
+	for i, item := range items {
+		out[i] = item
+		if item.Data != nil {
+			out[i].Data = append([]byte(nil), item.Data...)
+		}
+	}
+	return out
 }
 
 func (s *ragUploadJobStore) cleanupLocked() {

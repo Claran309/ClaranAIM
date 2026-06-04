@@ -13,6 +13,7 @@ import (
 	"ClaranAIM/pkg/logger"
 	"ClaranAIM/pkg/mcpclient"
 	"ClaranAIM/pkg/memoryclient"
+	"ClaranAIM/pkg/observability"
 	"ClaranAIM/pkg/ragclient"
 	"ClaranAIM/pkg/settingsclient"
 	"ClaranAIM/pkg/websearchclient"
@@ -30,6 +31,9 @@ func main() {
 		logger.Fatal("加载配置失败", "error", err)
 	}
 
+	obsShutdown := observability.InitService(cfg.Service.Name, cfg)
+	defer obsShutdown()
+
 	jwt.SetSecretKey(cfg.JWT.SecretKey)
 	jwt.SetTokenExpirations(cfg.JWT.AccessExpiration, cfg.JWT.RefreshExpiration)
 
@@ -38,6 +42,7 @@ func main() {
 
 	handler.InitFileStorage(cfg)
 	handler.InitDTMConfig(cfg.DTM)
+	handler.InitAdminObservabilityLinks(cfg.Observability)
 	handler.InitMemoryService(memoryclient.NewRPCClient(client.MemoryClient))
 	ragService := ragclient.NewRPCClient(client.RAGLongTaskClient)
 	handler.InitRAGService(ragService)

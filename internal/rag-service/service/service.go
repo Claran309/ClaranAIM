@@ -6,6 +6,7 @@ import (
 	"ClaranAIM/internal/rag-service/model"
 	"ClaranAIM/kitex_gen/rag"
 	"ClaranAIM/pkg/idgen"
+	"ClaranAIM/pkg/observability"
 	"ClaranAIM/pkg/settingsclient"
 	"bytes"
 	"context"
@@ -13,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"hash/fnv"
+	"log"
 	"math"
 	"net/http"
 	"regexp"
@@ -196,14 +198,23 @@ func NewRAGServiceWithRouterProvider(repo dao.Repository, vectorIndex VectorInde
 
 // IngestDocument 写入文档、分块、向量索引和 GraphRAG 图谱。
 func (s *ragServiceImpl) IngestDocument(ctx context.Context, input IngestInput) (IngestResult, error) {
+	start := time.Now()
+	status := "success"
+	defer func() {
+		observability.RecordBusinessDuration("rag", "ingest_document", status, time.Since(start))
+		observability.RecordBusinessEvent("rag", "ingest_document", status)
+	}()
 	if s.repo == nil {
+		status = "error"
 		return IngestResult{}, errors.New("rag repository未配置")
 	}
 	if input.OwnerID <= 0 {
+		status = "error"
 		return IngestResult{}, errors.New("owner_id不能为空")
 	}
 	content := strings.TrimSpace(input.Content)
 	if content == "" {
+		status = "error"
 		return IngestResult{}, errors.New("文档内容不能为空")
 	}
 	title := strings.TrimSpace(input.Title)
@@ -226,9 +237,11 @@ func (s *ragServiceImpl) IngestDocument(ctx context.Context, input IngestInput) 
 	}
 	chunks, err := buildHierarchicalChunks(input, content)
 	if err != nil {
+		status = "error"
 		return IngestResult{}, err
 	}
 	if err := s.repo.CreateDocumentWithChunks(ctx, doc, chunks); err != nil {
+		status = "error"
 		return IngestResult{}, err
 	}
 	for _, chunk := range chunks {
@@ -239,7 +252,7 @@ func (s *ragServiceImpl) IngestDocument(ctx context.Context, input IngestInput) 
 	}
 	entityCount, relationCount := int64(0), int64(0)
 	if shouldBuildGraphForSourceType(doc.SourceType) {
-		entityCount, relationCount = s.buildGraph(ctx, input.OwnerID, doc.ID, doc.SourceType, chunks)
+		entityCount, relationCount = s.buildGraph(ctx, input.OwnerID, doc.ID, doc.Title, doc.SourceType, chunks)
 	}
 	dto := documentToRPC(doc)
 	return IngestResult{Document: dto, ChunkCount: int64(countChildChunks(chunks)), EntityCount: entityCount, RelationCount: relationCount}, nil
@@ -247,14 +260,23 @@ func (s *ragServiceImpl) IngestDocument(ctx context.Context, input IngestInput) 
 
 // Search 执行 Adaptive RAG：按问题复杂度选择 Hybrid、GraphRAG、Web/Memory 外部路线或简单直答，并附带 CRAG 和 Self-RAG 检查点。
 func (s *ragServiceImpl) Search(ctx context.Context, input SearchInput) (SearchResult, error) {
+	start := time.Now()
+	status := "success"
+	defer func() {
+		observability.RecordBusinessDuration("rag", "search", status, time.Since(start))
+		observability.RecordBusinessEvent("rag", "search", status)
+	}()
 	if s.repo == nil {
+		status = "error"
 		return SearchResult{}, errors.New("rag repository未配置")
 	}
 	if input.ViewerID <= 0 {
+		status = "error"
 		return SearchResult{}, errors.New("viewer_id不能为空")
 	}
 	query := strings.TrimSpace(input.Query)
 	if query == "" {
+		status = "error"
 		return SearchResult{}, errors.New("query不能为空")
 	}
 	limit := input.Limit
@@ -344,12 +366,43 @@ func (s *ragServiceImpl) GetGraph(ctx context.Context, input GraphInput) (GraphR
 			return GraphResult{}, err
 		}
 	}
+	legacyGraph := input.DocumentID > 0 && looksLikeLegacyDocumentGraph(nodes, edges, input.DocumentID)
 	nodes, edges = filterGraphForDisplay(nodes, edges)
 	msg := ""
-	if len(nodes) == 0 || len(edges) == 0 {
+	if legacyGraph {
+		msg = "该文档当前显示的是旧版图谱：缺少文档标题节点或关系类型过于单一。请点击“重建当前文档图谱”使用新的 GraphRAG 抽取逻辑重建。"
+	}
+	if msg == "" && (len(nodes) == 0 || len(edges) == 0) {
 		msg = s.describeEmptyGraph(ctx, input.ViewerID, input.DocumentID, len(nodes), len(edges))
 	}
 	return GraphResult{Success: true, Nodes: entitiesToRPC(nodes), Edges: relationsToRPC(edges), Communities: communitiesToRPC(communities), Msg: msg}, nil
+}
+
+func looksLikeLegacyDocumentGraph(nodes []model.Entity, edges []model.Relation, documentID int64) bool {
+	if documentID <= 0 || len(nodes) == 0 || len(edges) == 0 {
+		return false
+	}
+	hasDocumentNode := false
+	allConcept := true
+	onlyRelated := true
+	for _, node := range nodes {
+		if node.CanonicalKey == fmt.Sprintf("document:%d", documentID) {
+			hasDocumentNode = true
+		}
+		if !isGenericEntityType(node.Type) {
+			allConcept = false
+		}
+	}
+	for _, edge := range edges {
+		relation := normalizeRelationType(edge.Relation)
+		if relation == "CONTAINS" {
+			hasDocumentNode = true
+		}
+		if !isGenericRelatedRelation(edge.Relation) {
+			onlyRelated = false
+		}
+	}
+	return !hasDocumentNode && (allConcept || onlyRelated)
 }
 
 func (s *ragServiceImpl) rebuildDocumentGraphIfMissing(ctx context.Context, viewerID, documentID int64) {
@@ -375,7 +428,14 @@ func (s *ragServiceImpl) rebuildDocumentGraphIfMissing(ctx context.Context, view
 	if ownerID <= 0 || !shouldBuildGraphForSourceType(sourceType) {
 		return
 	}
-	s.buildGraph(ctx, ownerID, documentID, sourceType, chunks)
+	documentTitle := ""
+	for _, row := range rows {
+		if strings.TrimSpace(row.Document.Title) != "" {
+			documentTitle = row.Document.Title
+			break
+		}
+	}
+	s.buildGraph(ctx, ownerID, documentID, documentTitle, sourceType, chunks)
 }
 
 func (s *ragServiceImpl) describeEmptyGraph(ctx context.Context, viewerID, documentID int64, nodeCount, edgeCount int) string {
@@ -1247,26 +1307,31 @@ func shouldBuildGraphForSourceType(sourceType string) bool {
 	}
 }
 
-func (s *ragServiceImpl) buildGraph(ctx context.Context, ownerID, documentID int64, sourceType string, chunks []model.Chunk) (int64, int64) {
+func (s *ragServiceImpl) buildGraph(ctx context.Context, ownerID, documentID int64, documentTitle, sourceType string, chunks []model.Chunk) (int64, int64) {
 	if !shouldBuildGraphForSourceType(sourceType) {
 		return 0, 0
 	}
-	hasConfiguredExtractor := s.llmGraphEnabled
-	extractor := s.graphExtractor
+	extractor, hasConfiguredExtractor := s.resolveGraphExtractor(ctx, ownerID)
 	if extractor == nil {
 		extractor = ruleGraphExtractor{}
 	}
 	candidates := graphExtractionCandidates(chunks)
+	var documentEntity *model.Entity
 	entityByCanonical := map[string]*model.Entity{}
 	seenRelations := map[string]bool{}
 	entityCount := int64(0)
 	relationCount := int64(0)
+	logGraphStage("start", ownerID, documentID, "source_type", sourceType, "candidate_chunks", len(candidates), "llm_enabled", hasConfiguredExtractor)
 	for _, chunk := range candidates {
 		result, err := extractor.Extract(ctx, graphExtractInput{DocumentID: documentID, Chunk: chunk})
 		if err != nil {
+			logGraphStage("extract_error", ownerID, documentID, "chunk_id", chunk.ID, "err", err)
 			continue
 		}
+		rawEntities := len(result.Entities)
+		rawRelations := len(result.Relationships)
 		result = filterGraphExtractResult(result, chunk.Content)
+		logGraphStage("extract_result", ownerID, documentID, "chunk_id", chunk.ID, "raw_entities", rawEntities, "raw_relations", rawRelations, "kept_entities", len(result.Entities), "kept_relations", len(result.Relationships))
 		for _, extracted := range result.Entities {
 			entity := s.upsertGraphEntity(ctx, ownerID, extracted)
 			if entity == nil {
@@ -1276,6 +1341,32 @@ func (s *ragServiceImpl) buildGraph(ctx context.Context, ownerID, documentID int
 				entityCount++
 			}
 			entityByCanonical[entity.CanonicalKey] = entity
+			if documentEntity == nil {
+				documentEntity = s.upsertDocumentGraphEntity(ctx, ownerID, documentID, documentTitle)
+				if documentEntity != nil {
+					entityCount++
+				}
+			}
+			if documentEntity != nil && entity.ID != documentEntity.ID {
+				relationKey := fmt.Sprintf("%d:%d:CONTAINS:%d", documentEntity.ID, entity.ID, documentID)
+				if !seenRelations[relationKey] {
+					seenRelations[relationKey] = true
+					relation := &model.Relation{
+						OwnerID:         ownerID,
+						SourceID:        documentEntity.ID,
+						TargetID:        entity.ID,
+						Relation:        "CONTAINS",
+						Description:     fmt.Sprintf("文档《%s》包含核心实体 %s", defaultString(documentTitle, "未命名文档"), entity.Name),
+						Weight:          0.95,
+						Confidence:      0.95,
+						Evidence:        truncate(defaultString(chunk.Summary, chunk.Content), 500),
+						EvidenceChunkID: chunk.ID,
+						DocumentID:      documentID,
+					}
+					_ = s.repo.SaveRelation(ctx, relation)
+					relationCount++
+				}
+			}
 		}
 		for _, extracted := range result.Relationships {
 			source := entityByCanonical[canonicalEntityKey(extracted.Source)]
@@ -1310,12 +1401,49 @@ func (s *ragServiceImpl) buildGraph(ctx context.Context, ownerID, documentID int
 		}
 	}
 	if (!hasConfiguredExtractor || shouldUseSparseGraphFallback(candidates)) && entityCount == 0 && relationCount == 0 {
-		fallbackEntities, fallbackRelations := s.buildFallbackTopicGraph(ctx, ownerID, documentID, candidates)
+		logGraphStage("fallback_start", ownerID, documentID, "has_configured_extractor", hasConfiguredExtractor, "candidate_chunks", len(candidates))
+		fallbackEntities, fallbackRelations := s.buildFallbackTopicGraph(ctx, ownerID, documentID, documentTitle, candidates)
 		entityCount += fallbackEntities
 		relationCount += fallbackRelations
+		logGraphStage("fallback_done", ownerID, documentID, "entities", fallbackEntities, "relations", fallbackRelations)
 	}
 	s.rebuildGraphCommunities(ctx, ownerID)
+	logGraphStage("done", ownerID, documentID, "entities", entityCount, "relations", relationCount)
 	return entityCount, relationCount
+}
+
+func (s *ragServiceImpl) resolveGraphExtractor(ctx context.Context, ownerID int64) (graphExtractor, bool) {
+	if s == nil {
+		return nil, false
+	}
+	if s.llmGraphEnabled && s.graphExtractor != nil {
+		return s.graphExtractor, true
+	}
+	if s.settings == nil || ownerID <= 0 {
+		return s.graphExtractor, false
+	}
+	profiles, err := s.settings.ListLLMProfiles(ctx, ownerID, settingsclient.ProviderRAGRouter)
+	if err != nil || len(profiles) == 0 {
+		return s.graphExtractor, false
+	}
+	selected := profiles[0]
+	for _, profile := range profiles {
+		if profile.IsDefault {
+			selected = profile
+			break
+		}
+	}
+	if selected.ID <= 0 {
+		return s.graphExtractor, false
+	}
+	resolved, err := s.settings.ResolveLLMProfile(ctx, ownerID, selected.ID)
+	if err != nil {
+		return s.graphExtractor, false
+	}
+	if strings.TrimSpace(resolved.APIKey) == "" || strings.TrimSpace(resolved.BaseURL) == "" || strings.TrimSpace(resolved.ModelName) == "" {
+		return s.graphExtractor, false
+	}
+	return fallbackGraphExtractor{primary: NewLLMGraphExtractor(resolved.APIKey, resolved.BaseURL, resolved.ModelName)}, true
 }
 
 func shouldUseSparseGraphFallback(chunks []model.Chunk) bool {
@@ -1329,44 +1457,45 @@ func shouldUseSparseGraphFallback(chunks []model.Chunk) bool {
 	return total >= 1800
 }
 
-func (s *ragServiceImpl) buildFallbackTopicGraph(ctx context.Context, ownerID, documentID int64, chunks []model.Chunk) (int64, int64) {
+func (s *ragServiceImpl) buildFallbackTopicGraph(ctx context.Context, ownerID, documentID int64, documentTitle string, chunks []model.Chunk) (int64, int64) {
 	if s.repo == nil || len(chunks) == 0 {
 		return 0, 0
 	}
+	documentEntity := s.upsertDocumentGraphEntity(ctx, ownerID, documentID, documentTitle)
+	if documentEntity == nil {
+		return 0, 0
+	}
 	entityByKey := map[string]*model.Entity{}
-	entityCount := int64(0)
+	entityCount := int64(1)
 	relationCount := int64(0)
+	seenRelations := map[string]bool{}
 	for _, chunk := range chunks {
 		entities := fallbackTopicEntities(chunk)
-		if len(entities) < 2 {
+		if len(entities) == 0 {
 			continue
 		}
-		var saved []*model.Entity
 		for _, extracted := range entities {
 			entity := s.upsertGraphEntity(ctx, ownerID, extracted)
-			if entity == nil {
+			if entity == nil || entity.ID == documentEntity.ID {
 				continue
 			}
 			if _, ok := entityByKey[entity.CanonicalKey]; !ok {
 				entityCount++
 			}
 			entityByKey[entity.CanonicalKey] = entity
-			saved = append(saved, entity)
-		}
-		for i := 0; i+1 < len(saved) && i < 3; i++ {
-			source := saved[i]
-			target := saved[i+1]
-			if source == nil || target == nil || source.ID == target.ID {
+			relationKey := fmt.Sprintf("%d:%d:CONTAINS:%d", documentEntity.ID, entity.ID, documentID)
+			if seenRelations[relationKey] {
 				continue
 			}
+			seenRelations[relationKey] = true
 			relation := &model.Relation{
 				OwnerID:         ownerID,
-				SourceID:        source.ID,
-				TargetID:        target.ID,
-				Relation:        "RELATED_TO",
-				Description:     "同一文档章节的核心主题关系，用于在规则抽取为空时保留可视化骨架",
-				Weight:          0.9,
-				Confidence:      0.9,
+				SourceID:        documentEntity.ID,
+				TargetID:        entity.ID,
+				Relation:        "CONTAINS",
+				Description:     fmt.Sprintf("文档《%s》包含主题 %s；这是 GraphRAG LLM 未配置或抽取为空时的最小可视化骨架。", defaultString(documentTitle, "未命名文档"), entity.Name),
+				Weight:          0.72,
+				Confidence:      0.72,
 				Evidence:        truncate(chunk.Content, 500),
 				EvidenceChunkID: chunk.ID,
 				DocumentID:      documentID,
@@ -1374,7 +1503,7 @@ func (s *ragServiceImpl) buildFallbackTopicGraph(ctx context.Context, ownerID, d
 			_ = s.repo.SaveRelation(ctx, relation)
 			relationCount++
 		}
-		if entityCount >= 10 || relationCount >= 8 {
+		if entityCount >= 12 || relationCount >= 10 {
 			break
 		}
 	}
@@ -1394,7 +1523,7 @@ func fallbackTopicEntities(chunk model.Chunk) []extractedEntity {
 		seen[canonicalEntityKey(name)] = true
 		out = append(out, extractedEntity{
 			Name:        name,
-			Type:        "Concept",
+			Type:        "主题",
 			Description: "文档章节中的核心主题词，用于辅助知识图谱可视化和后续人工审核",
 			Aliases:     []string{name},
 		})
@@ -1508,8 +1637,44 @@ func (s *ragServiceImpl) upsertGraphEntity(ctx context.Context, ownerID int64, e
 		if strings.TrimSpace(entity.Summary) == "" || entity.Summary == "从文档分块中抽取的知识图谱实体" {
 			entity.Summary = defaultString(extracted.Description, entity.Summary)
 		}
-		if strings.TrimSpace(entity.Type) == "" || entity.Type == "Concept" {
+		if strings.TrimSpace(entity.Type) == "" || isGenericEntityType(entity.Type) {
 			entity.Type = normalizeEntityType(extracted.Type, name)
+		}
+	}
+	_ = s.repo.SaveEntity(ctx, entity)
+	return entity
+}
+
+func (s *ragServiceImpl) upsertDocumentGraphEntity(ctx context.Context, ownerID, documentID int64, title string) *model.Entity {
+	if s == nil || s.repo == nil || ownerID <= 0 || documentID <= 0 {
+		return nil
+	}
+	name := strings.TrimSpace(title)
+	if name == "" {
+		name = fmt.Sprintf("文档 %d", documentID)
+	}
+	canonical := fmt.Sprintf("document:%d", documentID)
+	entity, err := s.repo.GetEntityByCanonicalKey(ctx, ownerID, canonical)
+	if err != nil {
+		return nil
+	}
+	if entity == nil {
+		entity = &model.Entity{
+			OwnerID:      ownerID,
+			Name:         name,
+			CanonicalKey: canonical,
+			Type:         "文档",
+			Summary:      fmt.Sprintf("知识库文档《%s》的标题节点，用于承载该文档内抽取出的核心实体。", name),
+			AliasesJSON:  encodeAliases([]string{name}),
+			Score:        1.2,
+		}
+	} else {
+		entity.Name = name
+		entity.Type = "文档"
+		entity.Score += 0.1
+		entity.AliasesJSON = encodeAliases(mergeAliases(decodeAliases(entity.AliasesJSON), name))
+		if strings.TrimSpace(entity.Summary) == "" {
+			entity.Summary = fmt.Sprintf("知识库文档《%s》的标题节点，用于承载该文档内抽取出的核心实体。", name)
 		}
 	}
 	_ = s.repo.SaveEntity(ctx, entity)
@@ -1563,7 +1728,7 @@ func (e *LLMGraphExtractor) Extract(ctx context.Context, input graphExtractInput
 		"messages": []map[string]string{
 			{
 				"role":    "system",
-				"content": "你是 ClaranAIM 的 GraphRAG indexing analyst。只输出 JSON，不要解释。你的任务不是抽取所有名词，而是阅读一篇文档的章节/父块，判断“这段文章真正想让读者记住的核心实体和关系”。\n\n分析步骤必须在心里完成，不要输出步骤：\n1. 先判断本章节的主题和作者真正讨论的对象。\n2. 只保留解释该主题不可缺少的实体。一个词如果删掉后不影响理解，就不要抽。\n3. 只抽明确关系：A 调用/写入/依赖/配置/触发/发布/消费/拥有/读取/存储 B。只是同段出现、举例、列表项、标题编号、页面元素，不算关系。\n4. 章节如果只是寒暄、会话摘要、目录、题号、步骤流水、截图 OCR 噪声、普通示例代码或无长期价值内容，返回空数组。\n\n硬性规则：\n- 每段最多 6 个实体、6 条关系；宁缺毋滥。\n- 不要抽取普通数字、序号、页码、字段名、状态词、文件名、图片名、临时变量、普通英文人名样例、Teacher/Student/Customer/Linux 这类教学例子，除非文章明确就是在定义它们。\n- 不要把“会话摘要、会话主题、文档、内容、数据、信息、用户、系统、示例、页面、图片、文件”作为实体。\n- 实体 description 必须说明它在本文中的业务/技术含义，不能写泛泛定义。\n- source/target 必须引用 entities 中的 name；关系必须有原文证据；没有明确动作就不要输出 RELATED_TO。\n\n实体类型只能是 Service、DatabaseTable、EventTopic、API、Module、Concept、Person、Organization、Product。关系类型只能是 CALLS、PUBLISHES、CONSUMES、STORES、OWNS、DEPENDS_ON、CONFIGURES、TRIGGERS、READS、WRITES、RELATED_TO。\n\nJSON格式：{\"entities\":[{\"name\":\"...\",\"type\":\"Concept\",\"description\":\"它在本文中的具体含义\",\"aliases\":[]}],\"relationships\":[{\"source\":\"...\",\"target\":\"...\",\"type\":\"DEPENDS_ON\",\"description\":\"说明关系含义\",\"evidence\":\"原文证据\",\"confidence\":0.85}]}。",
+				"content": "你是 ClaranAIM 的 GraphRAG indexing analyst。只输出 JSON，不要解释。你的任务不是抽取所有名词，而是阅读一篇文档的章节/父块，判断“这段文章真正想让读者记住的核心实体和关系”。\n\n分析步骤必须在心里完成，不要输出步骤：\n1. 先判断本章节的主题和作者真正讨论的对象。\n2. 只保留解释该主题不可缺少的实体。一个词如果删掉后不影响理解，就不要抽。\n3. 为每个实体给出短而具体的类型标签，由你根据原文决定，例如：服务、数据库表、事件主题、接口、模块、人物、组织、产品、技术概念、课程主题、文件、项目、能力、岗位、工具、流程。\n4. 关系类型同样由你根据原文决定，必须是明确动作、归属、条件、组成、属性或语义联系，例如：调用、写入、需要、属于、包含、穿着、负责、支撑、组成、面向、约束、用于。\n5. 只是同段出现、举例、列表项、标题编号、页面元素，不算关系。\n6. 章节如果只是寒暄、会话摘要、目录、题号、步骤流水、截图 OCR 噪声、普通示例代码或无长期价值内容，返回空数组。\n\n硬性规则：\n- 禁止输出泛化实体类型：实体、节点、对象、内容、数据、信息、概念、未知，除非原文确实在定义某个抽象概念，此时请写成“技术概念”“业务概念”“课程主题”等更具体类型。\n- 禁止输出泛化关系：相关、关联、提到、提及、同现、一起出现、RELATED_TO；如果无法说清楚两个实体之间的具体关系，就不要输出这条关系。\n- 不要抽取普通数字、序号、页码、字段名、状态词、文件名、图片名、临时变量、普通英文人名样例、Teacher/Student/Customer/Linux 这类教学例子，除非文章明确就是在定义它们。\n- 不要把“会话摘要、会话主题、文档、内容、数据、信息、用户、系统、示例、页面、图片、文件”作为实体。\n- 实体 description 必须说明它在本文中的业务/技术含义，不能写泛泛定义。\n- source/target 必须引用 entities 中的 name；关系必须有原文证据；没有明确动作就不要输出关系。\n- 长章节可以输出 8-24 个高质量实体和 8-30 条关系；短章节宁缺毋滥。\n\nJSON格式：{\"entities\":[{\"name\":\"...\",\"type\":\"服务\",\"description\":\"它在本文中的具体含义\",\"aliases\":[]}],\"relationships\":[{\"source\":\"...\",\"target\":\"...\",\"type\":\"需要\",\"description\":\"说明关系含义\",\"evidence\":\"原文证据\",\"confidence\":0.85}]}。",
 			},
 			{
 				"role":    "user",
@@ -1646,7 +1811,7 @@ func parseGraphExtractResult(content string) (graphExtractResult, error) {
 		entityNames[canonicalEntityKey(name)] = true
 		result.Entities = append(result.Entities, extractedEntity{
 			Name:        name,
-			Type:        normalizeEntityType(entity.Type, name),
+			Type:        strings.TrimSpace(entity.Type),
 			Description: strings.TrimSpace(entity.Description),
 			Aliases:     mergeAliases(entity.Aliases, name),
 		})
@@ -1733,20 +1898,24 @@ func filterGraphExtractResult(result graphExtractResult, evidence string) graphE
 		if key == "" || validKeys[key] {
 			continue
 		}
+		entity.Type = normalizeEntityTypeWithContext(entity.Type, entity.Name, entity.Description+" "+evidence)
 		validKeys[key] = true
-		validEntityTypeByKey[key] = normalizeEntityType(entity.Type, entity.Name)
+		validEntityTypeByKey[key] = entity.Type
 		validEntities = append(validEntities, entity)
 	}
 	validRelations := make([]extractedRelationship, 0, len(result.Relationships))
 	seenRelation := map[string]bool{}
 	for _, relation := range result.Relationships {
 		relation.Type = normalizeRelationType(relation.Type)
+		if relation.Type == "" {
+			continue
+		}
 		sourceKey := canonicalEntityKey(relation.Source)
 		targetKey := canonicalEntityKey(relation.Target)
 		if sourceKey == "" || targetKey == "" || sourceKey == targetKey || !validKeys[sourceKey] || !validKeys[targetKey] {
 			continue
 		}
-		if relation.Type == "RELATED_TO" && relation.Confidence < 0.82 {
+		if isGenericRelatedRelation(relation.Type) {
 			continue
 		}
 		if !relationAllowedByEntityTypes(relation.Type, validEntityTypeByKey[sourceKey], validEntityTypeByKey[targetKey]) {
@@ -1763,9 +1932,11 @@ func filterGraphExtractResult(result graphExtractResult, evidence string) graphE
 		validRelations = append(validRelations, relation)
 	}
 	if !graphExtractResultQualified(validEntities, validRelations) {
-		return graphExtractResult{}
+		if len(validEntities) == 0 {
+			return graphExtractResult{}
+		}
+		return graphExtractResult{Entities: validEntities, Relationships: nil}
 	}
-	validRelations = capGraphRelations(validRelations, 6)
 	relatedKeys := map[string]bool{}
 	for _, relation := range validRelations {
 		relatedKeys[canonicalEntityKey(relation.Source)] = true
@@ -1777,8 +1948,8 @@ func filterGraphExtractResult(result graphExtractResult, evidence string) graphE
 			connectedEntities = append(connectedEntities, entity)
 		}
 	}
-	if len(connectedEntities) > 8 {
-		connectedEntities = connectedEntities[:8]
+	if len(connectedEntities) == 0 {
+		connectedEntities = validEntities
 	}
 	return graphExtractResult{Entities: connectedEntities, Relationships: validRelations}
 }
@@ -1790,7 +1961,7 @@ func graphExtractResultQualified(entities []extractedEntity, relations []extract
 	strongRelations := 0
 	semanticRelations := 0
 	for _, relation := range relations {
-		if normalizeRelationType(relation.Type) != "RELATED_TO" {
+		if !isGenericRelatedRelation(relation.Type) {
 			strongRelations++
 			continue
 		}
@@ -1802,7 +1973,7 @@ func graphExtractResultQualified(entities []extractedEntity, relations []extract
 }
 
 func isHighQualitySemanticRelation(relation extractedRelationship) bool {
-	if normalizeRelationType(relation.Type) != "RELATED_TO" {
+	if !isGenericRelatedRelation(relation.Type) {
 		return false
 	}
 	if relation.Confidence < 0.9 {
@@ -1833,8 +2004,8 @@ func capGraphRelations(relations []extractedRelationship, limit int) []extracted
 		return relations
 	}
 	sort.SliceStable(relations, func(i, j int) bool {
-		leftRelated := normalizeRelationType(relations[i].Type) == "RELATED_TO"
-		rightRelated := normalizeRelationType(relations[j].Type) == "RELATED_TO"
+		leftRelated := isGenericRelatedRelation(relations[i].Type)
+		rightRelated := isGenericRelatedRelation(relations[j].Type)
 		if leftRelated != rightRelated {
 			return !leftRelated
 		}
@@ -1910,7 +2081,7 @@ func isUsefulGraphEntity(entity extractedEntity, evidence string, usedInRelation
 	if isGraphFieldOrStatusName(name) {
 		return false
 	}
-	if normalizeEntityType(entity.Type, name) == "Concept" && len([]rune(name)) <= 2 {
+	if isGenericEntityType(entity.Type) && len([]rune(name)) <= 2 {
 		return false
 	}
 	if !usedInRelation && isRuleExtractedGraphEntity(entity) {
@@ -2508,7 +2679,7 @@ func communityTitle(entities []model.Entity) string {
 	for _, entity := range entities {
 		typeCount[entity.Type]++
 	}
-	bestType := "Concept"
+	bestType := "主题"
 	bestCount := -1
 	for typ, count := range typeCount {
 		if count > bestCount {
@@ -2933,20 +3104,26 @@ func relationDescription(source, target, relationType string) string {
 		"TRIGGERS":   "触发",
 		"READS":      "读取",
 		"WRITES":     "写入",
+		"CONTAINS":   "包含",
 		"RELATED_TO": "关联",
 	}
-	verb := defaultString(verbs[relationType], "关联")
+	verb := defaultString(verbs[relationType], relationType)
 	return source + " " + verb + " " + target
 }
 
 func relationAllowedByEntityTypes(relationType, sourceType, targetType string) bool {
 	relationType = normalizeRelationType(relationType)
+	if isCustomGraphRelation(relationType) {
+		return true
+	}
 	sourceType = normalizeGraphEntityTypeForPolicy(sourceType)
 	targetType = normalizeGraphEntityTypeForPolicy(targetType)
 	if sourceType == "" || targetType == "" {
 		return true
 	}
 	switch relationType {
+	case "CONTAINS":
+		return true
 	case "CALLS":
 		return isExecutableGraphEntityType(sourceType) && isCallableGraphEntityType(targetType)
 	case "PUBLISHES":
@@ -3022,30 +3199,113 @@ func canonicalEntityKey(name string) string {
 }
 
 func normalizeEntityType(entityType, name string) string {
-	entityType = strings.TrimSpace(entityType)
-	valid := map[string]bool{
-		"Service": true, "DatabaseTable": true, "EventTopic": true, "API": true,
-		"Module": true, "Concept": true, "Person": true, "Organization": true, "Product": true,
-	}
-	if valid[entityType] {
+	return normalizeEntityTypeWithContext(entityType, name, "")
+}
+
+func normalizeEntityTypeWithContext(entityType, name, contextText string) string {
+	entityType = cleanGraphLabel(entityType)
+	if entityType != "" && !isGenericEntityType(entityType) {
 		return entityType
 	}
-	return inferEntityType(name)
+	return inferEntityTypeFromContext(name, contextText)
 }
 
 func normalizeRelationType(relationType string) string {
-	relationType = strings.ToUpper(strings.TrimSpace(relationType))
-	relationType = strings.ReplaceAll(relationType, "-", "_")
-	relationType = strings.ReplaceAll(relationType, " ", "_")
+	raw := cleanGraphLabel(relationType)
+	if raw == "" {
+		return ""
+	}
+	upper := strings.ToUpper(raw)
+	upper = strings.ReplaceAll(upper, "-", "_")
+	upper = strings.ReplaceAll(upper, " ", "_")
 	valid := map[string]bool{
 		"CALLS": true, "PUBLISHES": true, "CONSUMES": true, "STORES": true,
 		"OWNS": true, "DEPENDS_ON": true, "CONFIGURES": true, "TRIGGERS": true,
-		"READS": true, "WRITES": true, "RELATED_TO": true,
+		"READS": true, "WRITES": true, "RELATED_TO": true, "CONTAINS": true,
 	}
-	if valid[relationType] {
-		return relationType
+	if valid[upper] {
+		if upper == "RELATED_TO" {
+			return ""
+		}
+		return upper
 	}
-	return "RELATED_TO"
+	if isGenericRelatedRelation(raw) {
+		return ""
+	}
+	return raw
+}
+
+func logGraphStage(stage string, ownerID, documentID int64, fields ...interface{}) {
+	parts := []string{
+		fmt.Sprintf("stage=%s", stage),
+		fmt.Sprintf("owner_id=%d", ownerID),
+		fmt.Sprintf("document_id=%d", documentID),
+	}
+	for i := 0; i+1 < len(fields); i += 2 {
+		key := strings.TrimSpace(fmt.Sprint(fields[i]))
+		if key == "" {
+			continue
+		}
+		parts = append(parts, fmt.Sprintf("%s=%v", key, fields[i+1]))
+	}
+	log.Printf("GraphRAG抽取诊断: %s", strings.Join(parts, " "))
+}
+
+func cleanGraphLabel(value string) string {
+	cleaned := strings.Trim(value, " \t\r\n，。,.；;:：()（）[]【】\"'")
+	cleaned = strings.Join(strings.Fields(cleaned), " ")
+	if len([]rune(cleaned)) > 24 {
+		return ""
+	}
+	return cleaned
+}
+
+func isGenericEntityType(entityType string) bool {
+	raw := strings.TrimSpace(entityType)
+	if raw == "" {
+		return true
+	}
+	lower := strings.ToLower(raw)
+	generic := []string{"entity", "node", "object", "content", "data", "information", "unknown", "实体", "节点", "对象", "内容", "数据", "信息", "未知"}
+	for _, item := range generic {
+		if lower == strings.ToLower(item) {
+			return true
+		}
+	}
+	if raw == "Concept" || raw == "概念" {
+		return true
+	}
+	return false
+}
+
+func isCustomGraphRelation(relationType string) bool {
+	if relationType == "" {
+		return false
+	}
+	upper := strings.ToUpper(strings.ReplaceAll(strings.ReplaceAll(relationType, "-", "_"), " ", "_"))
+	switch upper {
+	case "CALLS", "PUBLISHES", "CONSUMES", "STORES", "OWNS", "DEPENDS_ON", "CONFIGURES", "TRIGGERS", "READS", "WRITES", "RELATED_TO", "CONTAINS":
+		return false
+	default:
+		return true
+	}
+}
+
+func isGenericRelatedRelation(relationType string) bool {
+	raw := strings.TrimSpace(relationType)
+	upper := strings.ToUpper(strings.ReplaceAll(strings.ReplaceAll(raw, "-", "_"), " ", "_"))
+	switch upper {
+	case "", "RELATED_TO", "RELATES_TO", "RELATED", "ASSOCIATED_WITH", "ASSOCIATES_WITH":
+		return true
+	}
+	lower := strings.ToLower(raw)
+	generic := []string{"相关", "关联", "有关", "提到", "提及", "同现", "一起出现", "co-occur", "mentioned"}
+	for _, item := range generic {
+		if lower == strings.ToLower(item) || strings.Contains(lower, strings.ToLower(item)) {
+			return true
+		}
+	}
+	return false
 }
 
 func encodeAliases(aliases []string) string {
@@ -3531,26 +3791,56 @@ func extractEntities(text string) []string {
 }
 
 func inferEntityType(name string) string {
+	return inferEntityTypeFromContext(name, "")
+}
+
+func inferEntityTypeFromContext(name, contextText string) string {
 	lower := strings.ToLower(name)
+	contextLower := strings.ToLower(contextText)
+	joined := lower + " " + contextLower
 	if strings.Contains(lower, "-service") || strings.Contains(lower, "-gateway") || strings.Contains(name, "服务") || strings.Contains(name, "网关") {
-		return "Service"
+		return "服务"
 	}
-	if strings.Contains(lower, "_") || strings.HasSuffix(lower, "table") || strings.Contains(name, "表") {
-		return "DatabaseTable"
+	if strings.Contains(lower, "_") || strings.HasSuffix(lower, "table") || strings.Contains(name, "表") || strings.Contains(lower, "outbox") {
+		return "数据库表"
 	}
 	if strings.Contains(lower, ".events") || strings.Contains(lower, "topic") || strings.Contains(name, "事件") || strings.Contains(name, "主题") {
-		return "EventTopic"
+		return "事件主题"
 	}
 	if strings.Contains(lower, "/api/") || strings.HasPrefix(lower, "api") {
-		return "API"
+		return "接口"
+	}
+	if strings.Contains(lower, "module") || strings.Contains(name, "模块") {
+		return "模块"
 	}
 	if strings.Contains(name, "部") || strings.Contains(name, "组") || strings.Contains(name, "团队") {
-		return "Organization"
+		return "组织"
 	}
 	if strings.Contains(name, "系统") || strings.Contains(name, "平台") || strings.Contains(name, "产品") {
-		return "Product"
+		return "产品"
 	}
-	return "Concept"
+	if strings.Contains(joined, "数据表") || strings.Contains(joined, "表") || strings.Contains(joined, "table") || strings.Contains(joined, "outbox") {
+		return "数据库表"
+	}
+	if strings.Contains(joined, "事件主题") || strings.Contains(joined, "topic") || strings.Contains(joined, "event topic") {
+		return "事件主题"
+	}
+	if strings.Contains(joined, "服务") || strings.Contains(joined, "service") || strings.Contains(joined, "gateway") {
+		return "服务"
+	}
+	if strings.Contains(joined, "接口") || strings.Contains(joined, "api") {
+		return "接口"
+	}
+	if strings.Contains(joined, "模块") || strings.Contains(joined, "module") {
+		return "模块"
+	}
+	if strings.Contains(joined, "组织") || strings.Contains(joined, "公司") || strings.Contains(joined, "机构") {
+		return "组织"
+	}
+	if strings.Contains(joined, "产品") || strings.Contains(joined, "数据库产品") {
+		return "产品"
+	}
+	return "主题"
 }
 
 func communityName(name string) string {
@@ -3643,12 +3933,15 @@ func filterGraphForDisplay(entities []model.Entity, relations []model.Relation) 
 			continue
 		}
 		relation.Relation = normalizeRelationType(relation.Relation)
+		if relation.Relation == "" {
+			continue
+		}
 		source := entityByID[relation.SourceID]
 		target := entityByID[relation.TargetID]
 		if !relationAllowedByEntityTypes(relation.Relation, source.Type, target.Type) {
 			continue
 		}
-		if relation.Relation == "RELATED_TO" && relation.Weight < 0.82 {
+		if isGenericRelatedRelation(relation.Relation) {
 			continue
 		}
 		key := fmt.Sprintf("%d-%s-%d", relation.SourceID, relation.Relation, relation.TargetID)
