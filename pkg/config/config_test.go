@@ -137,3 +137,31 @@ observability:
 		t.Fatalf("observability panel defaults missing: %#v", cfg.Observability)
 	}
 }
+
+func TestLoadNeo4jDefaultsAndEnvOverrides(t *testing.T) {
+	t.Setenv("NEO4J_ENABLED", "false")
+	t.Setenv("NEO4J_URI", "bolt://neo4j.internal:7687")
+	t.Setenv("NEO4J_USERNAME", "graph-user")
+	t.Setenv("NEO4J_PASSWORD", "graph-pass")
+	t.Setenv("NEO4J_DATABASE", "graphdb")
+	dir := t.TempDir()
+	path := filepath.Join(dir, "rag.yaml")
+	if err := os.WriteFile(path, []byte(`
+service:
+  name: rag-service
+  address: "127.0.0.1:9112"
+`), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if cfg.Neo4j.Enabled {
+		t.Fatal("neo4j enabled = true, want false from env")
+	}
+	if cfg.Neo4j.URI != "bolt://neo4j.internal:7687" || cfg.Neo4j.Username != "graph-user" || cfg.Neo4j.Password != "graph-pass" || cfg.Neo4j.Database != "graphdb" {
+		t.Fatalf("neo4j config = %#v", cfg.Neo4j)
+	}
+}

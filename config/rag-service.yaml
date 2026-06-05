@@ -5,6 +5,13 @@ service:
 mysql:
   dsn: ""
 
+neo4j:
+  enabled: true
+  uri: "bolt://127.0.0.1:7687"
+  username: "neo4j"
+  password: "claran_neo4j_123"
+  database: "neo4j"
+
 rag:
   embedding_dim: 256
   default_mode: "adaptive"

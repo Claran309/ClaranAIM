@@ -57,7 +57,7 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 6,
+        "h": 4,
         "w": 6,
         "x": 0,
         "y": 0
@@ -112,7 +112,7 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 6,
+        "h": 4,
         "w": 6,
         "x": 6,
         "y": 0
@@ -198,8 +198,8 @@
       "gridPos": {
         "h": 8,
         "w": 12,
-        "x": 12,
-        "y": 0
+        "x": 0,
+        "y": 4
       },
       "id": 3,
       "options": {
@@ -285,8 +285,8 @@
       "gridPos": {
         "h": 8,
         "w": 12,
-        "x": 0,
-        "y": 8
+        "x": 12,
+        "y": 4
       },
       "id": 4,
       "options": {
@@ -372,8 +372,8 @@
       "gridPos": {
         "h": 8,
         "w": 12,
-        "x": 12,
-        "y": 8
+        "x": 0,
+        "y": 12
       },
       "id": 5,
       "options": {
@@ -428,10 +428,10 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 7,
-        "w": 24,
-        "x": 0,
-        "y": 16
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 12
       },
       "id": 6,
       "options": {
@@ -489,10 +489,10 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 5,
-        "w": 24,
-        "x": 0,
-        "y": 23
+        "h": 4,
+        "w": 12,
+        "x": 12,
+        "y": 0
       },
       "id": 7,
       "options": {
@@ -521,6 +521,112 @@
       ],
       "title": "Prometheus Targets Up",
       "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "jaeger",
+        "uid": "Jaeger"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 20
+      },
+      "id": 8,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true
+      },
+      "pluginVersion": "11.0.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "jaeger",
+            "uid": "Jaeger"
+          },
+          "limit": 20,
+          "operation": "",
+          "queryType": "search",
+          "refId": "A",
+          "service": "api-gateway",
+          "tags": ""
+        }
+      ],
+      "title": "Recent Jaeger Traces - api-gateway",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "elasticsearch",
+        "uid": "Elasticsearch"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 20
+      },
+      "id": 9,
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": true,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "query": "service.name:*",
+          "metrics": [
+            {
+              "type": "logs"
+            }
+          ],
+          "bucketAggs": [],
+          "timeField": "@timestamp"
+        }
+      ],
+      "title": "Recent Service Logs",
+      "type": "logs"
     }
   ],
   "refresh": "10s",
@@ -540,6 +646,6 @@
   "timezone": "browser",
   "title": "ClaranAIM Overview",
   "uid": "claran-overview",
-  "version": 1,
+  "version": 3,
   "weekStart": ""
 }

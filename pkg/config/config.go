@@ -12,10 +12,11 @@ import (
 )
 
 // Config 全局配置结构体
-// 包含所有服务共用的配置项：MySQL、Redis、JWT、Etcd、Service、MinIO、Storage
+// 包含所有服务共用的配置项：MySQL、Neo4j、Redis、JWT、Etcd、Service、MinIO、Storage
 // 每个服务通过各自的YAML配置文件加载，环境变量可覆盖敏感信息
 type Config struct {
 	MySQL                    MySQLConfig                    `yaml:"mysql"`
+	Neo4j                    Neo4jConfig                    `yaml:"neo4j"`
 	Redis                    RedisConfig                    `yaml:"redis"`
 	JWT                      JWTConfig                      `yaml:"jwt"`
 	Etcd                     EtcdConfig                     `yaml:"etcd"`
@@ -46,6 +47,15 @@ type MySQLConfig struct {
 	Password string `yaml:"password"` // 数据库密码
 	Database string `yaml:"database"` // 数据库名称
 	DSN      string `yaml:"dsn"`      // 完整数据源连接字符串（优先使用）
+}
+
+// Neo4jConfig 保存 GraphRAG 知识图谱后端连接参数。
+type Neo4jConfig struct {
+	Enabled  bool   `yaml:"enabled"`
+	URI      string `yaml:"uri"`
+	Username string `yaml:"username"`
+	Password string `yaml:"password"`
+	Database string `yaml:"database"`
 }
 
 // RedisConfig Redis缓存配置
@@ -291,6 +301,10 @@ func Load(configPath string) (*Config, error) {
 	v.SetDefault("observability.kibana_url", "http://127.0.0.1:5601")
 	v.SetDefault("observability.prometheus_url", "http://127.0.0.1:8084")
 	v.SetDefault("observability.dashboard_base_url", "http://127.0.0.1:8086")
+	v.SetDefault("neo4j.enabled", true)
+	v.SetDefault("neo4j.uri", "bolt://127.0.0.1:7687")
+	v.SetDefault("neo4j.username", "neo4j")
+	v.SetDefault("neo4j.database", "neo4j")
 	v.SetDefault("rag.embedding_dim", 256)
 	v.SetDefault("rag.default_mode", "adaptive")
 	v.SetDefault("rag.embedding_provider", "hash")
@@ -391,6 +405,24 @@ func applyEnvOverrides(cfg *Config) {
 			cfg.MySQL.Port,
 			cfg.MySQL.Database,
 		)
+	}
+
+	if enabled := os.Getenv("NEO4J_ENABLED"); enabled != "" {
+		if v, err := strconv.ParseBool(enabled); err == nil {
+			cfg.Neo4j.Enabled = v
+		}
+	}
+	if uri := os.Getenv("NEO4J_URI"); uri != "" {
+		cfg.Neo4j.URI = uri
+	}
+	if username := os.Getenv("NEO4J_USERNAME"); username != "" {
+		cfg.Neo4j.Username = username
+	}
+	if password := os.Getenv("NEO4J_PASSWORD"); password != "" {
+		cfg.Neo4j.Password = password
+	}
+	if database := os.Getenv("NEO4J_DATABASE"); database != "" {
+		cfg.Neo4j.Database = database
 	}
 
 	// Redis 配置覆盖

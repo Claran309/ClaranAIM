@@ -7,6 +7,7 @@ import (
 	"ClaranAIM/kitex_gen/bot"
 	"ClaranAIM/pkg/config"
 	"context"
+	"strings"
 )
 
 // agentServiceImpl 是 agent-manager-service 的 Kitex 服务端实现。
@@ -22,6 +23,9 @@ func NewAgentServiceImpl(svc service.AgentService, cfg *config.Config) bot.BotSe
 
 // defaultLLM 返回平台默认模型配置，供 internal Agent 或未显式指定模型时兜底。
 func (h *agentServiceImpl) defaultLLM() (apiKey, baseURL, model string) {
+	if h == nil || h.cfg == nil {
+		return "", "", ""
+	}
 	return h.cfg.LLM.DefaultAPIKey, h.cfg.LLM.DefaultBaseURL, h.cfg.LLM.DefaultModel
 }
 
@@ -59,8 +63,32 @@ func (h *agentServiceImpl) GetBot(ctx context.Context, req *bot.GetBotReq) (resp
 	}
 	return &bot.GetBotResp{
 		Success: true,
-		Bot:     botConfigFromModel(b),
+		Bot:     h.botConfigForDisplay(b),
 	}, nil
+}
+
+func (h *agentServiceImpl) botConfigForDisplay(b *model.Bot) *bot.BotInfo {
+	if b == nil {
+		return nil
+	}
+	cp := *b
+	_, defaultBaseURL, defaultModel := h.defaultLLM()
+	if cp.Type == "internal" {
+		configuredBaseURL := cp.BaseURL
+		if defaultBaseURL != "" {
+			cp.BaseURL = defaultBaseURL
+		}
+		if defaultModel != "" && (strings.TrimSpace(cp.ModelName) == "" || strings.TrimSpace(configuredBaseURL) == "" || sameEndpoint(configuredBaseURL, defaultBaseURL)) {
+			cp.ModelName = defaultModel
+		}
+	}
+	return botConfigFromModel(&cp)
+}
+
+func sameEndpoint(a, b string) bool {
+	a = strings.TrimRight(strings.ToLower(strings.TrimSpace(a)), "/")
+	b = strings.TrimRight(strings.ToLower(strings.TrimSpace(b)), "/")
+	return a != "" && b != "" && a == b
 }
 
 // botConfigFromModel 将数据库模型转换为 Thrift 返回结构。
@@ -101,7 +129,7 @@ func (h *agentServiceImpl) ListBots(ctx context.Context, req *bot.ListBotsReq) (
 	}
 	var botList []*bot.BotInfo
 	for _, b := range bots {
-		botList = append(botList, botConfigFromModel(&b))
+		botList = append(botList, h.botConfigForDisplay(&b))
 	}
 	return &bot.ListBotsResp{Success: true, Bots: botList}, nil
 }

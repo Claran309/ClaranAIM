@@ -30,6 +30,7 @@ func NewDeepAgent(ctx context.Context, model *openai.ChatModel, agentRoot string
 	if err != nil {
 		return nil, err
 	}
+	sandboxBackend := component.NewWorkspaceSandbox(backend, agentRoot)
 
 	handler := callbacks.NewHandlerBuilder().
 		OnStartFn(func(ctx context.Context, info *callbacks.RunInfo, input callbacks.CallbackInput) context.Context {
@@ -67,7 +68,8 @@ func NewDeepAgent(ctx context.Context, model *openai.ChatModel, agentRoot string
 	}
 
 	// 创建自定义工具集，包含 WebSearch、RAG、代码分析等项目内工具。
-	tools := InitTools(ctx, model, includeDomainTools)
+	toolPolicy = strings.TrimSpace(toolPolicy)
+	tools := InitTools(ctx, model, includeDomainTools && !toolPolicyDisablesTools(toolPolicy))
 	toolsConfig := adk.ToolsConfig{
 		ToolsNodeConfig: compose.ToolsNodeConfig{
 			Tools: tools,
@@ -129,9 +131,9 @@ func NewDeepAgent(ctx context.Context, model *openai.ChatModel, agentRoot string
 		Instruction:    instruction,
 		ChatModel:      model,
 		ToolsConfig:    toolsConfig,
-		Backend:        backend, // 注入LocalBackend工具集
-		StreamingShell: backend, // 支持流式 Shell 输出
-		MaxIteration:   50,      // 最大思考/工具调用循环次数
+		Backend:        sandboxBackend, // 注入受工作目录硬约束的文件工具集
+		StreamingShell: sandboxBackend, // 支持流式 Shell 输出，并限制在 Agent 工作目录内
+		MaxIteration:   50,             // 最大思考/工具调用循环次数
 		// 注册中间件
 		Handlers: handlers,
 		// 配置模型重试策略，处理速率限制错误
@@ -152,6 +154,15 @@ func NewDeepAgent(ctx context.Context, model *openai.ChatModel, agentRoot string
 	return agent, nil
 }
 
+func toolPolicyDisablesTools(toolPolicy string) bool {
+	switch strings.ToLower(strings.TrimSpace(toolPolicy)) {
+	case "disabled", "none", "no_tools", "skill_only", "skill-only":
+		return true
+	default:
+		return false
+	}
+}
+
 // ToolPolicyInstruction 根据 Agent 工具策略生成系统提示词片段。
 // 这只是模型侧约束，真正的文件越权和高风险工具拦截仍必须由 SafeToolMiddleware 等服务端逻辑兜底。
 func ToolPolicyInstruction(toolPolicy string) string {
@@ -165,6 +176,11 @@ func ToolPolicyInstruction(toolPolicy string) string {
 		return `## 工具审批策略
 - 当前 Agent 只能读取和分析信息，不应执行写文件、删除文件、覆盖文件、运行命令、安装依赖或修改配置等会改变环境的动作。
 - 如果用户要求修改环境，请先说明当前工具策略不允许直接执行，并给出可读的建议方案。`
+	case "skill_only", "skill-only", "no_tools":
+		return `## 工具审批策略
+- 当前 Agent 处于 Skill-only 验证模式，不应主动调用任何外部工具。
+- 请只根据已加载的 SKILL.md、当前用户输入和已有上下文回答。
+- 如果用户要求测试 Skill，请输出已加载 Skill 要求的 marker 或按 Skill 的输出格式作答；不要创建新 Skill、生成 SKILL.md 模板、列出工具或写测试报告文件。`
 	case "disabled":
 		return `## 工具审批策略
 - 当前 Agent 不应主动调用任何外部工具。
@@ -190,10 +206,38 @@ func resolveSkillsDir(skillsDir string) (string, bool) {
 	}
 	entry := filepath.Join(skillsDir, "SKILL.md")
 	data, err := os.ReadFile(entry)
-	if err != nil || strings.TrimSpace(string(data)) == "" {
+	if err == nil && strings.TrimSpace(string(data)) != "" {
+		return skillsDir, true
+	}
+	if migrated, ok := findLegacySkillPackageDir(skillsDir); ok {
+		return migrated, true
+	}
+	return "", false
+}
+
+func findLegacySkillPackageDir(root string) (string, bool) {
+	var found string
+	_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil || found != "" || d.IsDir() || !strings.EqualFold(d.Name(), "SKILL.md") {
+			return nil
+		}
+		rel, relErr := filepath.Rel(root, path)
+		if relErr != nil {
+			return nil
+		}
+		if len(strings.Split(filepath.ToSlash(rel), "/")) > 5 {
+			return nil
+		}
+		data, readErr := os.ReadFile(path)
+		if readErr == nil && strings.TrimSpace(string(data)) != "" {
+			found = filepath.Dir(path)
+		}
+		return nil
+	})
+	if found == "" {
 		return "", false
 	}
-	return skillsDir, true
+	return found, true
 }
 
 // SkillInstruction 将已加载的 SKILL.md 注入系统提示词。
@@ -212,5 +256,5 @@ func SkillInstruction(skillsDir string) string {
 	if len(runes) > 12000 {
 		content = string(runes[:12000]) + "\n\n...（Skill 内容过长，已截断）"
 	}
-	return fmt.Sprintf("## 已加载 Skill\n- loaded_skill_name: %s\n- skills_dir: %s\n- entry_file: %s\n\nSkill 是行为指令包，不是 MCP 工具。你必须优先遵循下面的 Skill 内容来选择工作方式、输出格式和注意事项；如果用户要求测试 Skill，应直接按 Skill 指令响应或输出其中要求的 marker。\n\n严禁因为 Skill 名称、目录名或 marker 存在，就调用 call_mcp_tool 或任何同名 MCP 工具。只有当用户明确要求调用外部工具，且工具在 list_mcp_tools 中真实存在时，才可以调用 MCP。\n\n%s", filepath.Base(skillsDir), skillsDir, entry, content)
+	return fmt.Sprintf("## 已加载 Skill\n- loaded_skill_name: %s\n- skills_dir: %s\n- entry_file: %s\n\nSkill 是行为指令包，不是 MCP 工具。你必须优先遵循下面的 Skill 内容来选择工作方式、输出格式和注意事项。\n\n当用户要求“测试 Skill”“验证 Skill”“测试 skill 功能”或类似请求时，含义是验证当前已加载的 SKILL.md 是否生效：你应直接按照已加载 Skill 的指令、marker、输出格式和约束作答。严禁把这个请求理解为创建新 Skill、生成 SKILL.md 模板、介绍 skill_creator、列出 MCP 工具、调用 MCP 工具、写测试报告文件或声称已经上传/创建 Skill。\n\n严禁因为 Skill 名称、目录名或 marker 存在，就调用 call_mcp_tool 或任何同名 MCP 工具。只有当用户明确要求调用外部工具，且工具在 list_mcp_tools 中真实存在时，才可以调用 MCP。\n\n%s", filepath.Base(skillsDir), skillsDir, entry, content)
 }

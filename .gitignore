@@ -1,18 +1,47 @@
+# Local secrets and machine-specific config
 .env
-.cph/
+.env.*
+!.env.example
+*.local
+*.secret
+*.key
+*.pem
 
-# Local Go/build artifacts
+# Editors / OS
+.cph/
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Go build, test, and tool caches
 .gocache/
 .gotelemetry/
+bin/
+build/
 tmp/
 *.tmp
 tmp.go
+*.exe
+*.test
+*.prof
+coverage.out
+
+# JS dependencies / coverage if frontend tooling is used locally
+node_modules/
+coverage/
+
+# Logs and process output
 logs/
 .logs/
+*.log
+*.out
+*.err
 
-# Local runtime data
+# Local runtime data and user uploads
 SessionStore/*
 !SessionStore/*.example
+storage/agent/files/*
 storage/agent/runtimeFile/*
 !storage/agent/runtimeFile/.example
 storage/agent/managerRuntimeFile/*

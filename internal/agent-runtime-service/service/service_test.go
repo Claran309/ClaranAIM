@@ -4,6 +4,8 @@ import (
 	"ClaranAIM/internal/agent-runtime-service/agent"
 	"ClaranAIM/kitex_gen/bot_runtime"
 	"context"
+	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -15,8 +17,11 @@ import (
 
 type stubAgent struct {
 	reply      string
+	errs       []error
 	interrupt  bool
 	interrupts []*adk.InterruptCtx
+	runs       int
+	lastInput  *adk.AgentInput
 }
 
 func (a *stubAgent) Name(ctx context.Context) string {
@@ -28,7 +33,16 @@ func (a *stubAgent) Description(ctx context.Context) string {
 }
 
 func (a *stubAgent) Run(ctx context.Context, input *adk.AgentInput, options ...adk.AgentRunOption) *adk.AsyncIterator[*adk.AgentEvent] {
+	a.runs++
+	a.lastInput = input
 	iter, gen := adk.NewAsyncIteratorPair[*adk.AgentEvent]()
+	if len(a.errs) > 0 {
+		err := a.errs[0]
+		a.errs = a.errs[1:]
+		gen.Send(&adk.AgentEvent{Err: err})
+		gen.Close()
+		return iter
+	}
 	if a.interrupt {
 		gen.Send(&adk.AgentEvent{Action: &adk.AgentAction{Interrupted: &adk.InterruptInfo{InterruptContexts: a.interrupts}}})
 		gen.Close()
@@ -137,6 +151,70 @@ func TestRuntimeAgentCacheKeyChangesWithProviderConfig(t *testing.T) {
 
 	if first == second {
 		t.Fatal("cache key should change when runtime provider config changes")
+	}
+}
+
+func TestRuntimeAgentCacheKeyChangesWithSkillContent(t *testing.T) {
+	dir := t.TempDir()
+	skillPath := filepath.Join(dir, "SKILL.md")
+	if err := os.WriteFile(skillPath, []byte("# Skill\n\nmarker: first\n"), 0o600); err != nil {
+		t.Fatalf("write first skill: %v", err)
+	}
+	botCfg := &bot_runtime.RuntimeBotConfig{
+		BotId:         1,
+		ModelName:     "glm-4.6v",
+		ApiKey:        "key",
+		BaseUrl:       "https://open.bigmodel.cn/api/paas/v4",
+		SystemPrompt:  "prompt",
+		SkillsDir:     dir,
+		WorkspaceRoot: "storage/agent/files/1",
+	}
+	first := runtimeAgentCacheKey(botCfg)
+	if err := os.WriteFile(skillPath, []byte("# Skill\n\nmarker: second\n"), 0o600); err != nil {
+		t.Fatalf("write second skill: %v", err)
+	}
+	second := runtimeAgentCacheKey(botCfg)
+	if first == second {
+		t.Fatal("cache key should change when SKILL.md content changes at the same path")
+	}
+}
+
+func TestRunAgentTrimsLongSessionHistoryBeforeModelCall(t *testing.T) {
+	svc := NewAgentRuntimeService(RuntimeConfig{SessionDir: t.TempDir()}).(*runtimeServiceImpl)
+	botCfg := &bot_runtime.RuntimeBotConfig{
+		BotId:     1,
+		ModelName: "glm-4.6v",
+		ApiKey:    "test-key",
+		BaseUrl:   "https://open.bigmodel.cn/api/paas/v4",
+	}
+	ag := &stubAgent{reply: "收到"}
+	svc.agentCache[runtimeAgentCacheKey(botCfg)] = ag
+	sessionID := defaultSessionID(1, 2, 3)
+	session, err := svc.sessionStore.GetSession(sessionID)
+	if err != nil {
+		t.Fatalf("GetSession returned error: %v", err)
+	}
+	for i := 0; i < runtimeSessionHistoryMessageLimit+8; i++ {
+		if err := session.Append(schema.UserMessage("old")); err != nil {
+			t.Fatalf("append session: %v", err)
+		}
+	}
+
+	resp, err := svc.RunAgent(context.Background(), &bot_runtime.RunAgentReq{
+		Bot:            botCfg,
+		UserId:         2,
+		ConversationId: 3,
+		Input:          "new",
+	})
+	if err != nil || resp == nil || !resp.Success {
+		t.Fatalf("RunAgent resp=%#v err=%v", resp, err)
+	}
+	if ag.lastInput == nil {
+		t.Fatal("agent did not receive input")
+	}
+	want := runtimeSessionHistoryMessageLimit + 1
+	if got := len(ag.lastInput.Messages); got != want {
+		t.Fatalf("model input messages = %d, want %d", got, want)
 	}
 }
 
@@ -300,5 +378,35 @@ func TestWithDefaultAgentRunTimeoutPreservesExistingDeadline(t *testing.T) {
 	}
 	if !deadline.Equal(baseDeadline) {
 		t.Fatalf("deadline = %v, want existing deadline %v", deadline, baseDeadline)
+	}
+}
+
+func TestRunAgentRetriesTransientChatCompletionEOF(t *testing.T) {
+	svc := NewAgentRuntimeService(RuntimeConfig{}).(*runtimeServiceImpl)
+	botCfg := &bot_runtime.RuntimeBotConfig{
+		BotId:     1,
+		ModelName: "glm-4.6v",
+		ApiKey:    "test-key",
+		BaseUrl:   "https://open.bigmodel.cn/api/paas/v4",
+	}
+	ag := &stubAgent{
+		reply: "SKILL_OK_7F3A",
+		errs:  []error{errors.New(`[NodeRunError] failed to create chat completion: Post "https://open.bigmodel.cn/api/paas/v4/chat/completions": unexpected EOF`)},
+	}
+	svc.agentCache[runtimeAgentCacheKey(botCfg)] = ag
+
+	resp, err := svc.RunAgent(context.Background(), &bot_runtime.RunAgentReq{
+		Bot:    botCfg,
+		UserId: 1001,
+		Input:  "测试 Skill",
+	})
+	if err != nil {
+		t.Fatalf("RunAgent returned error: %v", err)
+	}
+	if resp == nil || !resp.Success || !strings.Contains(resp.Reply, "SKILL_OK_7F3A") {
+		t.Fatalf("RunAgent resp=%#v, want retry success", resp)
+	}
+	if ag.runs != 2 {
+		t.Fatalf("agent runs = %d, want 2 with one retry", ag.runs)
 	}
 }

@@ -16,8 +16,13 @@ import (
 )
 
 // agentDispatchHistoryLimit 控制 Agent 被 IM 事件触发时最多读取多少条历史消息。
-// 过小会失去群聊上下文，过大会增加 LLM 输入成本；当前取 80 作为本地开发的折中值。
-const agentDispatchHistoryLimit int64 = 80
+// 过小会失去群聊上下文，过大会增加 LLM 输入成本；当前取 24，避免私聊长期会话把模型 prompt 撑爆。
+const agentDispatchHistoryLimit int64 = 24
+
+const (
+	agentDispatchMessageRuneLimit = 240
+	agentDispatchContextRuneLimit = 5000
+)
 
 // StartAgentMentionConsumer 启动兼容旧链路的 @Agent 消息事件分发器。
 func StartAgentMentionConsumer(ctx context.Context, consumer *eventbus.KafkaConsumer, agentService service.AgentService, dispatchRepo dao.AgentDispatchRepository, messageClient messageservice.Client) {
@@ -129,6 +134,11 @@ func (d *AgentEventDispatcher) Handle(ctx context.Context, envelope events.Envel
 		return err
 	}
 	if event == nil {
+		return nil
+	}
+	log.Printf("Agent事件入口: event_id=%s type=%s conversation_id=%d conversation_type=%s sender_id=%d msg_id=%d client_msg_id=%s idempotency_key=%s participants=%v mentions=%v metadata=%v", envelope.EventID, event.EventType, event.ConversationID, event.ConversationType, event.SenderID, event.MsgID, event.ClientMsgID, event.IdempotencyKey, event.ParticipantIDs, event.MentionUserIDs, event.Metadata)
+	if event.isNonTriggeringEvent() {
+		log.Printf("Agent事件静默: non_triggering_event event_id=%s type=%s conversation_id=%d sender_id=%d msg_id=%d", envelope.EventID, event.EventType, event.ConversationID, event.SenderID, event.MsgID)
 		return nil
 	}
 	if event.isAgentGenerated() {
@@ -275,7 +285,12 @@ func (d *AgentEventDispatcher) isAgentSender(ctx context.Context, senderID int64
 		log.Printf("Agent sender lookup failed sender_id=%d err=%v", senderID, err)
 		return false
 	}
-	return bot != nil && bot.AgentUserID == senderID
+	if bot != nil && bot.AgentUserID == senderID {
+		log.Printf("Agent sender lookup matched sender_id=%d bot_id=%d agent_user_id=%d", senderID, bot.ID, bot.AgentUserID)
+		return true
+	}
+	log.Printf("Agent sender lookup not matched sender_id=%d", senderID)
+	return false
 }
 
 func (d *AgentEventDispatcher) shouldIgnoreAgentEcho(ctx context.Context, event agentEvent) bool {
@@ -335,6 +350,9 @@ func (d *AgentEventDispatcher) agentEchoIgnoreReason(ctx context.Context, event 
 	}
 	if event.SenderID <= 0 && agentParticipants > 0 {
 		return "private_missing_sender_with_agent_participant"
+	}
+	if event.SenderID <= 0 {
+		return "private_missing_sender"
 	}
 	return ""
 }
@@ -476,8 +494,25 @@ func (e agentEvent) looksLikeAgentEcho() bool {
 	return false
 }
 
+func (e agentEvent) isNonTriggeringEvent() bool {
+	switch strings.TrimSpace(e.EventType) {
+	case events.EventTypeMessageRead, events.EventTypeIMMessageRead, events.EventTypeReactionAdded:
+		return true
+	default:
+		return false
+	}
+}
+
 func (e agentEvent) sentByKnownAgent(bot *model.Bot) bool {
-	if bot == nil || bot.AgentUserID <= 0 {
+	if bot == nil {
+		return false
+	}
+	// 兼容早期 IM 事件/历史库错配：Agent 回复事件的 sender_id 可能落成 bot.id，
+	// 而不是后来的 agent_user_id。命中后必须静默，否则私聊会把 Agent 自己的回复再次触发。
+	if bot.ID > 0 && e.SenderID == bot.ID {
+		return true
+	}
+	if bot.AgentUserID <= 0 {
 		return false
 	}
 	if e.SenderID == bot.AgentUserID {
@@ -742,11 +777,11 @@ func buildAgentDispatchInput(ctx context.Context, messageClient messageservice.C
 	if contextText == "" {
 		contextText = "（当前没有读取到历史消息。请基于用户这条消息本身回答，并说明上下文很少。）"
 	}
-	return fmt.Sprintf("你是 ClaranAIM 中的原生 Agent 成员，本轮输入来自 IM 事件流，而不是孤立聊天按钮。\n\n处理原则：\n1. 先阅读会话材料，再判断用户真正要你做什么。\n2. 如果材料很少或内容没有价值，也要直接说明这些消息基本没有有效信息，而不是拒绝总结。\n3. 群聊场景必须结合群聊上下文、引用关系和当前触发消息回答；不要只使用你和触发用户的长期记忆。\n4. 只使用你作为 Agent 用户有权看到的内容；不要猜测不可见消息、文件或知识库。\n5. 输出优先面向当前 IM 会话，可用 Markdown，但不要把 JSON 当作直接回复，除非用户明确要求机器可读 JSON。\n\n事件信息：\n- event_type: %s\n- conversation_id: %d\n- conversation_type: %s\n- sender_id: %d\n- reply_to_id: %d\n\n当前触发内容：\n%s\n\n会话材料说明：下面是 msg-core-service 从当前会话读取到的、Agent 用户有权看到的历史消息，按时间从旧到新排列；它们是本轮回答的主要事实来源。\n\n会话材料：\n%s", payload.Type, payload.ConversationID, payload.ConversationType, payload.SenderID, payload.ReplyToID, strings.TrimSpace(payload.Content), contextText), nil
+	return fmt.Sprintf("你是 ClaranAIM 中的原生 Agent 成员，本轮输入来自 IM 事件流，而不是孤立聊天按钮。\n\n处理原则：\n1. 先阅读会话材料，再判断用户真正要你做什么。\n2. 如果材料很少或内容没有价值，也要直接说明这些消息基本没有有效信息，而不是拒绝总结。\n3. 群聊场景必须结合群聊上下文、引用关系和当前触发消息回答；不要只使用你和触发用户的长期记忆。\n4. 只使用你作为 Agent 用户有权看到的内容；不要猜测不可见消息、文件或知识库。\n5. 输出优先面向当前 IM 会话，可用 Markdown，但不要把 JSON 当作直接回复，除非用户明确要求机器可读 JSON。\n\n事件信息：\n- event_type: %s\n- conversation_id: %d\n- conversation_type: %s\n- sender_id: %d\n- reply_to_id: %d\n\n当前触发内容：\n%s\n\n会话材料说明：下面是 msg-core-service 从当前会话读取到的、Agent 用户有权看到的历史消息，按时间从旧到新排列；它们是本轮回答的主要事实来源。\n\n会话材料：\n%s", payload.Type, payload.ConversationID, payload.ConversationType, payload.SenderID, payload.ReplyToID, truncateRunes(strings.TrimSpace(payload.Content), agentDispatchMessageRuneLimit), contextText), nil
 }
 
 // formatMessagesForAgentContext 将消息历史压缩为适合 LLM 阅读的文本窗口。
-// 单条消息限制 600 个 rune，避免附件描述或长文本把 Agent 输入撑爆。
+// 单条消息和整体上下文都有限制，避免附件描述、长文或历史错误报告把 Agent 输入撑爆。
 func formatMessagesForAgentContext(messages []*message.Message) string {
 	if len(messages) == 0 {
 		return ""
@@ -762,12 +797,25 @@ func formatMessagesForAgentContext(messages []*message.Message) string {
 		}
 		content = strings.ReplaceAll(content, "\r\n", "\n")
 		content = strings.ReplaceAll(content, "\n", " ")
-		if len([]rune(content)) > 600 {
-			content = string([]rune(content)[:600]) + "..."
+		content = truncateRunes(content, agentDispatchMessageRuneLimit)
+		line := fmt.Sprintf("- [%s] 用户%d: %s\n", msg.CreatedAt, msg.SenderId, content)
+		if len([]rune(b.String()+line)) > agentDispatchContextRuneLimit {
+			break
 		}
-		fmt.Fprintf(&b, "- [%s] 用户%d: %s\n", msg.CreatedAt, msg.SenderId, content)
+		b.WriteString(line)
 	}
 	return strings.TrimSpace(b.String())
+}
+
+func truncateRunes(text string, limit int) string {
+	if limit <= 0 {
+		return ""
+	}
+	runes := []rune(text)
+	if len(runes) <= limit {
+		return text
+	}
+	return string(runes[:limit]) + "..."
 }
 
 // dedupePositiveIDs 过滤空 ID 并保持原顺序，用于 @ 目标和私聊参与者去重。
@@ -810,6 +858,9 @@ func isPermanentAgentDispatchError(err error) bool {
 		"invalid api key",
 		"invalid_api_key",
 		"unauthorized",
+		"Prompt exceeds max length",
+		"context length",
+		"maximum context",
 	}
 	for _, hint := range permanentHints {
 		if strings.Contains(strings.ToLower(msg), strings.ToLower(hint)) {

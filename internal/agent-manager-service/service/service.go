@@ -12,7 +12,9 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -372,7 +374,7 @@ func (s *agentServiceImpl) ChatWithBot(ctx context.Context, botID, userID, conve
 		return nil, errors.New("agent-runtime-service未配置")
 	}
 	sessionID := defaultAgentSessionID(botID, userID, conversationID)
-	skillSmoke := strings.HasPrefix(strings.TrimSpace(message), skillSmokePrefix)
+	skillSmoke := shouldRunSkillSmoke(message, botInfo.SkillsDir)
 	if skillSmoke {
 		sessionID = fmt.Sprintf("skill_smoke_%d_user_%d_%d", botID, userID, time.Now().UnixNano())
 	}
@@ -380,9 +382,9 @@ func (s *agentServiceImpl) ChatWithBot(ctx context.Context, botID, userID, conve
 	runtimeBot := s.runtimeConfig(botInfo)
 	if skillSmoke {
 		runtimeBot.IncludeDomainTools = false
-		runtimeBot.ToolPolicy = "disabled"
-		runtimeInput = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(message), skillSmokePrefix))
-		log.Printf("Skill smoke test runtime: bot_id=%d user_id=%d skills_dir=%s include_domain_tools=false session_id=%s", botID, userID, runtimeBot.SkillsDir, sessionID)
+		runtimeBot.ToolPolicy = "skill_only"
+		runtimeInput = buildSkillSmokeInput(cleanSkillSmokeInput(message), runtimeBot.SkillsDir)
+		log.Printf("Skill smoke test runtime: bot_id=%d user_id=%d skills_dir=%s tool_policy=%s include_domain_tools=false session_id=%s", botID, userID, runtimeBot.SkillsDir, runtimeBot.ToolPolicy, sessionID)
 	}
 	resp, err := s.runtimeClient.RunAgent(ctx, &bot_runtime.RunAgentReq{
 		Bot:            runtimeBot,
@@ -420,7 +422,9 @@ func (s *agentServiceImpl) ChatWithBot(ctx context.Context, botID, userID, conve
 	if resultSessionID == "" {
 		resultSessionID = sessionID
 	}
-	s.recordAgentRunMemory(ctx, botID, userID, conversationID, resultSessionID, message, resp.Reply)
+	if !skillSmoke {
+		s.recordAgentRunMemory(ctx, botID, userID, conversationID, resultSessionID, message, resp.Reply)
+	}
 
 	log.Printf("Bot对话完成: bot_id=%d, user_id=%d, input_tokens=%d, output_tokens=%d, cost=%.6f, usage_seen=%v",
 		botID, userID, inputTokens, outputTokens, actualCost, usageSeen)
@@ -434,6 +438,109 @@ func (s *agentServiceImpl) ChatWithBot(ctx context.Context, botID, userID, conve
 		OutputTokens:   outputTokens,
 		Cost:           actualCost,
 	}, nil
+}
+
+const defaultSkillSmokeMarker = "skill-smoke-ok"
+
+func shouldRunSkillSmoke(message, skillsDir string) bool {
+	text := strings.TrimSpace(message)
+	if strings.HasPrefix(text, skillSmokePrefix) {
+		return true
+	}
+	if strings.TrimSpace(skillsDir) == "" {
+		return false
+	}
+	lower := strings.ToLower(text)
+	hasSkill := strings.Contains(lower, "skill") || strings.Contains(text, "技能")
+	if !hasSkill {
+		return false
+	}
+	return strings.Contains(text, "测试") ||
+		strings.Contains(text, "验证") ||
+		strings.Contains(text, "运行") ||
+		strings.Contains(text, "执行") ||
+		strings.Contains(lower, "smoke")
+}
+
+func cleanSkillSmokeInput(message string) string {
+	text := strings.TrimSpace(message)
+	text = strings.TrimSpace(strings.TrimPrefix(text, skillSmokePrefix))
+	return extractTriggeredContentForMemory(text)
+}
+
+func buildSkillSmokeInput(raw, skillsDir string) string {
+	raw = strings.TrimSpace(raw)
+	marker := skillSmokeMarkerFromDir(skillsDir)
+	if raw == "" {
+		raw = "请按已加载 Skill 的测试要求输出 marker"
+	}
+	return fmt.Sprintf("%s\n\n这是 Skill 读取测试。不要调用任何工具，不要列出工具执行结果，不要创建文件，不要生成 SKILL.md 模板，不要介绍 skill_creator。请只根据系统提示中已经加载的 SKILL.md 行为指令回答；如果系统提示中没有加载到 SKILL.md，就直接说明未加载。最终回复必须原样包含 marker：%s。", raw, marker)
+}
+
+func skillSmokeMarkerFromDir(skillsDir string) string {
+	content := readSkillMarkdownForSmoke(skillsDir)
+	if content == "" {
+		return defaultSkillSmokeMarker
+	}
+	if marker := extractSkillSmokeMarker(content); marker != "" {
+		return marker
+	}
+	return defaultSkillSmokeMarker
+}
+
+func readSkillMarkdownForSmoke(skillsDir string) string {
+	skillsDir = strings.TrimSpace(skillsDir)
+	if skillsDir == "" {
+		return ""
+	}
+	if absSkillsDir, absErr := filepath.Abs(skillsDir); absErr == nil {
+		skillsDir = absSkillsDir
+	}
+	candidates := []string{filepath.Join(skillsDir, "SKILL.md")}
+	_ = filepath.WalkDir(skillsDir, func(path string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.EqualFold(d.Name(), "SKILL.md") {
+			return nil
+		}
+		rel, relErr := filepath.Rel(skillsDir, path)
+		if relErr != nil {
+			return nil
+		}
+		if len(strings.Split(filepath.ToSlash(rel), "/")) <= 5 {
+			candidates = append(candidates, path)
+		}
+		return nil
+	})
+	for _, path := range candidates {
+		data, err := os.ReadFile(path)
+		if err == nil && strings.TrimSpace(string(data)) != "" {
+			return string(data)
+		}
+	}
+	return ""
+}
+
+func extractSkillSmokeMarker(content string) string {
+	lines := strings.Split(content, "\n")
+	backtickToken := regexp.MustCompile("`([A-Za-z0-9][A-Za-z0-9_-]{5,})`")
+	plainToken := regexp.MustCompile(`\b([A-Z][A-Z0-9]+(?:[_-][A-Z0-9]+){1,})\b`)
+	for _, line := range lines {
+		lower := strings.ToLower(line)
+		if !strings.Contains(lower, "marker") {
+			continue
+		}
+		if match := backtickToken.FindStringSubmatch(line); len(match) == 2 {
+			return match[1]
+		}
+		if match := plainToken.FindStringSubmatch(line); len(match) == 2 {
+			return match[1]
+		}
+	}
+	for _, line := range lines {
+		if match := plainToken.FindStringSubmatch(strings.TrimSpace(line)); len(match) == 2 {
+			return match[1]
+		}
+	}
+	return ""
 }
 
 // defaultAgentSessionID 生成 Agent 长会话 key，按 Agent、用户、会话三元组隔离。
@@ -710,7 +817,6 @@ func validPermissionRole(role string) bool {
 
 // runtimeConfig 将数据库中的 Agent 配置转换为 agent-runtime-service 的运行配置。
 func (s *agentServiceImpl) runtimeConfig(bot *model.Bot) *bot_runtime.RuntimeBotConfig {
-	s.applyDefaultProvider(bot)
 	normalizeAgentRuntimeSettings(bot)
 	workspace := bot.WorkspaceRoot
 	if workspace == "" {
@@ -744,15 +850,22 @@ func (s *agentServiceImpl) applyDefaultProvider(bot *model.Bot) {
 	if s == nil || bot == nil || bot.Type != "internal" {
 		return
 	}
+	configuredBaseURL := bot.BaseURL
 	if s.defaultAPIKey != "" {
 		bot.APIKey = s.defaultAPIKey
 	}
 	if s.defaultBaseURL != "" {
 		bot.BaseURL = s.defaultBaseURL
 	}
-	if s.defaultModel != "" && strings.TrimSpace(bot.ModelName) == "" {
+	if s.defaultModel != "" && (strings.TrimSpace(bot.ModelName) == "" || strings.TrimSpace(configuredBaseURL) == "" || sameProviderEndpoint(configuredBaseURL, s.defaultBaseURL)) {
 		bot.ModelName = s.defaultModel
 	}
+}
+
+func sameProviderEndpoint(a, b string) bool {
+	a = strings.TrimRight(strings.ToLower(strings.TrimSpace(a)), "/")
+	b = strings.TrimRight(strings.ToLower(strings.TrimSpace(b)), "/")
+	return a != "" && b != "" && a == b
 }
 
 // normalizeAgentRuntimeSettings 对 Agent 运行参数做服务端兜底和范围裁剪。
@@ -997,6 +1110,7 @@ func (s *agentServiceImpl) RunAgentTask(ctx context.Context, botID, userID, conv
 	if err := s.requireRole(ctx, bot, userID, "operator"); err != nil {
 		return "", err
 	}
+	s.applyDefaultProvider(bot)
 	if s.runtimeClient == nil {
 		return "", errors.New("agent-runtime-service未配置")
 	}

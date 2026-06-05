@@ -49,7 +49,7 @@ docker compose -f deployment/docker/observability/otel/docker-compose.yaml up -d
 
 ## 默认入口
 
-- Grafana: `http://127.0.0.1:8086`
+- Grafana: `http://127.0.0.1:8086`，默认账号 `admin / admin123`
 - Prometheus: `http://127.0.0.1:8084`
 - Jaeger: `http://127.0.0.1:8085`
 - Kibana: `http://127.0.0.1:5601`
@@ -111,9 +111,62 @@ http://127.0.0.1:8086
 service.name: api-gateway
 ```
 
+## Grafana 使用说明
+
+登录 `http://127.0.0.1:8086` 后，进入 Dashboards，打开 `ClaranAIM / ClaranAIM Overview`。
+
+- `Service Starts`、`Max Service Uptime`、`HTTP QPS`、`HTTP Latency p95`、`Kitex RPC QPS`、`Dependency Checks` 和 `Prometheus Targets Up` 均来自 Prometheus datasource。
+- `Jaeger Trace Explorer` 是 Jaeger 使用提示；真正查 trace 时进入左侧 Explore，Datasource 选择 `Jaeger`，Service 选择 `api-gateway`、`agent-runtime-service`、`rag-service` 等服务名。
+- `Recent Service Logs` 使用 Elasticsearch datasource，索引为 `claran-services-*`，时间字段为 `@timestamp`。如果面板无数据，先确认 ELK 栈和 Filebeat/Logstash 已启动且本地 `logs/` 目录已有服务日志。
+- Datasources 页面应能看到 `Prometheus`、`Jaeger`、`Elasticsearch` 三个自动 provision 的 datasource。Prometheus 指向 `http://prometheus:9090`，Jaeger 指向 `http://jaeger:16686`，Elasticsearch 通过 `http://host.docker.internal:9200` 访问 ELK 栈。
+
+常见排查顺序：
+
+1. Grafana 启动失败：先看 `docker compose -f deployment/docker/observability/otel/docker-compose.yaml logs grafana`，如果出现 `Datasource provisioning error`，优先检查 `deployment/docker/observability/config/grafana/provisioning/datasources/datasources.yaml`。
+2. 指标为空：打开 `http://127.0.0.1:8084/targets`，确认对应 Go 服务的 `/metrics` target 为 `UP`。服务未启动时 target 为 `DOWN` 是正常的。
+3. Trace 为空：确认服务配置了 OTLP HTTP endpoint `http://127.0.0.1:8082`，并实际发起过请求。
+4. 日志为空：先查 Elasticsearch 是否已有 `claran-services-*` 索引，再查 Filebeat/Logstash 日志链路。
+
+## Kibana 使用说明
+
+登录 `http://127.0.0.1:5601` 后，首次使用需要创建 Data View：
+
+1. 进入 Stack Management -> Data Views。
+2. 创建 Data View，Name/Index pattern 填 `claran-services-*`。
+3. Time field 选择 `@timestamp`。
+4. 进入 Discover，选择刚创建的 `claran-services-*`。
+
+常用 KQL 查询：
+
+```text
+service.name: api-gateway
+```
+
+```text
+level: ERROR
+```
+
+```text
+trace_id: "你的 trace id"
+```
+
+```text
+service.name: agent-runtime-service and level: ERROR
+```
+
+如果 Discover 没有数据，先访问：
+
+```powershell
+curl http://127.0.0.1:9200/_cat/indices?v
+```
+
+确认是否存在 `claran-services-*` 索引。没有索引时，优先检查本地服务是否写入 `logs/`、Filebeat 是否挂载了项目 `logs` 目录、Logstash 是否连接到 Elasticsearch。
+
 ## 当前边界
 
 - 这是本地开发可用闭环，不是生产告警系统。
+- Grafana 镜像固定为 `grafana/grafana:11.5.2`，避免 `latest` 升级导致 datasource provisioning schema 变化。
+- Elasticsearch datasource 使用 `jsonData.index: claran-services-*`，不再使用已废弃的顶层 `database` 字段。
 - 尚未接入 Alertmanager、告警规则、日志冷热分层和长期指标存储。
 - Prometheus targets 依赖 Docker Desktop 的 `host.docker.internal`，Linux 原生环境可能需要改成宿主机 IP。
 - 如果本机已占用 `8084/8085/8086/8082/8079/5601/9200/5044`，不要杀现有容器；复制 compose 后调整端口映射即可。

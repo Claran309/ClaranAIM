@@ -14,6 +14,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -21,6 +22,8 @@ import (
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/schema"
 )
+
+const runtimeSessionHistoryMessageLimit = 12
 
 // AgentRuntimeService 执行由 agent-manager-service 传入配置的 Agent，并维护轻量长会话记忆。
 type AgentRuntimeService interface {
@@ -107,7 +110,7 @@ func (s *runtimeServiceImpl) runAgent(ctx context.Context, req *bot_runtime.RunA
 	if persistSession && s.sessionStore != nil {
 		session, sessErr := s.sessionStore.GetSession(sessionID)
 		if sessErr == nil {
-			historyMsgs = session.GetMessages()
+			historyMsgs = trimRuntimeSessionHistory(session.GetMessages(), runtimeSessionHistoryMessageLimit)
 		} else {
 			log.Printf("加载Agent会话失败 session=%s err=%v", sessionID, sessErr)
 		}
@@ -120,29 +123,43 @@ func (s *runtimeServiceImpl) runAgent(ctx context.Context, req *bot_runtime.RunA
 	}
 	inputMsgs = append(inputMsgs, userMsg)
 
-	runCtx := logic.WithRAGRuntimeContext(ctx, req.UserId, req.ConversationId)
-	runCtx = logic.WithMCPRuntimeContext(runCtx, req.UserId, req.Bot.BotId, req.ConversationId)
-	iter := ag.Run(runCtx, &adk.AgentInput{Messages: inputMsgs})
 	var collector replyCollector
 	var usage tokenUsage
-	for {
-		event, ok := iter.Next()
-		if !ok {
-			break
-		}
-		if event.Err != nil {
-			return failRun(fmt.Sprintf("Agent执行失败: %v", event.Err)), nil
-		}
-		if event.Action != nil && event.Action.Interrupted != nil {
-			return pendingApprovalRun(sessionID, event.Action.Interrupted), nil
-		}
-		if event.Output != nil && event.Output.MessageOutput != nil {
-			msg, err := event.Output.MessageOutput.GetMessage()
-			if err == nil && msg != nil {
-				collector.mergeResolvedMessage(event.Output.MessageOutput.Role, msg)
-				usage.mergeMessageUsage(msg)
+	for attempt := 0; attempt < 2; attempt++ {
+		collector = replyCollector{}
+		usage = tokenUsage{}
+		runCtx := logic.WithRAGRuntimeContext(ctx, req.UserId, req.ConversationId)
+		runCtx = logic.WithMCPRuntimeContext(runCtx, req.UserId, req.Bot.BotId, req.ConversationId)
+		iter := ag.Run(runCtx, &adk.AgentInput{Messages: inputMsgs})
+		retry := false
+		for {
+			event, ok := iter.Next()
+			if !ok {
+				break
+			}
+			if event.Err != nil {
+				if attempt == 0 && isTransientAgentRunError(event.Err) {
+					log.Printf("Agent执行遇到临时模型错误，准备重试一次: %v", event.Err)
+					retry = true
+					break
+				}
+				return failRun(fmt.Sprintf("Agent执行失败: %v", event.Err)), nil
+			}
+			if event.Action != nil && event.Action.Interrupted != nil {
+				return pendingApprovalRun(sessionID, event.Action.Interrupted), nil
+			}
+			if event.Output != nil && event.Output.MessageOutput != nil {
+				msg, err := event.Output.MessageOutput.GetMessage()
+				if err == nil && msg != nil {
+					collector.mergeResolvedMessage(event.Output.MessageOutput.Role, msg)
+					usage.mergeMessageUsage(msg)
+				}
 			}
 		}
+		if retry {
+			continue
+		}
+		break
 	}
 
 	reply := collector.String()
@@ -163,6 +180,27 @@ func (s *runtimeServiceImpl) runAgent(ctx context.Context, req *bot_runtime.RunA
 		SessionId: sessionID,
 		Msg:       "ok",
 	}, nil
+}
+
+func trimRuntimeSessionHistory(messages []*schema.Message, limit int) []*schema.Message {
+	if limit <= 0 || len(messages) <= limit {
+		return messages
+	}
+	return messages[len(messages)-limit:]
+}
+
+func isTransientAgentRunError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "unexpected eof") ||
+		strings.Contains(msg, "connection reset") ||
+		strings.Contains(msg, "connection refused") ||
+		strings.Contains(msg, "connection aborted") ||
+		strings.Contains(msg, "server closed idle connection") ||
+		strings.Contains(msg, "tls handshake timeout") ||
+		strings.Contains(msg, "timeout awaiting response headers")
 }
 
 // RunTask 将总结、问答、洞察、候选回复等上下文能力转换为确定的任务 prompt。
@@ -332,10 +370,59 @@ func runtimeAgentCacheKey(bot *bot_runtime.RuntimeBotConfig) string {
 		bot.BaseUrl,
 		bot.SystemPrompt,
 		bot.SkillsDir,
+		runtimeSkillCacheVersion(bot.SkillsDir),
 		bot.WorkspaceRoot,
 		bot.ToolPolicy,
 		fmt.Sprintf("%t", bot.IncludeDomainTools),
 	}, "\x00")))
+	return hex.EncodeToString(sum[:])
+}
+
+func runtimeSkillCacheVersion(skillsDir string) string {
+	skillsDir = strings.TrimSpace(skillsDir)
+	if skillsDir == "" {
+		return ""
+	}
+	root, err := filepath.Abs(skillsDir)
+	if err != nil {
+		root = filepath.Clean(skillsDir)
+	}
+	records := make([]string, 0, 4)
+	_ = filepath.Walk(root, func(path string, info os.FileInfo, walkErr error) error {
+		if walkErr != nil || info == nil {
+			return nil
+		}
+		if info.IsDir() {
+			if path == root {
+				return nil
+			}
+			rel, relErr := filepath.Rel(root, path)
+			if relErr == nil && len(strings.Split(filepath.ToSlash(rel), "/")) > 5 {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.EqualFold(info.Name(), "SKILL.md") {
+			return nil
+		}
+		rel, relErr := filepath.Rel(root, path)
+		if relErr != nil {
+			rel = path
+		}
+		data, readErr := os.ReadFile(path)
+		if readErr != nil {
+			records = append(records, filepath.ToSlash(rel)+"\x00unreadable")
+			return nil
+		}
+		sum := sha256.Sum256(data)
+		records = append(records, filepath.ToSlash(rel)+"\x00"+hex.EncodeToString(sum[:]))
+		return nil
+	})
+	if len(records) == 0 {
+		return ""
+	}
+	sort.Strings(records)
+	sum := sha256.Sum256([]byte(strings.Join(records, "\x00")))
 	return hex.EncodeToString(sum[:])
 }
 

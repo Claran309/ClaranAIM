@@ -907,6 +907,20 @@ func TestFallbackTopicGraphUsesDocumentRootAndContainsInsteadOfRelatedTo(t *test
 			t.Fatalf("relations=%#v, fallback graph must not create RELATED_TO skeleton", repo.relations)
 		}
 	}
+	for _, relation := range repo.relations {
+		if relation.Relation == "共同说明" {
+			t.Fatalf("relations=%#v, fallback graph must not create generic common-explanation relations", repo.relations)
+		}
+	}
+}
+
+func TestInferFallbackSemanticRelationReturnsEmptyForGenericPair(t *testing.T) {
+	if got := inferFallbackSemanticRelation("RAG 系统设计", "答案生成"); got != "" {
+		t.Fatalf("generic fallback relation = %q, want empty", got)
+	}
+	if got := inferFallbackSemanticRelation("api-gateway", "agent-runtime-service"); got != "调用或支撑" {
+		t.Fatalf("service fallback relation = %q, want 调用或支撑", got)
+	}
 }
 
 func TestRuleGraphExtractorBuildsMultipleDirectedRelationsFromSentence(t *testing.T) {
@@ -1772,6 +1786,28 @@ func (r *fakeRAGRepo) ListChunks(ctx context.Context, filter dao.SearchFilter) (
 		out = append(out, dao.ChunkWithDocument{Chunk: chunk, Document: doc})
 	}
 	return out, nil
+}
+
+func (r *fakeRAGRepo) GetVisibleDocument(ctx context.Context, viewerID, documentID int64) (*model.Document, error) {
+	_ = ctx
+	for i := range r.docs {
+		doc := &r.docs[i]
+		if doc.ID == documentID && (doc.OwnerID == viewerID || doc.Visibility == model.VisibilityPublic) {
+			return doc, nil
+		}
+	}
+	return nil, fmt.Errorf("文档不存在或无权查看")
+}
+
+func (r *fakeRAGRepo) GetOwnedDocument(ctx context.Context, ownerID, documentID int64) (*model.Document, error) {
+	_ = ctx
+	for i := range r.docs {
+		doc := &r.docs[i]
+		if doc.ID == documentID && doc.OwnerID == ownerID {
+			return doc, nil
+		}
+	}
+	return nil, fmt.Errorf("文档不存在或无权操作")
 }
 
 func (r *fakeRAGRepo) GetEntityByName(ctx context.Context, ownerID int64, name string) (*model.Entity, error) {

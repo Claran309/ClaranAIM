@@ -3,6 +3,7 @@ package service
 
 import (
 	"ClaranAIM/internal/rag-service/dao"
+	"ClaranAIM/internal/rag-service/graphstore"
 	"ClaranAIM/internal/rag-service/model"
 	"ClaranAIM/kitex_gen/rag"
 	"ClaranAIM/pkg/idgen"
@@ -88,6 +89,7 @@ type VectorHit struct {
 
 type ragServiceImpl struct {
 	repo            dao.Repository
+	graphStore      graphstore.GraphStore
 	vectorIndex     VectorIndex
 	embedder        EmbeddingProvider
 	router          RAGRouter
@@ -114,7 +116,26 @@ func NewRAGService(repo dao.Repository, vectorIndex VectorIndex, embeddingDim in
 	if strings.TrimSpace(defaultMode) == "" {
 		defaultMode = "adaptive"
 	}
-	return &ragServiceImpl{repo: repo, vectorIndex: vectorIndex, router: HybridAdaptiveRouter{}, graphExtractor: ruleGraphExtractor{}, graphSummarizer: ruleGraphCommunitySummarizer{}, embeddingDim: embeddingDim, defaultMode: defaultMode}
+	return &ragServiceImpl{repo: repo, graphStore: defaultGraphStore(repo), vectorIndex: vectorIndex, router: HybridAdaptiveRouter{}, graphExtractor: ruleGraphExtractor{}, graphSummarizer: ruleGraphCommunitySummarizer{}, embeddingDim: embeddingDim, defaultMode: defaultMode}
+}
+
+// NewRAGServiceWithGraphStore creates a RAG service with an explicit GraphRAG persistence backend.
+func NewRAGServiceWithGraphStore(repo dao.Repository, graphStore graphstore.GraphStore, vectorIndex VectorIndex, embeddingDim int, defaultMode string) RAGService {
+	svc := NewRAGService(repo, vectorIndex, embeddingDim, defaultMode).(*ragServiceImpl)
+	if graphStore != nil {
+		svc.graphStore = graphStore
+	}
+	return svc
+}
+
+func defaultGraphStore(repo dao.Repository) graphstore.GraphStore {
+	if marker, ok := any(repo).(interface{ UsesExternalGraphStore() bool }); ok && marker.UsesExternalGraphStore() {
+		return graphstore.NewMemoryStore()
+	}
+	if store, ok := any(repo).(graphstore.GraphStore); ok {
+		return store
+	}
+	return graphstore.NewMemoryStore()
 }
 
 // NewRAGServiceWithEmbedding 创建带外部 embedding provider 的 RAG 服务。
@@ -125,10 +146,24 @@ func NewRAGServiceWithEmbedding(repo dao.Repository, vectorIndex VectorIndex, em
 	return svc
 }
 
+func NewRAGServiceWithGraphStoreAndEmbedding(repo dao.Repository, graphStore graphstore.GraphStore, vectorIndex VectorIndex, embeddingDim int, defaultMode string, embedder EmbeddingProvider) RAGService {
+	svc := NewRAGServiceWithGraphStore(repo, graphStore, vectorIndex, embeddingDim, defaultMode).(*ragServiceImpl)
+	svc.embedder = embedder
+	return svc
+}
+
 // NewRAGServiceWithRouter 创建带 embedding provider 和 RAG router 的服务。
 // router 通常是轻量 LLM；router 失败时 Search 会回退到规则路由，避免外部模型故障阻断检索。
 func NewRAGServiceWithRouter(repo dao.Repository, vectorIndex VectorIndex, embeddingDim int, defaultMode string, embedder EmbeddingProvider, router RAGRouter) RAGService {
 	svc := NewRAGServiceWithEmbedding(repo, vectorIndex, embeddingDim, defaultMode, embedder).(*ragServiceImpl)
+	if router != nil {
+		svc.router = HybridAdaptiveRouter{LLM: router}
+	}
+	return svc
+}
+
+func NewRAGServiceWithGraphStoreAndRouter(repo dao.Repository, graphStore graphstore.GraphStore, vectorIndex VectorIndex, embeddingDim int, defaultMode string, embedder EmbeddingProvider, router RAGRouter) RAGService {
+	svc := NewRAGServiceWithGraphStoreAndEmbedding(repo, graphStore, vectorIndex, embeddingDim, defaultMode, embedder).(*ragServiceImpl)
 	if router != nil {
 		svc.router = HybridAdaptiveRouter{LLM: router}
 	}
@@ -171,10 +206,38 @@ func NewRAGServiceWithGraphExtractor(repo dao.Repository, vectorIndex VectorInde
 	return svc
 }
 
+func NewRAGServiceWithGraphStoreAndGraphExtractor(repo dao.Repository, graphStore graphstore.GraphStore, vectorIndex VectorIndex, embeddingDim int, defaultMode string, embedder EmbeddingProvider, router RAGRouter, reranker Reranker, cragEvaluator CRAGEvaluator, selfJudge SelfRAGJudge, extractor graphExtractor, summarizer graphCommunitySummarizer) RAGService {
+	svc := NewRAGServiceWithGraphStoreAndRouter(repo, graphStore, vectorIndex, embeddingDim, defaultMode, embedder, router).(*ragServiceImpl)
+	svc.reranker = reranker
+	if cragEvaluator == nil {
+		cragEvaluator = RuleCRAGEvaluator{}
+	}
+	svc.cragEvaluator = cragEvaluator
+	if selfJudge == nil {
+		selfJudge = RuleSelfRAGJudge{}
+	}
+	svc.selfJudge = selfJudge
+	if extractor != nil {
+		svc.graphExtractor = fallbackGraphExtractor{primary: extractor}
+		svc.llmGraphEnabled = true
+	}
+	if summarizer != nil {
+		svc.graphSummarizer = fallbackGraphCommunitySummarizer{primary: summarizer, fallback: ruleGraphCommunitySummarizer{}}
+	}
+	return svc
+}
+
 // NewRAGServiceWithRouterProviderAndGraphExtractor 同时启用用户级 RAG Router 和 GraphRAG LLM 抽取/社区摘要。
 // 这避免 settings-service 覆盖 Router 时把 GraphRAG 又退回纯规则抽取。
 func NewRAGServiceWithRouterProviderAndGraphExtractor(repo dao.Repository, vectorIndex VectorIndex, embeddingDim int, defaultMode string, embedder EmbeddingProvider, router RAGRouter, reranker Reranker, cragEvaluator CRAGEvaluator, selfJudge SelfRAGJudge, settings settingsclient.Service, routerFactory func(settingsclient.ResolvedLLMConfig) RAGRouter, extractor graphExtractor, summarizer graphCommunitySummarizer) RAGService {
 	svc := NewRAGServiceWithGraphExtractor(repo, vectorIndex, embeddingDim, defaultMode, embedder, router, reranker, cragEvaluator, selfJudge, extractor, summarizer).(*ragServiceImpl)
+	svc.settings = settings
+	svc.routerFactory = routerFactory
+	return svc
+}
+
+func NewRAGServiceWithGraphStoreRouterProviderAndGraphExtractor(repo dao.Repository, graphStore graphstore.GraphStore, vectorIndex VectorIndex, embeddingDim int, defaultMode string, embedder EmbeddingProvider, router RAGRouter, reranker Reranker, cragEvaluator CRAGEvaluator, selfJudge SelfRAGJudge, settings settingsclient.Service, routerFactory func(settingsclient.ResolvedLLMConfig) RAGRouter, extractor graphExtractor, summarizer graphCommunitySummarizer) RAGService {
+	svc := NewRAGServiceWithGraphStoreAndGraphExtractor(repo, graphStore, vectorIndex, embeddingDim, defaultMode, embedder, router, reranker, cragEvaluator, selfJudge, extractor, summarizer).(*ragServiceImpl)
 	svc.settings = settings
 	svc.routerFactory = routerFactory
 	return svc
@@ -355,13 +418,21 @@ func (s *ragServiceImpl) GetGraph(ctx context.Context, input GraphInput) (GraphR
 	if s.repo == nil {
 		return GraphResult{}, errors.New("rag repository未配置")
 	}
-	nodes, edges, communities, err := s.repo.ListGraph(ctx, input.ViewerID, input.Query, input.Limit, input.DocumentID, input.Hops)
+	if s.graphStore == nil {
+		return GraphResult{Success: false, Msg: "graph store未配置"}, nil
+	}
+	if input.DocumentID > 0 {
+		if _, err := s.repo.GetVisibleDocument(ctx, input.ViewerID, input.DocumentID); err != nil {
+			return GraphResult{Success: false, Msg: err.Error()}, nil
+		}
+	}
+	nodes, edges, communities, err := s.graphStore.ListGraph(ctx, input.ViewerID, input.Query, input.Limit, input.DocumentID, input.Hops)
 	if err != nil {
 		return GraphResult{}, err
 	}
 	if input.DocumentID > 0 && len(edges) == 0 {
 		s.rebuildDocumentGraphIfMissing(ctx, input.ViewerID, input.DocumentID)
-		nodes, edges, communities, err = s.repo.ListGraph(ctx, input.ViewerID, input.Query, input.Limit, input.DocumentID, input.Hops)
+		nodes, edges, communities, err = s.graphStore.ListGraph(ctx, input.ViewerID, input.Query, input.Limit, input.DocumentID, input.Hops)
 		if err != nil {
 			return GraphResult{}, err
 		}
@@ -485,6 +556,14 @@ func (s *ragServiceImpl) DeleteDocument(ctx context.Context, viewerID, documentI
 	if s.repo == nil {
 		return errors.New("rag repository未配置")
 	}
+	if s.graphStore != nil {
+		if _, err := s.repo.GetOwnedDocument(ctx, viewerID, documentID); err != nil {
+			return err
+		}
+		if err := s.graphStore.DeleteDocumentGraph(ctx, viewerID, documentID); err != nil {
+			return err
+		}
+	}
 	return s.repo.DeleteDocument(ctx, viewerID, documentID)
 }
 
@@ -492,7 +571,17 @@ func (s *ragServiceImpl) DeleteDocumentGraph(ctx context.Context, viewerID, docu
 	if s.repo == nil {
 		return errors.New("rag repository未配置")
 	}
-	return s.repo.DeleteDocumentGraph(ctx, viewerID, documentID)
+	if s.graphStore == nil {
+		return errors.New("graph store未配置")
+	}
+	if _, err := s.repo.GetOwnedDocument(ctx, viewerID, documentID); err != nil {
+		return err
+	}
+	if err := s.graphStore.DeleteDocumentGraph(ctx, viewerID, documentID); err != nil {
+		return err
+	}
+	s.rebuildGraphCommunities(ctx, viewerID)
+	return nil
 }
 
 func (s *ragServiceImpl) route(ctx context.Context, input SearchInput) RouterDecision {
@@ -1363,7 +1452,7 @@ func (s *ragServiceImpl) buildGraph(ctx context.Context, ownerID, documentID int
 						EvidenceChunkID: chunk.ID,
 						DocumentID:      documentID,
 					}
-					_ = s.repo.SaveRelation(ctx, relation)
+					_ = s.graphStore.SaveRelation(ctx, relation)
 					relationCount++
 				}
 			}
@@ -1396,7 +1485,7 @@ func (s *ragServiceImpl) buildGraph(ctx context.Context, ownerID, documentID int
 				EvidenceChunkID: chunk.ID,
 				DocumentID:      documentID,
 			}
-			_ = s.repo.SaveRelation(ctx, relation)
+			_ = s.graphStore.SaveRelation(ctx, relation)
 			relationCount++
 		}
 	}
@@ -1458,7 +1547,7 @@ func shouldUseSparseGraphFallback(chunks []model.Chunk) bool {
 }
 
 func (s *ragServiceImpl) buildFallbackTopicGraph(ctx context.Context, ownerID, documentID int64, documentTitle string, chunks []model.Chunk) (int64, int64) {
-	if s.repo == nil || len(chunks) == 0 {
+	if s == nil || s.graphStore == nil || len(chunks) == 0 {
 		return 0, 0
 	}
 	documentEntity := s.upsertDocumentGraphEntity(ctx, ownerID, documentID, documentTitle)
@@ -1466,6 +1555,7 @@ func (s *ragServiceImpl) buildFallbackTopicGraph(ctx context.Context, ownerID, d
 		return 0, 0
 	}
 	entityByKey := map[string]*model.Entity{}
+	orderedEntities := make([]*model.Entity, 0)
 	entityCount := int64(1)
 	relationCount := int64(0)
 	seenRelations := map[string]bool{}
@@ -1481,6 +1571,7 @@ func (s *ragServiceImpl) buildFallbackTopicGraph(ctx context.Context, ownerID, d
 			}
 			if _, ok := entityByKey[entity.CanonicalKey]; !ok {
 				entityCount++
+				orderedEntities = append(orderedEntities, entity)
 			}
 			entityByKey[entity.CanonicalKey] = entity
 			relationKey := fmt.Sprintf("%d:%d:CONTAINS:%d", documentEntity.ID, entity.ID, documentID)
@@ -1500,14 +1591,57 @@ func (s *ragServiceImpl) buildFallbackTopicGraph(ctx context.Context, ownerID, d
 				EvidenceChunkID: chunk.ID,
 				DocumentID:      documentID,
 			}
-			_ = s.repo.SaveRelation(ctx, relation)
+			_ = s.graphStore.SaveRelation(ctx, relation)
 			relationCount++
 		}
 		if entityCount >= 12 || relationCount >= 10 {
-			break
+			continue
 		}
 	}
+	for i := 0; i+1 < len(orderedEntities); i++ {
+		source := orderedEntities[i]
+		target := orderedEntities[i+1]
+		if source == nil || target == nil || source.ID == target.ID {
+			continue
+		}
+		relationName := inferFallbackSemanticRelation(source.Name, target.Name)
+		if relationName == "" {
+			continue
+		}
+		relationKey := fmt.Sprintf("%d:%d:%s:%d", source.ID, target.ID, relationName, documentID)
+		if seenRelations[relationKey] {
+			continue
+		}
+		seenRelations[relationKey] = true
+		relation := &model.Relation{
+			OwnerID:     ownerID,
+			SourceID:    source.ID,
+			TargetID:    target.ID,
+			Relation:    relationName,
+			Description: fmt.Sprintf("%s 与 %s 在文档《%s》中形成连续主题关系。", source.Name, target.Name, defaultString(documentTitle, "未命名文档")),
+			Weight:      0.66,
+			Confidence:  0.66,
+			Evidence:    truncate(source.Summary+"；"+target.Summary, 500),
+			DocumentID:  documentID,
+		}
+		_ = s.graphStore.SaveRelation(ctx, relation)
+		relationCount++
+	}
 	return entityCount, relationCount
+}
+
+func inferFallbackSemanticRelation(source, target string) string {
+	joined := strings.ToLower(source + " " + target)
+	switch {
+	case strings.Contains(joined, "service") || strings.Contains(joined, "api") || strings.Contains(joined, "接口"):
+		return "调用或支撑"
+	case strings.Contains(joined, "表") || strings.Contains(joined, "库") || strings.Contains(joined, "database"):
+		return "读写"
+	case strings.Contains(joined, "任务") || strings.Contains(joined, "流程") || strings.Contains(joined, "步骤"):
+		return "推进"
+	default:
+		return ""
+	}
 }
 
 func fallbackTopicEntities(chunk model.Chunk) []extractedEntity {
@@ -1609,6 +1743,9 @@ func graphExtractionCandidates(chunks []model.Chunk) []model.Chunk {
 }
 
 func (s *ragServiceImpl) upsertGraphEntity(ctx context.Context, ownerID int64, extracted extractedEntity) *model.Entity {
+	if s == nil || s.graphStore == nil {
+		return nil
+	}
 	name := strings.TrimSpace(extracted.Name)
 	if name == "" {
 		return nil
@@ -1617,7 +1754,7 @@ func (s *ragServiceImpl) upsertGraphEntity(ctx context.Context, ownerID int64, e
 	if canonical == "" {
 		return nil
 	}
-	entity, err := s.repo.GetEntityByCanonicalKey(ctx, ownerID, canonical)
+	entity, err := s.graphStore.GetEntityByCanonicalKey(ctx, ownerID, canonical)
 	if err != nil {
 		return nil
 	}
@@ -1641,12 +1778,12 @@ func (s *ragServiceImpl) upsertGraphEntity(ctx context.Context, ownerID int64, e
 			entity.Type = normalizeEntityType(extracted.Type, name)
 		}
 	}
-	_ = s.repo.SaveEntity(ctx, entity)
+	_ = s.graphStore.SaveEntity(ctx, entity)
 	return entity
 }
 
 func (s *ragServiceImpl) upsertDocumentGraphEntity(ctx context.Context, ownerID, documentID int64, title string) *model.Entity {
-	if s == nil || s.repo == nil || ownerID <= 0 || documentID <= 0 {
+	if s == nil || s.graphStore == nil || ownerID <= 0 || documentID <= 0 {
 		return nil
 	}
 	name := strings.TrimSpace(title)
@@ -1654,7 +1791,7 @@ func (s *ragServiceImpl) upsertDocumentGraphEntity(ctx context.Context, ownerID,
 		name = fmt.Sprintf("文档 %d", documentID)
 	}
 	canonical := fmt.Sprintf("document:%d", documentID)
-	entity, err := s.repo.GetEntityByCanonicalKey(ctx, ownerID, canonical)
+	entity, err := s.graphStore.GetEntityByCanonicalKey(ctx, ownerID, canonical)
 	if err != nil {
 		return nil
 	}
@@ -1677,7 +1814,7 @@ func (s *ragServiceImpl) upsertDocumentGraphEntity(ctx context.Context, ownerID,
 			entity.Summary = fmt.Sprintf("知识库文档《%s》的标题节点，用于承载该文档内抽取出的核心实体。", name)
 		}
 	}
-	_ = s.repo.SaveEntity(ctx, entity)
+	_ = s.graphStore.SaveEntity(ctx, entity)
 	return entity
 }
 
@@ -1876,7 +2013,6 @@ func (ruleGraphExtractor) Extract(ctx context.Context, input graphExtractInput) 
 func filterGraphExtractResult(result graphExtractResult, evidence string) graphExtractResult {
 	validEntities := make([]extractedEntity, 0, len(result.Entities))
 	validKeys := map[string]bool{}
-	validEntityTypeByKey := map[string]string{}
 	usedInRelation := map[string]bool{}
 	for _, relation := range result.Relationships {
 		if strings.TrimSpace(relation.Evidence) == "" && strings.TrimSpace(relation.Description) == "" {
@@ -1900,7 +2036,6 @@ func filterGraphExtractResult(result graphExtractResult, evidence string) graphE
 		}
 		entity.Type = normalizeEntityTypeWithContext(entity.Type, entity.Name, entity.Description+" "+evidence)
 		validKeys[key] = true
-		validEntityTypeByKey[key] = entity.Type
 		validEntities = append(validEntities, entity)
 	}
 	validRelations := make([]extractedRelationship, 0, len(result.Relationships))
@@ -1916,9 +2051,6 @@ func filterGraphExtractResult(result graphExtractResult, evidence string) graphE
 			continue
 		}
 		if isGenericRelatedRelation(relation.Type) {
-			continue
-		}
-		if !relationAllowedByEntityTypes(relation.Type, validEntityTypeByKey[sourceKey], validEntityTypeByKey[targetKey]) {
 			continue
 		}
 		if !isUsefulGraphRelation(relation, evidence) {
@@ -2026,6 +2158,9 @@ func isUsefulGraphRelation(relation extractedRelationship, evidence string) bool
 	if relationEvidence == "" && relationDescription == "" {
 		return false
 	}
+	if isExplicitBadGraphRelationText(relationEvidence + " " + relationDescription) {
+		return false
+	}
 	sourceKey := canonicalEntityKey(relation.Source)
 	targetKey := canonicalEntityKey(relation.Target)
 	evidenceText := strings.TrimSpace(relationEvidence + " " + relationDescription + " " + evidence)
@@ -2039,6 +2174,24 @@ func isUsefulGraphRelation(relation extractedRelationship, evidence string) bool
 		}
 	}
 	return true
+}
+
+func isExplicitBadGraphRelationText(text string) bool {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return false
+	}
+	lower := strings.ToLower(text)
+	badMarkers := []string{
+		"错误", "不应", "不合理", "无意义", "噪声", "误抽取",
+		"invalid", "impossible", "wrong", "noise",
+	}
+	for _, marker := range badMarkers {
+		if strings.Contains(lower, strings.ToLower(marker)) {
+			return true
+		}
+	}
+	return false
 }
 
 func isUsefulGraphEntity(entity extractedEntity, evidence string, usedInRelation bool) bool {
@@ -2345,10 +2498,10 @@ func extractGraphRelationships(text string, entities []extractedEntity) []extrac
 }
 
 func (s *ragServiceImpl) rebuildGraphCommunities(ctx context.Context, ownerID int64) {
-	if s == nil || s.repo == nil || ownerID <= 0 {
+	if s == nil || s.graphStore == nil || ownerID <= 0 {
 		return
 	}
-	entities, relations, err := s.repo.ListOwnerGraph(ctx, ownerID)
+	entities, relations, err := s.graphStore.ListOwnerGraph(ctx, ownerID)
 	if err != nil || len(entities) == 0 {
 		return
 	}
@@ -2362,7 +2515,7 @@ func (s *ragServiceImpl) rebuildGraphCommunities(ctx context.Context, ownerID in
 		}
 		idx++
 	}
-	_ = s.repo.ReplaceOwnerCommunities(ctx, ownerID, communities, entityCommunity)
+	_ = s.graphStore.ReplaceOwnerCommunities(ctx, ownerID, communities, entityCommunity)
 }
 
 func leidenLikeCommunities(entities []model.Entity, relations []model.Relation) map[int64]int {
@@ -3914,7 +4067,6 @@ func relationsToRPC(relations []model.Relation) []*rag.RAGGraphEdge {
 
 func filterGraphForDisplay(entities []model.Entity, relations []model.Relation) ([]model.Entity, []model.Relation) {
 	validID := map[int64]bool{}
-	entityByID := map[int64]model.Entity{}
 	filteredEntities := make([]model.Entity, 0, len(entities))
 	for _, entity := range entities {
 		extracted := extractedEntity{Name: entity.Name, Type: entity.Type, Description: entity.Summary, Aliases: decodeAliases(entity.AliasesJSON)}
@@ -3924,7 +4076,6 @@ func filterGraphForDisplay(entities []model.Entity, relations []model.Relation) 
 		entity.Type = normalizeEntityType(entity.Type, entity.Name)
 		filteredEntities = append(filteredEntities, entity)
 		validID[entity.ID] = true
-		entityByID[entity.ID] = entity
 	}
 	filteredRelations := make([]model.Relation, 0, len(relations))
 	seen := map[string]bool{}
@@ -3936,9 +4087,7 @@ func filterGraphForDisplay(entities []model.Entity, relations []model.Relation) 
 		if relation.Relation == "" {
 			continue
 		}
-		source := entityByID[relation.SourceID]
-		target := entityByID[relation.TargetID]
-		if !relationAllowedByEntityTypes(relation.Relation, source.Type, target.Type) {
+		if isExplicitBadGraphRelationText(relation.Description + " " + relation.Evidence) {
 			continue
 		}
 		if isGenericRelatedRelation(relation.Relation) {

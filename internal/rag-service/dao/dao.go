@@ -18,7 +18,7 @@ func InitDB(dsn string) (*gorm.DB, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := db.AutoMigrate(&model.Document{}, &model.Chunk{}, &model.Entity{}, &model.Relation{}, &model.Community{}); err != nil {
+	if err := db.AutoMigrate(&model.Document{}, &model.Chunk{}); err != nil {
 		return nil, err
 	}
 	return db, nil
@@ -40,16 +40,9 @@ type Repository interface {
 	ListDocuments(ctx context.Context, filter SearchFilter) ([]model.Document, int64, error)
 	CountChildChunksByDocumentIDs(ctx context.Context, documentIDs []int64) (map[int64]int64, error)
 	ListChunks(ctx context.Context, filter SearchFilter) ([]ChunkWithDocument, error)
-	GetEntityByName(ctx context.Context, ownerID int64, name string) (*model.Entity, error)
-	GetEntityByCanonicalKey(ctx context.Context, ownerID int64, canonicalKey string) (*model.Entity, error)
-	SaveEntity(ctx context.Context, entity *model.Entity) error
-	SaveRelation(ctx context.Context, relation *model.Relation) error
-	SaveCommunity(ctx context.Context, community *model.Community) error
-	ListOwnerGraph(ctx context.Context, ownerID int64) ([]model.Entity, []model.Relation, error)
-	ReplaceOwnerCommunities(ctx context.Context, ownerID int64, communities []model.Community, entityCommunity map[int64]int64) error
-	ListGraph(ctx context.Context, viewerID int64, query string, limit int, documentID int64, hops int) ([]model.Entity, []model.Relation, []model.Community, error)
+	GetVisibleDocument(ctx context.Context, viewerID, documentID int64) (*model.Document, error)
+	GetOwnedDocument(ctx context.Context, ownerID, documentID int64) (*model.Document, error)
 	DeleteDocument(ctx context.Context, viewerID, documentID int64) error
-	DeleteDocumentGraph(ctx context.Context, viewerID, documentID int64) error
 }
 
 // ChunkWithDocument 把 chunk 和所属文档合并给 service 层做权限、排序和来源展示。
@@ -60,6 +53,11 @@ type ChunkWithDocument struct {
 
 type repositoryImpl struct {
 	db *gorm.DB
+}
+
+// UsesExternalGraphStore marks the MySQL repository as document/chunk-only.
+func (r *repositoryImpl) UsesExternalGraphStore() bool {
+	return true
 }
 
 // NewRepository 创建 GORM 仓储。
@@ -187,6 +185,30 @@ func (r *repositoryImpl) ListChunks(ctx context.Context, filter SearchFilter) ([
 		})
 	}
 	return out, nil
+}
+
+func (r *repositoryImpl) GetVisibleDocument(ctx context.Context, viewerID, documentID int64) (*model.Document, error) {
+	var doc model.Document
+	query := r.db.WithContext(ctx).Table("rag_documents").Where("rag_documents.id = ? AND rag_documents.deleted_at IS NULL", documentID)
+	query = visibleDocuments(query, viewerID)
+	if err := query.First(&doc).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errors.New("文档不存在或无权查看")
+		}
+		return nil, err
+	}
+	return &doc, nil
+}
+
+func (r *repositoryImpl) GetOwnedDocument(ctx context.Context, ownerID, documentID int64) (*model.Document, error) {
+	var doc model.Document
+	if err := r.db.WithContext(ctx).Where("id = ? AND owner_id = ? AND deleted_at IS NULL", documentID, ownerID).First(&doc).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errors.New("文档不存在或无权操作")
+		}
+		return nil, err
+	}
+	return &doc, nil
 }
 
 // GetEntityByName 在同一 owner 下按名称读取实体。
@@ -340,7 +362,7 @@ func (r *repositoryImpl) ListGraph(ctx context.Context, viewerID int64, queryTex
 	return entities, relations, communities, nil
 }
 
-// DeleteDocument 删除当前用户拥有的知识文档，同时清理它的分块、图谱关系和孤立实体。
+// DeleteDocument 删除当前用户拥有的知识文档和检索分块。
 // 这里要求 owner_id 精确匹配 viewerID，避免公共文档被普通可见用户删除。
 func (r *repositoryImpl) DeleteDocument(ctx context.Context, viewerID, documentID int64) error {
 	if viewerID <= 0 || documentID <= 0 {
@@ -354,16 +376,10 @@ func (r *repositoryImpl) DeleteDocument(ctx context.Context, viewerID, documentI
 			}
 			return err
 		}
-		if err := tx.Where("document_id = ? AND owner_id = ?", documentID, viewerID).Delete(&model.Relation{}).Error; err != nil {
-			return err
-		}
 		if err := tx.Where("document_id = ? AND owner_id = ?", documentID, viewerID).Delete(&model.Chunk{}).Error; err != nil {
 			return err
 		}
-		if err := tx.Delete(&doc).Error; err != nil {
-			return err
-		}
-		return cleanupOrphanGraphRows(ctx, tx, viewerID)
+		return tx.Delete(&doc).Error
 	})
 }
 

@@ -2,6 +2,7 @@ package agent
 
 import (
 	"ClaranAIM/internal/agent-manager-service/component"
+	runtimecomponent "ClaranAIM/internal/agent-runtime-service/component"
 	"context"
 	"fmt"
 	"log"
@@ -32,6 +33,7 @@ func NewDeepAgent(ctx context.Context, model *openai.ChatModel, agentRoot string
 	if err != nil {
 		return nil, err
 	}
+	sandboxBackend := runtimecomponent.NewWorkspaceSandbox(backend, agentRoot)
 
 	// 注册全局回调，便于在本地日志中观察 Agent 每个组件的启动、结束和异常。
 	handler := callbacks.NewHandlerBuilder().
@@ -126,9 +128,9 @@ func NewDeepAgent(ctx context.Context, model *openai.ChatModel, agentRoot string
 		Instruction:    instruction,
 		ChatModel:      model,
 		ToolsConfig:    toolsConfig,
-		Backend:        backend, // 注入LocalBackend工具集
-		StreamingShell: backend, // 支持流式 Shell 输出
-		MaxIteration:   50,      // 最大思考/工具调用循环次数
+		Backend:        sandboxBackend, // 注入受工作目录硬约束的文件工具集
+		StreamingShell: sandboxBackend, // 支持流式 Shell 输出，并限制在 Agent 工作目录内
+		MaxIteration:   50,             // 最大思考/工具调用循环次数
 		// 注册中间件
 		Handlers: handlers,
 		// 配置模型重试策略，处理速率限制错误
@@ -149,9 +151,9 @@ func NewDeepAgent(ctx context.Context, model *openai.ChatModel, agentRoot string
 	return agent, nil
 }
 
-// resolveSkillsDir 只接受已经存在且包含非空 SKILL.md 的本地目录。
-// settings-service 保存用户上传的 Skill 后会返回目录路径；目录不存在时跳过 Skill 中间件，
-// 避免因为单个 Agent 的 Skill 配置损坏而让整个 runtime 初始化失败。
+// resolveSkillsDir 将 Skill 目录解析为绝对路径，并确认 SKILL.md 真实存在且非空。
+// 兼容旧上传布局：settings-service 早期可能把 Agent 指到 skills 根目录，
+// 实际 SKILL.md 落在 global/1/Skill 或 global/1/Skill/skill 这类子目录。
 func resolveSkillsDir(skillsDir string) (string, bool) {
 	if skillsDir == "" {
 		return "", false
@@ -165,10 +167,38 @@ func resolveSkillsDir(skillsDir string) (string, bool) {
 	}
 	entry := filepath.Join(skillsDir, "SKILL.md")
 	data, err := os.ReadFile(entry)
-	if err != nil || strings.TrimSpace(string(data)) == "" {
+	if err == nil && strings.TrimSpace(string(data)) != "" {
+		return skillsDir, true
+	}
+	if migrated, ok := findLegacySkillPackageDir(skillsDir); ok {
+		return migrated, true
+	}
+	return "", false
+}
+
+func findLegacySkillPackageDir(root string) (string, bool) {
+	var found string
+	_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil || found != "" || d.IsDir() || !strings.EqualFold(d.Name(), "SKILL.md") {
+			return nil
+		}
+		rel, relErr := filepath.Rel(root, path)
+		if relErr != nil {
+			return nil
+		}
+		if len(strings.Split(filepath.ToSlash(rel), "/")) > 5 {
+			return nil
+		}
+		data, readErr := os.ReadFile(path)
+		if readErr == nil && strings.TrimSpace(string(data)) != "" {
+			found = filepath.Dir(path)
+		}
+		return nil
+	})
+	if found == "" {
 		return "", false
 	}
-	return skillsDir, true
+	return found, true
 }
 
 // SkillInstruction 将已加载的 SKILL.md 注入系统提示词，确保旧的 manager 内嵌运行路径也能识别 Skill。

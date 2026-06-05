@@ -8,6 +8,7 @@ import (
 	"ClaranAIM/pkg/config"
 	"ClaranAIM/pkg/response"
 	"context"
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -158,16 +159,21 @@ func (h *AdminHandler) ListReviews(ctx context.Context, c *app.RequestContext) {
 
 func (h *AdminHandler) ReviewItem(ctx context.Context, c *app.RequestContext) {
 	var req struct {
-		Source string `json:"source"`
-		ItemID int64  `json:"item_id"`
-		Action string `json:"action"`
-		Note   string `json:"note"`
+		Source string      `json:"source"`
+		ItemID interface{} `json:"item_id"`
+		Action string      `json:"action"`
+		Note   string      `json:"note"`
 	}
-	if err := c.BindJSON(&req); err != nil {
+	if err := bindJSONUseNumber(c, &req); err != nil {
 		response.BadRequest(c, "参数错误")
 		return
 	}
-	resp, err := client.AdminClient.ReviewItem(ctx, &admin.ReviewReq{AdminId: currentAdminID(c), Source: req.Source, ItemId: req.ItemID, Action: req.Action, Note: req.Note})
+	itemID, err := parseAdminReviewItemID(req.ItemID)
+	if err != nil || itemID <= 0 {
+		response.BadRequest(c, "无效的审核候选ID")
+		return
+	}
+	resp, err := client.AdminClient.ReviewItem(ctx, &admin.ReviewReq{AdminId: currentAdminID(c), Source: req.Source, ItemId: itemID, Action: req.Action, Note: req.Note})
 	writeAdminResp(c, resp, err)
 }
 
@@ -290,6 +296,23 @@ func currentAdminID(c *app.RequestContext) int64 {
 	return 0
 }
 
+func parseAdminReviewItemID(value interface{}) (int64, error) {
+	switch v := value.(type) {
+	case json.Number:
+		return strconv.ParseInt(v.String(), 10, 64)
+	case string:
+		return strconv.ParseInt(strings.TrimSpace(v), 10, 64)
+	case float64:
+		return int64(v), nil
+	case int64:
+		return v, nil
+	case int:
+		return int64(v), nil
+	default:
+		return 0, fmt.Errorf("invalid review item id")
+	}
+}
+
 func queryInt(c *app.RequestContext, key string, fallback int64) int64 {
 	raw := c.Query(key)
 	if raw == "" {
@@ -337,10 +360,7 @@ func groupAdminMCPTraces(resp *admin.ListMCPTracesResp) map[string]interface{} {
 		if trace == nil {
 			continue
 		}
-		key := strings.TrimSpace(trace.TraceId)
-		if key == "" {
-			key = fmt.Sprintf("trace:%d", trace.Id)
-		}
+		key := adminMCPTraceGroupKey(trace)
 		pos, ok := index[key]
 		if !ok {
 			pos = len(groups)
@@ -383,6 +403,23 @@ func groupAdminMCPTraces(resp *admin.ListMCPTracesResp) map[string]interface{} {
 		"total":   resp.GetTotal(),
 		"msg":     resp.GetMsg(),
 	}
+}
+
+func adminMCPTraceGroupKey(trace *admin.AdminMCPTrace) string {
+	if trace == nil {
+		return ""
+	}
+	parts := []string{
+		strconv.FormatInt(trace.UserId, 10),
+		strconv.FormatInt(trace.AgentId, 10),
+		strconv.FormatInt(trace.ConversationId, 10),
+		strings.TrimSpace(trace.ToolName),
+	}
+	key := strings.Join(parts, "|")
+	if strings.Trim(key, "| ") == "" {
+		return fmt.Sprintf("trace:%d", trace.Id)
+	}
+	return key
 }
 
 func stringSliceContains(values []string, target string) bool {

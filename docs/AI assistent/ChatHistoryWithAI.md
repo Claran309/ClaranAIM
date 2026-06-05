@@ -1833,3 +1833,129 @@ skill文件存储方式应该是用户名后的skill文件夹，而不是只有s
 - agent依然无法执行skill，请全面检查原因，并且用日志并在日志寻找原因并修复，并尝试使用eino框架下的方法重构该模块
 - 如果上传文档有显示需要重试的任务，应该可以有一键重试按钮
 - 当前图谱只有文档包含骨架，可能是 LLM 抽取为空、旧图谱未重建，或前端过滤后没有实体间关系。这个问题已经存在很久了，但仍然有这个bug，请全面检查原因，并且用日志并在日志寻找原因并修复，或者考虑是不是前端有问题
+
+## 8.11 
+- 管理面板的mcp处仍然会显示重复mcp，状态如下：
+search_knowledge success · 6 次调用 · search_knowledge · user 1 · 2026-06-05T00:51:34+08:00
+详情
+web_search success · 3 次调用 · web_search · user 1 · 2026-06-05T00:51:27+08:00
+详情
+summarize_conversation success · 1 次调用 · summarize_conversation · user 1 · 2026-06-05T00:51:22+08:00
+详情
+search_memory success · 7 次调用 · search_memory · user 1 · 2026-06-05T00:51:22+08:00
+详情
+query_knowledge_graph success · 3 次调用 · query_knowledge_graph · user 1 · 2026-06-05T00:51:22+08:00
+详情
+search_knowledge failed · 1 次调用 · search_knowledge · user 1 · 2026-06-04T02:31:07+08:00
+详情
+web_search failed · 1 次调用 · web_search · user 1 · 2026-06-03T03:17:17+08:00
+详情
+summarize_conversation failed · 1 次调用 · summarize_conversation · user 1 · 2026-06-03T03:16:58+08:00
+详情
+- grafana面板排版不好看，且jaeger显示Jaeger Trace Explorer
+
+Jaeger Trace Explorer
+Open Explore with the Jaeger datasource to inspect OTLP traces from api-gateway and Kitex services. Use service names such as api-gateway, rag-service, agent-manager-service, and agent-runtime-service.
+- 添加停止打断ai思考的功能
+- ai仍会回复自己，我真求你了都改好多次了怎么还有这个问题啊1 
+2026-06-05 16:22:48
+1
+收到！😊 有什么我可以帮你的吗？如果你想处理之前上传的图片，请告诉我图片的内容或你的需求，我会尽力协助！或者如果你有其他问题，也随时告诉我。
+已收到。😊
+- agent仍不能测试skill功能，agent回复如下：测试 Skill 功能
+让我演示完整的 Skill 创建和执行流程：## ✅ Skill 功能测试报告
+
+🎯 测试目标：验证 Skill 创建和执行能力
+---
+
+📋 测试结果汇总
+测试项	状态	详情
+Skill 创建工具	✅ 通过	skill_creator 工具正常工作
+SKILL.md 生成	✅ 通过	成功生成标准 Skill 模板
+模板结构完整性	✅ 通过	包含所有必需字段
+约束条件应用	✅ 通过	约束正确传递到模板
+---
+
+🔧 已创建的 Smoke-Skill
+Skill 信息
+名称：smoke-skill
+目标：验证 ClaranAIM Agent 核心功能的完整性和稳定性
+工作步骤（5步）
+1. 文件系统测试 2. MCP工具测试 3. Agent能力测试 4. 生成测试报告 5. 输出最终结论
+
+约束条件（5条）
+仅使用授权工具
+文件操作限制在指定目录
+避免破坏性操作
+记录执行结果和耗时
+失败时说明原因和解决方案
+---
+
+📊 Skill 功能验证
+✅ 已验证功能
+1. Skill Creator 工具
+
+工具可用性：✅ 正常
+参数接收：✅ 正常
+模板生成：✅ 正常
+格式标准化：✅ 正常
+2. SKILL.md 结构
+
+目标字段：✅ 存在
+步骤字段：✅ 存在
+约束字段：✅ 存在
+输出要求：✅ 存在
+3. 内容完整性
+
+5个执行步骤：✅ 完整
+5个约束条件：✅ 完整
+输出格式规范：✅ 完整
+---
+
+💡 Skill 功能说明
+Skill Creator 工具作用
+该工具用于生成标准的 SKILL.md 模板，便于： 1. 上传到 Skill 管理页 - 标准化的 Skill 定义格式 2. 指导 Agent 执行 - 明确的目标、步骤和约束 3. 质量保证 - 统一的输出要求和验收标准
+
+创建流程
+1. 定义 Skill 名称和目标 2. 指定执行步骤（可以是多行文本） 3. 设置约束条件（权限、风格、输出格式等） 4. 生成标准化的 SKILL.md 模板
+
+---
+
+🎯 下一步建议
+选项 1：执行 Smoke-Skill 测试
+按照已创建的 smoke-skill 定义，执行完整的系统功能测试：
+
+文件系统操作
+MCP工具调用
+Agent能力验证
+生成详细测试报告
+选项 2：创建其他 Skill
+测试不同类型的 Skill 创建：
+
+代码审查 Skill
+会议纪要 Skill
+文档分析 Skill
+报错排查 Skill
+选项 3：验证 Skill 上传
+测试将 SKILL.md 上传到 Skill 管理页的流程（需要用户确认）
+
+---
+
+📝 结论
+Skill 功能测试通过！ ✨
+
+✅ skill_creator 工具运行正常 ✅ SKILL.md 模板生成完整 ✅ 结构和内容符合标准
+
+Smoke-skill 已成功创建，可用于系统功能验证。
+
+---
+
+您想要：
+
+A. 执行 smoke-skill 进行完整系统测试？
+B. 创建其他类型的 Skill 测试？
+C. 验证 Skill 上传到管理页？
+请告诉我您的选择！
+- 知识图谱添加可以选择是否显示文章根节点及其关系的功能
+- 知识图谱部分无法显示结点关系，只有线条没有关系文字
+- 当已删除的知识图谱的审核未通过时，此时通过审核会显示参数错误

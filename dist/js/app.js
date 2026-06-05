@@ -23,6 +23,7 @@ let botCreateSubmitting = false;
 let agentRunHistories = {};
 let agentMenuCloseTimer = null;
 let pendingAgentThinkingByConversation = {};
+let stoppedAgentThinkingByConversation = {};
 let conversationParticipantCache = {};
 let conversationGroupCollapsed = JSON.parse(localStorage.getItem('claran_conversation_group_collapsed') || '{}');
 let lastOnlineSyncAt = 0;
@@ -41,9 +42,12 @@ let knowledgeGraphCache = { nodes: [], edges: [], communities: [], stats: {} };
 let knowledgeGraphInstance = null;
 let knowledgeGraphSelected = null;
 let knowledgePathSelection = { sourceID: '', targetID: '', path: null };
+let knowledgeGraphShowDocumentRoots = JSON.parse(localStorage.getItem('claran_knowledge_show_document_roots') || 'true');
 let adminMCPTraceCache = [];
 let systemNoticeCache = [];
 let systemNoticeUnread = 0;
+let botChatAbortControllers = {};
+let agentRunAbortControllers = {};
 let activeWorkspace = 'chat';
 const LOCAL_LOG_KEY = 'claran_frontend_logs';
 const LOCAL_LOG_LIMIT = 500;
@@ -350,7 +354,7 @@ async function renderWorkspace(name = workspaceFromHash()) {
 function entityID(entity, ...fallbackKeys) {
     if (entity === undefined || entity === null) return '';
     if (typeof entity !== 'object') return String(entity);
-    const keys = ['id', 'Id', 'ID', 'job_id', 'JobId', 'trace_id', ...fallbackKeys];
+    const keys = ['id', 'Id', 'ID', 'item_id', 'itemId', 'candidate_id', 'candidateId', 'job_id', 'JobId', 'trace_id', ...fallbackKeys];
     for (const key of keys) {
         const value = entity[key];
         if (value !== undefined && value !== null && value !== '') {
@@ -3332,6 +3336,13 @@ async function showKnowledgeGraphWorkspace(seedQuery = '', seedDocumentID = 0) {
                         <option value="0">全部社区</option>
                     </select>
                 </div>
+                <div class="knowledge-filter-row">
+                    <label>显示</label>
+                    <label class="checkbox-row compact">
+                        <input id="knowledge-show-document-roots" type="checkbox" ${knowledgeGraphShowDocumentRoots ? 'checked' : ''} onchange="toggleKnowledgeDocumentRoots(this.checked)">
+                        <span>显示文章根节点和包含关系</span>
+                    </label>
+                </div>
             </section>
             <section class="knowledge-stage">
                 <div class="knowledge-canvas-card">
@@ -3365,6 +3376,12 @@ async function showKnowledgeGraphWorkspace(seedQuery = '', seedDocumentID = 0) {
 function toggleKnowledgeFilter(button) {
     button.classList.toggle('active');
     loadKnowledgeGraph();
+}
+
+function toggleKnowledgeDocumentRoots(checked) {
+    knowledgeGraphShowDocumentRoots = !!checked;
+    localStorage.setItem('claran_knowledge_show_document_roots', JSON.stringify(knowledgeGraphShowDocumentRoots));
+    renderKnowledgeGraph();
 }
 
 function selectedKnowledgeFilters(id) {
@@ -3439,8 +3456,9 @@ function syncKnowledgeCommunityOptions(communities) {
 
 function renderKnowledgeGraph() {
     const data = knowledgeGraphCache || {};
-    const nodes = data.nodes || [];
-    const edges = data.edges || [];
+    const visibleGraph = filterKnowledgeDocumentRoots(data.nodes || [], data.edges || []);
+    const nodes = visibleGraph.nodes;
+    const edges = visibleGraph.edges;
     const communities = data.communities || [];
     const stats = data.stats || {};
     const canvas = document.getElementById('knowledge-graph-canvas');
@@ -3491,6 +3509,32 @@ function renderKnowledgeGraph() {
         renderKnowledgeSVGFallback(canvas, nodes, edges);
     }
     applyKnowledgePathHighlight();
+}
+
+function isKnowledgeDocumentRoot(node) {
+    const type = knowledgeDisplayType(node?.type || '');
+    return ['文档', 'Document', 'document'].includes(type);
+}
+
+function isKnowledgeContainsRelation(edge) {
+    return ['CONTAINS', '包含'].includes(knowledgeDisplayRelation(edge?.relation || ''));
+}
+
+function filterKnowledgeDocumentRoots(nodes = [], edges = []) {
+    if (knowledgeGraphShowDocumentRoots) {
+        return { nodes, edges };
+    }
+    const rootIDs = new Set(nodes.filter(isKnowledgeDocumentRoot).map(node => String(node.id)));
+    if (!rootIDs.size) {
+        return { nodes, edges };
+    }
+    return {
+        nodes: nodes.filter(node => !rootIDs.has(String(node.id))),
+        edges: edges.filter(edge => {
+            if (isKnowledgeContainsRelation(edge)) return false;
+            return !rootIDs.has(String(edge.source_id)) && !rootIDs.has(String(edge.target_id));
+        }),
+    };
 }
 
 function selectedKnowledgeDocumentName() {
@@ -3550,7 +3594,45 @@ function renderKnowledgeG6(nodes, edges) {
     if (!container) return;
     const width = container.clientWidth || 900;
     const height = container.clientHeight || 620;
-    const showEdgeLabels = edges.length <= 18;
+    const graphSize = nodes.length + edges.length;
+    const showEdgeLabels = edges.length <= 60;
+    const animateGraph = nodes.length <= 120 && edges.length <= 180;
+    const edgeModel = edge => {
+        const relationLabel = knowledgeRelationLabel(edge.relation || edge.label || edge.type || '关系');
+        const model = {
+            id: String(edge.id),
+            source: String(edge.source_id),
+            target: String(edge.target_id),
+            label: showEdgeLabels ? relationLabel : '',
+            data: edge,
+            style: {
+                stroke: edge.color || '#64748b',
+                lineWidth: Math.max(1.2, Math.min(4, Number(edge.weight || 1) * 2.2)),
+                endArrow: true,
+                opacity: 0.72,
+            },
+        };
+        if (showEdgeLabels) {
+            model.style.labelText = relationLabel;
+            model.style.labelFill = '#334155';
+            model.style.labelFontSize = 11;
+            model.style.labelFontWeight = 700;
+            model.style.labelBackgroundFill = '#ffffff';
+            model.labelCfg = {
+                autoRotate: true,
+                refY: -8,
+                style: {
+                    fill: '#334155',
+                    fontSize: 11,
+                    fontWeight: 700,
+                    stroke: '#ffffff',
+                    lineWidth: 4,
+                    background: { fill: '#ffffff', padding: [2, 5, 2, 5], radius: 3 },
+                },
+            };
+        }
+        return model;
+    };
     const graphData = {
         nodes: nodes.map(node => ({
             id: String(node.id),
@@ -3569,23 +3651,7 @@ function renderKnowledgeG6(nodes, edges) {
                 style: { fill: '#21312b', fontSize: 12, fontWeight: 700 },
             },
         })),
-        edges: edges.map(edge => ({
-            id: String(edge.id),
-            source: String(edge.source_id),
-            target: String(edge.target_id),
-            label: showEdgeLabels ? knowledgeRelationLabel(edge.relation) : '',
-            data: edge,
-            style: {
-                stroke: edge.color || '#64748b',
-                lineWidth: Math.max(1.2, Math.min(4, Number(edge.weight || 1) * 2.2)),
-                endArrow: true,
-                opacity: 0.72,
-            },
-            labelCfg: {
-                autoRotate: true,
-                style: { fill: '#52615b', fontSize: 10, background: { fill: '#ffffff', padding: [2, 4, 2, 4], radius: 3 } },
-            },
-        })),
+        edges: edges.map(edgeModel),
     };
     knowledgeGraphInstance = new G6.Graph({
         container: 'knowledge-g6-container',
@@ -3593,19 +3659,27 @@ function renderKnowledgeG6(nodes, edges) {
         height,
         fitView: true,
         fitViewPadding: 42,
-        animate: true,
+        animate: animateGraph,
         layout: {
             type: 'force',
             preventOverlap: true,
-            nodeStrength: -430,
-            edgeStrength: 0.10,
-            linkDistance: 220,
+            nodeStrength: graphSize > 260 ? -260 : -430,
+            edgeStrength: graphSize > 260 ? 0.06 : 0.10,
+            linkDistance: graphSize > 260 ? 160 : 220,
+            maxIteration: graphSize > 260 ? 120 : 300,
         },
         modes: {
             default: ['drag-canvas', 'zoom-canvas', 'drag-node', 'activate-relations'],
         },
         defaultNode: { type: 'circle' },
-        defaultEdge: { type: 'quadratic' },
+        defaultEdge: {
+            type: 'quadratic',
+            labelCfg: showEdgeLabels ? {
+                autoRotate: true,
+                refY: -8,
+                style: { fill: '#334155', fontSize: 11, fontWeight: 700, stroke: '#ffffff', lineWidth: 4 },
+            } : undefined,
+        },
         nodeStateStyles: {
             hover: { lineWidth: 5, shadowBlur: 26 },
             selected: { lineWidth: 6, stroke: '#d97706' },
@@ -3712,7 +3786,15 @@ function renderKnowledgeSVGFallback(canvas, nodes, edges) {
         const s = nodeMap[String(edge.source_id)];
         const t = nodeMap[String(edge.target_id)];
         if (!s || !t) return '';
-        return `<line x1="${s.x}" y1="${s.y}" x2="${t.x}" y2="${t.y}" class="knowledge-svg-edge" onclick="renderKnowledgeEdgeDetail(${jsStringArg(edge.id)})"><title>${escapeHTML(knowledgeRelationLabel(edge.relation))}：${escapeHTML(edge.evidence || '')}</title></line>`;
+        const mx = (s.x + t.x) / 2;
+        const my = (s.y + t.y) / 2;
+        const label = knowledgeRelationLabel(edge.relation);
+        return `
+            <g class="knowledge-svg-edge-group" onclick="renderKnowledgeEdgeDetail(${jsStringArg(edge.id)})">
+                <line x1="${s.x}" y1="${s.y}" x2="${t.x}" y2="${t.y}" class="knowledge-svg-edge"><title>${escapeHTML(label)}：${escapeHTML(edge.evidence || '')}</title></line>
+                <text x="${mx}" y="${my - 6}" text-anchor="middle" class="knowledge-svg-edge-label">${escapeHTML(truncateKnowledgeLabel(label, 14))}</text>
+            </g>
+        `;
     }).join('');
     const nodeHTML = positioned.map(node => `
         <g class="knowledge-svg-node" onclick="renderKnowledgeNodeDetail(${jsStringArg(node.id)})">
@@ -3880,6 +3962,10 @@ function renderKnowledgeReviewCandidate(item) {
 }
 
 async function reviewKnowledgeCandidate(id, action) {
+    if (!idString(id)) {
+        showToast('审核候选缺少有效 ID，已拒绝发送请求。请刷新候选列表后再试。', 'warning');
+        return;
+    }
     const note = prompt(action === 'approve' ? '通过说明：' : '拒绝原因：', '');
     if (note === null) return;
     const resp = await knowledgeAPI.reviewCandidate({ id, action, note });
@@ -4379,6 +4465,7 @@ function createMessageHTML(m) {
     if (m.is_thinking) {
         const thinkingIDAttr = m._thinkingID ? ` data-thinking-id="${m._thinkingID}"` : '';
         const elapsedHTML = m.started_at ? `<span class="agent-thinking-inline" data-started-at="${escapeHTML(String(m.started_at))}">已思考 0.0 秒</span>` : '';
+        const stopHTML = m.conversation_id ? `<button class="agent-thinking-stop" onclick="stopCurrentPageAgentThinking(${jsArg(m.conversation_id)}, ${jsStringArg(m._thinkingID || '')})">停止</button>` : '';
         return `
             <div class="message-item received bot-msg msg-thinking"${thinkingIDAttr}>
                 <div class="msg-avatar received agent-avatar">A</div>
@@ -4386,6 +4473,7 @@ function createMessageHTML(m) {
                     <div class="msg-meta">
                         <span class="message-sender">智能助手</span>
                         ${elapsedHTML}
+                        ${stopHTML}
                     </div>
                     <div class="message-bubble thinking"><div class="spinner"></div> ${escapeHTML(m.content || '智能助手处理中...')}</div>
                 </div>
@@ -4550,6 +4638,62 @@ function updateAgentThinkingTimers() {
 
 setInterval(updateAgentThinkingTimers, 250);
 
+const STOPPED_AGENT_REPLY_TTL_MS = 10 * 60 * 1000;
+
+function rememberStoppedAgentThinking(conversationID, thinkingID = '', triggerMessageID = 0) {
+    const key = String(conversationID || '');
+    if (!key) return;
+    if (!Array.isArray(stoppedAgentThinkingByConversation[key])) {
+        stoppedAgentThinkingByConversation[key] = [];
+    }
+    stoppedAgentThinkingByConversation[key].push({
+        thinkingID: String(thinkingID || ''),
+        triggerMessageID: triggerMessageID || 0,
+        stoppedAt: Date.now(),
+    });
+}
+
+function shouldSuppressStoppedAgentReply(conversationID, agentUserID = 0, message = null) {
+    const key = String(conversationID || '');
+    const queue = stoppedAgentThinkingByConversation[key];
+    if (!Array.isArray(queue) || queue.length === 0) return false;
+    const now = Date.now();
+    const fresh = queue.filter(item => now - Number(item.stoppedAt || 0) <= STOPPED_AGENT_REPLY_TTL_MS);
+    if (!fresh.length) {
+        delete stoppedAgentThinkingByConversation[key];
+        return false;
+    }
+    const activeQueue = pendingAgentThinkingByConversation[key];
+    const replyToID = message?.reply_to_id || message?.replyToId || 0;
+    let suppressIndex = fresh.findIndex(item => item.triggerMessageID && sameID(item.triggerMessageID, replyToID));
+    if (suppressIndex < 0) {
+        if (Array.isArray(activeQueue) && activeQueue.length > 0) {
+            stoppedAgentThinkingByConversation[key] = fresh;
+            return false;
+        }
+        suppressIndex = fresh.findIndex(item => !item.triggerMessageID);
+    }
+    if (suppressIndex < 0) {
+        stoppedAgentThinkingByConversation[key] = fresh;
+        return false;
+    }
+    fresh.splice(suppressIndex, 1);
+    if (fresh.length) {
+        stoppedAgentThinkingByConversation[key] = fresh;
+    } else {
+        delete stoppedAgentThinkingByConversation[key];
+    }
+    if (typeof apiLocalLog === 'function') {
+        apiLocalLog('info', '已忽略停止后的Agent迟到回复', {
+            conversationID,
+            agentUserID,
+            messageID: message?.id || message?.msg_id || 0,
+            clientMsgID: message?.client_msg_id || '',
+        });
+    }
+    return true;
+}
+
 function conversationHasAgentTarget(conversationID) {
     if (!conversationID) return false;
     const participants = conversationParticipantCache[String(conversationID)] || [];
@@ -4564,12 +4708,12 @@ function shouldExpectAgentReply(conversationID, content, mentionUserIDs = []) {
     return (mentionUserIDs || []).some(id => isAgentUser(id));
 }
 
-function addPendingAgentThinking(conversationID, label = '智能助手正在结合会话上下文思考...') {
+function addPendingAgentThinking(conversationID, label = '智能助手正在结合会话上下文思考...', triggerMessageID = 0) {
     const key = String(conversationID || '');
     if (!key) return;
     const startedAt = Date.now();
     const thinkingID = `agent-thinking-${key}-${startedAt}-${Math.random().toString(16).slice(2)}`;
-    const pending = { thinkingID, startedAt };
+    const pending = { thinkingID, startedAt, triggerMessageID };
     if (!Array.isArray(pendingAgentThinkingByConversation[key])) {
         pendingAgentThinkingByConversation[key] = [];
     }
@@ -4602,6 +4746,36 @@ function finishPendingAgentThinking(conversationID, agentUserID) {
     if (thinkingEl) thinkingEl.remove();
     setAgentNativeState(conversationID, 'completed', `Agent 已完成本次处理，用时 ${(durationMs / 1000).toFixed(1)} 秒。`);
     return durationMs;
+}
+
+function stopCurrentPageAgentThinking(conversationID, thinkingID = '') {
+    const key = String(conversationID || currentConversationID || '');
+    if (key) {
+        const queue = pendingAgentThinkingByConversation[key];
+        const pending = Array.isArray(queue)
+            ? queue.find(item => !thinkingID || String(item.thinkingID || '') === String(thinkingID))
+            : queue;
+        rememberStoppedAgentThinking(key, thinkingID, pending?.triggerMessageID || 0);
+        delete pendingAgentThinkingByConversation[key];
+    }
+    currentMessages = (currentMessages || []).filter(msg => {
+        if (!msg?.is_thinking) return true;
+        if (thinkingID) return String(msg._thinkingID || '') !== String(thinkingID);
+        return !sameID(msg.conversation_id, key);
+    });
+    const container = document.getElementById('message-list');
+    if (container) {
+        if (thinkingID) {
+            const target = Array.from(container.querySelectorAll('[data-thinking-id]')).find(el => el.dataset.thinkingId === String(thinkingID));
+            if (target) target.remove();
+        } else {
+            container.querySelectorAll('.msg-thinking').forEach(el => el.remove());
+        }
+    }
+    if (sameID(currentConversationID, conversationID)) {
+        setAgentNativeState(conversationID, 'idle', '已停止当前页面的 Agent 思考等待。');
+    }
+    showToast('已停止当前页面的 Agent 思考提示', 'info');
 }
 
 async function sendMessage() {
@@ -4648,7 +4822,7 @@ async function sendMessage() {
         appendMessage(optimisticMsg);
         if (shouldExpectAgentReply(sendConversationID, content, mentionUserIDs)) {
             setAgentNativeState(sendConversationID, 'thinking', '已收到 IM 事件，正在结合会话上下文处理。');
-            addPendingAgentThinking(sendConversationID);
+            addPendingAgentThinking(sendConversationID, '智能助手正在结合会话上下文思考...', resp.data.msg_id || optimisticMsg.id || 0);
         }
         setConversationHidden(sendConversationID, false);
         loadConversations();
@@ -7093,6 +7267,10 @@ function applySelectedGlobalSkillToAgent() {
     const value = document.getElementById('edit-agent-global-skill')?.value || '';
     if (value) {
         document.getElementById('edit-agent-skills-dir').value = value;
+        const botID = document.getElementById('edit-agent-id')?.value || '';
+        if (botID) {
+            saveAgentConfig(botID, { keepOpen: true, toast: '全局 Skill 已注入并保存到该 Agent' });
+        }
     }
 }
 
@@ -7148,7 +7326,10 @@ async function uploadAgentSkill(botID) {
     });
     if (resp && resp.code === 0 && resp.data?.success && resp.data.skill) {
         document.getElementById('edit-agent-skills-dir').value = resp.data.skill.skills_dir || '';
-        showToast('专属 Skill 已上传并填入配置，保存后生效', 'success');
+        const saved = await saveAgentConfig(botID, { keepOpen: true, toast: '专属 Skill 已上传并保存到该 Agent' });
+        if (!saved) {
+            showToast('专属 Skill 已上传，但保存到 Agent 失败，请手动点击保存', 'warning');
+        }
         await loadAgentSkillPanel(botID);
     }
 }
@@ -8130,6 +8311,10 @@ async function renderAdminKnowledgeCandidates() {
 }
 
 async function adminReviewAction(source, id, action) {
+    if (!idString(id)) {
+        showToast('审核候选缺少有效 ID，已拒绝发送请求。请刷新候选列表后再试。', 'warning');
+        return;
+    }
     const note = prompt(action === 'approve' ? '通过说明：' : '拒绝原因：', '');
     if (note === null) return;
     const resp = await adminAPI.reviewAction({ source, item_id: id, action, note });
@@ -8813,6 +8998,7 @@ async function showEditAgentForm(botID) {
     }
     const b = resp.data.bot;
     showModal(`编辑智能助手 - ${escapeHTML(getBotDisplayName(b))}`, `
+        <input type="hidden" id="edit-agent-id" value="${escapeHTML(String(botID))}">
         <div class="form-group">
             <label>使用已保存的 LLM 预设</label>
             <select id="edit-agent-llm-profile" class="form-select" onchange="applySelectedLLMProfileToAgent()">
@@ -8954,8 +9140,8 @@ async function showEditAgentForm(botID) {
     loadAgentSkillPanel(botID);
 }
 
-async function saveAgentConfig(botID) {
-    const data = {
+function collectAgentConfigFormData() {
+    return {
         name: document.getElementById('edit-agent-name').value.trim(),
         model_name: document.getElementById('edit-agent-model').value.trim(),
         avatar: document.getElementById('edit-agent-avatar').value.trim(),
@@ -8974,17 +9160,24 @@ async function saveAgentConfig(botID) {
         auto_reply_enabled: !!document.getElementById('edit-agent-auto-reply-enabled')?.checked,
         llm_profile_id: Number(document.getElementById('edit-agent-llm-profile')?.value || 0),
     };
+}
+
+async function saveAgentConfig(botID, options = {}) {
+    const data = collectAgentConfigFormData();
     if (!data.name) {
         showToast('助手昵称不能为空', 'warning');
-        return;
+        return false;
     }
     const resp = await agentAPI.update(botID, data);
     if (resp && resp.code === 0 && resp.data && resp.data.success) {
-        showToast('智能助手已更新', 'success');
-        closeModal();
+        showToast(options.toast || '智能助手已更新', 'success');
+        if (!options.keepOpen) closeModal();
         loadBotSidebar();
+        if (typeof refreshAgentWorkspaceList === 'function') refreshAgentWorkspaceList();
+        return true;
     } else {
         showToast(resp?.data?.msg || '保存失败', 'error');
+        return false;
     }
 }
 
@@ -9304,6 +9497,7 @@ async function showAgentRunModal(botID, botName) {
             <div class="agent-chat-composer">
                 <textarea id="agent-run-question" rows="2" placeholder="输入给 Agent 的指令，Enter 发送，Shift+Enter 换行" onkeydown="handleAgentComposerKeydown(event, ${jsArg(botID)})"></textarea>
                 <button id="agent-run-submit" class="btn-send" onclick="submitAgentRun(${jsArg(botID)}, this)">发送</button>
+                <button id="agent-run-stop" class="btn-secondary" style="display:none" onclick="stopAgentRun(${jsArg(botID)})">停止</button>
             </div>
             <div class="agent-run-footer">
                 <button class="btn-inline" onclick="loadAgentSessions(${jsArg(botID)}, document.getElementById('agent-run-conversation')?.value || 0, 'agent-run-history')">查看会话记录</button>
@@ -9385,6 +9579,10 @@ async function submitAgentRun(botID, buttonEl = null) {
         buttonEl.dataset.originalText = buttonEl.textContent;
         buttonEl.textContent = '发送中';
     }
+    const stopBtn = document.getElementById('agent-run-stop');
+    const controller = new AbortController();
+    agentRunAbortControllers[String(botID)] = controller;
+    if (stopBtn) stopBtn.style.display = 'inline-flex';
     const startedAt = Date.now();
     pushAgentRunHistory(botID, { role: 'agent', kind: 'thinking', content: `${agentActionLabel(action)}中...`, startedAt });
     const key = String(botID);
@@ -9398,7 +9596,12 @@ async function submitAgentRun(botID, buttonEl = null) {
         replyCandidates: agentAPI.replyCandidates,
     };
     try {
-        const resp = await apiMap[action](botID, conversationID, question);
+        const resp = await apiMap[action](botID, conversationID, question, { signal: controller.signal });
+        if (resp?.data?.aborted) {
+            agentRunHistories[key][thinkingIndex] = { role: 'agent', content: '已停止本次思考。', durationMs: Date.now() - startedAt, time: new Date().toLocaleTimeString() };
+            renderAgentRunHistory(botID);
+            return;
+        }
         const approval = extractAgentApproval(resp);
         const durationMs = Date.now() - startedAt;
         if (approval) {
@@ -9413,11 +9616,36 @@ async function submitAgentRun(botID, buttonEl = null) {
         renderAgentRunHistory(botID);
     } finally {
         clearInterval(timer);
+        delete agentRunAbortControllers[String(botID)];
+        if (stopBtn) stopBtn.style.display = 'none';
         if (buttonEl) {
             buttonEl.disabled = false;
             buttonEl.textContent = buttonEl.dataset.originalText || '发送';
         }
     }
+}
+
+function stopAgentRun(botID) {
+    const key = String(botID);
+    const controller = agentRunAbortControllers[key];
+    if (controller) {
+        controller.abort();
+        delete agentRunAbortControllers[key];
+    }
+    const history = agentRunHistories[key] || [];
+    const index = history.findIndex(item => item.kind === 'thinking');
+    if (index >= 0) {
+        history[index] = { role: 'agent', content: '已停止本次思考。', time: new Date().toLocaleTimeString() };
+    }
+    const stopBtn = document.getElementById('agent-run-stop');
+    if (stopBtn) stopBtn.style.display = 'none';
+    const submitBtn = document.getElementById('agent-run-submit');
+    if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.textContent = submitBtn.dataset.originalText || '发送';
+    }
+    renderAgentRunHistory(botID);
+    showToast('已停止本次 Agent 思考', 'info');
 }
 
 async function loadAgentSessions(botID, conversationID, resultElID) {
@@ -9580,7 +9808,17 @@ function chatWithBot(botID) {
     document.getElementById('msg-input').placeholder = `向 ${botName} 提问...`;
 
     const sendBtn = document.getElementById('send-btn');
-    sendBtn.setAttribute('onclick', 'sendBotChatMsg()');
+    if (botChatAbortControllers[botID]) {
+        sendBtn.disabled = false;
+        sendBtn.textContent = '停止';
+        sendBtn.classList.add('danger-soft');
+        sendBtn.setAttribute('onclick', 'stopBotChatMsg()');
+    } else {
+        sendBtn.disabled = false;
+        sendBtn.textContent = '发送';
+        sendBtn.classList.remove('danger-soft');
+        sendBtn.setAttribute('onclick', 'sendBotChatMsg()');
+    }
 }
 
 async function sendBotChatMsg() {
@@ -9612,15 +9850,35 @@ async function sendBotChatMsg() {
     const thinkingMsg = { sender_id: 0, content: '智能助手处理中...', created_at: timeStr, is_thinking: true, _thinkingID: thinkingID, started_at: startedAt };
     appendMessage(thinkingMsg);
     botPendingReplies[activeBotID] = thinkingMsg;
+    const controller = new AbortController();
+    botChatAbortControllers[activeBotID] = controller;
+    const sendBtn = document.getElementById('send-btn');
+    if (sendBtn) {
+        sendBtn.disabled = false;
+        sendBtn.textContent = '停止';
+        sendBtn.classList.add('danger-soft');
+        sendBtn.setAttribute('onclick', 'stopBotChatMsg()');
+    }
 
-    const resp = await agentAPI.chat(activeBotID, content, botConversationID);
+    const resp = await agentAPI.chat(activeBotID, content, botConversationID, { signal: controller.signal });
 
     delete botPendingReplies[activeBotID];
+    delete botChatAbortControllers[activeBotID];
     const isStillActive = currentBotID === activeBotID && activeBotSeq === botChatSeq;
     if (isStillActive) {
         const container = document.getElementById('message-list');
         const thinkingEl = container.querySelector(`[data-thinking-id="${thinkingID}"]`) || container.querySelector('.msg-thinking');
         if (thinkingEl) thinkingEl.remove();
+    }
+    if (resp?.data?.aborted) {
+        if (isStillActive) showToast('已停止本次 Agent 思考', 'info');
+        if (isStillActive && sendBtn) {
+            sendBtn.textContent = '发送';
+            sendBtn.classList.remove('danger-soft');
+            sendBtn.setAttribute('onclick', 'sendBotChatMsg()');
+        }
+        botThinkingID = null;
+        return;
     }
 
     const approval = extractAgentApproval(resp);
@@ -9655,7 +9913,34 @@ async function sendBotChatMsg() {
     }
     if (isStillActive) {
         botThinkingID = null;
+        const btn = document.getElementById('send-btn');
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = '发送';
+            btn.classList.remove('danger-soft');
+            btn.setAttribute('onclick', 'sendBotChatMsg()');
+        }
     }
+}
+
+function stopBotChatMsg() {
+    const activeBotID = currentBotID;
+    const controller = botChatAbortControllers[activeBotID];
+    if (controller) {
+        controller.abort();
+        delete botChatAbortControllers[activeBotID];
+    }
+    delete botPendingReplies[activeBotID];
+    document.querySelectorAll('.msg-thinking').forEach(el => el.remove());
+    botThinkingID = null;
+    const sendBtn = document.getElementById('send-btn');
+    if (sendBtn) {
+        sendBtn.disabled = false;
+        sendBtn.textContent = '发送';
+        sendBtn.classList.remove('danger-soft');
+        sendBtn.setAttribute('onclick', 'sendBotChatMsg()');
+    }
+    showToast('已停止本次 Agent 思考', 'info');
 }
 
 async function createBotRoute(botID) {

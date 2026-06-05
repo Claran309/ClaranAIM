@@ -9,6 +9,8 @@ import (
 	"context"
 	"errors"
 	"math"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -445,6 +447,110 @@ func TestInternalAgentUsesLatestDefaultProviderAtRuntime(t *testing.T) {
 	}
 	if runtime.lastReq.Bot.ModelName != "old-model" {
 		t.Fatalf("explicit model should be kept, got %q", runtime.lastReq.Bot.ModelName)
+	}
+}
+
+func TestInternalAgentOnDefaultEndpointUsesLatestDefaultModelAtRuntime(t *testing.T) {
+	runtime := &fakeRuntimeClient{}
+	svc := NewAgentService(&fakeBotRepo{byID: &model.Bot{
+		ID:                  1,
+		Name:                "Agent",
+		Type:                "internal",
+		ModelName:           "GLM-4.7",
+		APIKey:              "old-key",
+		BaseURL:             "https://open.bigmodel.cn/api/paas/v4",
+		OwnerID:             1001,
+		IsActive:            true,
+		ContextMessageLimit: DefaultContextMessageLimit,
+		MemoryRecallLimit:   DefaultMemoryRecallLimit,
+	}}, &fakePermissionRepo{}, nil, &fakeBillingRepo{}, runtime, nil, "storage/agent/files")
+	svc.(*agentServiceImpl).SetDefaultLLM("same-key", "https://open.bigmodel.cn/api/paas/v4", "glm-4.6v")
+
+	if _, err := svc.ChatWithBot(context.Background(), 1, 1001, 33, "你好"); err != nil {
+		t.Fatalf("ChatWithBot returned error: %v", err)
+	}
+	if runtime.lastReq == nil || runtime.lastReq.Bot == nil {
+		t.Fatalf("runtime request missing: %#v", runtime.lastReq)
+	}
+	if runtime.lastReq.Bot.ModelName != "glm-4.6v" {
+		t.Fatalf("internal default-endpoint model = %q, want latest default model", runtime.lastReq.Bot.ModelName)
+	}
+}
+
+func TestChatWithBotSkillSmokeDisablesDomainToolsAndTemplateCreation(t *testing.T) {
+	skillDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("# Smoke Skill\n\n4. Include the exact marker: `SKILL_OK_7F3A`.\n"), 0644); err != nil {
+		t.Fatalf("write SKILL.md: %v", err)
+	}
+	runtime := &fakeRuntimeClient{}
+	svc := NewAgentService(&fakeBotRepo{byID: &model.Bot{
+		ID:                  1,
+		Name:                "Agent",
+		Type:                "internal",
+		ModelName:           "glm-4.7",
+		APIKey:              "key",
+		BaseURL:             "https://llm.example/v1",
+		SkillsDir:           skillDir,
+		OwnerID:             1001,
+		IsActive:            true,
+		ContextMessageLimit: DefaultContextMessageLimit,
+		MemoryRecallLimit:   DefaultMemoryRecallLimit,
+	}}, &fakePermissionRepo{}, nil, &fakeBillingRepo{}, runtime, nil, "storage/agent/files")
+
+	_, err := svc.ChatWithBot(context.Background(), 1, 1001, 0, skillSmokePrefix+" 请测试已加载 Skill")
+	if err != nil {
+		t.Fatalf("ChatWithBot returned error: %v", err)
+	}
+	if runtime.lastReq == nil || runtime.lastReq.Bot == nil {
+		t.Fatalf("runtime request missing: %#v", runtime.lastReq)
+	}
+	if runtime.lastReq.Bot.IncludeDomainTools {
+		t.Fatalf("skill smoke should disable domain tools: %#v", runtime.lastReq.Bot)
+	}
+	if runtime.lastReq.Bot.ToolPolicy != "skill_only" {
+		t.Fatalf("tool policy = %q, want skill_only", runtime.lastReq.Bot.ToolPolicy)
+	}
+	if !strings.Contains(runtime.lastReq.Input, "SKILL_OK_7F3A") ||
+		strings.Contains(runtime.lastReq.Input, "skill-smoke-ok") ||
+		!strings.Contains(runtime.lastReq.Input, "不要生成 SKILL.md 模板") ||
+		!strings.Contains(runtime.lastReq.Input, "不要介绍 skill_creator") {
+		t.Fatalf("skill smoke input did not force loaded-skill verification: %q", runtime.lastReq.Input)
+	}
+}
+
+func TestChatWithBotPlainSkillTestUsesSkillOnlySmokePath(t *testing.T) {
+	skillDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("# Smoke Skill\n\n4. Include the exact marker: `SKILL_OK_7F3A`.\n"), 0644); err != nil {
+		t.Fatalf("write SKILL.md: %v", err)
+	}
+	runtime := &fakeRuntimeClient{}
+	svc := NewAgentService(&fakeBotRepo{byID: &model.Bot{
+		ID:                  1,
+		Name:                "Agent",
+		Type:                "internal",
+		ModelName:           "glm-4.7",
+		APIKey:              "key",
+		BaseURL:             "https://llm.example/v1",
+		SkillsDir:           skillDir,
+		OwnerID:             1001,
+		IsActive:            true,
+		ContextMessageLimit: DefaultContextMessageLimit,
+		MemoryRecallLimit:   DefaultMemoryRecallLimit,
+	}}, &fakePermissionRepo{}, nil, &fakeBillingRepo{}, runtime, nil, "storage/agent/files")
+
+	wrapped := "你是 ClaranAIM 中的原生 Agent 成员，本轮输入来自 IM 事件流。\n\n事件信息：\n- event_type: message.created\n\n当前触发内容：\n测试skill\n\n会话材料：\n- [2026] 用户1: 之前错误地创建了 Skill 报告"
+	_, err := svc.ChatWithBot(context.Background(), 1, 1001, 33, wrapped)
+	if err != nil {
+		t.Fatalf("ChatWithBot returned error: %v", err)
+	}
+	if runtime.lastReq == nil || runtime.lastReq.Bot == nil {
+		t.Fatalf("runtime request missing: %#v", runtime.lastReq)
+	}
+	if runtime.lastReq.Bot.IncludeDomainTools || runtime.lastReq.Bot.ToolPolicy != "skill_only" {
+		t.Fatalf("plain skill test should use skill-only smoke path: %#v", runtime.lastReq.Bot)
+	}
+	if !strings.Contains(runtime.lastReq.Input, "SKILL_OK_7F3A") || strings.Contains(runtime.lastReq.Input, "会话材料") {
+		t.Fatalf("skill smoke input should use loaded marker and strip IM envelope: %q", runtime.lastReq.Input)
 	}
 }
 

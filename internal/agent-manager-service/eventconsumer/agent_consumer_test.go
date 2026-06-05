@@ -150,6 +150,29 @@ func TestHandleAgentMentionEventSkipsPrivateAgentSelfMessageWithoutClientMsgID(t
 	}
 }
 
+func TestHandleAgentMentionEventSkipsLegacySelfMessageWhenSenderIsBotID(t *testing.T) {
+	envelope, err := events.NewEnvelope(events.EventTypeMessageCreated, "10", events.MessagePayload{
+		ConversationID:   10,
+		ConversationType: "private",
+		SenderID:         1,
+		Content:          "已收到。😊",
+		MsgID:            100,
+		ParticipantIDs:   []int64{1001, 2001},
+	})
+	if err != nil {
+		t.Fatalf("NewEnvelope returned error: %v", err)
+	}
+	botSvc := &fakeBotService{bot: &model.Bot{ID: 1, AgentUserID: 2001, IsActive: true}, reply: "收到"}
+
+	err = handleAgentMentionEvent(context.Background(), envelope, botSvc, &fakeDispatchRepo{}, &fakeMessageClient{sendResp: &message.SendMessageResp{Success: true, MsgId: 101}})
+	if err != nil {
+		t.Fatalf("handleAgentMentionEvent returned error: %v", err)
+	}
+	if botSvc.chatCalls != 0 {
+		t.Fatalf("chat calls = %d, want 0 for legacy self message with sender_id equal to bot id", botSvc.chatCalls)
+	}
+}
+
 func TestHandleAgentMentionEventSkipsPrivateEventWithMissingSenderAndAgentParticipant(t *testing.T) {
 	envelope, err := events.NewEnvelope(events.EventTypeMessageCreated, "10", events.MessagePayload{
 		ConversationID:   10,
@@ -373,7 +396,7 @@ func TestAgentEventDispatcherInjectsAttachmentContextForFileEvent(t *testing.T) 
 	}
 }
 
-func TestAgentEventDispatcherHandlesUnifiedMessageReadEvent(t *testing.T) {
+func TestAgentEventDispatcherIgnoresUnifiedMessageReadEvent(t *testing.T) {
 	envelope, err := events.NewEnvelope(events.EventTypeIMMessageRead, "10", events.IMEventPayload{
 		EventType:        events.EventTypeMessageRead,
 		ConversationID:   10,
@@ -396,10 +419,36 @@ func TestAgentEventDispatcherHandlesUnifiedMessageReadEvent(t *testing.T) {
 		t.Fatalf("dispatcher.Handle returned error: %v", err)
 	}
 	if botSvc.chatCalls != 0 {
-		t.Fatalf("chat calls = %d, want silent record only", botSvc.chatCalls)
+		t.Fatalf("chat calls = %d, want message.read ignored", botSvc.chatCalls)
 	}
-	if len(auditRepo.records) != 1 || auditRepo.records[0].EventType != events.EventTypeMessageRead {
-		t.Fatalf("audit records = %#v, want message.read record", auditRepo.records)
+	if len(auditRepo.records) != 0 {
+		t.Fatalf("audit records = %#v, want no Agent decision for message.read", auditRepo.records)
+	}
+}
+
+func TestFormatMessagesForAgentContextCapsLongHistory(t *testing.T) {
+	long := strings.Repeat("这是一段很长的历史错误报告，包含 Skill 测试跑偏和 MCP 工具列表。", 80)
+	msgs := make([]*message.Message, 0, 60)
+	for i := 0; i < 60; i++ {
+		msgs = append(msgs, &message.Message{
+			SenderId:  int64(1000 + i),
+			Content:   long,
+			CreatedAt: "2026-06-06 02:00:00",
+		})
+	}
+	got := formatMessagesForAgentContext(msgs)
+	if len([]rune(got)) > agentDispatchContextRuneLimit {
+		t.Fatalf("context length = %d, want <= %d", len([]rune(got)), agentDispatchContextRuneLimit)
+	}
+	if strings.Count(got, "\n") >= len(msgs) {
+		t.Fatalf("context should stop before including all long messages")
+	}
+}
+
+func TestPermanentAgentDispatchErrorIncludesPromptTooLong(t *testing.T) {
+	err := errors.New("Agent执行失败: [NodeRunError] error, status code: 400, status: 400 Bad Request, message: Prompt exceeds max length")
+	if !isPermanentAgentDispatchError(err) {
+		t.Fatal("Prompt exceeds max length should be permanent to avoid Kafka retry loops")
 	}
 }
 

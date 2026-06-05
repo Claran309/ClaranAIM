@@ -2,6 +2,7 @@ package main
 
 import (
 	ragdao "ClaranAIM/internal/rag-service/dao"
+	"ClaranAIM/internal/rag-service/graphstore"
 	"ClaranAIM/internal/rag-service/handler"
 	ragsvc "ClaranAIM/internal/rag-service/service"
 	"ClaranAIM/kitex_gen/rag/ragservice"
@@ -128,8 +129,28 @@ func main() {
 		settingsSvc = settingsclient.NewRPCClient(settingsRPCClient)
 	}
 	repo := ragdao.NewRepository(db)
-	ragService := ragsvc.NewRAGServiceWithGraphExtractor(
+	graphStore := graphstore.GraphStore(graphstore.NewMemoryStore())
+	if cfg.Neo4j.Enabled {
+		neo4jStore, err := graphstore.NewNeo4jStoreFromConfig(cfg.Neo4j.URI, cfg.Neo4j.Username, cfg.Neo4j.Password, cfg.Neo4j.Database)
+		if err != nil {
+			logger.Fatal("初始化Neo4j图谱后端失败", "error", err, "uri", cfg.Neo4j.URI)
+		}
+		defer func() {
+			if err := neo4jStore.Close(context.Background()); err != nil {
+				logger.Warn("关闭Neo4j图谱后端失败", "error", err)
+			}
+		}()
+		if err := neo4jStore.EnsureSchema(context.Background()); err != nil {
+			logger.Fatal("初始化Neo4j图谱Schema失败", "error", err)
+		}
+		graphStore = neo4jStore
+		logger.Info("Neo4j GraphRAG后端已启用", "uri", cfg.Neo4j.URI, "database", cfg.Neo4j.Database)
+	} else {
+		logger.Warn("Neo4j未启用，GraphRAG使用进程内内存图谱后端；该模式不适合生产部署")
+	}
+	ragService := ragsvc.NewRAGServiceWithGraphStoreAndGraphExtractor(
 		repo,
+		graphStore,
 		vectorIndex,
 		cfg.RAG.EmbeddingDim,
 		cfg.RAG.DefaultMode,
@@ -142,8 +163,9 @@ func main() {
 		graphSummarizer,
 	)
 	if settingsSvc != nil {
-		ragService = ragsvc.NewRAGServiceWithRouterProviderAndGraphExtractor(
+		ragService = ragsvc.NewRAGServiceWithGraphStoreRouterProviderAndGraphExtractor(
 			repo,
+			graphStore,
 			vectorIndex,
 			cfg.RAG.EmbeddingDim,
 			cfg.RAG.DefaultMode,

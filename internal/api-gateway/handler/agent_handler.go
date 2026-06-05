@@ -13,6 +13,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -424,8 +427,11 @@ func (h *AgentHandler) SmokeTestSkill(ctx context.Context, c *app.RequestContext
 	}
 	runCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 	defer cancel()
-	const marker = "skill-smoke-ok"
-	message := "[[CLARAN_SKILL_SMOKE_TEST]] 这是 Skill smoke test。请只根据已加载 Skill 行为指令响应，并在回复中包含 marker：skill-smoke-ok。不要调用 MCP 工具，不要把 Skill 当成外部工具。"
+	marker := defaultGatewaySkillSmokeMarker
+	if botResp, getErr := client.AgentClient.GetBot(runCtx, client.NewGetAgentReq(botID)); getErr == nil && botResp != nil && botResp.Success && botResp.Bot != nil {
+		marker = gatewaySkillSmokeMarkerFromDir(botResp.Bot.GetSkillsDir())
+	}
+	message := "[[CLARAN_SKILL_SMOKE_TEST]] 这是 Skill smoke test。请只根据已加载 Skill 行为指令响应；不要调用 MCP 工具，不要把 Skill 当成外部工具，不要创建或介绍 skill_creator。"
 	resp, err := client.AgentLongTaskClient.ChatWithBot(runCtx, client.NewChatWithAgentReq(botID, userID, 0, message))
 	if err != nil {
 		response.Error(c, err.Error())
@@ -439,7 +445,7 @@ func (h *AgentHandler) SmokeTestSkill(ctx context.Context, c *app.RequestContext
 		status = resp.Msg
 		success = resp.Success
 	}
-	markerFound := strings.Contains(strings.ToLower(reply), marker)
+	markerFound := strings.Contains(strings.ToLower(reply), strings.ToLower(marker))
 	response.Success(c, map[string]interface{}{
 		"success":      success && markerFound,
 		"runtime_ok":   success,
@@ -450,6 +456,74 @@ func (h *AgentHandler) SmokeTestSkill(ctx context.Context, c *app.RequestContext
 		"timeout_sec":  600,
 		"diagnosis":    skillSmokeDiagnosis(success, markerFound, status, reply),
 	})
+}
+
+const defaultGatewaySkillSmokeMarker = "skill-smoke-ok"
+
+func gatewaySkillSmokeMarkerFromDir(skillsDir string) string {
+	content := readGatewaySkillMarkdown(skillsDir)
+	if content == "" {
+		return defaultGatewaySkillSmokeMarker
+	}
+	if marker := extractGatewaySkillSmokeMarker(content); marker != "" {
+		return marker
+	}
+	return defaultGatewaySkillSmokeMarker
+}
+
+func readGatewaySkillMarkdown(skillsDir string) string {
+	skillsDir = strings.TrimSpace(skillsDir)
+	if skillsDir == "" {
+		return ""
+	}
+	if absSkillsDir, absErr := filepath.Abs(skillsDir); absErr == nil {
+		skillsDir = absSkillsDir
+	}
+	candidates := []string{filepath.Join(skillsDir, "SKILL.md")}
+	_ = filepath.WalkDir(skillsDir, func(path string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.EqualFold(d.Name(), "SKILL.md") {
+			return nil
+		}
+		rel, relErr := filepath.Rel(skillsDir, path)
+		if relErr != nil {
+			return nil
+		}
+		if len(strings.Split(filepath.ToSlash(rel), "/")) <= 5 {
+			candidates = append(candidates, path)
+		}
+		return nil
+	})
+	for _, path := range candidates {
+		data, err := os.ReadFile(path)
+		if err == nil && strings.TrimSpace(string(data)) != "" {
+			return string(data)
+		}
+	}
+	return ""
+}
+
+func extractGatewaySkillSmokeMarker(content string) string {
+	lines := strings.Split(content, "\n")
+	backtickToken := regexp.MustCompile("`([A-Za-z0-9][A-Za-z0-9_-]{5,})`")
+	plainToken := regexp.MustCompile(`\b([A-Z][A-Z0-9]+(?:[_-][A-Z0-9]+){1,})\b`)
+	for _, line := range lines {
+		lower := strings.ToLower(line)
+		if !strings.Contains(lower, "marker") {
+			continue
+		}
+		if match := backtickToken.FindStringSubmatch(line); len(match) == 2 {
+			return match[1]
+		}
+		if match := plainToken.FindStringSubmatch(line); len(match) == 2 {
+			return match[1]
+		}
+	}
+	for _, line := range lines {
+		if match := plainToken.FindStringSubmatch(strings.TrimSpace(line)); len(match) == 2 {
+			return match[1]
+		}
+	}
+	return ""
 }
 
 func skillSmokeDiagnosis(runtimeOK, markerFound bool, status, reply string) string {

@@ -165,12 +165,15 @@ function authHeaders(extra = {}) {
     return headers;
 }
 
-async function requestOnce(method, path, data = null, auth = true) {
+async function requestOnce(method, path, data = null, auth = true, optionsExtra = {}) {
     const headers = { 'Content-Type': 'application/json' };
     if (auth && token) {
         headers['Authorization'] = `Bearer ${token}`;
     }
     const options = { method, headers };
+    if (optionsExtra.signal) {
+        options.signal = optionsExtra.signal;
+    }
     if (data && method !== 'GET') {
         options.body = JSON.stringify(data);
     }
@@ -190,14 +193,18 @@ async function requestOnce(method, path, data = null, auth = true) {
     return result;
 }
 
-async function request(method, path, data = null, auth = true) {
+async function request(method, path, data = null, auth = true, optionsExtra = {}) {
     try {
-        let result = await requestOnce(method, path, data, auth);
+        let result = await requestOnce(method, path, data, auth, optionsExtra);
         if (auth && result?.code === 401 && path !== '/user/token/refresh' && await refreshAccessToken()) {
-            result = await requestOnce(method, path, data, auth);
+            result = await requestOnce(method, path, data, auth, optionsExtra);
         }
         return result;
     } catch (err) {
+        if (err && err.name === 'AbortError') {
+            apiLocalLog('info', 'HTTP请求已停止', { method, path });
+            return { code: -1, data: { success: false, aborted: true, msg: '请求已停止' }, message: '请求已停止' };
+        }
         apiLocalLog('error', 'HTTP请求失败', { method, path, message: err.message, stack: err.stack || '' });
         showToast('网络请求失败: ' + err.message, 'error');
         return null;
@@ -370,25 +377,25 @@ const agentAPI = {
     get: (id) => request('GET', `/agent/${id}`),
     list: (type = '') => request('GET', `/agent/list?type=${type}`),
     delete: (botID) => request('DELETE', '/agent/delete', { bot_id: apiID(botID) }),
-    chat: (botID, message, conversationID = 0) =>
-        request('POST', '/agent/chat', { bot_id: apiID(botID), message, conversation_id: apiID(conversationID) }),
+    chat: (botID, message, conversationID = 0, options = {}) =>
+        request('POST', '/agent/chat', { bot_id: apiID(botID), message, conversation_id: apiID(conversationID) }, true, options),
     createRoute: (botID, routePattern, routeType, priority) =>
         request('POST', '/agent/route/create', { bot_id: apiID(botID), route_pattern: routePattern, route_type: routeType, priority }),
     listRoutes: (botID) => request('GET', `/agent/${botID}/routes`),
     deleteRoute: (routeID) => request('DELETE', '/agent/route/delete', { route_id: apiID(routeID) }),
     getBilling: (botID, limit = 20, offset = 0) =>
         request('GET', `/agent/${botID}/billing?limit=${limit}&offset=${offset}`),
-    run: (botID, conversationID, question = '') =>
-        request('POST', '/agent/run', { bot_id: apiID(botID), conversation_id: apiID(conversationID), question, message: question }),
+    run: (botID, conversationID, question = '', options = {}) =>
+        request('POST', '/agent/run', { bot_id: apiID(botID), conversation_id: apiID(conversationID), question, message: question }, true, options),
     smokeTestSkill: (botID) => request('POST', `/agent/${apiID(botID)}/skill/smoke-test`, {}),
-    summarize: (botID, conversationID, question = '') =>
-        request('POST', '/agent/summarize', { bot_id: apiID(botID), conversation_id: apiID(conversationID), question }),
-    ask: (botID, conversationID, question) =>
-        request('POST', '/agent/ask', { bot_id: apiID(botID), conversation_id: apiID(conversationID), question }),
-    insights: (botID, conversationID, question = '') =>
-        request('POST', '/agent/insights', { bot_id: apiID(botID), conversation_id: apiID(conversationID), question }),
-    replyCandidates: (botID, conversationID, question = '') =>
-        request('POST', '/agent/reply-candidates', { bot_id: apiID(botID), conversation_id: apiID(conversationID), question }),
+    summarize: (botID, conversationID, question = '', options = {}) =>
+        request('POST', '/agent/summarize', { bot_id: apiID(botID), conversation_id: apiID(conversationID), question }, true, options),
+    ask: (botID, conversationID, question, options = {}) =>
+        request('POST', '/agent/ask', { bot_id: apiID(botID), conversation_id: apiID(conversationID), question }, true, options),
+    insights: (botID, conversationID, question = '', options = {}) =>
+        request('POST', '/agent/insights', { bot_id: apiID(botID), conversation_id: apiID(conversationID), question }, true, options),
+    replyCandidates: (botID, conversationID, question = '', options = {}) =>
+        request('POST', '/agent/reply-candidates', { bot_id: apiID(botID), conversation_id: apiID(conversationID), question }, true, options),
     grantPermission: (botID, userID, role) =>
         request('POST', '/agent/permission/grant', { bot_id: apiID(botID), user_id: apiID(userID), role }),
     revokePermission: (botID, userID) =>
@@ -806,6 +813,9 @@ function handleWSMessage(msg) {
             return;
         }
         const isAgentSender = typeof isAgentUser === 'function' && isAgentUser(data.sender_id);
+        if (isAgentSender && typeof shouldSuppressStoppedAgentReply === 'function' && shouldSuppressStoppedAgentReply(data.conversation_id, data.sender_id, data)) {
+            return;
+        }
         if (isAgentSender && typeof finishPendingAgentThinking === 'function') {
             const durationMs = finishPendingAgentThinking(data.conversation_id, data.sender_id);
             if (durationMs > 0) {
