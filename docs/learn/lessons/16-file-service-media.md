@@ -20,7 +20,7 @@
 - `internal/file-service/service/service.go`
 - `internal/file-service/handler/handler.go`
 - `internal/msg-core-service/service/service.go`
-- `docs/APIdoc.md`
+- `docs/apiDoc.md`
 
 ## 文件链路
 
@@ -120,4 +120,3 @@ voice      -> voice.transcribed
 2. 追踪文件消息发送。
 3. 设计一个 PDF 入库事件处理流程。
 4. 设计文件删除后 RAG 文档失效策略。
-

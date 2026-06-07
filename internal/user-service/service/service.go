@@ -19,11 +19,13 @@ import (
 type UserService interface {
 	Register(ctx context.Context, username, pwd, nickname string) (*model.User, error)
 	RegisterSystemUser(ctx context.Context, username, pwd, nickname string) (*model.User, error)
+	BootstrapAdmin(ctx context.Context, username, pwd, nickname string) (*model.User, bool, error)
 	Login(ctx context.Context, username, pwd, jwtSecret string, accessExpiration, refreshExpiration int64) (TokenPair, *model.User, error)
 	GetUserInfo(ctx context.Context, userID int64) (*model.User, error)
 	UpdateUserInfo(ctx context.Context, userID int64, profile UserProfileUpdate) error
 	UpdateAvatar(ctx context.Context, userID int64, avatar string) error
 	UpdateStatus(ctx context.Context, userID int64, status string) error
+	UpdateRole(ctx context.Context, operatorID, userID int64, role string) error
 	AddFriend(ctx context.Context, userID, friendID, groupID int64, remark string) error
 	DeleteFriend(ctx context.Context, userID, friendID int64) error
 	GetFriendList(ctx context.Context, userID int64) ([]FriendInfo, error)
@@ -98,6 +100,35 @@ func (s *userServiceImpl) Register(ctx context.Context, username, pwd, nickname 
 // 系统用户可以出现在 IM 成员和消息发送者字段中，但不能通过密码登录，因此不会被当作真人账号使用。
 func (s *userServiceImpl) RegisterSystemUser(ctx context.Context, username, pwd, nickname string) (*model.User, error) {
 	return s.register(ctx, username, pwd, nickname, true)
+}
+
+// BootstrapAdmin 在 users 表为空时创建首个管理员账号。
+//
+// 返回值 created=false 表示已有用户或未提供初始化账号，调用方无需报错。
+func (s *userServiceImpl) BootstrapAdmin(ctx context.Context, username, pwd, nickname string) (*model.User, bool, error) {
+	username = strings.TrimSpace(username)
+	pwd = strings.TrimSpace(pwd)
+	nickname = strings.TrimSpace(nickname)
+	if username == "" || pwd == "" {
+		return nil, false, nil
+	}
+	total, err := s.repo.CountUsers(ctx)
+	if err != nil {
+		return nil, false, err
+	}
+	if total > 0 {
+		return nil, false, nil
+	}
+	admin, err := s.register(ctx, username, pwd, nickname, false)
+	if err != nil {
+		return nil, false, err
+	}
+	admin.Role = jwt.RoleAdmin
+	if err := s.repo.UpdateUser(ctx, admin); err != nil {
+		return nil, false, err
+	}
+	s.cacheUserInfo(ctx, admin)
+	return admin, true, nil
 }
 
 // register 复用真人注册和 Agent 系统用户注册的公共流程。
@@ -372,6 +403,42 @@ func (s *userServiceImpl) UpdateStatus(ctx context.Context, userID int64, status
 		}
 	}
 
+	return nil
+}
+
+// UpdateRole 允许管理端在 user/admin 两档之间调整其他真人用户角色。
+// 调用入口必须先由 api-gateway 的 RequireRole("admin") 鉴权；这里负责数据和防误操作规则。
+func (s *userServiceImpl) UpdateRole(ctx context.Context, operatorID, userID int64, role string) error {
+	role = strings.ToLower(strings.TrimSpace(role))
+	if role != jwt.RoleUser && role != jwt.RoleAdmin {
+		return errors.New("role只能是user或admin")
+	}
+	if operatorID <= 0 {
+		return errors.New("操作者ID无效")
+	}
+	if userID <= 0 {
+		return errors.New("用户ID无效")
+	}
+	if operatorID == userID {
+		return errors.New("不能修改自己的角色")
+	}
+
+	target, err := s.repo.GetUserByID(ctx, userID)
+	if err != nil {
+		return err
+	}
+	if target == nil {
+		return errors.New("用户不存在")
+	}
+	if target.IsSystem {
+		return errors.New("系统用户不能修改角色")
+	}
+
+	target.Role = role
+	if err := s.repo.UpdateUser(ctx, target); err != nil {
+		return err
+	}
+	s.invalidateUserInfoCache(ctx, userID)
 	return nil
 }
 

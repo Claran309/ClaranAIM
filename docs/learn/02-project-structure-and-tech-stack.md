@@ -1,10 +1,10 @@
 # 项目结构与技术栈解析
 
-本文件按目录、服务、模块和核心运作方式讲解。你读代码时优先看 `cmd/`、`internal/`、`pkg/`、`docs/`，生成代码 `kitex_gen/` 只在查 RPC 字段时看。
+本文件按目录、服务、模块和核心运作方式讲解。你读代码时优先看 pcmd/p、pinternal/p、ppkg/p、pdocs/p，生成代码 pkitex_gen/p 只在查 RPC 字段时看。
 
 ## 顶层目录
 
-```text
+ppptext
 cmd/                         各服务启动入口
 internal/                    各服务内部实现
 idl/                         Thrift IDL
@@ -15,7 +15,7 @@ dist/                        前端静态资源
 config/                      各服务配置
 storage/                     本地运行时和文件数据
 learn/                       学习资料，已加入 .gitignore
-```
+ppp
 
 ## 技术栈
 
@@ -45,27 +45,27 @@ learn/                       学习资料，已加入 .gitignore
 
 当前服务入口包括：
 
-- `cmd/api-gateway`
-- `cmd/websocket-gateway`
-- `cmd/user-service`
-- `cmd/group-service`
-- `cmd/msg-core-service`
-- `cmd/msg-history-service`
-- `cmd/file-service`
-- `cmd/agent-manager-service`
-- `cmd/agent-runtime-service`
-- `cmd/memory-service`
-- `cmd/settings-service`
-- `cmd/rag-service`
-- `cmd/msg-filter-service`
+- pcmd/api-gatewayp
+- pcmd/websocket-gatewayp
+- pcmd/user-servicep
+- pcmd/group-servicep
+- pcmd/msg-core-servicep
+- pcmd/msg-history-servicep
+- pcmd/file-servicep
+- pcmd/agent-manager-servicep
+- pcmd/agent-runtime-servicep
+- pcmd/memory-servicep
+- pcmd/settings-servicep
+- pcmd/rag-servicep
+- pcmd/msg-filter-servicep
 
-读每个服务先看 `main.go`，它会告诉你该服务依赖哪些数据库、缓存、RPC client、Kafka consumer 或 outbox worker。
+读每个服务先看 pmain.gop，它会告诉你该服务依赖哪些数据库、缓存、RPC client、Kafka consumer 或 outbox worker。
 
 ## internal/api-gateway
 
 核心职责：
 
-- 注册 `/api/v1/*` HTTP 路由。
+- 注册 p/api/v1/*p HTTP 路由。
 - JWT 鉴权。
 - 用户/IP 限流。
 - 参数绑定和统一响应。
@@ -74,19 +74,19 @@ learn/                       学习资料，已加入 .gitignore
 
 当前重要路由：
 
-- `/user/*`
-- `/group/*`
-- `/message/*`
-- `/file/*`
-- `/agent/*`
-- `/memory/*`
-- `/settings/*`
+- p/user/*p
+- p/group/*p
+- p/message/*p
+- p/file/*p
+- p/agent/*p
+- p/memory/*p
+- p/settings/*p
 
 新近细节：
 
-- 分页参数统一使用 `parsePositiveLimit`，限制最大 limit。
-- 游标和可选 ID 使用 `parseNonNegativeQueryInt64`。
-- `/agent/*` 是唯一对外 Agent 入口，旧 `/bot/*` 不再作为 HTTP 兼容入口。
+- 分页参数统一使用 pparsePositiveLimitp，限制最大 limit。
+- 游标和可选 ID 使用 pparseNonNegativeQueryInt64p。
+- p/agent/*p 是唯一对外 Agent 入口，旧 p/bot/*p 不再作为 HTTP 兼容入口。
 
 ## internal/user-service
 
@@ -120,9 +120,9 @@ learn/                       学习资料，已加入 .gitignore
 
 关键点：
 
-- `groups.id` 是 10 位群号。
-- `/group/join` 只允许当前用户把自己加入群。
-- 群成员变化通过 `claran.group.events` 被 msg-core-service 消费，用于同步会话参与者。
+- pgroups.idp 是 10 位群号。
+- p/group/joinp 只允许当前用户把自己加入群。
+- 群成员变化通过 pclaran.group.eventsp 被 msg-core-service 消费，用于同步会话参与者。
 
 ## internal/msg-core-service
 
@@ -139,8 +139,8 @@ learn/                       学习资料，已加入 .gitignore
 
 关键点：
 
-- `messages` 是服务端消息事实。
-- `message_user_states` 是用户本地视图。
+- pmessagesp 是服务端消息事实。
+- pmessage_user_statesp 是用户本地视图。
 - 文件/图片/语音消息会生成统一 IM 事件。
 - 编辑、撤回、已读也会生成统一 IM 事件。
 - 手动翻译通过 settings-service 获取 Prompt 和模型配置。
@@ -171,12 +171,12 @@ learn/                       学习资料，已加入 .gitignore
 
 - WebSocket 连接。
 - 用户多端连接管理。
-- 消费 `claran.message.events`。
+- 消费 pclaran.message.eventsp。
 - 推送在线用户。
 
 前端新近细节：
 
-- 根据消息 ID 或 `client_msg_id` 做去重，避免乐观渲染和 WebSocket 回推导致重复显示。
+- 根据消息 ID 或 pclient_msg_idp 做去重，避免乐观渲染和 WebSocket 回推导致重复显示。
 
 ## internal/agent-manager-service
 
@@ -194,9 +194,9 @@ learn/                       学习资料，已加入 .gitignore
 
 历史兼容：
 
-- 模型名仍叫 `Bot`。
-- 表名仍叫 `bots`。
-- 生成代码仍叫 `bot`。
+- 模型名仍叫 pBotp。
+- 表名仍叫 pbotsp。
+- 生成代码仍叫 pbotp。
 
 业务语义：
 
@@ -204,13 +204,13 @@ learn/                       学习资料，已加入 .gitignore
 
 核心模型：
 
-- `Bot`
-- `BotPermission`
-- `BotRoute`
-- `AgentSubscriptionRule`
-- `AgentAuditRecord`
-- `AgentDispatchRecord`
-- `BillingRecord`
+- pBotp
+- pBotPermissionp
+- pBotRoutep
+- pAgentSubscriptionRulep
+- pAgentAuditRecordp
+- pAgentDispatchRecordp
+- pBillingRecordp
 
 ## internal/agent-runtime-service
 
@@ -229,7 +229,7 @@ learn/                       学习资料，已加入 .gitignore
 
 职责：
 
-- `memory_facts`。
+- pmemory_factsp。
 - 用户、群、会话、session 范围记忆。
 - 私有/共享可见性。
 - 用户可查看、编辑、删除。
@@ -237,11 +237,11 @@ learn/                       学习资料，已加入 .gitignore
 
 核心字段：
 
-- `Scope`
-- `Type`
-- `Visibility`
-- `VectorStatus`
-- `EmbeddingRef`
+- pScopep
+- pTypep
+- pVisibilityp
+- pVectorStatusp
+- pEmbeddingRefp
 
 ## internal/settings-service
 
@@ -254,8 +254,8 @@ learn/                       学习资料，已加入 .gitignore
 
 核心模型：
 
-- `llm_profiles`
-- `prompt_templates`
+- pllm_profilesp
+- pprompt_templatesp
 
 ## pkg 公共包
 
@@ -265,16 +265,15 @@ learn/                       学习资料，已加入 .gitignore
 - `pkg/eventbus`：Kafka 发布/消费抽象。
 - `pkg/outbox`：事务 Outbox。
 - `pkg/governance`：Kitex 治理。
-- `pkg/settingsclient`：settings-service 的 Kitex RPC 适配器，向调用方暴露稳定 Service 接口。
-- `pkg/memoryclient`：memory-service 的 Kitex RPC 适配器，向调用方暴露稳定 Service 接口。
+- 跨服务 RPC 直接使用 `kitex_gen/<domain>/<domain>service.Client`，服务私有 DTO 和转换逻辑放在 owning service 的 `internal/*-service` 内。
 - `pkg/idgen`：雪花 ID、10 位 UID/群号。
 
 ## docs 文档
 
 建议同步读：
 
-- `docs/TechArch.md`
-- `docs/APIdoc.md`
+- `docs/AI assistent/TechArch.md`
+- `docs/apiDoc.md`
 - `docs/plan.md`
-- `docs/ReliabilityAndEventConsistency.md`
-- `docs/consideration.md`
+- `docs/AI assistent/ReliabilityAndEventConsistency.md`
+- `docs/AI assistent/consideration.md`

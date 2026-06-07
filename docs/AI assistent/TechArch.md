@@ -92,14 +92,14 @@ AIM 需要一个可配置的 Agent 能力层，而不是写死几个 Bot：
 
 ### 2.x 系统设置与 LLM 预设
 
-settings-service 是用户可控配置面，作为独立 Kitex RPC 服务运行，自己持有 settings 表和 DAO。api-gateway、msg-core-service 和 agent-manager-service 只能通过 `settingsservice.Client` + `pkg/settingsclient.RPCClient` 调用它，不能 import settings-service 的 internal 包。它保存：
+settings-service 是用户可控配置面，作为独立 Kitex RPC 服务运行，自己持有 settings 表和 DAO。api-gateway、msg-core-service 和 agent-manager-service 通过 `kitex_gen/settings/settingsservice.Client` 直接调用它，不能 import settings-service 的 internal 包。它保存：
 
 - LLM 预设：`base_url`、`api_key`、`model_name`、用途和默认标记。创建 Agent 时，前端传 `llm_profile_id`，网关解析该预设后写入 Agent 配置。
 - Prompt 模板：翻译 Prompt 已接入，后续可扩展总结、回复候选、代码审查和知识抽取 Prompt。
 
 消息翻译放在 msg-core-service：用户手动点击翻译后，api-gateway 调用 `MessageService.TranslateMessage` RPC；msg-core 校验消息可见性，读取 settings-service 的翻译配置，调用 OpenAI-compatible chat completions，并把译文按源消息 hash 缓存到 `message_translations`。当前不做自动翻译，避免每条消息都产生额外 LLM 成本和隐私扩散。
 
-memory-service 同样作为独立 Kitex RPC 服务运行在 9008，agent-manager-service 和 api-gateway 通过 `memoryservice.Client` + `pkg/memoryclient.RPCClient` 调用。普通内部业务通信统一走 Kitex RPC；仅 DTM 分支回调、websocket 网关和浏览器 API 保留 HTTP。微服务之间不允许直接 import 对方 `internal/*-service` 包。
+memory-service 同样作为独立 Kitex RPC 服务运行在 9008，agent-manager-service 和 api-gateway 通过 `kitex_gen/memory/memoryservice.Client` 直接调用。普通内部业务通信统一走 Kitex RPC；仅 DTM 分支回调、websocket 网关和浏览器 API 保留 HTTP。微服务之间不允许直接 import 对方 `internal/*-service` 包。
 - msg-core-service 作为消息事实源，会在发送 `file/image/voice` 消息时同事务写入统一 IM 事件 outbox：`file/image` 对应 `file.uploaded`，`voice` 对应 `voice.transcribed` 事件信封。编辑、撤回、已读会额外产生 `im.message.edited/recalled/read` envelope；payload 内仍使用业务事件名 `message.edited/recalled/read`。group-service 的成员邀请/踢出事件由 msg-core-service 消费后转换成带 `conversation_id` 的 `group.member_joined/left` unified IM 事件。
 - Agent @/事件分发使用 `agent_dispatch_records(event_id, agent_user_id)` 记录执行状态和 `agent_trace_id`。对 unified IM 事件，`event_id` 优先取 payload `idempotency_key`，缺失时退回 Kafka envelope ID；Agent 回复使用 msg-core-service 的 `client_msg_id=agent:{dispatch_key}:{agent_user_id}` 做消息落库幂等，避免 Kafka 重投或上游重复生成同一业务事件导致重复回复。
 - Agent 行为审计保存在 `agent_audit_records`，记录 trigger、record、failed、completed 等决策，便于解释“为什么 Agent 没反应/为什么响应了”。
@@ -1048,17 +1048,19 @@ ws.onmessage = (event) => {
 
 ## 七、Docker 基础设施
 
-### 7.1 docker-compose.yaml
+### 7.1 Docker Compose
 
 ```yaml
 services:
   mysql:        # 数据库 - 端口 3306
   redis:        # 缓存 - 端口 6379
   etcd:         # 服务注册发现 - 端口 2379
-  minio:        # 对象存储 - 端口 9000(API) + 9009(控制台)
+  minio:        # 对象存储 - 端口 9000(API) + 9001(控制台)
   kafka:        # 事件总线 - 端口 9092，控制器 9093；服务配置默认启用
   dtm:          # 分布式事务协调器 - HTTP 36789，gRPC 36790；默认配置已开启，按业务需要接入 Saga/TCC 分支
 ```
+
+本地开发推荐使用 `deployment/docker/docker-compose.infra.yaml` 启动基础设施，再用 `scripts/start.bat` 启动 Go 服务；全容器模式使用 `deployment/docker/docker-compose.full.yaml`
 
 ### 7.2 服务连接方式
 

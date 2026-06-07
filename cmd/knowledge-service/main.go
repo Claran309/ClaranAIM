@@ -9,10 +9,8 @@ import (
 	"ClaranAIM/pkg/config"
 	"ClaranAIM/pkg/governance"
 	"ClaranAIM/pkg/health"
-	"ClaranAIM/pkg/knowledgeclient"
 	"ClaranAIM/pkg/logger"
 	"ClaranAIM/pkg/observability"
-	"ClaranAIM/pkg/ragclient"
 	"net"
 
 	"github.com/cloudwego/kitex/client"
@@ -54,7 +52,7 @@ func main() {
 		logger.Fatal("初始化knowledge-service数据库失败", "error", err)
 	}
 	knowledgeService := knowledgesvc.NewKnowledgeService(
-		knowledgeclient.NewRAGSource(ragclient.NewRPCClient(ragRPCClient)),
+		knowledgesvc.NewRAGSource(ragRPCClient),
 		knowledgedao.NewRepository(db),
 	)
 

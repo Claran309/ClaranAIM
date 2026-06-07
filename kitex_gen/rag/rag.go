@@ -432,14 +432,15 @@ var fieldIDToName_RAGGraphCommunity = map[int16]string{
 }
 
 type IngestDocumentReq struct {
-	OwnerId        int64  `thrift:"owner_id,1" frugal:"1,default,i64" json:"owner_id"`
-	Title          string `thrift:"title,2" frugal:"2,default,string" json:"title"`
-	Content        string `thrift:"content,3" frugal:"3,default,string" json:"content"`
-	Source         string `thrift:"source,4" frugal:"4,default,string" json:"source"`
-	SourceType     string `thrift:"source_type,5" frugal:"5,default,string" json:"source_type"`
-	Visibility     string `thrift:"visibility,6" frugal:"6,default,string" json:"visibility"`
-	GroupId        int64  `thrift:"group_id,7" frugal:"7,default,i64" json:"group_id"`
-	ConversationId int64  `thrift:"conversation_id,8" frugal:"8,default,i64" json:"conversation_id"`
+	OwnerId           int64  `thrift:"owner_id,1" frugal:"1,default,i64" json:"owner_id"`
+	Title             string `thrift:"title,2" frugal:"2,default,string" json:"title"`
+	Content           string `thrift:"content,3" frugal:"3,default,string" json:"content"`
+	Source            string `thrift:"source,4" frugal:"4,default,string" json:"source"`
+	SourceType        string `thrift:"source_type,5" frugal:"5,default,string" json:"source_type"`
+	Visibility        string `thrift:"visibility,6" frugal:"6,default,string" json:"visibility"`
+	GroupId           int64  `thrift:"group_id,7" frugal:"7,default,i64" json:"group_id"`
+	ConversationId    int64  `thrift:"conversation_id,8" frugal:"8,default,i64" json:"conversation_id"`
+	GraphRelationMode string `thrift:"graph_relation_mode,9" frugal:"9,default,string" json:"graph_relation_mode"`
 }
 
 func NewIngestDocumentReq() *IngestDocumentReq {
@@ -480,6 +481,9 @@ func (p *IngestDocumentReq) GetGroupId() (v int64) {
 func (p *IngestDocumentReq) GetConversationId() (v int64) {
 	return p.ConversationId
 }
+func (p *IngestDocumentReq) GetGraphRelationMode() (v string) {
+	return p.GraphRelationMode
+}
 func (p *IngestDocumentReq) SetOwnerId(val int64) {
 	p.OwnerId = val
 }
@@ -504,6 +508,9 @@ func (p *IngestDocumentReq) SetGroupId(val int64) {
 func (p *IngestDocumentReq) SetConversationId(val int64) {
 	p.ConversationId = val
 }
+func (p *IngestDocumentReq) SetGraphRelationMode(val string) {
+	p.GraphRelationMode = val
+}
 
 func (p *IngestDocumentReq) String() string {
 	if p == nil {
@@ -521,6 +528,7 @@ var fieldIDToName_IngestDocumentReq = map[int16]string{
 	6: "visibility",
 	7: "group_id",
 	8: "conversation_id",
+	9: "graph_relation_mode",
 }
 
 type IngestDocumentResp struct {

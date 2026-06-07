@@ -2,7 +2,8 @@ package service
 
 import (
 	"ClaranAIM/internal/msg-core-service/model"
-	"ClaranAIM/pkg/settingsclient"
+	"ClaranAIM/kitex_gen/settings"
+	"ClaranAIM/kitex_gen/settings/settingsservice"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -19,6 +20,17 @@ type TranslateMessageInput struct {
 	Force          bool
 }
 
+// ResolvedLLMConfig 是翻译执行时需要的模型配置。
+// 该结构包含 API Key，只能在服务内部流转，不能直接返回给前端。
+type ResolvedLLMConfig struct {
+	ProfileID      int64
+	APIKey         string
+	BaseURL        string
+	ModelName      string
+	ProviderType   string
+	PromptTemplate string
+}
+
 // TranslateMessageResult 是返回给 api-gateway 和前端的翻译结果。
 type TranslateMessageResult struct {
 	MessageID      int64  `json:"message_id"`
@@ -30,12 +42,45 @@ type TranslateMessageResult struct {
 
 // TranslationSettings 解析用户或系统级翻译 LLM 与 prompt 配置。
 type TranslationSettings interface {
-	ResolveTranslationConfig(ctx context.Context, ownerID int64) (settingsclient.ResolvedLLMConfig, error)
+	ResolveTranslationConfig(ctx context.Context, ownerID int64) (ResolvedLLMConfig, error)
 }
 
 // TranslationLLM 使用解析出的 LLM 配置执行翻译请求。
 type TranslationLLM interface {
-	Translate(ctx context.Context, cfg settingsclient.ResolvedLLMConfig, prompt string) (string, error)
+	Translate(ctx context.Context, cfg ResolvedLLMConfig, prompt string) (string, error)
+}
+
+type SettingsTranslationResolver struct {
+	client settingsservice.Client
+}
+
+func NewSettingsTranslationResolver(client settingsservice.Client) *SettingsTranslationResolver {
+	return &SettingsTranslationResolver{client: client}
+}
+
+func (r *SettingsTranslationResolver) ResolveTranslationConfig(ctx context.Context, ownerID int64) (ResolvedLLMConfig, error) {
+	if r == nil || r.client == nil {
+		return ResolvedLLMConfig{}, errors.New("settings-service客户端未配置")
+	}
+	resp, err := r.client.ResolveTranslationConfig(ctx, &settings.ResolveTranslationConfigReq{UserId: ownerID})
+	if err != nil {
+		return ResolvedLLMConfig{}, err
+	}
+	if !resp.GetSuccess() {
+		msg := strings.TrimSpace(resp.GetMsg())
+		if msg == "" {
+			msg = "settings-service解析翻译配置失败"
+		}
+		return ResolvedLLMConfig{}, errors.New(msg)
+	}
+	return ResolvedLLMConfig{
+		ProfileID:      resp.GetProfileId(),
+		APIKey:         resp.GetApiKey(),
+		BaseURL:        resp.GetBaseUrl(),
+		ModelName:      resp.GetModelName(),
+		ProviderType:   resp.GetProviderType(),
+		PromptTemplate: resp.GetPromptTemplate(),
+	}, nil
 }
 
 // SetTranslationDependencies 将 settings-service 和 LLM 执行器注入 msg-core-service。
@@ -116,7 +161,7 @@ func (s *messageServiceImpl) TranslateMessage(ctx context.Context, input Transla
 	return TranslateMessageResult{MessageID: msg.ID, TargetLanguage: targetLanguage, TranslatedText: translated, Cached: false, ModelName: cfg.ModelName}, nil
 }
 
-func describeTranslationLLMError(cfg settingsclient.ResolvedLLMConfig, err error) error {
+func describeTranslationLLMError(cfg ResolvedLLMConfig, err error) error {
 	if err == nil {
 		return nil
 	}

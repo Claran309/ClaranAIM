@@ -1,7 +1,8 @@
 package logic
 
 import (
-	"ClaranAIM/pkg/ragclient"
+	"ClaranAIM/kitex_gen/rag"
+	"ClaranAIM/kitex_gen/rag/ragservice"
 	"context"
 	"fmt"
 	"strings"
@@ -17,12 +18,11 @@ const (
 
 var (
 	ragServiceMu sync.RWMutex
-	ragService   ragclient.Service
+	ragService   ragservice.Client
 )
 
 // SetRAGService 注入 rag-service RPC 客户端。
-// Agent 工具只依赖 pkg/ragclient 的接口，避免运行时直接 import rag-service internal 包。
-func SetRAGService(svc ragclient.Service) {
+func SetRAGService(svc ragservice.Client) {
 	ragServiceMu.Lock()
 	defer ragServiceMu.Unlock()
 	ragService = svc
@@ -68,11 +68,12 @@ func SearchKnowledgeBase(ctx context.Context, input *KnowledgeSearchParams) (str
 	if limit <= 0 || limit > 12 {
 		limit = 5
 	}
-	resp, err := svc.Search(ctx, userID, ragclient.SearchInput{
+	resp, err := svc.Search(ctx, &rag.SearchReq{
+		ViewerId:       userID,
 		Query:          query,
 		Mode:           strings.TrimSpace(input.Mode),
-		Limit:          limit,
-		ConversationID: conversationID,
+		Limit:          int64(limit),
+		ConversationId: conversationID,
 	})
 	if err != nil {
 		return "", err

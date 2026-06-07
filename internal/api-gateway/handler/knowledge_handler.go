@@ -1,10 +1,12 @@
 package handler
 
 import (
-	"ClaranAIM/pkg/knowledgeclient"
+	"ClaranAIM/kitex_gen/knowledge"
+	"ClaranAIM/kitex_gen/knowledge/knowledgeservice"
 	"ClaranAIM/pkg/response"
 	"context"
 	"encoding/json"
+	"errors"
 	"strconv"
 	"strings"
 
@@ -12,15 +14,15 @@ import (
 )
 
 // KnowledgeHandler 暴露知识图谱可视化查询接口。
-// 它只处理 HTTP 参数、登录态和响应格式，图谱过滤、详情聚合等逻辑由 knowledgeclient.Service 完成。
+// 它只处理 HTTP 参数、登录态和响应格式，图谱过滤、详情聚合等逻辑由 knowledge-service 完成。
 type KnowledgeHandler struct {
-	svc knowledgeclient.Service
+	svc knowledgeservice.Client
 }
 
-var gatewayKnowledgeService knowledgeclient.Service
+var gatewayKnowledgeService knowledgeservice.Client
 
 // InitKnowledgeService 注册知识图谱视图服务。
-func InitKnowledgeService(svc knowledgeclient.Service) {
+func InitKnowledgeService(svc knowledgeservice.Client) {
 	gatewayKnowledgeService = svc
 }
 
@@ -46,12 +48,15 @@ func (h *KnowledgeHandler) GetGraphView(ctx context.Context, c *app.RequestConte
 	if !ok {
 		return
 	}
-	view, err := h.svc.GetGraphView(ctx, userID, parseKnowledgeGraphQuery(c))
-	if err != nil {
+	resp, err := h.svc.GetGraphView(ctx, parseKnowledgeGraphReq(c, userID))
+	if err != nil || !resp.GetSuccess() {
+		if err == nil {
+			err = knowledgeStatusError(resp.GetSuccess(), resp.GetMsg())
+		}
 		response.BadRequest(c, err.Error())
 		return
 	}
-	response.Success(c, view)
+	response.Success(c, resp)
 }
 
 // GetNodeDetail 返回节点详情、相邻节点和相关关系。
@@ -68,12 +73,23 @@ func (h *KnowledgeHandler) GetNodeDetail(ctx context.Context, c *app.RequestCont
 		response.BadRequest(c, "无效的节点ID")
 		return
 	}
-	detail, err := h.svc.GetNodeDetail(ctx, userID, nodeID, parseKnowledgeGraphQuery(c))
-	if err != nil {
+	query := parseKnowledgeGraphReq(c, userID)
+	resp, err := h.svc.GetNodeDetail(ctx, &knowledge.KnowledgeNodeDetailReq{
+		ViewerId:   userID,
+		NodeId:     nodeID,
+		Query:      query.Query,
+		Limit:      query.Limit,
+		DocumentId: query.DocumentId,
+		Hops:       query.Hops,
+	})
+	if err != nil || !resp.GetSuccess() {
+		if err == nil {
+			err = knowledgeStatusError(resp.GetSuccess(), resp.GetMsg())
+		}
 		response.BadRequest(c, err.Error())
 		return
 	}
-	response.Success(c, detail)
+	response.Success(c, resp)
 }
 
 // GetEdgeDetail 返回关系详情和两端节点。
@@ -90,12 +106,23 @@ func (h *KnowledgeHandler) GetEdgeDetail(ctx context.Context, c *app.RequestCont
 		response.BadRequest(c, "无效的关系ID")
 		return
 	}
-	detail, err := h.svc.GetEdgeDetail(ctx, userID, edgeID, parseKnowledgeGraphQuery(c))
-	if err != nil {
+	query := parseKnowledgeGraphReq(c, userID)
+	resp, err := h.svc.GetEdgeDetail(ctx, &knowledge.KnowledgeEdgeDetailReq{
+		ViewerId:   userID,
+		EdgeId:     edgeID,
+		Query:      query.Query,
+		Limit:      query.Limit,
+		DocumentId: query.DocumentId,
+		Hops:       query.Hops,
+	})
+	if err != nil || !resp.GetSuccess() {
+		if err == nil {
+			err = knowledgeStatusError(resp.GetSuccess(), resp.GetMsg())
+		}
 		response.BadRequest(c, err.Error())
 		return
 	}
-	response.Success(c, detail)
+	response.Success(c, resp)
 }
 
 // GetNeighborhood 返回指定节点的一跳或多跳邻域子图。
@@ -112,12 +139,26 @@ func (h *KnowledgeHandler) GetNeighborhood(ctx context.Context, c *app.RequestCo
 		response.BadRequest(c, "无效的节点ID")
 		return
 	}
-	view, err := h.svc.GetNeighborhood(ctx, userID, nodeID, parseKnowledgeGraphQuery(c))
-	if err != nil {
+	query := parseKnowledgeGraphReq(c, userID)
+	resp, err := h.svc.GetNeighborhood(ctx, &knowledge.KnowledgeNeighborhoodReq{
+		ViewerId:        userID,
+		NodeId:          nodeID,
+		Query:           query.Query,
+		TypeFilters:     query.TypeFilters,
+		RelationFilters: query.RelationFilters,
+		CommunityId:     query.CommunityId,
+		Hops:            query.Hops,
+		Limit:           query.Limit,
+		DocumentId:      query.DocumentId,
+	})
+	if err != nil || !resp.GetSuccess() {
+		if err == nil {
+			err = knowledgeStatusError(resp.GetSuccess(), resp.GetMsg())
+		}
 		response.BadRequest(c, err.Error())
 		return
 	}
-	response.Success(c, view)
+	response.Success(c, resp)
 }
 
 // GetPath 返回两个节点之间的最短可见路径。
@@ -135,12 +176,24 @@ func (h *KnowledgeHandler) GetPath(ctx context.Context, c *app.RequestContext) {
 		response.BadRequest(c, "source_id和target_id不能为空")
 		return
 	}
-	path, err := h.svc.GetPath(ctx, userID, sourceID, targetID, parseKnowledgeGraphQuery(c))
-	if err != nil {
+	query := parseKnowledgeGraphReq(c, userID)
+	resp, err := h.svc.GetPath(ctx, &knowledge.KnowledgePathReq{
+		ViewerId:   userID,
+		SourceId:   sourceID,
+		TargetId:   targetID,
+		Query:      query.Query,
+		Limit:      query.Limit,
+		DocumentId: query.DocumentId,
+		Hops:       query.Hops,
+	})
+	if err != nil || !resp.GetSuccess() {
+		if err == nil {
+			err = knowledgeStatusError(resp.GetSuccess(), resp.GetMsg())
+		}
 		response.BadRequest(c, err.Error())
 		return
 	}
-	response.Success(c, path)
+	response.Success(c, resp)
 }
 
 // CreateReviewCandidate 将当前图谱节点或关系提交到审核工作台。
@@ -167,17 +220,21 @@ func (h *KnowledgeHandler) CreateReviewCandidate(ctx context.Context, c *app.Req
 		response.BadRequest(c, "无效的候选对象ID")
 		return
 	}
-	candidate, err := h.svc.CreateGraphReviewCandidate(ctx, userID, knowledgeclient.CreateGraphReviewCandidateInput{
+	resp, err := h.svc.CreateGraphReviewCandidate(ctx, &knowledge.CreateGraphReviewCandidateReq{
+		ViewerId: userID,
 		ItemType: req.ItemType,
-		ItemID:   itemID,
+		ItemId:   itemID,
 		Reason:   req.Reason,
 		Query:    req.Query,
 	})
-	if err != nil {
+	if err != nil || !resp.GetSuccess() {
+		if err == nil {
+			err = knowledgeStatusError(resp.GetSuccess(), resp.GetMsg())
+		}
 		response.BadRequest(c, err.Error())
 		return
 	}
-	response.Success(c, map[string]interface{}{"success": true, "candidate": candidate})
+	response.Success(c, map[string]interface{}{"success": true, "candidate": resp.GetCandidate()})
 }
 
 // ListReviewCandidates 返回当前用户的图谱审核候选。
@@ -189,17 +246,21 @@ func (h *KnowledgeHandler) ListReviewCandidates(ctx context.Context, c *app.Requ
 	if !ok {
 		return
 	}
-	list, err := h.svc.ListGraphReviewCandidates(ctx, userID, knowledgeclient.ListGraphReviewCandidatesInput{
+	resp, err := h.svc.ListGraphReviewCandidates(ctx, &knowledge.ListGraphReviewCandidatesReq{
+		ViewerId: userID,
 		Status:   strings.TrimSpace(c.DefaultQuery("status", "")),
 		ItemType: strings.TrimSpace(c.DefaultQuery("item_type", "")),
-		Limit:    int(parseKnowledgeInt64(c.DefaultQuery("limit", "50"), 50)),
-		Offset:   int(parseKnowledgeInt64(c.DefaultQuery("offset", "0"), 0)),
+		Limit:    parseKnowledgeInt64(c.DefaultQuery("limit", "50"), 50),
+		Offset:   parseKnowledgeInt64(c.DefaultQuery("offset", "0"), 0),
 	})
-	if err != nil {
+	if err != nil || !resp.GetSuccess() {
+		if err == nil {
+			err = knowledgeStatusError(resp.GetSuccess(), resp.GetMsg())
+		}
 		response.BadRequest(c, err.Error())
 		return
 	}
-	response.Success(c, list)
+	response.Success(c, resp)
 }
 
 // ReviewCandidate 对图谱候选执行通过或拒绝。
@@ -224,27 +285,32 @@ func (h *KnowledgeHandler) ReviewCandidate(ctx context.Context, c *app.RequestCo
 		response.BadRequest(c, "参数错误")
 		return
 	}
-	candidate, err := h.svc.ReviewGraphCandidate(ctx, userID, knowledgeclient.ReviewGraphCandidateInput{
-		CandidateID: candidateID,
+	resp, err := h.svc.ReviewGraphCandidate(ctx, &knowledge.ReviewGraphCandidateReq{
+		ViewerId:    userID,
+		CandidateId: candidateID,
 		Action:      req.Action,
 		Note:        req.Note,
 	})
-	if err != nil {
+	if err != nil || !resp.GetSuccess() {
+		if err == nil {
+			err = knowledgeStatusError(resp.GetSuccess(), resp.GetMsg())
+		}
 		response.BadRequest(c, err.Error())
 		return
 	}
-	response.Success(c, map[string]interface{}{"success": true, "candidate": candidate})
+	response.Success(c, map[string]interface{}{"success": true, "candidate": resp.GetCandidate()})
 }
 
-func parseKnowledgeGraphQuery(c *app.RequestContext) knowledgeclient.GraphQuery {
-	return knowledgeclient.GraphQuery{
+func parseKnowledgeGraphReq(c *app.RequestContext, viewerID int64) *knowledge.KnowledgeGraphReq {
+	return &knowledge.KnowledgeGraphReq{
+		ViewerId:        viewerID,
 		Query:           strings.TrimSpace(c.DefaultQuery("query", "")),
 		TypeFilters:     parseKnowledgeCSV(c.DefaultQuery("types", "")),
 		RelationFilters: parseKnowledgeCSV(c.DefaultQuery("relations", "")),
-		CommunityID:     parseKnowledgeInt64(c.DefaultQuery("community_id", "0"), 0),
-		Hops:            int(parseKnowledgeInt64(c.DefaultQuery("hops", "1"), 1)),
-		Limit:           int(parseKnowledgeInt64(c.DefaultQuery("limit", "160"), 160)),
-		DocumentID:      parseKnowledgeInt64(c.DefaultQuery("document_id", "0"), 0),
+		CommunityId:     parseKnowledgeInt64(c.DefaultQuery("community_id", "0"), 0),
+		Hops:            parseKnowledgeInt64(c.DefaultQuery("hops", "1"), 1),
+		Limit:           parseKnowledgeInt64(c.DefaultQuery("limit", "260"), 260),
+		DocumentId:      parseKnowledgeInt64(c.DefaultQuery("document_id", "0"), 0),
 	}
 }
 
@@ -270,4 +336,14 @@ func parseKnowledgeInt64(value string, fallback int64) int64 {
 		return fallback
 	}
 	return parsed
+}
+
+func knowledgeStatusError(success bool, msg string) error {
+	if success {
+		return nil
+	}
+	if strings.TrimSpace(msg) == "" {
+		msg = "knowledge-service RPC调用失败"
+	}
+	return errors.New(msg)
 }

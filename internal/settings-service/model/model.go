@@ -8,7 +8,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// 固定作用域和用途值会同时写入数据库、settingsclient DTO 和前端筛选项。
+// 固定作用域和用途值会同时写入数据库、settings-service RPC DTO 和前端筛选项。
 // 集中声明可以避免 LLM 预设、Prompt 和 Skill 在不同层使用不一致的字符串。
 const (
 	ScopeSystem       = "system"

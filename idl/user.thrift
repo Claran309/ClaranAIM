@@ -100,6 +100,17 @@ struct UpdateStatusResp {
     2: string msg
 }
 
+struct UpdateRoleReq {
+    1: i64 operator_id
+    2: i64 user_id
+    3: string role
+}
+
+struct UpdateRoleResp {
+    1: bool success
+    2: string msg
+}
+
 struct AddFriendReq {
     1: i64 user_id
     2: i64 friend_id
@@ -227,6 +238,7 @@ service UserService {
     UpdateUserInfoResp UpdateUserInfo(1: UpdateUserInfoReq req)
     UpdateAvatarResp UpdateAvatar(1: UpdateAvatarReq req)
     UpdateStatusResp UpdateStatus(1: UpdateStatusReq req)
+    UpdateRoleResp UpdateRole(1: UpdateRoleReq req)
     AddFriendResp AddFriend(1: AddFriendReq req)
     DeleteFriendResp DeleteFriend(1: DeleteFriendReq req)
     GetFriendListResp GetFriendList(1: GetFriendListReq req)

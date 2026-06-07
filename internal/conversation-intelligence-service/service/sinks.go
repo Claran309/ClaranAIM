@@ -1,10 +1,12 @@
 package service
 
 import (
+	"ClaranAIM/kitex_gen/memory"
+	"ClaranAIM/kitex_gen/memory/memoryservice"
 	"ClaranAIM/kitex_gen/message"
 	"ClaranAIM/kitex_gen/message/messageservice"
-	"ClaranAIM/pkg/memoryclient"
-	"ClaranAIM/pkg/ragclient"
+	"ClaranAIM/kitex_gen/rag"
+	"ClaranAIM/kitex_gen/rag/ragservice"
 	"context"
 	"errors"
 	"time"
@@ -59,49 +61,56 @@ func (f *MessageRPCWindowFetcher) FetchWindow(ctx context.Context, input FetchWi
 
 // RAGClientSink 把会话摘要/主题块写入 rag-service。
 type RAGClientSink struct {
-	service ragclient.Service
+	client ragservice.Client
 }
 
-func NewRAGClientSink(service ragclient.Service) *RAGClientSink {
-	return &RAGClientSink{service: service}
+func NewRAGClientSink(client ragservice.Client) *RAGClientSink {
+	return &RAGClientSink{client: client}
 }
 
 func (s *RAGClientSink) Archive(ctx context.Context, input RAGArchiveInput) error {
-	if s == nil || s.service == nil {
+	if s == nil || s.client == nil {
 		return nil
 	}
-	_, err := s.service.IngestDocument(ctx, input.OwnerID, ragclient.IngestInput{
+	resp, err := s.client.IngestDocument(ctx, &rag.IngestDocumentReq{
+		OwnerId:        input.OwnerID,
 		Title:          input.Title,
 		Content:        input.Content,
 		Source:         input.Source,
 		SourceType:     "conversation",
-		Visibility:     ragclient.VisibilityPrivate,
-		GroupID:        input.GroupID,
-		ConversationID: input.ConversationID,
+		Visibility:     "private",
+		GroupId:        input.GroupID,
+		ConversationId: input.ConversationID,
 	})
-	return err
+	if err != nil {
+		return err
+	}
+	if !resp.GetSuccess() {
+		return errors.New(resp.GetMsg())
+	}
+	return nil
 }
 
 // MemoryClientSink 把长期有用事实写入 pending memory candidate。
 type MemoryClientSink struct {
-	service memoryclient.Service
+	client memoryservice.Client
 }
 
-func NewMemoryClientSink(service memoryclient.Service) *MemoryClientSink {
-	return &MemoryClientSink{service: service}
+func NewMemoryClientSink(client memoryservice.Client) *MemoryClientSink {
+	return &MemoryClientSink{client: client}
 }
 
 func (s *MemoryClientSink) CreateCandidate(ctx context.Context, input MemoryCandidateArchiveInput) error {
-	if s == nil || s.service == nil {
+	if s == nil || s.client == nil {
 		return nil
 	}
-	_, err := s.service.CreateCandidate(ctx, memoryclient.CandidateInput{
-		BotID:          input.AgentID,
-		UserID:         input.UserID,
-		OwnerUserID:    input.OwnerUserID,
-		ConversationID: input.ConversationID,
-		Scope:          memoryclient.ScopeConversation,
-		Type:           memoryclient.TypeChatSummary,
+	resp, err := s.client.CreateCandidate(ctx, &memory.CreateCandidateReq{
+		BotId:          input.AgentID,
+		UserId:         input.UserID,
+		OwnerUserId:    input.OwnerUserID,
+		ConversationId: input.ConversationID,
+		Scope:          "conversation",
+		Type:           "chat_summary",
 		Title:          input.Title,
 		Content:        input.Content,
 		Source:         "conversation-intelligence",
@@ -109,5 +118,11 @@ func (s *MemoryClientSink) CreateCandidate(ctx context.Context, input MemoryCand
 		Confidence:     input.Confidence,
 		Importance:     input.Importance,
 	})
-	return err
+	if err != nil {
+		return err
+	}
+	if !resp.GetSuccess() {
+		return errors.New(resp.GetMsg())
+	}
+	return nil
 }

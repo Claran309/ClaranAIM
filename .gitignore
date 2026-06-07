@@ -13,30 +13,42 @@
 .vscode/
 .DS_Store
 Thumbs.db
+/image.png
 
 # Go build, test, and tool caches
 .gocache/
 .gotelemetry/
+.cache/
 bin/
 build/
 tmp/
 *.tmp
 tmp.go
+/handler.go
+/main.go
+/build.sh
+/kitex_info.yaml
+/script/
 *.exe
 *.test
 *.prof
 coverage.out
+coverage.html
+*.coverprofile
 
 # JS dependencies / coverage if frontend tooling is used locally
 node_modules/
 coverage/
+.nyc_output/
 
 # Logs and process output
-logs/
+logs/*
 .logs/
 *.log
 *.out
 *.err
+*.pid
+*.pid.lock
 
 # Local runtime data and user uploads
 SessionStore/*
@@ -53,3 +65,32 @@ storage/agent/skills/*
 !storage/agent/skills/.gitkeep
 storage/source/*
 !storage/source/.gitkeep
+
+# Local databases, dumps, archives, and generated media
+*.db
+*.sqlite
+*.sqlite3
+*.dump
+*.sql.gz
+*.bak
+*.backup
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.7z
+*.rar
+storage/**/*.jsonl
+storage/**/*.tmp
+storage/**/*.bak
+storage/**/*.zip
+storage/**/*.png
+storage/**/*.jpg
+storage/**/*.jpeg
+storage/**/*.webp
+storage/**/*.gif
+
+# Local IDE / agent scratch space
+.codex/
+.claude/
+.cursor/

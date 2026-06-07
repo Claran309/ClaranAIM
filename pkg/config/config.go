@@ -374,6 +374,10 @@ func Load(configPath string) (*Config, error) {
 // 敏感信息（数据库密码、JWT密钥等）不应硬编码在YAML中
 // 而是通过 .env 文件或系统环境变量注入
 func applyEnvOverrides(cfg *Config) {
+	if address := os.Getenv("SERVICE_ADDRESS"); address != "" {
+		cfg.Service.Address = address
+	}
+
 	// MySQL 配置覆盖
 	if dsn := os.Getenv("MYSQL_DSN"); dsn != "" {
 		cfg.MySQL.DSN = dsn

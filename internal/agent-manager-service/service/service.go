@@ -5,9 +5,9 @@ import (
 	"ClaranAIM/internal/agent-manager-service/model"
 	"ClaranAIM/kitex_gen/bot_runtime"
 	"ClaranAIM/kitex_gen/bot_runtime/botruntimeservice"
+	"ClaranAIM/kitex_gen/memory"
 	"ClaranAIM/kitex_gen/user"
 	"ClaranAIM/kitex_gen/user/userservice"
-	"ClaranAIM/pkg/memoryclient"
 	"context"
 	"errors"
 	"fmt"
@@ -83,14 +83,6 @@ const (
 	DefaultGroupTriggerMode = "mention"
 	skillSmokePrefix        = "[[CLARAN_SKILL_SMOKE_TEST]]"
 )
-
-// AgentMemoryService 是 agent-manager-service 依赖的最小 memory-service 契约。
-// 这里避免直接 import memory-service 内部实现，保持微服务边界。
-type AgentMemoryService interface {
-	Recall(ctx context.Context, input memoryclient.RecallInput) (memoryclient.RecallResult, error)
-	CreateMemory(ctx context.Context, input memoryclient.CreateMemoryInput) (*memoryclient.MemoryFact, error)
-	ListMemories(ctx context.Context, viewerID int64, filter memoryclient.Filter) ([]memoryclient.MemoryFact, int64, error)
-}
 
 // NewAgentService 创建 Agent 管理服务。
 // MySQL 保存 Agent 元数据和计费记录，runtimeClient 负责真正执行模型和工具调用。
@@ -360,6 +352,7 @@ func (s *agentServiceImpl) ChatWithBot(ctx context.Context, botID, userID, conve
 		return &ChatResult{ConversationID: conversationID, Status: "silent_agent_echo"}, nil
 	}
 	s.applyDefaultProvider(botInfo)
+	s.applyAgentOwnedSkillsDir(botInfo)
 	if botInfo.APIKey == "" {
 		return nil, errors.New("bot未配置API Key，请联系管理员或配置自部署Bot的API Key")
 	}
@@ -386,7 +379,13 @@ func (s *agentServiceImpl) ChatWithBot(ctx context.Context, botID, userID, conve
 		runtimeInput = buildSkillSmokeInput(cleanSkillSmokeInput(message), runtimeBot.SkillsDir)
 		log.Printf("Skill smoke test runtime: bot_id=%d user_id=%d skills_dir=%s tool_policy=%s include_domain_tools=false session_id=%s", botID, userID, runtimeBot.SkillsDir, runtimeBot.ToolPolicy, sessionID)
 	}
-	resp, err := s.runtimeClient.RunAgent(ctx, &bot_runtime.RunAgentReq{
+	runCtx := ctx
+	var cancel context.CancelFunc
+	if skillSmoke {
+		runCtx, cancel = context.WithTimeout(ctx, 75*time.Second)
+		defer cancel()
+	}
+	resp, err := s.runtimeClient.RunAgent(runCtx, &bot_runtime.RunAgentReq{
 		Bot:            runtimeBot,
 		UserId:         userID,
 		ConversationId: conversationID,
@@ -447,19 +446,22 @@ func shouldRunSkillSmoke(message, skillsDir string) bool {
 	if strings.HasPrefix(text, skillSmokePrefix) {
 		return true
 	}
-	if strings.TrimSpace(skillsDir) == "" {
-		return false
-	}
+	text = extractTriggeredContentForMemory(text)
 	lower := strings.ToLower(text)
 	hasSkill := strings.Contains(lower, "skill") || strings.Contains(text, "技能")
 	if !hasSkill {
 		return false
 	}
-	return strings.Contains(text, "测试") ||
+	return strings.Contains(lower, "smoke") ||
+		strings.Contains(text, "测试") ||
 		strings.Contains(text, "验证") ||
 		strings.Contains(text, "运行") ||
 		strings.Contains(text, "执行") ||
-		strings.Contains(lower, "smoke")
+		strings.Contains(text, "感知") ||
+		strings.Contains(text, "注入") ||
+		strings.Contains(text, "加载") ||
+		strings.Contains(text, "已加载") ||
+		strings.Contains(text, "能否")
 }
 
 func cleanSkillSmokeInput(message string) string {
@@ -470,11 +472,18 @@ func cleanSkillSmokeInput(message string) string {
 
 func buildSkillSmokeInput(raw, skillsDir string) string {
 	raw = strings.TrimSpace(raw)
-	marker := skillSmokeMarkerFromDir(skillsDir)
 	if raw == "" {
 		raw = "请按已加载 Skill 的测试要求输出 marker"
 	}
-	return fmt.Sprintf("%s\n\n这是 Skill 读取测试。不要调用任何工具，不要列出工具执行结果，不要创建文件，不要生成 SKILL.md 模板，不要介绍 skill_creator。请只根据系统提示中已经加载的 SKILL.md 行为指令回答；如果系统提示中没有加载到 SKILL.md，就直接说明未加载。最终回复必须原样包含 marker：%s。", raw, marker)
+	content := readSkillMarkdownForSmoke(skillsDir)
+	if content == "" {
+		return fmt.Sprintf("%s\n\n这是 Skill 读取测试，但当前 Agent 未绑定可读取的 SKILL.md。请在一轮回复内完成，最多两句话。不要调用任何工具，不要列出 MCP 工具，不要创建文件，不要生成 SKILL.md 模板，不要介绍 skill_creator，不要写测试报告。请直接说明：未加载 Skill 或未绑定可读取的 SKILL.md，不能声称测试通过。", raw)
+	}
+	marker := extractSkillSmokeMarker(content)
+	if marker == "" {
+		marker = defaultSkillSmokeMarker
+	}
+	return fmt.Sprintf("%s\n\n这是 Skill 读取测试，不是创建 Skill。请在一轮回复内完成，最多两句话。不要调用任何工具，不要列出工具执行结果，不要创建文件，不要生成 SKILL.md 模板，不要介绍 skill_creator，不要写测试报告。请只根据系统提示中已经加载的 SKILL.md 行为指令回答；如果系统提示中没有加载到 SKILL.md，就直接说明未加载。最终回复必须原样包含 marker：%s。", raw, marker)
 }
 
 func skillSmokeMarkerFromDir(skillsDir string) string {
@@ -558,21 +567,21 @@ func (s *agentServiceImpl) buildInputWithMemory(ctx context.Context, botInfo *mo
 		return message
 	}
 	normalizeAgentRuntimeSettings(botInfo)
-	result, err := s.memoryService.Recall(ctx, memoryclient.RecallInput{
-		BotID:          botInfo.ID,
-		UserID:         userID,
-		ConversationID: conversationID,
-		SessionID:      sessionID,
-		Limit:          int(botInfo.MemoryRecallLimit),
+	result, err := s.memoryService.Recall(ctx, &memory.RecallReq{
+		BotId:          botInfo.ID,
+		UserId:         userID,
+		ConversationId: conversationID,
+		SessionId:      sessionID,
+		Limit:          botInfo.MemoryRecallLimit,
 		Query:          message,
 	})
-	if err != nil || strings.TrimSpace(result.ContextText) == "" {
+	if err != nil || result == nil || strings.TrimSpace(result.GetContextText()) == "" {
 		if err != nil {
 			log.Printf("召回Agent长期记忆失败: bot_id=%d user_id=%d err=%v", botInfo.ID, userID, err)
 		}
 		return message
 	}
-	return fmt.Sprintf("%s\n\n注入策略：以下记忆只是可能相关的长期背景；如果和当前问题无关，不要强行使用；用户当前输入优先级高于记忆。\n\n用户本次输入：\n%s", result.ContextText, message)
+	return fmt.Sprintf("%s\n\n注入策略：以下记忆只是可能相关的长期背景；如果和当前问题无关，不要强行使用；用户当前输入优先级高于记忆。\n\n用户本次输入：\n%s", result.GetContextText(), message)
 }
 
 // recordAgentRunMemory 将一次 Agent 交互摘要写入会话记忆，供后续跨轮召回。
@@ -587,18 +596,18 @@ func (s *agentServiceImpl) recordAgentRunMemory(ctx context.Context, botID, user
 	if s.agentRunMemoryExists(ctx, botID, userID, conversationID, sessionID, content) {
 		return
 	}
-	_, err := s.memoryService.CreateMemory(ctx, memoryclient.CreateMemoryInput{
-		BotID:          botID,
-		UserID:         userID,
-		OwnerUserID:    userID,
-		ConversationID: conversationID,
-		SessionID:      sessionID,
-		Scope:          memoryclient.ScopeConversation,
-		Type:           memoryclient.TypeAgentRun,
+	_, err := s.memoryService.CreateMemory(ctx, &memory.CreateMemoryReq{
+		BotId:          botID,
+		UserId:         userID,
+		OwnerUserId:    userID,
+		ConversationId: conversationID,
+		SessionId:      sessionID,
+		Scope:          "conversation",
+		Type:           "agent_run_summary",
 		Content:        content,
 		Source:         "agent_run",
-		Visibility:     memoryclient.VisibilityPrivate,
-		VectorStatus:   memoryclient.VectorPending,
+		Visibility:     "private",
+		VectorStatus:   "pending",
 		Confidence:     0.5,
 	})
 	if err != nil {
@@ -611,21 +620,24 @@ func (s *agentServiceImpl) agentRunMemoryExists(ctx context.Context, botID, user
 	if s.memoryService == nil || strings.TrimSpace(content) == "" {
 		return false
 	}
-	memories, _, err := s.memoryService.ListMemories(ctx, userID, memoryclient.Filter{
-		BotID:           botID,
-		UserID:          userID,
-		ConversationID:  conversationID,
-		SessionID:       sessionID,
-		Scopes:          []string{memoryclient.ScopeConversation},
-		Types:           []string{memoryclient.TypeAgentRun},
-		IncludeDisabled: false,
-		Limit:           10,
+	resp, err := s.memoryService.ListMemories(ctx, &memory.ListMemoriesReq{
+		ViewerId: userID,
+		Filter: &memory.MemoryFilter{
+			BotId:           botID,
+			UserId:          userID,
+			ConversationId:  conversationID,
+			SessionId:       sessionID,
+			Scopes:          []string{"conversation"},
+			Types:           []string{"agent_run_summary"},
+			IncludeDisabled: false,
+			Limit:           10,
+		},
 	})
 	if err != nil {
 		return false
 	}
-	for _, memory := range memories {
-		if strings.TrimSpace(memory.Content) == strings.TrimSpace(content) {
+	for _, item := range resp.GetMemories() {
+		if strings.TrimSpace(item.GetContent()) == strings.TrimSpace(content) {
 			return true
 		}
 	}
@@ -818,6 +830,7 @@ func validPermissionRole(role string) bool {
 // runtimeConfig 将数据库中的 Agent 配置转换为 agent-runtime-service 的运行配置。
 func (s *agentServiceImpl) runtimeConfig(bot *model.Bot) *bot_runtime.RuntimeBotConfig {
 	normalizeAgentRuntimeSettings(bot)
+	s.applyAgentOwnedSkillsDir(bot)
 	workspace := bot.WorkspaceRoot
 	if workspace == "" {
 		workspace = defaultWorkspaceRoot(s.workspaceBase, bot.ID)
@@ -842,6 +855,72 @@ func (s *agentServiceImpl) runtimeConfig(bot *model.Bot) *bot_runtime.RuntimeBot
 		GroupTriggerMode:    bot.GroupTriggerMode,
 		AutoReplyEnabled:    bot.AutoReplyEnabled,
 	}
+}
+
+// applyAgentOwnedSkillsDir 兜底加载 Agent 专属 Skill。
+// settings-service 上传专属 Skill 后会写到 storage/agent/skills/agents/<botID>/...；
+// 如果 bots.skills_dir 没有同步成功，这里仍然让 runtime 能读到真实 SKILL.md。
+func (s *agentServiceImpl) applyAgentOwnedSkillsDir(bot *model.Bot) {
+	if s == nil || bot == nil || strings.TrimSpace(bot.SkillsDir) != "" || bot.ID <= 0 {
+		return
+	}
+	if skillsDir := s.findAgentOwnedSkillsDir(bot.ID); skillsDir != "" {
+		bot.SkillsDir = skillsDir
+	}
+}
+
+func (s *agentServiceImpl) findAgentOwnedSkillsDir(botID int64) string {
+	roots := []string{filepath.Join("storage", "agent", "skills", "agents", fmt.Sprint(botID))}
+	if strings.TrimSpace(s.workspaceBase) != "" {
+		roots = append([]string{filepath.Join(filepath.Dir(s.workspaceBase), "skills", "agents", fmt.Sprint(botID))}, roots...)
+	}
+	seen := map[string]bool{}
+	for _, root := range roots {
+		root = strings.TrimSpace(root)
+		if root == "" {
+			continue
+		}
+		if absRoot, err := filepath.Abs(root); err == nil {
+			root = absRoot
+		}
+		if seen[root] {
+			continue
+		}
+		seen[root] = true
+		if dir := findReadableSkillPackageDir(root); dir != "" {
+			return dir
+		}
+	}
+	return ""
+}
+
+func findReadableSkillPackageDir(root string) string {
+	if root == "" {
+		return ""
+	}
+	if fi, err := os.Stat(root); err != nil || !fi.IsDir() {
+		return ""
+	}
+	entry := filepath.Join(root, "SKILL.md")
+	if data, err := os.ReadFile(entry); err == nil && strings.TrimSpace(string(data)) != "" {
+		return root
+	}
+	var found string
+	_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil || found != "" || d.IsDir() || !strings.EqualFold(d.Name(), "SKILL.md") {
+			return nil
+		}
+		rel, relErr := filepath.Rel(root, path)
+		if relErr != nil || len(strings.Split(filepath.ToSlash(rel), "/")) > 5 {
+			return nil
+		}
+		data, readErr := os.ReadFile(path)
+		if readErr == nil && strings.TrimSpace(string(data)) != "" {
+			found = filepath.Dir(path)
+		}
+		return nil
+	})
+	return found
 }
 
 // applyDefaultProvider 为 internal Agent 覆盖最新平台默认供应商配置。

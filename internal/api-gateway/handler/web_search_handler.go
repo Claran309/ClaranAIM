@@ -1,10 +1,12 @@
 package handler
 
 import (
+	"ClaranAIM/kitex_gen/web_search"
+	"ClaranAIM/kitex_gen/web_search/websearchservice"
 	"ClaranAIM/pkg/response"
-	"ClaranAIM/pkg/websearchclient"
 	"context"
 	"encoding/json"
+	"errors"
 	"strconv"
 	"strings"
 
@@ -13,13 +15,13 @@ import (
 
 // WebSearchHandler 暴露一次性 Web Search Augmentation 接口。
 type WebSearchHandler struct {
-	svc websearchclient.Service
+	svc websearchservice.Client
 }
 
-var gatewayWebSearchService websearchclient.Service
+var gatewayWebSearchService websearchservice.Client
 
 // InitWebSearchService 注册 web-search-service RPC 客户端。
-func InitWebSearchService(svc websearchclient.Service) {
+func InitWebSearchService(svc websearchservice.Client) {
 	gatewayWebSearchService = svc
 }
 
@@ -47,8 +49,11 @@ func (h *WebSearchHandler) Search(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "5"))
-	result, err := h.svc.Search(ctx, websearchclient.SearchInput{Query: query, Limit: limit})
-	if err != nil {
+	result, err := h.svc.Search(ctx, &web_search.SearchReq{Query: query, Limit: int64(limit)})
+	if err != nil || !result.GetSuccess() {
+		if err == nil {
+			err = webSearchStatusError(result.GetSuccess(), result.GetMsg())
+		}
 		response.BadRequest(c, err.Error())
 		return
 	}
@@ -69,13 +74,16 @@ func (h *WebSearchHandler) Augment(ctx context.Context, c *app.RequestContext) {
 		response.BadRequest(c, "搜索问题不能为空")
 		return
 	}
-	result, err := h.svc.Augment(ctx, websearchclient.AugmentInput{
+	result, err := h.svc.Augment(ctx, &web_search.AugmentReq{
 		Query:       req.Query,
-		Limit:       int(parseWebSearchNumberOrDefault(req.Limit, 5)),
-		MaxFetch:    int(parseWebSearchNumberOrDefault(req.MaxFetch, 5)),
-		MaxPassages: int(parseWebSearchNumberOrDefault(req.MaxPassages, 3)),
+		Limit:       parseWebSearchNumberOrDefault(req.Limit, 5),
+		MaxFetch:    parseWebSearchNumberOrDefault(req.MaxFetch, 5),
+		MaxPassages: parseWebSearchNumberOrDefault(req.MaxPassages, 3),
 	})
-	if err != nil {
+	if err != nil || !result.GetSuccess() {
+		if err == nil {
+			err = webSearchStatusError(result.GetSuccess(), result.GetMsg())
+		}
 		response.BadRequest(c, err.Error())
 		return
 	}
@@ -104,4 +112,14 @@ func parseWebSearchNumberOrDefault(value json.Number, fallback int64) int64 {
 		return fallback
 	}
 	return parsed
+}
+
+func webSearchStatusError(success bool, msg string) error {
+	if success {
+		return nil
+	}
+	if strings.TrimSpace(msg) == "" {
+		msg = "web-search-service RPC调用失败"
+	}
+	return errors.New(msg)
 }

@@ -1,0 +1,261 @@
+services:
+  mysql:
+    image: mysql/mysql-server:latest
+    container_name: claran-mysql
+    restart: unless-stopped
+    ports:
+      - "3306:33060"
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-chr070309}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-ClaranCloudDisk}
+      MYSQL_USER: ${MYSQL_USER:-claran}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-chr070309}
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci --port=33060
+    volumes:
+      - claran_mysql_data:/var/lib/mysql
+    networks:
+      - claran-net
+
+  redis:
+    image: redis:latest
+    container_name: claran-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - claran_redis_data:/data
+    networks:
+      - claran-net
+
+  etcd:
+    image: bitnami/etcd:3.5
+    container_name: claran-etcd
+    restart: unless-stopped
+    ports:
+      - "2379:2379"
+      - "2380:2380"
+    environment:
+      ALLOW_NONE_AUTHENTICATION: "yes"
+      ETCD_ADVERTISE_CLIENT_URLS: http://etcd:2379
+    volumes:
+      - claran_etcd_data:/bitnami/etcd
+    networks:
+      - claran-net
+
+  minio:
+    image: minio/minio:latest
+    container_name: claran-minio
+    restart: unless-stopped
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    command: server /data --console-address ":9001"
+    volumes:
+      - claran_minio_data:/data
+    networks:
+      - claran-net
+
+  kafka:
+    image: bitnamilegacy/kafka:3.3.2-debian-11-r11
+    container_name: claran-kafka
+    restart: unless-stopped
+    ports:
+      - "9092:9092"
+      - "9093:9093"
+    environment:
+      KAFKA_ENABLE_KRAFT: "yes"
+      KAFKA_CFG_PROCESS_ROLES: "broker,controller"
+      KAFKA_CFG_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+      KAFKA_CFG_LISTENERS: "PLAINTEXT://:9092,CONTROLLER://:9093"
+      KAFKA_CFG_ADVERTISED_LISTENERS: "PLAINTEXT://127.0.0.1:9092"
+      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: "PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT"
+      KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: "1@kafka:9093"
+      KAFKA_BROKER_ID: "1"
+      KAFKA_CFG_NODE_ID: "1"
+      ALLOW_PLAINTEXT_LISTENER: "yes"
+    volumes:
+      - claran_kafka_data:/bitnami/kafka
+    networks:
+      - claran-net
+
+  dtm:
+    image: yedf/dtm:latest
+    container_name: claran-dtm
+    restart: unless-stopped
+    ports:
+      - "36789:36789"
+      - "36790:36790"
+    environment:
+      STORE_DRIVER: redis
+      STORE_HOST: redis
+      STORE_PORT: 6379
+    depends_on:
+      - redis
+    networks:
+      - claran-net
+
+  milvus-etcd:
+    image: quay.io/coreos/etcd:v3.5.25
+    container_name: claran-milvus-etcd
+    restart: unless-stopped
+    environment:
+      ETCD_AUTO_COMPACTION_MODE: revision
+      ETCD_AUTO_COMPACTION_RETENTION: "1000"
+      ETCD_QUOTA_BACKEND_BYTES: "4294967296"
+      ETCD_SNAPSHOT_COUNT: "50000"
+    command: >
+      etcd
+      -advertise-client-urls=http://milvus-etcd:2379
+      -listen-client-urls=http://0.0.0.0:2379
+      --data-dir=/etcd
+    volumes:
+      - claran_milvus_etcd_data:/etcd
+    networks:
+      - claran-net
+
+  milvus-minio:
+    image: minio/minio:RELEASE.2024-05-28T17-19-04Z
+    container_name: claran-milvus-minio
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    command: server /minio_data --console-address ":9001"
+    ports:
+      - "9010:9000"
+      - "9011:9001"
+    volumes:
+      - claran_milvus_minio_data:/minio_data
+    networks:
+      - claran-net
+
+  milvus-standalone:
+    image: milvusdb/milvus:v2.6.17
+    container_name: claran-milvus
+    restart: unless-stopped
+    command: ["milvus", "run", "standalone"]
+    security_opt:
+      - seccomp:unconfined
+    environment:
+      ETCD_ENDPOINTS: milvus-etcd:2379
+      MINIO_ADDRESS: milvus-minio:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+      MINIO_REGION: us-east-1
+    ports:
+      - "19530:19530"
+      - "9091:9091"
+    volumes:
+      - claran_milvus_data:/var/lib/milvus
+    depends_on:
+      - milvus-etcd
+      - milvus-minio
+    networks:
+      - claran-net
+
+  neo4j:
+    image: neo4j:2026.05.0
+    container_name: claran-neo4j
+    restart: unless-stopped
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    environment:
+      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:-claran_neo4j_123}
+      NEO4J_PLUGINS: '["apoc","graph-data-science"]'
+      NEO4J_server_memory_heap_initial__size: 512m
+      NEO4J_server_memory_heap_max__size: 2G
+      NEO4J_server_memory_pagecache_size: 1G
+      NEO4J_dbms_security_procedures_unrestricted: apoc.*,gds.*
+      NEO4J_dbms_security_procedures_allowlist: apoc.*,gds.*
+    volumes:
+      - claran_neo4j_data:/data
+      - claran_neo4j_logs:/logs
+      - claran_neo4j_import:/import
+      - claran_neo4j_plugins:/plugins
+    networks:
+      - claran-net
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    container_name: claran-otel-collector
+    restart: unless-stopped
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    volumes:
+      - ./observability/config/collector.yaml:/etc/otelcol-contrib/config.yaml:ro
+    ports:
+      - "8079:4317"
+      - "8082:4318"
+      - "8889:8889"
+    networks:
+      - claran-net
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: claran-prometheus
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./observability/config/prometheus.yaml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "8084:9090"
+    depends_on:
+      - otel-collector
+    networks:
+      - claran-net
+
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: claran-jaeger
+    restart: unless-stopped
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "8085:16686"
+    networks:
+      - claran-net
+
+  grafana:
+    image: grafana/grafana:11.5.2
+    container_name: claran-grafana
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin123
+      GF_USERS_DEFAULT_THEME: light
+    ports:
+      - "8086:3000"
+    volumes:
+      - claran_grafana_data:/var/lib/grafana
+      - ./observability/config/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/config/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+      - jaeger
+    networks:
+      - claran-net
+
+volumes:
+  claran_mysql_data:
+  claran_redis_data:
+  claran_etcd_data:
+  claran_minio_data:
+  claran_kafka_data:
+  claran_milvus_etcd_data:
+  claran_milvus_minio_data:
+  claran_milvus_data:
+  claran_neo4j_data:
+  claran_neo4j_logs:
+  claran_neo4j_import:
+  claran_neo4j_plugins:
+  claran_grafana_data:
+
+networks:
+  claran-net:
+    driver: bridge

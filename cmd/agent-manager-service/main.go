@@ -16,7 +16,6 @@ import (
 	"ClaranAIM/pkg/governance"
 	"ClaranAIM/pkg/health"
 	"ClaranAIM/pkg/logger"
-	"ClaranAIM/pkg/memoryclient"
 	"ClaranAIM/pkg/observability"
 	"context"
 	"net"
@@ -98,7 +97,7 @@ func main() {
 	if impl, ok := agentService.(interface {
 		SetMemoryService(service.AgentMemoryService)
 	}); ok {
-		impl.SetMemoryService(memoryclient.NewRPCClient(memoryClient))
+		impl.SetMemoryService(service.NewAgentMemoryRPC(memoryClient))
 	}
 	agentHandler := handler.NewAgentServiceImpl(agentService, cfg)
 

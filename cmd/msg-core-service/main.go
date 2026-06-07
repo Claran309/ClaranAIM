@@ -17,7 +17,6 @@ import (
 	"ClaranAIM/pkg/logger"
 	"ClaranAIM/pkg/observability"
 	"ClaranAIM/pkg/outbox"
-	"ClaranAIM/pkg/settingsclient"
 	"context"
 	"net"
 	"net/http"
@@ -92,7 +91,7 @@ func main() {
 	if impl, ok := msgService.(interface {
 		SetTranslationDependencies(service.TranslationSettings, service.TranslationLLM)
 	}); ok {
-		impl.SetTranslationDependencies(settingsclient.NewRPCClient(settingsRPCClient), service.NewOpenAICompatibleTranslator())
+		impl.SetTranslationDependencies(service.NewSettingsTranslationResolver(settingsRPCClient), service.NewOpenAICompatibleTranslator())
 	}
 	msgHandler := handler.NewMessageServiceImpl(msgService)
 	if cfg.DTM.Enabled && cfg.DTM.MsgCoreBranchAddress != "" {

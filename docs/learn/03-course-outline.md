@@ -30,8 +30,8 @@
 - `internal/api-gateway/router/router.go`
 - `internal/api-gateway/handler/*`
 - `internal/api-gateway/client/rpc_client.go`
-- `pkg/settingsclient`
-- `pkg/memoryclient`
+- `kitex_gen/settings/settingsservice`
+- `kitex_gen/memory/memoryservice`
 
 ## 第 2 课：用户、好友与 Agent 系统用户
 
@@ -252,7 +252,7 @@
 重点：
 
 - `internal/settings-service`
-- `pkg/settingsclient`
+- `kitex_gen/settings/settingsservice`
 - `internal/api-gateway/handler/agent_handler.go`
 - `internal/msg-core-service/service/translation.go`
 
@@ -267,7 +267,7 @@
 重点：
 
 - `internal/memory-service`
-- `pkg/memoryclient`
+- `kitex_gen/memory/memoryservice`
 - `internal/agent-manager-service/service/service.go`
 
 ## 第 20 课：Action Card 与审批闭环

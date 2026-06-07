@@ -5,7 +5,6 @@ import (
 	memorydao "ClaranAIM/internal/memory-service/dao"
 	memorysvc "ClaranAIM/internal/memory-service/service"
 	"ClaranAIM/kitex_gen/memory"
-	"ClaranAIM/pkg/memoryclient"
 	"context"
 )
 
@@ -22,7 +21,7 @@ func NewMemoryServiceImpl(svc memorysvc.MemoryService) memory.MemoryService {
 
 // CreateMemory 创建一条可治理的记忆事实。
 func (h *MemoryServiceImpl) CreateMemory(ctx context.Context, req *memory.CreateMemoryReq) (*memory.CreateMemoryResp, error) {
-	fact, err := h.svc.CreateMemory(ctx, memoryclient.CreateMemoryInput{
+	fact, err := h.svc.CreateMemory(ctx, memorysvc.CreateMemoryInput{
 		BotID:            req.BotId,
 		UserID:           req.UserId,
 		OwnerUserID:      req.OwnerUserId,
@@ -59,7 +58,7 @@ func (h *MemoryServiceImpl) ListMemories(ctx context.Context, req *memory.ListMe
 
 // Recall 为 Agent 上下文构建召回长期记忆。
 func (h *MemoryServiceImpl) Recall(ctx context.Context, req *memory.RecallReq) (*memory.RecallResp, error) {
-	result, err := h.svc.Recall(ctx, memoryclient.RecallInput{
+	result, err := h.svc.Recall(ctx, memorysvc.RecallInput{
 		BotID:            req.BotId,
 		UserID:           req.UserId,
 		GroupID:          req.GroupId,
@@ -79,7 +78,7 @@ func (h *MemoryServiceImpl) Recall(ctx context.Context, req *memory.RecallReq) (
 
 // UpdateMemory 修改当前用户拥有的记忆事实。
 func (h *MemoryServiceImpl) UpdateMemory(ctx context.Context, req *memory.UpdateMemoryReq) (*memory.UpdateMemoryResp, error) {
-	fact, err := h.svc.UpdateMemory(ctx, req.ViewerId, req.MemoryId, memoryclient.UpdateMemoryInput{
+	fact, err := h.svc.UpdateMemory(ctx, req.ViewerId, req.MemoryId, memorysvc.UpdateMemoryInput{
 		Scope:        req.Scope,
 		Type:         req.Type,
 		Title:        req.Title,
@@ -99,7 +98,7 @@ func (h *MemoryServiceImpl) UpdateMemory(ctx context.Context, req *memory.Update
 }
 
 func (h *MemoryServiceImpl) CreateCandidate(ctx context.Context, req *memory.CreateCandidateReq) (*memory.CreateCandidateResp, error) {
-	candidate, err := h.svc.CreateCandidate(ctx, memoryclient.CandidateInput{
+	candidate, err := h.svc.CreateCandidate(ctx, memorysvc.CandidateInput{
 		BotID:              req.BotId,
 		UserID:             req.UserId,
 		OwnerUserID:        req.OwnerUserId,
@@ -124,9 +123,9 @@ func (h *MemoryServiceImpl) CreateCandidate(ctx context.Context, req *memory.Cre
 }
 
 func (h *MemoryServiceImpl) ListCandidates(ctx context.Context, req *memory.ListCandidatesReq) (*memory.ListCandidatesResp, error) {
-	filter := memoryclient.CandidateFilter{}
+	filter := memorysvc.CandidateFilter{}
 	if req.Filter != nil {
-		filter = memoryclient.CandidateFilter{
+		filter = memorysvc.CandidateFilter{
 			BotID:  req.Filter.BotId,
 			UserID: req.Filter.UserId,
 			Status: req.Filter.Status,
@@ -184,7 +183,7 @@ func toDAOFilter(filter *memory.MemoryFilter) memorydao.MemoryFilter {
 	}
 }
 
-func toRPCMemoryFacts(facts []memoryclient.MemoryFact) []*memory.MemoryFact {
+func toRPCMemoryFacts(facts []memorysvc.MemoryFact) []*memory.MemoryFact {
 	out := make([]*memory.MemoryFact, 0, len(facts))
 	for i := range facts {
 		out = append(out, toRPCMemoryFact(&facts[i]))
@@ -192,7 +191,7 @@ func toRPCMemoryFacts(facts []memoryclient.MemoryFact) []*memory.MemoryFact {
 	return out
 }
 
-func toRPCMemoryFact(fact *memoryclient.MemoryFact) *memory.MemoryFact {
+func toRPCMemoryFact(fact *memorysvc.MemoryFact) *memory.MemoryFact {
 	if fact == nil {
 		return nil
 	}
@@ -226,7 +225,7 @@ func toRPCMemoryFact(fact *memoryclient.MemoryFact) *memory.MemoryFact {
 	}
 }
 
-func toRPCCandidates(candidates []memoryclient.MemoryCandidate) []*memory.MemoryCandidate {
+func toRPCCandidates(candidates []memorysvc.MemoryCandidate) []*memory.MemoryCandidate {
 	out := make([]*memory.MemoryCandidate, 0, len(candidates))
 	for i := range candidates {
 		out = append(out, toRPCCandidate(&candidates[i]))
@@ -234,7 +233,7 @@ func toRPCCandidates(candidates []memoryclient.MemoryCandidate) []*memory.Memory
 	return out
 }
 
-func toRPCCandidate(candidate *memoryclient.MemoryCandidate) *memory.MemoryCandidate {
+func toRPCCandidate(candidate *memorysvc.MemoryCandidate) *memory.MemoryCandidate {
 	if candidate == nil {
 		return nil
 	}

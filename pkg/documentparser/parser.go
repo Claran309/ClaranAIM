@@ -65,9 +65,18 @@ func ParseWithOptions(ctx context.Context, filename, contentType string, data []
 	case "go", "js", "ts", "tsx", "jsx", "py", "java", "c", "cpp", "cc", "cxx", "h", "hpp", "rs", "sql", "json", "yaml", "yml", "toml", "xml", "html", "css", "scss", "sh", "bat", "ps1":
 		content, err = parsePlainText(data)
 	case "pdf":
-		content, err = parsePDFText(data)
-		if err != nil && opts.OCR != nil {
-			content, err = opts.OCR.ExtractText(ctx, filename, contentType, data)
+		var parseErr error
+		content, parseErr = parsePDFText(data)
+		if parseErr != nil {
+			if opts.OCR != nil {
+				var ocrErr error
+				content, ocrErr = opts.OCR.ExtractText(ctx, filename, contentType, data)
+				if ocrErr != nil {
+					content = buildPDFParseFallbackText(title, parseErr, ocrErr)
+				}
+			} else {
+				content = buildPDFParseFallbackText(title, parseErr, nil)
+			}
 		}
 	case "docx":
 		content, err = parseDocxText(data)
@@ -134,7 +143,8 @@ func (p *GLMLayoutOCRProvider) ExtractText(ctx context.Context, filename, conten
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", formatOCRError(resp.StatusCode)
+		detail := readOCRErrorDetail(resp.Body)
+		return "", formatOCRError(resp.StatusCode, detail)
 	}
 	var decoded interface{}
 	if err := json.NewDecoder(resp.Body).Decode(&decoded); err != nil {
@@ -147,17 +157,76 @@ func (p *GLMLayoutOCRProvider) ExtractText(ctx context.Context, filename, conten
 	return text, nil
 }
 
-func formatOCRError(statusCode int) error {
+func formatOCRError(statusCode int, detail string) error {
+	withDetail := func(message string) error {
+		detail = strings.TrimSpace(detail)
+		if detail == "" {
+			return errors.New(message)
+		}
+		return fmt.Errorf("%s：%s", message, detail)
+	}
 	switch statusCode {
 	case http.StatusTooManyRequests:
-		return errors.New("OCR服务当前限流或资源包额度不足，请稍后重试，或先上传可复制文本PDF/文本文件")
+		return withDetail("OCR服务当前限流或资源包额度不足，请稍后重试，或先上传可复制文本PDF/文本文件")
 	case http.StatusUnauthorized, http.StatusForbidden:
-		return errors.New("OCR服务鉴权失败，请检查 DOCUMENT_OCR_API_KEY 是否正确")
+		return withDetail("OCR服务鉴权失败，请检查 DOCUMENT_OCR_API_KEY 是否正确")
 	case http.StatusRequestEntityTooLarge:
-		return errors.New("OCR文件过大，请压缩图片或拆分文档后重试")
+		return withDetail("OCR文件过大，请压缩图片或拆分文档后重试")
 	default:
-		return fmt.Errorf("OCR接口返回状态码%d", statusCode)
+		return withDetail(fmt.Sprintf("OCR接口返回状态码%d", statusCode))
 	}
+}
+
+func readOCRErrorDetail(body io.Reader) string {
+	if body == nil {
+		return ""
+	}
+	data, err := io.ReadAll(io.LimitReader(body, 2048))
+	if err != nil {
+		return ""
+	}
+	raw := strings.TrimSpace(string(data))
+	if raw == "" {
+		return ""
+	}
+	var decoded interface{}
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return truncateOCRDetail(raw)
+	}
+	var parts []string
+	collectOCRErrorText(decoded, &parts)
+	if len(parts) == 0 {
+		return truncateOCRDetail(raw)
+	}
+	return truncateOCRDetail(strings.Join(parts, "；"))
+}
+
+func collectOCRErrorText(value interface{}, parts *[]string) {
+	switch v := value.(type) {
+	case map[string]interface{}:
+		for _, key := range []string{"message", "msg", "detail", "error", "errors"} {
+			if raw, ok := v[key]; ok {
+				collectOCRErrorText(raw, parts)
+			}
+		}
+	case []interface{}:
+		for _, item := range v {
+			collectOCRErrorText(item, parts)
+		}
+	case string:
+		text := strings.TrimSpace(v)
+		if text != "" {
+			*parts = append(*parts, text)
+		}
+	}
+}
+
+func truncateOCRDetail(text string) string {
+	runes := []rune(strings.TrimSpace(text))
+	if len(runes) <= 240 {
+		return string(runes)
+	}
+	return string(runes[:240]) + "..."
 }
 
 func inferSourceType(filename, contentType string) string {
@@ -199,14 +268,36 @@ func inferSourceType(filename, contentType string) string {
 }
 
 func buildOCRDataURL(filename, contentType string, data []byte) string {
-	mediaType, _, _ := mime.ParseMediaType(contentType)
-	if mediaType == "" {
-		mediaType = contentTypeByExt(filename)
-	}
-	if mediaType == "" {
-		mediaType = "application/octet-stream"
-	}
+	mediaType := normalizeOCRMediaType(filename, contentType, data)
 	return "data:" + mediaType + ";base64," + base64.StdEncoding.EncodeToString(data)
+}
+
+func normalizeOCRMediaType(filename, contentType string, data []byte) string {
+	mediaType, _, _ := mime.ParseMediaType(contentType)
+	mediaType = strings.ToLower(strings.TrimSpace(mediaType))
+	extType := contentTypeByExt(filename)
+	if extType != "" && shouldPreferOCRExtMediaType(mediaType) {
+		return extType
+	}
+	if mediaType == "" || mediaType == "application/octet-stream" || mediaType == "binary/octet-stream" {
+		if detected := strings.ToLower(http.DetectContentType(data)); strings.HasPrefix(detected, "image/") || detected == "application/pdf" {
+			return detected
+		}
+	}
+	if mediaType == "" {
+		if extType != "" {
+			return extType
+		}
+		return "application/octet-stream"
+	}
+	return mediaType
+}
+
+func shouldPreferOCRExtMediaType(mediaType string) bool {
+	if mediaType == "" || mediaType == "application/octet-stream" || mediaType == "binary/octet-stream" {
+		return true
+	}
+	return !strings.HasPrefix(mediaType, "image/") && mediaType != "application/pdf"
 }
 
 func contentTypeByExt(filename string) string {
@@ -265,6 +356,52 @@ func defaultString(value, fallback string) string {
 		return fallback
 	}
 	return value
+}
+
+func buildPDFParseFallbackText(title string, parseErr, ocrErr error) string {
+	title = defaultString(title, "未命名PDF")
+	var b strings.Builder
+	b.WriteString("# ")
+	b.WriteString(title)
+	b.WriteString("\n\n")
+	b.WriteString("PDF未解析出可复制文本，系统已保留文档标题和解析诊断，并继续上传到知识库，避免知识图谱构建被非关键 OCR 错误打断。\n\n")
+	b.WriteString("文档主题：")
+	b.WriteString(strings.Join(pdfFallbackTitleTerms(title), "、"))
+	b.WriteString("\n")
+	if parseErr != nil {
+		b.WriteString("本地PDF解析失败：")
+		b.WriteString(parseErr.Error())
+		b.WriteString("\n")
+	}
+	if ocrErr != nil {
+		b.WriteString("OCR解析失败：")
+		b.WriteString(ocrErr.Error())
+		b.WriteString("\n")
+	}
+	b.WriteString("\n后续可以上传可复制文本 PDF 或拆分扫描件重新 OCR；当前文件仍会进入 RAG 入库和知识图谱流程。")
+	return b.String()
+}
+
+func pdfFallbackTitleTerms(title string) []string {
+	terms := []string{title}
+	for _, part := range regexp.MustCompile(`[^\p{Han}A-Za-z0-9_\-]+`).Split(title, -1) {
+		part = strings.TrimSpace(part)
+		if part == "" || len([]rune(part)) < 2 {
+			continue
+		}
+		terms = append(terms, part)
+	}
+	seen := map[string]bool{}
+	out := make([]string, 0, len(terms))
+	for _, term := range terms {
+		key := strings.ToLower(strings.TrimSpace(term))
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, strings.TrimSpace(term))
+	}
+	return out
 }
 
 func parsePlainText(data []byte) (string, error) {

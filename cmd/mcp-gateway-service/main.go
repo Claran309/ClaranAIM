@@ -12,16 +12,10 @@ import (
 	"ClaranAIM/kitex_gen/settings/settingsservice"
 	"ClaranAIM/kitex_gen/web_search/websearchservice"
 	"ClaranAIM/pkg/config"
-	"ClaranAIM/pkg/conversationintelclient"
 	"ClaranAIM/pkg/governance"
 	"ClaranAIM/pkg/health"
-	"ClaranAIM/pkg/knowledgeclient"
 	"ClaranAIM/pkg/logger"
-	"ClaranAIM/pkg/memoryclient"
 	"ClaranAIM/pkg/observability"
-	"ClaranAIM/pkg/ragclient"
-	"ClaranAIM/pkg/settingsclient"
-	"ClaranAIM/pkg/websearchclient"
 	"net"
 
 	"github.com/cloudwego/kitex/client"
@@ -86,35 +80,14 @@ func main() {
 		logger.Warn("创建conversation-intelligence-service客户端失败，summarize_conversation工具将不可用", "error", err)
 	}
 
-	var webSearchSvc websearchclient.Service
-	if webSearchRPCClient != nil {
-		webSearchSvc = websearchclient.NewRPCClient(webSearchRPCClient)
-	}
-	var memorySvc memoryclient.Service
-	if memoryRPCClient != nil {
-		memorySvc = memoryclient.NewRPCClient(memoryRPCClient)
-	}
-	var ragSvc ragclient.Service
-	if ragRPCClient != nil {
-		ragSvc = ragclient.NewRPCClient(ragRPCClient)
-	}
-	var knowledgeSvc knowledgeclient.Service
-	if knowledgeRPCClient != nil {
-		knowledgeSvc = knowledgeclient.NewRPCClient(knowledgeRPCClient)
-	}
-	var conversationSvc conversationintelclient.Service
-	if conversationRPCClient != nil {
-		conversationSvc = conversationintelclient.NewRPCClient(conversationRPCClient)
-	}
-
 	mcpGateway := mcpsvc.NewMCPGatewayService(mcpsvc.Dependencies{
 		Repo:         mcpdao.NewRepository(db),
-		Settings:     settingsclient.NewRPCClient(settingsRPCClient),
-		WebSearch:    webSearchSvc,
-		Memory:       memorySvc,
-		RAG:          ragSvc,
-		Knowledge:    knowledgeSvc,
-		Conversation: conversationSvc,
+		Settings:     settingsRPCClient,
+		WebSearch:    webSearchRPCClient,
+		Memory:       memoryRPCClient,
+		RAG:          ragRPCClient,
+		Knowledge:    knowledgeRPCClient,
+		Conversation: conversationRPCClient,
 	})
 
 	registry, err := etcd.NewEtcdRegistry(cfg.Etcd.Endpoints)

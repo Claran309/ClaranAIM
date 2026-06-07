@@ -131,9 +131,9 @@ func NewDeepAgent(ctx context.Context, model *openai.ChatModel, agentRoot string
 		Instruction:    instruction,
 		ChatModel:      model,
 		ToolsConfig:    toolsConfig,
-		Backend:        sandboxBackend, // 注入受工作目录硬约束的文件工具集
-		StreamingShell: sandboxBackend, // 支持流式 Shell 输出，并限制在 Agent 工作目录内
-		MaxIteration:   50,             // 最大思考/工具调用循环次数
+		Backend:        sandboxBackend,                 // 注入受工作目录硬约束的文件工具集
+		StreamingShell: sandboxBackend,                 // 支持流式 Shell 输出，并限制在 Agent 工作目录内
+		MaxIteration:   maxAgentIterations(toolPolicy), // 最大思考/工具调用循环次数
 		// 注册中间件
 		Handlers: handlers,
 		// 配置模型重试策略，处理速率限制错误
@@ -161,6 +161,13 @@ func toolPolicyDisablesTools(toolPolicy string) bool {
 	default:
 		return false
 	}
+}
+
+func maxAgentIterations(toolPolicy string) int {
+	if toolPolicyDisablesTools(toolPolicy) {
+		return 4
+	}
+	return 50
 }
 
 // ToolPolicyInstruction 根据 Agent 工具策略生成系统提示词片段。

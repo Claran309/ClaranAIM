@@ -15,9 +15,7 @@ import (
 	"ClaranAIM/pkg/governance"
 	"ClaranAIM/pkg/health"
 	"ClaranAIM/pkg/logger"
-	"ClaranAIM/pkg/memoryclient"
 	"ClaranAIM/pkg/observability"
-	"ClaranAIM/pkg/ragclient"
 	"context"
 	"net"
 	"time"
@@ -80,8 +78,8 @@ func main() {
 	service := convsvc.NewConversationIntelligenceService(
 		convdao.NewRepository(db),
 		convsvc.NewMessageRPCWindowFetcher(messageClient),
-		convsvc.NewRAGClientSink(ragclient.NewRPCClient(ragRPCClient)),
-		convsvc.NewMemoryClientSink(memoryclient.NewRPCClient(memoryRPCClient)),
+		convsvc.NewRAGClientSink(ragRPCClient),
+		convsvc.NewMemoryClientSink(memoryRPCClient),
 		extractor,
 		convsvc.ConversationIntelligenceOptions{
 			WindowMessageLimit:  cfg.ConversationIntelligence.WindowMessageLimit,

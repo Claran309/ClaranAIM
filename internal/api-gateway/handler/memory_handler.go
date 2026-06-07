@@ -1,10 +1,12 @@
 package handler
 
 import (
-	"ClaranAIM/pkg/memoryclient"
+	"ClaranAIM/kitex_gen/memory"
+	"ClaranAIM/kitex_gen/memory/memoryservice"
 	"ClaranAIM/pkg/response"
 	"context"
 	"encoding/json"
+	"errors"
 	"strconv"
 	"strings"
 
@@ -13,18 +15,18 @@ import (
 
 // MemoryHandler 通过 api-gateway 暴露用户可管理的 Agent 记忆接口。
 type MemoryHandler struct {
-	svc memoryclient.Service
+	svc memoryservice.Client
 }
 
 // gatewayMemoryService 是 api-gateway 到 memory-service 的内部客户端。
 // 通过接口注入可以保持前端路由稳定，同时避免网关直接依赖 memory-service 内部实现。
-var gatewayMemoryService memoryclient.Service
+var gatewayMemoryService memoryservice.Client
 
 // InitMemoryService 注册当前进程内的 memory-service 门面。
 //
 // 后续如果 memory-service 拆成独立 Kitex 服务，浏览器侧路由可以保持不变，
 // 只需要替换这里注入的客户端实现。
-func InitMemoryService(svc memoryclient.Service) {
+func InitMemoryService(svc memoryservice.Client) {
 	gatewayMemoryService = svc
 }
 
@@ -52,18 +54,18 @@ func (h *MemoryHandler) ListMemories(ctx context.Context, c *app.RequestContext)
 	if !ok {
 		return
 	}
-	filter := memoryclient.Filter{
-		BotID:           parseInt64Query(c, "bot_id"),
-		UserID:          parseInt64Query(c, "user_id"),
-		GroupID:         parseInt64Query(c, "group_id"),
-		ConversationID:  parseInt64Query(c, "conversation_id"),
-		SessionID:       strings.TrimSpace(c.DefaultQuery("session_id", "")),
+	filter := &memory.MemoryFilter{
+		BotId:           parseInt64Query(c, "bot_id"),
+		UserId:          parseInt64Query(c, "user_id"),
+		GroupId:         parseInt64Query(c, "group_id"),
+		ConversationId:  parseInt64Query(c, "conversation_id"),
+		SessionId:       strings.TrimSpace(c.DefaultQuery("session_id", "")),
 		IncludeDisabled: c.DefaultQuery("include_disabled", "false") == "true",
-		Limit:           int(parseInt64Default(c.DefaultQuery("limit", "20"), 20)),
-		Offset:          int(parseInt64Default(c.DefaultQuery("offset", "0"), 0)),
+		Limit:           parseInt64Default(c.DefaultQuery("limit", "20"), 20),
+		Offset:          parseInt64Default(c.DefaultQuery("offset", "0"), 0),
 	}
-	if filter.UserID == 0 {
-		filter.UserID = userID
+	if filter.UserId == 0 {
+		filter.UserId = userID
 	}
 	if scopes := parseCSVQuery(c.DefaultQuery("scope", "")); len(scopes) > 0 {
 		filter.Scopes = scopes
@@ -71,15 +73,18 @@ func (h *MemoryHandler) ListMemories(ctx context.Context, c *app.RequestContext)
 	if types := parseCSVQuery(c.DefaultQuery("type", "")); len(types) > 0 {
 		filter.Types = types
 	}
-	facts, total, err := h.svc.ListMemories(ctx, userID, filter)
-	if err != nil {
+	resp, err := h.svc.ListMemories(ctx, &memory.ListMemoriesReq{ViewerId: userID, Filter: filter})
+	if err != nil || !resp.GetSuccess() {
+		if err == nil {
+			err = memoryStatusError(resp.GetSuccess(), resp.GetMsg())
+		}
 		response.Error(c, err.Error())
 		return
 	}
 	response.Success(c, map[string]interface{}{
 		"success":  true,
-		"memories": facts,
-		"total":    total,
+		"memories": resp.GetMemories(),
+		"total":    resp.GetTotal(),
 	})
 }
 
@@ -114,30 +119,34 @@ func (h *MemoryHandler) CreateMemory(ctx context.Context, c *app.RequestContext)
 		response.Forbidden(c, "只能创建自己的记忆")
 		return
 	}
-	input := memoryclient.CreateMemoryInput{
-		BotID:          botID,
-		UserID:         targetUserID,
-		OwnerUserID:    userID,
-		GroupID:        parseMemoryNumberOrZero(req.GroupID),
-		ConversationID: parseMemoryNumberOrZero(req.ConversationID),
-		SessionID:      strings.TrimSpace(req.SessionID),
+	enabled, enabledSet := optionalBoolForRPC(req.Enabled, true)
+	resp, err := h.svc.CreateMemory(ctx, &memory.CreateMemoryReq{
+		BotId:          botID,
+		UserId:         targetUserID,
+		OwnerUserId:    userID,
+		GroupId:        parseMemoryNumberOrZero(req.GroupID),
+		ConversationId: parseMemoryNumberOrZero(req.ConversationID),
+		SessionId:      strings.TrimSpace(req.SessionID),
 		Scope:          defaultMemoryScope(req.Scope),
 		Type:           defaultMemoryType(req.Type),
 		Title:          req.Title,
 		Content:        req.Content,
 		Source:         defaultMemorySource(req.Source),
 		Visibility:     defaultMemoryVisibility(req.Visibility),
-		Enabled:        req.Enabled,
+		Enabled:        enabled,
+		EnabledSet:     enabledSet,
 		VectorStatus:   defaultMemoryVectorStatus(req.VectorStatus),
 		Confidence:     req.Confidence,
 		Importance:     req.Importance,
-	}
-	fact, err := h.svc.CreateMemory(ctx, input)
-	if err != nil {
+	})
+	if err != nil || !resp.GetSuccess() {
+		if err == nil {
+			err = memoryStatusError(resp.GetSuccess(), resp.GetMsg())
+		}
 		response.BadRequest(c, err.Error())
 		return
 	}
-	response.Success(c, map[string]interface{}{"success": true, "memory": fact})
+	response.Success(c, map[string]interface{}{"success": true, "memory": resp.GetMemory()})
 }
 
 // UpdateMemory 编辑或禁用当前用户拥有的一条记忆事实。
@@ -159,31 +168,32 @@ func (h *MemoryHandler) UpdateMemory(ctx context.Context, c *app.RequestContext)
 		response.BadRequest(c, "参数错误")
 		return
 	}
-	var confidence *float64
-	if req.Confidence > 0 {
-		confidence = &req.Confidence
-	}
-	var importance *float64
-	if req.Importance > 0 {
-		importance = &req.Importance
-	}
-	fact, err := h.svc.UpdateMemory(ctx, userID, memoryID, memoryclient.UpdateMemoryInput{
+	enabled, enabledSet := optionalBoolForRPC(req.Enabled, true)
+	resp, err := h.svc.UpdateMemory(ctx, &memory.UpdateMemoryReq{
+		ViewerId:      userID,
+		MemoryId:      memoryID,
 		Scope:        req.Scope,
 		Type:         req.Type,
 		Title:        req.Title,
 		Content:      req.Content,
 		Source:       req.Source,
 		Visibility:   req.Visibility,
-		Enabled:      req.Enabled,
+		Enabled:      enabled,
+		EnabledSet:   enabledSet,
 		VectorStatus: req.VectorStatus,
-		Confidence:   confidence,
-		Importance:   importance,
+		Confidence:   req.Confidence,
+		ConfidenceSet: req.Confidence > 0,
+		Importance:   req.Importance,
+		ImportanceSet: req.Importance > 0,
 	})
-	if err != nil {
+	if err != nil || !resp.GetSuccess() {
+		if err == nil {
+			err = memoryStatusError(resp.GetSuccess(), resp.GetMsg())
+		}
 		response.BadRequest(c, err.Error())
 		return
 	}
-	response.Success(c, map[string]interface{}{"success": true, "memory": fact})
+	response.Success(c, map[string]interface{}{"success": true, "memory": resp.GetMemory()})
 }
 
 // DeleteMemory 删除当前用户拥有的一条记忆事实。
@@ -200,7 +210,11 @@ func (h *MemoryHandler) DeleteMemory(ctx context.Context, c *app.RequestContext)
 		response.BadRequest(c, "无效的记忆ID")
 		return
 	}
-	if err := h.svc.DeleteMemory(ctx, userID, memoryID); err != nil {
+	resp, err := h.svc.DeleteMemory(ctx, &memory.DeleteMemoryReq{ViewerId: userID, MemoryId: memoryID})
+	if err != nil || !resp.GetSuccess() {
+		if err == nil {
+			err = memoryStatusError(resp.GetSuccess(), resp.GetMsg())
+		}
 		response.BadRequest(c, err.Error())
 		return
 	}
@@ -216,18 +230,21 @@ func (h *MemoryHandler) ListCandidates(ctx context.Context, c *app.RequestContex
 	if !ok {
 		return
 	}
-	candidates, total, err := h.svc.ListCandidates(ctx, userID, memoryclient.CandidateFilter{
-		BotID:  parseInt64Query(c, "bot_id"),
-		UserID: parseInt64Query(c, "user_id"),
+	resp, err := h.svc.ListCandidates(ctx, &memory.ListCandidatesReq{ViewerId: userID, Filter: &memory.CandidateFilter{
+		BotId:  parseInt64Query(c, "bot_id"),
+		UserId: parseInt64Query(c, "user_id"),
 		Status: strings.TrimSpace(c.DefaultQuery("status", "pending")),
-		Limit:  int(parseInt64Default(c.DefaultQuery("limit", "20"), 20)),
-		Offset: int(parseInt64Default(c.DefaultQuery("offset", "0"), 0)),
-	})
-	if err != nil {
+		Limit:  parseInt64Default(c.DefaultQuery("limit", "20"), 20),
+		Offset: parseInt64Default(c.DefaultQuery("offset", "0"), 0),
+	}})
+	if err != nil || !resp.GetSuccess() {
+		if err == nil {
+			err = memoryStatusError(resp.GetSuccess(), resp.GetMsg())
+		}
 		response.Error(c, err.Error())
 		return
 	}
-	response.Success(c, map[string]interface{}{"success": true, "candidates": candidates, "total": total})
+	response.Success(c, map[string]interface{}{"success": true, "candidates": resp.GetCandidates(), "total": resp.GetTotal()})
 }
 
 // CreateCandidate 允许调试或前端把抽取结果先写入 pending 候选区。
@@ -257,13 +274,13 @@ func (h *MemoryHandler) CreateCandidate(ctx context.Context, c *app.RequestConte
 		response.Forbidden(c, "只能创建自己的候选记忆")
 		return
 	}
-	candidate, err := h.svc.CreateCandidate(ctx, memoryclient.CandidateInput{
-		BotID:              botID,
-		UserID:             targetUserID,
-		OwnerUserID:        userID,
-		GroupID:            parseMemoryNumberOrZero(req.GroupID),
-		ConversationID:     parseMemoryNumberOrZero(req.ConversationID),
-		SessionID:          strings.TrimSpace(req.SessionID),
+	resp, err := h.svc.CreateCandidate(ctx, &memory.CreateCandidateReq{
+		BotId:              botID,
+		UserId:             targetUserID,
+		OwnerUserId:        userID,
+		GroupId:            parseMemoryNumberOrZero(req.GroupID),
+		ConversationId:     parseMemoryNumberOrZero(req.ConversationID),
+		SessionId:          strings.TrimSpace(req.SessionID),
 		Scope:              defaultMemoryScope(req.Scope),
 		Type:               defaultMemoryType(req.Type),
 		Title:              strings.TrimSpace(req.Title),
@@ -272,14 +289,17 @@ func (h *MemoryHandler) CreateCandidate(ctx context.Context, c *app.RequestConte
 		Evidence:           strings.TrimSpace(req.Evidence),
 		Confidence:         req.Confidence,
 		Importance:         req.Importance,
-		ConflictMemoryIDs:  req.ConflictMemoryIDs,
+		ConflictMemoryIds:  req.ConflictMemoryIDs,
 		ConflictResolution: strings.TrimSpace(req.ConflictResolution),
 	})
-	if err != nil {
+	if err != nil || !resp.GetSuccess() {
+		if err == nil {
+			err = memoryStatusError(resp.GetSuccess(), resp.GetMsg())
+		}
 		response.BadRequest(c, err.Error())
 		return
 	}
-	response.Success(c, map[string]interface{}{"success": true, "candidate": candidate})
+	response.Success(c, map[string]interface{}{"success": true, "candidate": resp.GetCandidate()})
 }
 
 // AcceptCandidate 将 pending 候选转成正式记忆。
@@ -305,17 +325,20 @@ func (h *MemoryHandler) handleCandidateAction(ctx context.Context, c *app.Reques
 		response.BadRequest(c, "无效的候选记忆ID")
 		return
 	}
-	var candidate *memoryclient.MemoryCandidate
+	var resp *memory.CandidateActionResp
 	if accept {
-		candidate, err = h.svc.AcceptCandidate(ctx, userID, candidateID)
+		resp, err = h.svc.AcceptCandidate(ctx, &memory.CandidateActionReq{ViewerId: userID, CandidateId: candidateID})
 	} else {
-		candidate, err = h.svc.RejectCandidate(ctx, userID, candidateID)
+		resp, err = h.svc.RejectCandidate(ctx, &memory.CandidateActionReq{ViewerId: userID, CandidateId: candidateID})
 	}
-	if err != nil {
+	if err != nil || !resp.GetSuccess() {
+		if err == nil {
+			err = memoryStatusError(resp.GetSuccess(), resp.GetMsg())
+		}
 		response.BadRequest(c, err.Error())
 		return
 	}
-	response.Success(c, map[string]interface{}{"success": true, "candidate": candidate})
+	response.Success(c, map[string]interface{}{"success": true, "candidate": resp.GetCandidate()})
 }
 
 // memoryRequest 是前端创建/编辑记忆事实的请求体。
@@ -410,7 +433,7 @@ func parseCSVQuery(value string) []string {
 // defaultMemoryScope 为空时默认创建个人记忆。
 func defaultMemoryScope(scope string) string {
 	if strings.TrimSpace(scope) == "" {
-		return memoryclient.ScopeUser
+		return memoryScopeUser
 	}
 	return strings.TrimSpace(scope)
 }
@@ -418,7 +441,7 @@ func defaultMemoryScope(scope string) string {
 // defaultMemoryType 为空时默认作为偏好类事实保存。
 func defaultMemoryType(memoryType string) string {
 	if strings.TrimSpace(memoryType) == "" {
-		return memoryclient.TypePreference
+		return memoryTypePreference
 	}
 	return strings.TrimSpace(memoryType)
 }
@@ -426,7 +449,7 @@ func defaultMemoryType(memoryType string) string {
 // defaultMemoryVisibility 为空时默认仅本人可见，避免误把个人画像共享给群聊。
 func defaultMemoryVisibility(visibility string) string {
 	if strings.TrimSpace(visibility) == "" {
-		return memoryclient.VisibilityPrivate
+		return memoryVisibilityPrivate
 	}
 	return strings.TrimSpace(visibility)
 }
@@ -434,7 +457,7 @@ func defaultMemoryVisibility(visibility string) string {
 // defaultMemoryVectorStatus 标记记忆尚未向量化；当前 MVP 可先不接向量库。
 func defaultMemoryVectorStatus(status string) string {
 	if strings.TrimSpace(status) == "" {
-		return memoryclient.VectorPending
+		return memoryVectorPending
 	}
 	return strings.TrimSpace(status)
 }
@@ -445,4 +468,28 @@ func defaultMemorySource(source string) string {
 		return "user_manual"
 	}
 	return strings.TrimSpace(source)
+}
+
+const (
+	memoryScopeUser         = "user"
+	memoryTypePreference   = "preference"
+	memoryVisibilityPrivate = "private"
+	memoryVectorPending    = "pending"
+)
+
+func optionalBoolForRPC(value *bool, fallback bool) (bool, bool) {
+	if value == nil {
+		return fallback, false
+	}
+	return *value, true
+}
+
+func memoryStatusError(success bool, msg string) error {
+	if success {
+		return nil
+	}
+	if strings.TrimSpace(msg) == "" {
+		msg = "memory-service RPC调用失败"
+	}
+	return errors.New(msg)
 }

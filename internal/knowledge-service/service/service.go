@@ -2,14 +2,13 @@
 //
 // 本服务不负责知识入库、embedding、RAG 检索或 GraphRAG indexing；这些仍由 rag-service
 // 负责。knowledge-service 只读取底层图谱数据，整理成前端可视化需要的节点、边、社区、
-// 详情和过滤 facet。Kitex handler 调用这里的接口，具体 GraphRAG 子图读取通过
-// pkg/knowledgeclient.GraphSource 适配 rag-service RPC。
+// 详情和过滤 facet。Kitex handler 调用这里的接口，具体 GraphRAG 子图读取通过内部
+// GraphSource 适配 rag-service RPC。
 package service
 
 import (
 	"ClaranAIM/internal/knowledge-service/dao"
 	"ClaranAIM/internal/knowledge-service/model"
-	"ClaranAIM/pkg/knowledgeclient"
 	"context"
 	"errors"
 	"strings"
@@ -18,47 +17,47 @@ import (
 
 // KnowledgeService 是 knowledge-service 的业务接口。
 type KnowledgeService interface {
-	GetGraphView(ctx context.Context, viewerID int64, input knowledgeclient.GraphQuery) (*knowledgeclient.GraphView, error)
-	GetNodeDetail(ctx context.Context, viewerID, nodeID int64, input knowledgeclient.GraphQuery) (*knowledgeclient.NodeDetail, error)
-	GetEdgeDetail(ctx context.Context, viewerID, edgeID int64, input knowledgeclient.GraphQuery) (*knowledgeclient.EdgeDetail, error)
-	GetNeighborhood(ctx context.Context, viewerID, nodeID int64, input knowledgeclient.GraphQuery) (*knowledgeclient.GraphView, error)
-	GetPath(ctx context.Context, viewerID, sourceID, targetID int64, input knowledgeclient.GraphQuery) (*knowledgeclient.PathDetail, error)
-	CreateGraphReviewCandidate(ctx context.Context, viewerID int64, input knowledgeclient.CreateGraphReviewCandidateInput) (*knowledgeclient.GraphReviewCandidate, error)
-	ListGraphReviewCandidates(ctx context.Context, viewerID int64, input knowledgeclient.ListGraphReviewCandidatesInput) (*knowledgeclient.GraphReviewCandidateList, error)
-	ReviewGraphCandidate(ctx context.Context, viewerID int64, input knowledgeclient.ReviewGraphCandidateInput) (*knowledgeclient.GraphReviewCandidate, error)
+	GetGraphView(ctx context.Context, viewerID int64, input GraphQuery) (*GraphView, error)
+	GetNodeDetail(ctx context.Context, viewerID, nodeID int64, input GraphQuery) (*NodeDetail, error)
+	GetEdgeDetail(ctx context.Context, viewerID, edgeID int64, input GraphQuery) (*EdgeDetail, error)
+	GetNeighborhood(ctx context.Context, viewerID, nodeID int64, input GraphQuery) (*GraphView, error)
+	GetPath(ctx context.Context, viewerID, sourceID, targetID int64, input GraphQuery) (*PathDetail, error)
+	CreateGraphReviewCandidate(ctx context.Context, viewerID int64, input CreateGraphReviewCandidateInput) (*GraphReviewCandidate, error)
+	ListGraphReviewCandidates(ctx context.Context, viewerID int64, input ListGraphReviewCandidatesInput) (*GraphReviewCandidateList, error)
+	ReviewGraphCandidate(ctx context.Context, viewerID int64, input ReviewGraphCandidateInput) (*GraphReviewCandidate, error)
 }
 
 type knowledgeServiceImpl struct {
-	graph knowledgeclient.Service
+	graph Service
 	repo  dao.Repository
 }
 
 // NewKnowledgeService 创建知识图谱视图服务。
-func NewKnowledgeService(source knowledgeclient.GraphSource, repo dao.Repository) KnowledgeService {
-	return &knowledgeServiceImpl{graph: knowledgeclient.NewRAGBackedService(source), repo: repo}
+func NewKnowledgeService(source GraphSource, repo dao.Repository) KnowledgeService {
+	return &knowledgeServiceImpl{graph: NewRAGBackedService(source), repo: repo}
 }
 
-func (s *knowledgeServiceImpl) GetGraphView(ctx context.Context, viewerID int64, input knowledgeclient.GraphQuery) (*knowledgeclient.GraphView, error) {
+func (s *knowledgeServiceImpl) GetGraphView(ctx context.Context, viewerID int64, input GraphQuery) (*GraphView, error) {
 	return s.graph.GetGraphView(ctx, viewerID, input)
 }
 
-func (s *knowledgeServiceImpl) GetNodeDetail(ctx context.Context, viewerID, nodeID int64, input knowledgeclient.GraphQuery) (*knowledgeclient.NodeDetail, error) {
+func (s *knowledgeServiceImpl) GetNodeDetail(ctx context.Context, viewerID, nodeID int64, input GraphQuery) (*NodeDetail, error) {
 	return s.graph.GetNodeDetail(ctx, viewerID, nodeID, input)
 }
 
-func (s *knowledgeServiceImpl) GetEdgeDetail(ctx context.Context, viewerID, edgeID int64, input knowledgeclient.GraphQuery) (*knowledgeclient.EdgeDetail, error) {
+func (s *knowledgeServiceImpl) GetEdgeDetail(ctx context.Context, viewerID, edgeID int64, input GraphQuery) (*EdgeDetail, error) {
 	return s.graph.GetEdgeDetail(ctx, viewerID, edgeID, input)
 }
 
-func (s *knowledgeServiceImpl) GetNeighborhood(ctx context.Context, viewerID, nodeID int64, input knowledgeclient.GraphQuery) (*knowledgeclient.GraphView, error) {
+func (s *knowledgeServiceImpl) GetNeighborhood(ctx context.Context, viewerID, nodeID int64, input GraphQuery) (*GraphView, error) {
 	return s.graph.GetNeighborhood(ctx, viewerID, nodeID, input)
 }
 
-func (s *knowledgeServiceImpl) GetPath(ctx context.Context, viewerID, sourceID, targetID int64, input knowledgeclient.GraphQuery) (*knowledgeclient.PathDetail, error) {
+func (s *knowledgeServiceImpl) GetPath(ctx context.Context, viewerID, sourceID, targetID int64, input GraphQuery) (*PathDetail, error) {
 	return s.graph.GetPath(ctx, viewerID, sourceID, targetID, input)
 }
 
-func (s *knowledgeServiceImpl) CreateGraphReviewCandidate(ctx context.Context, viewerID int64, input knowledgeclient.CreateGraphReviewCandidateInput) (*knowledgeclient.GraphReviewCandidate, error) {
+func (s *knowledgeServiceImpl) CreateGraphReviewCandidate(ctx context.Context, viewerID int64, input CreateGraphReviewCandidateInput) (*GraphReviewCandidate, error) {
 	if s.repo == nil {
 		return nil, errors.New("知识图谱审核仓储未初始化")
 	}
@@ -80,7 +79,7 @@ func (s *knowledgeServiceImpl) CreateGraphReviewCandidate(ctx context.Context, v
 		Status:   model.CandidateStatusPending,
 	}
 	if itemType == "node" {
-		detail, err := s.graph.GetNodeDetail(ctx, viewerID, input.ItemID, knowledgeclient.GraphQuery{Query: input.Query, Limit: 200})
+		detail, err := s.graph.GetNodeDetail(ctx, viewerID, input.ItemID, GraphQuery{Query: input.Query, Limit: 200})
 		if err != nil {
 			return nil, err
 		}
@@ -91,7 +90,7 @@ func (s *knowledgeServiceImpl) CreateGraphReviewCandidate(ctx context.Context, v
 		candidate.Type = detail.Node.Type
 		candidate.Summary = detail.Node.Summary
 	} else {
-		detail, err := s.graph.GetEdgeDetail(ctx, viewerID, input.ItemID, knowledgeclient.GraphQuery{Query: input.Query, Limit: 200})
+		detail, err := s.graph.GetEdgeDetail(ctx, viewerID, input.ItemID, GraphQuery{Query: input.Query, Limit: 200})
 		if err != nil {
 			return nil, err
 		}
@@ -112,13 +111,13 @@ func (s *knowledgeServiceImpl) CreateGraphReviewCandidate(ctx context.Context, v
 	return candidateToDTO(candidate), nil
 }
 
-func (s *knowledgeServiceImpl) ListGraphReviewCandidates(ctx context.Context, viewerID int64, input knowledgeclient.ListGraphReviewCandidatesInput) (*knowledgeclient.GraphReviewCandidateList, error) {
+func (s *knowledgeServiceImpl) ListGraphReviewCandidates(ctx context.Context, viewerID int64, input ListGraphReviewCandidatesInput) (*GraphReviewCandidateList, error) {
 	if s.repo == nil {
-		return &knowledgeclient.GraphReviewCandidateList{Success: false, Msg: "知识图谱审核仓储未初始化"}, nil
+		return &GraphReviewCandidateList{Success: false, Msg: "知识图谱审核仓储未初始化"}, nil
 	}
 	ownerID := viewerID
 	if viewerID < 0 {
-		return &knowledgeclient.GraphReviewCandidateList{Success: false, Msg: "用户未登录"}, nil
+		return &GraphReviewCandidateList{Success: false, Msg: "用户未登录"}, nil
 	}
 	rows, total, err := s.repo.ListCandidates(ctx, dao.CandidateFilter{
 		OwnerID:  ownerID,
@@ -130,14 +129,14 @@ func (s *knowledgeServiceImpl) ListGraphReviewCandidates(ctx context.Context, vi
 	if err != nil {
 		return nil, err
 	}
-	out := make([]knowledgeclient.GraphReviewCandidate, 0, len(rows))
+	out := make([]GraphReviewCandidate, 0, len(rows))
 	for i := range rows {
 		out = append(out, *candidateToDTO(&rows[i]))
 	}
-	return &knowledgeclient.GraphReviewCandidateList{Success: true, Candidates: out, Total: total}, nil
+	return &GraphReviewCandidateList{Success: true, Candidates: out, Total: total}, nil
 }
 
-func (s *knowledgeServiceImpl) ReviewGraphCandidate(ctx context.Context, viewerID int64, input knowledgeclient.ReviewGraphCandidateInput) (*knowledgeclient.GraphReviewCandidate, error) {
+func (s *knowledgeServiceImpl) ReviewGraphCandidate(ctx context.Context, viewerID int64, input ReviewGraphCandidateInput) (*GraphReviewCandidate, error) {
 	if s.repo == nil {
 		return nil, errors.New("知识图谱审核仓储未初始化")
 	}
@@ -177,11 +176,11 @@ func (s *knowledgeServiceImpl) ReviewGraphCandidate(ctx context.Context, viewerI
 	return candidateToDTO(candidate), nil
 }
 
-func candidateToDTO(candidate *model.GraphReviewCandidate) *knowledgeclient.GraphReviewCandidate {
+func candidateToDTO(candidate *model.GraphReviewCandidate) *GraphReviewCandidate {
 	if candidate == nil {
 		return nil
 	}
-	return &knowledgeclient.GraphReviewCandidate{
+	return &GraphReviewCandidate{
 		ID:         candidate.ID,
 		ItemType:   candidate.ItemType,
 		ItemID:     candidate.ItemID,
@@ -198,14 +197,14 @@ func candidateToDTO(candidate *model.GraphReviewCandidate) *knowledgeclient.Grap
 	}
 }
 
-func detailMessage(detail *knowledgeclient.NodeDetail) string {
+func detailMessage(detail *NodeDetail) string {
 	if detail == nil {
 		return ""
 	}
 	return detail.Msg
 }
 
-func edgeDetailMessage(detail *knowledgeclient.EdgeDetail) string {
+func edgeDetailMessage(detail *EdgeDetail) string {
 	if detail == nil {
 		return ""
 	}

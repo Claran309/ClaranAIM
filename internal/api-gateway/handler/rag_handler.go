@@ -1,12 +1,14 @@
 package handler
 
 import (
+	"ClaranAIM/kitex_gen/rag"
+	"ClaranAIM/kitex_gen/rag/ragservice"
 	"ClaranAIM/pkg/documentparser"
 	"ClaranAIM/pkg/idgen"
-	"ClaranAIM/pkg/ragclient"
 	"ClaranAIM/pkg/response"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -31,16 +33,16 @@ const (
 
 // RAGHandler 暴露知识库入库、RAG 搜索和知识图谱查询接口。
 type RAGHandler struct {
-	svc ragclient.Service
+	svc ragservice.Client
 }
 
 // gatewayRAGService 是 api-gateway 到 rag-service 的 RPC 门面。
-var gatewayRAGService ragclient.Service
+var gatewayRAGService ragservice.Client
 var gatewayDocumentOCR documentparser.OCRProvider
 var gatewayRAGUploadJobs = newRAGUploadJobStore()
 
 // InitRAGService 注册 rag-service RPC 客户端。
-func InitRAGService(svc ragclient.Service) {
+func InitRAGService(svc ragservice.Client) {
 	gatewayRAGService = svc
 }
 
@@ -81,16 +83,21 @@ func (h *RAGHandler) IngestDocument(ctx context.Context, c *app.RequestContext) 
 		response.BadRequest(c, "知识内容不能为空")
 		return
 	}
-	resp, err := h.svc.IngestDocument(ctx, userID, ragclient.IngestInput{
-		Title:          strings.TrimSpace(req.Title),
-		Content:        content,
-		Source:         strings.TrimSpace(req.Source),
-		SourceType:     defaultRAGString(req.SourceType, "text"),
-		Visibility:     defaultRAGString(req.Visibility, ragclient.VisibilityPrivate),
-		GroupID:        parseRAGNumberOrZero(req.GroupID),
-		ConversationID: parseRAGNumberOrZero(req.ConversationID),
+	resp, err := h.svc.IngestDocument(ctx, &rag.IngestDocumentReq{
+		OwnerId:           userID,
+		Title:             strings.TrimSpace(req.Title),
+		Content:           content,
+		Source:            strings.TrimSpace(req.Source),
+		SourceType:        defaultRAGString(req.SourceType, "text"),
+		Visibility:        defaultRAGString(req.Visibility, ragVisibilityPrivate),
+		GroupId:           parseRAGNumberOrZero(req.GroupID),
+		ConversationId:    parseRAGNumberOrZero(req.ConversationID),
+		GraphRelationMode: normalizeRAGGraphRelationMode(req.GraphRelationMode),
 	})
-	if err != nil {
+	if err != nil || !resp.GetSuccess() {
+		if err == nil {
+			err = ragStatusError(resp.GetSuccess(), resp.GetMsg())
+		}
 		response.BadRequest(c, err.Error())
 		return
 	}
@@ -117,9 +124,10 @@ func (h *RAGHandler) UploadDocument(ctx context.Context, c *app.RequestContext) 
 		return
 	}
 	title := strings.TrimSpace(string(c.FormValue("title")))
-	visibility := defaultRAGString(string(c.FormValue("visibility")), ragclient.VisibilityPrivate)
+	visibility := defaultRAGString(string(c.FormValue("visibility")), ragVisibilityPrivate)
 	groupID := parseRAGIntString(string(c.FormValue("group_id")))
 	conversationID := parseRAGIntString(string(c.FormValue("conversation_id")))
+	graphRelationMode := normalizeRAGGraphRelationMode(string(c.FormValue("graph_relation_mode")))
 	items := make([]ragUploadWorkItem, 0, len(headers))
 	results := make([]*ragUploadResult, 0, len(headers))
 	for _, header := range headers {
@@ -128,16 +136,18 @@ func (h *RAGHandler) UploadDocument(ctx context.Context, c *app.RequestContext) 
 		results = append(results, result)
 	}
 	jobID := gatewayRAGUploadJobs.create(userID, results, items, ragUploadOptions{
-		Title:          title,
-		Visibility:     visibility,
-		GroupID:        groupID,
-		ConversationID: conversationID,
+		Title:             title,
+		Visibility:        visibility,
+		GroupID:           groupID,
+		ConversationID:    conversationID,
+		GraphRelationMode: graphRelationMode,
 	})
 	go h.processRAGUploadJob(jobID, userID, items, ragUploadOptions{
-		Title:          title,
-		Visibility:     visibility,
-		GroupID:        groupID,
-		ConversationID: conversationID,
+		Title:             title,
+		Visibility:        visibility,
+		GroupID:           groupID,
+		ConversationID:    conversationID,
+		GraphRelationMode: graphRelationMode,
 	})
 	response.Success(c, map[string]interface{}{"success": true, "async": true, "job_id": jobID, "status": ragUploadStatusPending, "files": results})
 }
@@ -302,18 +312,25 @@ func (h *RAGHandler) handleOneRAGUpload(ctx context.Context, userID int64, item 
 	if title == "" {
 		title = parsed.Title
 	}
-	resp, err := h.svc.IngestDocument(ctx, userID, ragclient.IngestInput{
-		Title:          title,
-		Content:        parsed.Content,
-		Source:         item.FileName,
-		SourceType:     parsed.SourceType,
-		Visibility:     opts.Visibility,
-		GroupID:        opts.GroupID,
-		ConversationID: opts.ConversationID,
+	resp, err := h.svc.IngestDocument(ctx, &rag.IngestDocumentReq{
+		OwnerId:           userID,
+		Title:             title,
+		Content:           parsed.Content,
+		Source:            item.FileName,
+		SourceType:        parsed.SourceType,
+		Visibility:        opts.Visibility,
+		GroupId:           opts.GroupID,
+		ConversationId:    opts.ConversationID,
+		GraphRelationMode: opts.GraphRelationMode,
 	})
 	if err != nil {
 		result.Status = ragUploadStatusFailed
 		result.Msg = err.Error()
+		return result
+	}
+	if !resp.GetSuccess() {
+		result.Status = ragUploadStatusFailed
+		result.Msg = ragStatusError(resp.GetSuccess(), resp.GetMsg()).Error()
 		return result
 	}
 	result.Success = resp.GetSuccess()
@@ -344,15 +361,19 @@ func (h *RAGHandler) Search(ctx context.Context, c *app.RequestContext) {
 		response.BadRequest(c, "问题不能为空")
 		return
 	}
-	resp, err := h.svc.Search(ctx, userID, ragclient.SearchInput{
+	resp, err := h.svc.Search(ctx, &rag.SearchReq{
+		ViewerId:       userID,
 		Query:          req.Query,
 		Mode:           req.Mode,
-		Limit:          int(parseRAGNumberOrDefault(req.Limit, 8)),
-		GroupID:        parseRAGNumberOrZero(req.GroupID),
-		ConversationID: parseRAGNumberOrZero(req.ConversationID),
-		DocumentID:     parseRAGNumberOrZero(req.DocumentID),
+		Limit:          parseRAGNumberOrDefault(req.Limit, 8),
+		GroupId:        parseRAGNumberOrZero(req.GroupID),
+		ConversationId: parseRAGNumberOrZero(req.ConversationID),
+		DocumentId:     parseRAGNumberOrZero(req.DocumentID),
 	})
-	if err != nil {
+	if err != nil || !resp.GetSuccess() {
+		if err == nil {
+			err = ragStatusError(resp.GetSuccess(), resp.GetMsg())
+		}
 		response.BadRequest(c, err.Error())
 		return
 	}
@@ -373,8 +394,11 @@ func (h *RAGHandler) DeleteDocument(ctx context.Context, c *app.RequestContext) 
 		response.BadRequest(c, "文档ID无效")
 		return
 	}
-	resp, err := h.svc.DeleteDocument(ctx, userID, documentID)
-	if err != nil {
+	resp, err := h.svc.DeleteDocument(ctx, &rag.DeleteDocumentReq{ViewerId: userID, DocumentId: documentID})
+	if err != nil || !resp.GetSuccess() {
+		if err == nil {
+			err = ragStatusError(resp.GetSuccess(), resp.GetMsg())
+		}
 		response.BadRequest(c, err.Error())
 		return
 	}
@@ -395,8 +419,11 @@ func (h *RAGHandler) DeleteDocumentGraph(ctx context.Context, c *app.RequestCont
 		response.BadRequest(c, "文档ID无效")
 		return
 	}
-	resp, err := h.svc.DeleteDocumentGraph(ctx, userID, documentID)
-	if err != nil {
+	resp, err := h.svc.DeleteDocumentGraph(ctx, &rag.DeleteGraphReq{ViewerId: userID, DocumentId: documentID})
+	if err != nil || !resp.GetSuccess() {
+		if err == nil {
+			err = ragStatusError(resp.GetSuccess(), resp.GetMsg())
+		}
 		response.BadRequest(c, err.Error())
 		return
 	}
@@ -417,12 +444,18 @@ func (h *RAGHandler) RebuildDocumentGraph(ctx context.Context, c *app.RequestCon
 		response.BadRequest(c, "文档ID无效")
 		return
 	}
-	if _, err := h.svc.DeleteDocumentGraph(ctx, userID, documentID); err != nil {
+	if deleted, err := h.svc.DeleteDocumentGraph(ctx, &rag.DeleteGraphReq{ViewerId: userID, DocumentId: documentID}); err != nil || !deleted.GetSuccess() {
+		if err == nil {
+			err = ragStatusError(deleted.GetSuccess(), deleted.GetMsg())
+		}
 		response.BadRequest(c, err.Error())
 		return
 	}
-	graph, err := h.svc.GetGraph(ctx, userID, ragclient.GraphInput{DocumentID: documentID, Limit: 200, Hops: 1})
-	if err != nil {
+	graph, err := h.svc.GetGraph(ctx, &rag.GraphReq{ViewerId: userID, DocumentId: documentID, Limit: 200, Hops: 1})
+	if err != nil || !graph.GetSuccess() {
+		if err == nil {
+			err = ragStatusError(graph.GetSuccess(), graph.GetMsg())
+		}
 		response.BadRequest(c, err.Error())
 		return
 	}
@@ -438,8 +471,11 @@ func (h *RAGHandler) RebuildAllGraphs(ctx context.Context, c *app.RequestContext
 	if !ok {
 		return
 	}
-	resp, err := h.svc.ListDocuments(ctx, userID, 1000, 0)
-	if err != nil {
+	resp, err := h.svc.ListDocuments(ctx, &rag.ListDocumentsReq{ViewerId: userID, Limit: 1000, Offset: 0})
+	if err != nil || !resp.GetSuccess() {
+		if err == nil {
+			err = ragStatusError(resp.GetSuccess(), resp.GetMsg())
+		}
 		response.BadRequest(c, err.Error())
 		return
 	}
@@ -451,11 +487,11 @@ func (h *RAGHandler) RebuildAllGraphs(ctx context.Context, c *app.RequestContext
 			continue
 		}
 		total++
-		if _, err := h.svc.DeleteDocumentGraph(ctx, userID, doc.GetId()); err != nil {
+		if deleted, err := h.svc.DeleteDocumentGraph(ctx, &rag.DeleteGraphReq{ViewerId: userID, DocumentId: doc.GetId()}); err != nil || !deleted.GetSuccess() {
 			failed++
 			continue
 		}
-		if _, err := h.svc.GetGraph(ctx, userID, ragclient.GraphInput{DocumentID: doc.GetId(), Limit: 200, Hops: 1}); err != nil {
+		if graph, err := h.svc.GetGraph(ctx, &rag.GraphReq{ViewerId: userID, DocumentId: doc.GetId(), Limit: 200, Hops: 1}); err != nil || !graph.GetSuccess() {
 			failed++
 			continue
 		}
@@ -474,13 +510,17 @@ func (h *RAGHandler) GetGraph(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 	limit, _ := strconv.ParseInt(c.DefaultQuery("limit", "80"), 10, 64)
-	resp, err := h.svc.GetGraph(ctx, userID, ragclient.GraphInput{
+	resp, err := h.svc.GetGraph(ctx, &rag.GraphReq{
+		ViewerId:   userID,
 		Query:      strings.TrimSpace(c.DefaultQuery("query", "")),
-		Limit:      int(limit),
-		DocumentID: parseRAGInt64(c.DefaultQuery("document_id", "0"), 0),
-		Hops:       int(parseRAGInt64(c.DefaultQuery("hops", "1"), 1)),
+		Limit:      limit,
+		DocumentId: parseRAGInt64(c.DefaultQuery("document_id", "0"), 0),
+		Hops:       parseRAGInt64(c.DefaultQuery("hops", "1"), 1),
 	})
-	if err != nil {
+	if err != nil || !resp.GetSuccess() {
+		if err == nil {
+			err = ragStatusError(resp.GetSuccess(), resp.GetMsg())
+		}
 		response.BadRequest(c, err.Error())
 		return
 	}
@@ -498,22 +538,38 @@ func (h *RAGHandler) ListDocuments(ctx context.Context, c *app.RequestContext) {
 	}
 	limit, _ := strconv.ParseInt(c.DefaultQuery("limit", "20"), 10, 64)
 	offset, _ := strconv.ParseInt(c.DefaultQuery("offset", "0"), 10, 64)
-	resp, err := h.svc.ListDocuments(ctx, userID, int(limit), int(offset))
-	if err != nil {
+	resp, err := h.svc.ListDocuments(ctx, &rag.ListDocumentsReq{ViewerId: userID, Limit: limit, Offset: offset})
+	if err != nil || !resp.GetSuccess() {
+		if err == nil {
+			err = ragStatusError(resp.GetSuccess(), resp.GetMsg())
+		}
 		response.BadRequest(c, err.Error())
 		return
 	}
 	response.Success(c, resp)
 }
 
+const ragVisibilityPrivate = "private"
+
+func ragStatusError(success bool, msg string) error {
+	if success {
+		return nil
+	}
+	if strings.TrimSpace(msg) == "" {
+		msg = "rag-service RPC调用失败"
+	}
+	return errors.New(msg)
+}
+
 type ragIngestReq struct {
-	Title          string      `json:"title"`
-	Content        string      `json:"content"`
-	Source         string      `json:"source"`
-	SourceType     string      `json:"source_type"`
-	Visibility     string      `json:"visibility"`
-	GroupID        json.Number `json:"group_id"`
-	ConversationID json.Number `json:"conversation_id"`
+	Title             string      `json:"title"`
+	Content           string      `json:"content"`
+	Source            string      `json:"source"`
+	SourceType        string      `json:"source_type"`
+	Visibility        string      `json:"visibility"`
+	GroupID           json.Number `json:"group_id"`
+	ConversationID    json.Number `json:"conversation_id"`
+	GraphRelationMode string      `json:"graph_relation_mode"`
 }
 
 type ragSearchReq struct {
@@ -544,10 +600,11 @@ type ragUploadWorkItem struct {
 }
 
 type ragUploadOptions struct {
-	Title          string
-	Visibility     string
-	GroupID        int64
-	ConversationID int64
+	Title             string
+	Visibility        string
+	GroupID           int64
+	ConversationID    int64
+	GraphRelationMode string
 }
 
 type ragUploadJob struct {
@@ -911,6 +968,16 @@ func defaultRAGString(value, fallback string) string {
 		return fallback
 	}
 	return value
+}
+
+func normalizeRAGGraphRelationMode(mode string) string {
+	mode = strings.ToLower(strings.TrimSpace(mode))
+	switch mode {
+	case "generic", "general", "loose", "泛化":
+		return "generic"
+	default:
+		return "precise"
+	}
 }
 
 func parseRAGIntString(value string) int64 {

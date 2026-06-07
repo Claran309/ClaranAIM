@@ -95,6 +95,7 @@ func RegisterRoutes(r *route.Engine, cfg ...*config.Config) {
 		auth.POST("/message/offline/read", messageHandler.MarkOfflineRead)
 		auth.GET("/message/unread-count", messageHandler.GetUnreadCount)
 		auth.GET("/message/sync", messageHandler.SyncOnReconnect)
+		auth.POST("/message/sync/ack", messageHandler.AckSync)
 		auth.POST("/message/translate", messageHandler.TranslateMessage)
 		auth.GET("/system/notices", adminHandler.ListPublicNotices)
 
@@ -161,6 +162,7 @@ func RegisterRoutes(r *route.Engine, cfg ...*config.Config) {
 		auth.POST("/conversation-intelligence/jobs/:id/process", conversationIntelligenceHandler.ProcessDigestJob)
 		auth.POST("/conversation-intelligence/jobs/:id/retry", conversationIntelligenceHandler.RetryDigestJob)
 		auth.GET("/conversation-intelligence/artifacts", conversationIntelligenceHandler.ListArtifacts)
+		auth.POST("/conversation-intelligence/missed-summary", conversationIntelligenceHandler.MissedSummary)
 
 		auth.GET("/knowledge/graph", knowledgeHandler.GetGraphView)
 		auth.GET("/knowledge/node/:id", knowledgeHandler.GetNodeDetail)
@@ -198,6 +200,7 @@ func RegisterRoutes(r *route.Engine, cfg ...*config.Config) {
 		admin.GET("/dashboard", adminHandler.Dashboard)
 		admin.GET("/users", adminHandler.ListUsers)
 		admin.POST("/users/:id/status", adminHandler.UpdateUserStatus)
+		admin.POST("/users/:id/role", adminHandler.UpdateUserRole)
 		admin.GET("/groups", adminHandler.ListGroups)
 		admin.POST("/groups/:id/status", adminHandler.UpdateGroupStatus)
 		admin.GET("/files", adminHandler.ListFiles)

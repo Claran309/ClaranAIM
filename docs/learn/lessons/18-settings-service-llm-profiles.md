@@ -18,7 +18,6 @@
 - `internal/settings-service/service/service.go`
 - `idl/settings.thrift`
 - `kitex_gen/settings/settingsservice`
-- `pkg/settingsclient`
 - `internal/api-gateway/handler/settings_handler.go`
 - `internal/api-gateway/handler/agent_handler.go`
 - `internal/msg-core-service/service/translation.go`
@@ -27,16 +26,16 @@
 
 `llm_profiles` 保存：
 
-- scope。
-- owner_id。
-- name。
-- provider_type。
-- base_url。
-- api_key。
-- model_name。
-- usage_type。
-- is_default。
-- enabled。
+  scope。
+  owner_id。
+  name。
+  provider_type。
+  base_url。
+  api_key。
+  model_name。
+  usage_type。
+  is_default。
+  enabled。
 
 API Key 在 JSON 中隐藏，前端不应拿到明文。
 
@@ -48,14 +47,14 @@ API Key 在 JSON 中隐藏，前端不应拿到明文。
 llm_profile_id
 ```
 
-api-gateway 会：
+api gateway 会：
 
 ```text
 读取当前用户
-  -> settings-service ResolveLLMProfile
-  -> 拿到 APIKey/BaseURL/ModelName
-  -> 组装 Agent 创建请求
-  -> agent-manager-service 保存配置
+   > settings service ResolveLLMProfile
+   > 拿到 APIKey/BaseURL/ModelName
+   > 组装 Agent 创建请求
+   > agent manager service 保存配置
 ```
 
 这样用户不用每次创建 Agent 都重新填模型配置。
@@ -70,21 +69,21 @@ api-gateway 会：
 
 未来可以扩展：
 
-- 总结 Prompt。
-- 知识抽取 Prompt。
-- 回复候选 Prompt。
-- 代码审查 Prompt。
+  总结 Prompt。
+  知识抽取 Prompt。
+  回复候选 Prompt。
+  代码审查 Prompt。
 
 ## 手动翻译
 
-msg-core-service 翻译链路依赖 settings-service：
+msg core service 翻译链路依赖 settings service：
 
 ```text
 /message/translate
-  -> msg-core 校验消息可见性
-  -> settings-service 读取翻译配置
-  -> 调 LLM
-  -> 缓存 translation
+   > msg core 校验消息可见性
+   > settings service 读取翻译配置
+   > 调 LLM
+   > 缓存 translation
 ```
 
 这避免把模型配置散落在各服务。
@@ -93,14 +92,14 @@ msg-core-service 翻译链路依赖 settings-service：
 
 你应该能回答：
 
-- settings-service 为什么独立？
-- API Key 为什么不能返回前端？
-- `llm_profile_id` 如何影响 Agent 创建？
-- 翻译 Prompt 为什么适合用户可配置？
+  settings service 为什么独立？
+  API Key 为什么不能返回前端？
+  `llm_profile_id` 如何影响 Agent 创建？
+  翻译 Prompt 为什么适合用户可配置？
 
 ## 动手任务
 
 1. 设计一个默认 LLM profile。
 2. 设计一个总结 Prompt template。
-3. 追踪 `/settings/llm-profiles`。
+3. 追踪 `/settings/llm profiles`。
 4. 追踪创建 Agent 时 profile 解析。

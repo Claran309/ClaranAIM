@@ -4,15 +4,21 @@ package service
 import (
 	"ClaranAIM/internal/mcp-gateway-service/dao"
 	traceModel "ClaranAIM/internal/mcp-gateway-service/model"
+	"ClaranAIM/kitex_gen/conversation_intelligence"
+	"ClaranAIM/kitex_gen/conversation_intelligence/conversationintelligenceservice"
+	"ClaranAIM/kitex_gen/knowledge"
+	"ClaranAIM/kitex_gen/knowledge/knowledgeservice"
 	"ClaranAIM/kitex_gen/mcp_gateway"
-	"ClaranAIM/pkg/conversationintelclient"
+	"ClaranAIM/kitex_gen/memory"
+	"ClaranAIM/kitex_gen/memory/memoryservice"
+	"ClaranAIM/kitex_gen/rag"
+	"ClaranAIM/kitex_gen/rag/ragservice"
+	"ClaranAIM/kitex_gen/settings"
+	"ClaranAIM/kitex_gen/settings/settingsservice"
+	"ClaranAIM/kitex_gen/web_search"
+	"ClaranAIM/kitex_gen/web_search/websearchservice"
 	"ClaranAIM/pkg/idgen"
-	"ClaranAIM/pkg/knowledgeclient"
-	"ClaranAIM/pkg/memoryclient"
 	"ClaranAIM/pkg/observability"
-	"ClaranAIM/pkg/ragclient"
-	"ClaranAIM/pkg/settingsclient"
-	"ClaranAIM/pkg/websearchclient"
 	"bytes"
 	"context"
 	"encoding/base64"
@@ -50,12 +56,12 @@ type MCPGatewayService interface {
 // Dependencies 聚合 MCP Gateway 调用的下游服务客户端。
 type Dependencies struct {
 	Repo             dao.Repository
-	Settings         settingsclient.Service
-	WebSearch        websearchclient.Service
-	Memory           memoryclient.Service
-	RAG              ragclient.Service
-	Knowledge        knowledgeclient.Service
-	Conversation     conversationintelclient.Service
+	Settings         settingsservice.Client
+	WebSearch        websearchservice.Client
+	Memory           memoryservice.Client
+	RAG              ragservice.Client
+	Knowledge        knowledgeservice.Client
+	Conversation     conversationintelligenceservice.Client
 	RemoteHTTPClient *http.Client
 }
 
@@ -214,16 +220,19 @@ func (s *mcpGatewayServiceImpl) callWebSearch(ctx context.Context, input CallToo
 	if strings.TrimSpace(args.Query) == "" {
 		return CallToolResult{}, errors.New("query不能为空")
 	}
-	result, err := s.deps.WebSearch.Augment(ctx, websearchclient.AugmentInput{
+	result, err := s.deps.WebSearch.Augment(ctx, &web_search.AugmentReq{
 		Query:       args.Query,
-		Limit:       defaultInt(args.Limit, 5),
-		MaxFetch:    defaultInt(args.MaxFetch, 3),
-		MaxPassages: defaultInt(args.MaxPassages, 6),
+		Limit:       int64(defaultInt(args.Limit, 5)),
+		MaxFetch:    int64(defaultInt(args.MaxFetch, 3)),
+		MaxPassages: int64(defaultInt(args.MaxPassages, 6)),
 	})
 	if err != nil {
 		return CallToolResult{}, err
 	}
-	return toolResult(ToolWebSearch, formatJSON(result), result.AnswerContext), nil
+	if !result.GetSuccess() {
+		return CallToolResult{}, errors.New(defaultString(result.GetMsg(), "web-search-service调用失败"))
+	}
+	return toolResult(ToolWebSearch, formatJSON(result), result.GetAnswerContext()), nil
 }
 
 func (s *mcpGatewayServiceImpl) callSearchMemory(ctx context.Context, input CallToolInput) (CallToolResult, error) {
@@ -240,20 +249,23 @@ func (s *mcpGatewayServiceImpl) callSearchMemory(ctx context.Context, input Call
 	if err := decodeArgs(input.ArgumentsJSON, &args); err != nil {
 		return CallToolResult{}, err
 	}
-	result, err := s.deps.Memory.Recall(ctx, memoryclient.RecallInput{
-		BotID:            input.AgentID,
-		UserID:           input.UserID,
-		ConversationID:   input.ConversationID,
+	result, err := s.deps.Memory.Recall(ctx, &memory.RecallReq{
+		BotId:            input.AgentID,
+		UserId:           input.UserID,
+		ConversationId:   input.ConversationID,
 		Query:            args.Query,
-		Limit:            defaultInt(args.Limit, 5),
+		Limit:            int64(defaultInt(args.Limit, 5)),
 		MinScore:         args.MinScore,
-		VectorCandidateK: args.VectorCandidateK,
-		UseLLMFilter:     args.UseLLMFilter,
+		VectorCandidateK: int64(args.VectorCandidateK),
+		UseLlmFilter:     args.UseLLMFilter,
 	})
 	if err != nil {
 		return CallToolResult{}, err
 	}
-	return toolResult(ToolSearchMemory, formatJSON(result), result.ContextText), nil
+	if !result.GetSuccess() {
+		return CallToolResult{}, errors.New(defaultString(result.GetMsg(), "memory-service调用失败"))
+	}
+	return toolResult(ToolSearchMemory, formatJSON(result), result.GetContextText()), nil
 }
 
 func (s *mcpGatewayServiceImpl) callSearchKnowledge(ctx context.Context, input CallToolInput) (CallToolResult, error) {
@@ -275,9 +287,12 @@ func (s *mcpGatewayServiceImpl) callSearchKnowledge(ctx context.Context, input C
 	if mode == "" {
 		mode = "hybrid"
 	}
-	resp, err := s.deps.RAG.Search(ctx, input.UserID, ragclient.SearchInput{Query: args.Query, Mode: mode, Limit: defaultInt(args.Limit, 5), ConversationID: input.ConversationID})
+	resp, err := s.deps.RAG.Search(ctx, &rag.SearchReq{ViewerId: input.UserID, Query: args.Query, Mode: mode, Limit: int64(defaultInt(args.Limit, 5)), ConversationId: input.ConversationID})
 	if err != nil {
 		return CallToolResult{}, err
+	}
+	if !resp.GetSuccess() {
+		return CallToolResult{}, errors.New(defaultString(resp.GetMsg(), "rag-service调用失败"))
 	}
 	return toolResult(ToolSearchKnowledge, formatJSON(resp), resp.GetAnswer()), nil
 }
@@ -297,16 +312,20 @@ func (s *mcpGatewayServiceImpl) callQueryKnowledgeGraph(ctx context.Context, inp
 	if err := decodeArgs(input.ArgumentsJSON, &args); err != nil {
 		return CallToolResult{}, err
 	}
-	graph, err := s.deps.Knowledge.GetGraphView(ctx, input.UserID, knowledgeclient.GraphQuery{
+	graph, err := s.deps.Knowledge.GetGraphView(ctx, &knowledge.KnowledgeGraphReq{
+		ViewerId:        input.UserID,
 		Query:           args.Query,
 		TypeFilters:     args.TypeFilters,
 		RelationFilters: args.RelationFilters,
-		CommunityID:     args.CommunityID,
-		Hops:            args.Hops,
-		Limit:           defaultInt(args.Limit, 50),
+		CommunityId:     args.CommunityID,
+		Hops:            int64(args.Hops),
+		Limit:           int64(defaultInt(args.Limit, 50)),
 	})
 	if err != nil {
 		return CallToolResult{}, err
+	}
+	if !graph.GetSuccess() {
+		return CallToolResult{}, errors.New(defaultString(graph.GetMsg(), "knowledge-service调用失败"))
 	}
 	return toolResult(ToolQueryKnowledgeGraph, formatJSON(graph), summarizeGraph(graph)), nil
 }
@@ -340,12 +359,12 @@ func (s *mcpGatewayServiceImpl) callSummarizeConversation(ctx context.Context, i
 	if conversationID <= 0 {
 		return CallToolResult{}, errors.New("conversation_id不能为空")
 	}
-	job, err := s.deps.Conversation.CreateDigestJob(ctx, conversationintelclient.CreateDigestJobInput{
-		ConversationID: conversationID,
-		ViewerID:       input.UserID,
-		AgentID:        input.AgentID,
-		StartMessageID: args.StartMessageID,
-		EndMessageID:   args.EndMessageID,
+	job, err := s.deps.Conversation.CreateDigestJob(ctx, &conversation_intelligence.CreateDigestJobReq{
+		ConversationId: conversationID,
+		ViewerId:       input.UserID,
+		AgentId:        input.AgentID,
+		StartMessageId: args.StartMessageID,
+		EndMessageId:   args.EndMessageID,
 		StartTime:      args.StartTime,
 		EndTime:        args.EndTime,
 		Reason:         "mcp_summarize_conversation",
@@ -353,14 +372,20 @@ func (s *mcpGatewayServiceImpl) callSummarizeConversation(ctx context.Context, i
 	if err != nil {
 		return CallToolResult{}, err
 	}
+	if !job.GetSuccess() {
+		return CallToolResult{}, errors.New(defaultString(job.GetMsg(), "conversation-intelligence-service调用失败"))
+	}
 	if args.ProcessNow {
-		processed, err := s.deps.Conversation.ProcessDigestJob(ctx, job.ID, input.UserID)
+		processed, err := s.deps.Conversation.ProcessDigestJob(ctx, &conversation_intelligence.ProcessDigestJobReq{JobId: job.GetJob().GetId(), ViewerId: input.UserID})
 		if err != nil {
 			return CallToolResult{}, err
 		}
-		return toolResult(ToolSummarizeConversation, formatJSON(processed), summarizeArtifacts(processed.Artifacts)), nil
+		if !processed.GetSuccess() {
+			return CallToolResult{}, errors.New(defaultString(processed.GetMsg(), "conversation-intelligence-service处理失败"))
+		}
+		return toolResult(ToolSummarizeConversation, formatJSON(processed), summarizeArtifacts(processed.GetArtifacts())), nil
 	}
-	return toolResult(ToolSummarizeConversation, formatJSON(job), fmt.Sprintf("已创建会话总结任务：%d，状态：%s", job.ID, job.Status)), nil
+	return toolResult(ToolSummarizeConversation, formatJSON(job), fmt.Sprintf("已创建会话总结任务：%d，状态：%s", job.GetJob().GetId(), job.GetJob().GetStatus())), nil
 }
 
 func (s *mcpGatewayServiceImpl) listRemoteTools(ctx context.Context, input ToolContext) ([]Tool, error) {
@@ -379,15 +404,22 @@ func (s *mcpGatewayServiceImpl) listRemoteTools(ctx context.Context, input ToolC
 	return out, nil
 }
 
-func (s *mcpGatewayServiceImpl) resolveRemoteServers(ctx context.Context, input ToolContext) ([]settingsclient.MCPServerConfig, error) {
+func (s *mcpGatewayServiceImpl) resolveRemoteServers(ctx context.Context, input ToolContext) ([]*settings.MCPServerConfig, error) {
 	if s.deps.Settings == nil {
 		return nil, nil
 	}
-	return s.deps.Settings.ResolveMCPServers(ctx, input.UserID, input.AgentID, input.ConversationID)
+	resp, err := s.deps.Settings.ResolveMCPServers(ctx, &settings.ResolveMCPServersReq{UserId: input.UserID, AgentId: input.AgentID, ConversationId: input.ConversationID})
+	if err != nil {
+		return nil, err
+	}
+	if !resp.GetSuccess() {
+		return nil, errors.New(defaultString(resp.GetMsg(), "settings-service解析MCP配置失败"))
+	}
+	return resp.GetServers(), nil
 }
 
-func (s *mcpGatewayServiceImpl) remoteToolsList(ctx context.Context, server settingsclient.MCPServerConfig) ([]Tool, error) {
-	if server.Transport != settingsclient.MCPTransportStreamableHTTP && server.Transport != settingsclient.MCPTransportSSE {
+func (s *mcpGatewayServiceImpl) remoteToolsList(ctx context.Context, server *settings.MCPServerConfig) ([]Tool, error) {
+	if server == nil || (server.GetTransport() != "streamable_http" && server.GetTransport() != "sse") {
 		return nil, nil
 	}
 	resp, err := s.remoteJSONRPC(ctx, server, "tools/list", map[string]interface{}{})
@@ -404,15 +436,15 @@ func (s *mcpGatewayServiceImpl) remoteToolsList(ctx context.Context, server sett
 	if err := json.Unmarshal(resp, &decoded); err != nil {
 		return nil, err
 	}
-	allow := parseStringSet(server.AllowToolsJSON)
-	deny := parseStringSet(server.DenyToolsJSON)
+	allow := parseStringSet(server.GetAllowToolsJson())
+	deny := parseStringSet(server.GetDenyToolsJson())
 	out := make([]Tool, 0, len(decoded.Tools))
 	for _, item := range decoded.Tools {
 		name := strings.TrimSpace(item.Name)
 		if name == "" || deny[name] || (len(allow) > 0 && !allow[name]) {
 			continue
 		}
-		out = append(out, Tool{Name: name, Description: item.Description, Source: ToolSourceRemote, ServerName: server.Name, InputSchemaJson: string(item.InputSchema), RequiresApproval: remoteRequiresApproval(server)})
+		out = append(out, Tool{Name: name, Description: item.Description, Source: ToolSourceRemote, ServerName: server.GetName(), InputSchemaJson: string(item.InputSchema), RequiresApproval: remoteRequiresApproval(server)})
 	}
 	return out, nil
 }
@@ -443,8 +475,11 @@ func (s *mcpGatewayServiceImpl) callRemoteTool(ctx context.Context, input CallTo
 	return CallToolResult{}, "", errors.New("远程MCP工具不存在或不在allowlist中")
 }
 
-func (s *mcpGatewayServiceImpl) remoteJSONRPC(ctx context.Context, server settingsclient.MCPServerConfig, method string, params interface{}) (json.RawMessage, error) {
-	endpoint := strings.TrimSpace(server.EndpointURL)
+func (s *mcpGatewayServiceImpl) remoteJSONRPC(ctx context.Context, server *settings.MCPServerConfig, method string, params interface{}) (json.RawMessage, error) {
+	if server == nil {
+		return nil, errors.New("远程MCP配置为空")
+	}
+	endpoint := strings.TrimSpace(server.GetEndpointUrl())
 	if endpoint == "" {
 		return nil, errors.New("远程MCP endpoint_url为空")
 	}
@@ -485,15 +520,18 @@ func (s *mcpGatewayServiceImpl) remoteJSONRPC(ctx context.Context, server settin
 	return decoded.Result, nil
 }
 
-func applyRemoteHeaders(req *http.Request, server settingsclient.MCPServerConfig) {
-	for k, v := range parseStringMap(server.HeadersJSON) {
+func applyRemoteHeaders(req *http.Request, server *settings.MCPServerConfig) {
+	if server == nil {
+		return
+	}
+	for k, v := range parseStringMap(server.GetHeadersJson()) {
 		req.Header.Set(k, v)
 	}
-	secret := strings.TrimSpace(server.Secret)
+	secret := strings.TrimSpace(server.GetSecret())
 	if secret == "" {
 		return
 	}
-	switch strings.ToLower(strings.TrimSpace(server.AuthType)) {
+	switch strings.ToLower(strings.TrimSpace(server.GetAuthType())) {
 	case "bearer", "token", "":
 		req.Header.Set("Authorization", "Bearer "+secret)
 	case "basic":
@@ -648,8 +686,8 @@ func rawJSONMap(raw string) (map[string]interface{}, error) {
 	return out, nil
 }
 
-func remoteRequiresApproval(server settingsclient.MCPServerConfig) bool {
-	return server.TrustLevel == settingsclient.MCPTrustLow
+func remoteRequiresApproval(server *settings.MCPServerConfig) bool {
+	return server != nil && server.GetTrustLevel() == "low"
 }
 
 func remoteResultText(raw json.RawMessage) string {
@@ -673,20 +711,24 @@ func remoteResultText(raw json.RawMessage) string {
 	return string(raw)
 }
 
-func summarizeGraph(graph *knowledgeclient.GraphView) string {
+func summarizeGraph(graph *knowledge.KnowledgeGraphResp) string {
 	if graph == nil {
 		return "知识图谱查询无结果。"
 	}
-	return fmt.Sprintf("知识图谱命中：%d 个节点、%d 条边、%d 个社区。", graph.Stats.NodeCount, graph.Stats.EdgeCount, graph.Stats.CommunityCount)
+	stats := graph.GetStats()
+	return fmt.Sprintf("知识图谱命中：%d 个节点、%d 条边、%d 个社区。", stats.GetNodeCount(), stats.GetEdgeCount(), stats.GetCommunityCount())
 }
 
-func summarizeArtifacts(artifacts []conversationintelclient.Artifact) string {
+func summarizeArtifacts(artifacts []*conversation_intelligence.ConversationArtifact) string {
 	if len(artifacts) == 0 {
 		return "会话总结任务已处理，但没有产出摘要。"
 	}
 	var b strings.Builder
 	for _, item := range artifacts {
-		b.WriteString(fmt.Sprintf("## %s\n%s\n\n", item.Title, item.Content))
+		if item == nil {
+			continue
+		}
+		b.WriteString(fmt.Sprintf("## %s\n%s\n\n", item.GetTitle(), item.GetContent()))
 	}
 	return strings.TrimSpace(b.String())
 }

@@ -14,6 +14,7 @@ let mediaPayloadCache = {};
 let currentMessages = [];
 let pendingReplyMessage = null;
 let currentConversationRecipientCount = 0;
+let currentConversationUnreadCount = 0;
 let botCache = [];
 let agentUserIDToBot = {};
 let groupMembersCache = {};
@@ -27,6 +28,7 @@ let stoppedAgentThinkingByConversation = {};
 let conversationParticipantCache = {};
 let conversationGroupCollapsed = JSON.parse(localStorage.getItem('claran_conversation_group_collapsed') || '{}');
 let lastOnlineSyncAt = 0;
+let pendingSyncAck = JSON.parse(localStorage.getItem('claran_pending_sync_ack') || '{"cursor":0,"message_ids":[]}');
 let friendGroupCollapsed = JSON.parse(localStorage.getItem('claran_friend_group_collapsed') || '{}');
 let agentContextSidebarVisible = false;
 let agentNativeStateByConversation = {};
@@ -37,12 +39,14 @@ let ragSearchDocumentID = '';
 let ragGraphCache = { nodes: [], edges: [], communities: [] };
 let ragUploadJobs = {};
 let ragUploadHiddenJobIDs = JSON.parse(localStorage.getItem('claran_rag_upload_hidden_jobs') || '{}');
+let ragUploadSubmitting = false;
 let ragSearchTimer = null;
 let knowledgeGraphCache = { nodes: [], edges: [], communities: [], stats: {} };
 let knowledgeGraphInstance = null;
 let knowledgeGraphSelected = null;
 let knowledgePathSelection = { sourceID: '', targetID: '', path: null };
 let knowledgeGraphShowDocumentRoots = JSON.parse(localStorage.getItem('claran_knowledge_show_document_roots') || 'true');
+let knowledgeGraphShowGenericRelations = JSON.parse(localStorage.getItem('claran_knowledge_show_generic_relations') || 'false');
 let adminMCPTraceCache = [];
 let systemNoticeCache = [];
 let systemNoticeUnread = 0;
@@ -901,6 +905,27 @@ function renderCurrentMessages(scrollToBottom = true) {
     }
     renderAgentNativeStatus();
     renderAgentContextSidebar();
+    renderMissedSummaryButton();
+}
+
+function getVisibleUnreadMessageCount() {
+    return currentMessages.filter(m => m && !m.is_read_by_me && !sameID(m.sender_id, currentUser?.id)).length;
+}
+
+function renderMissedSummaryButton() {
+    const btn = document.getElementById('missed-summary-btn');
+    if (!btn) return;
+    if (!currentConversationID || currentBotID !== null) {
+        btn.style.display = 'none';
+        return;
+    }
+    const unread = Math.max(Number(unreadMap[currentConversationID] || 0), currentConversationUnreadCount || 0, getVisibleUnreadMessageCount());
+    if (unread > 0) {
+        btn.style.display = 'inline-flex';
+        btn.textContent = `我错过了什么 · ${unread > 99 ? '99+' : unread}`;
+    } else {
+        btn.style.display = 'none';
+    }
 }
 
 function setAgentNativeState(conversationID, status, detail = '') {
@@ -1481,7 +1506,7 @@ function renderAgentWorkspaceCard(bot) {
             </div>
             <div class="agent-card-actions">
                 <button class="btn-small" onclick="showAgentRunModal(${jsArg(bot.id)}, ${jsStringArg(name)})">运行</button>
-                <button class="btn-small ghost" onclick="chatWithBot(${jsArg(bot.id)})">对话</button>
+                <button class="btn-small ghost" onclick="startAgentPrivateChat(${jsArg(bot.agent_user_id)})">私聊</button>
                 <button class="btn-small ghost" onclick="showEditAgentForm(${jsArg(bot.id)})">配置</button>
                 <button class="btn-small ghost" onclick="showAgentPermissions(${jsArg(bot.id)}, ${jsStringArg(name)})">权限</button>
             </div>
@@ -1778,6 +1803,7 @@ async function logout() {
     friendRemarkCache = {};
     localStorage.removeItem('claran_user');
     localStorage.removeItem('claran_unread');
+    localStorage.removeItem('claran_pending_sync_ack');
     modalStack = [];
     currentBotID = null;
     botChatHistory = {};
@@ -1893,8 +1919,10 @@ async function syncAfterOnline() {
     if (now - lastOnlineSyncAt < 3000) return;
     lastOnlineSyncAt = now;
     try {
+        await flushPendingSyncAck();
+        const cursor = getLastSyncCursor();
         const [syncResp, offlineResp, unreadResp] = await Promise.all([
-            messageAPI.sync(30),
+            messageAPI.sync(30, cursor),
             messageAPI.offline(),
             messageAPI.unreadCount(),
         ]);
@@ -1917,6 +1945,51 @@ async function syncAfterOnline() {
     }
 }
 
+function syncCursorKey() {
+    return currentUser && currentUser.id ? `claran_last_sync_cursor_${currentUser.id}` : 'claran_last_sync_cursor';
+}
+
+function getLastSyncCursor() {
+    return Number(localStorage.getItem(syncCursorKey()) || 0);
+}
+
+function setLastSyncCursor(cursor = 0) {
+    const next = Math.max(getLastSyncCursor(), Number(cursor || 0));
+    localStorage.setItem(syncCursorKey(), String(next));
+}
+
+function savePendingSyncAck() {
+    pendingSyncAck.message_ids = [...new Set((pendingSyncAck.message_ids || []).map(String))];
+    pendingSyncAck.cursor = Math.max(Number(pendingSyncAck.cursor || 0), ...pendingSyncAck.message_ids.map(Number).filter(Boolean), 0);
+    localStorage.setItem('claran_pending_sync_ack', JSON.stringify(pendingSyncAck));
+}
+
+function queueSyncAck(cursor = 0, messageIDs = []) {
+    pendingSyncAck.cursor = Math.max(Number(pendingSyncAck.cursor || 0), Number(cursor || 0));
+    pendingSyncAck.message_ids = [...(pendingSyncAck.message_ids || []), ...(messageIDs || []).filter(Boolean)];
+    savePendingSyncAck();
+}
+
+async function flushPendingSyncAck() {
+    const ids = pendingSyncAck.message_ids || [];
+    const cursor = Number(pendingSyncAck.cursor || 0);
+    if (!cursor && !ids.length) return;
+    const resp = await messageAPI.ackSync(cursor, ids, localStorage.getItem('claran_device_id') || ensureDeviceID());
+    if (resp && resp.code === 0 && (resp.data?.success !== false)) {
+        pendingSyncAck = { cursor: 0, message_ids: [] };
+        savePendingSyncAck();
+    }
+}
+
+function ensureDeviceID() {
+    let id = localStorage.getItem('claran_device_id');
+    if (!id) {
+        id = `web-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+        localStorage.setItem('claran_device_id', id);
+    }
+    return id;
+}
+
 function applySyncPayload(payload) {
     const convs = payload.conversations || payload.Conversations || [];
     if (Array.isArray(convs)) {
@@ -1931,16 +2004,48 @@ function applySyncPayload(payload) {
         });
     }
     const windows = payload.windows || payload.Windows || [];
+    const ackIDs = [];
     windows.forEach(win => {
         if (!win || !win.success) return;
         const conversationID = win.conversation_id || win.ConversationId;
         const messages = win.messages || win.Messages || [];
         cacheMessages(conversationID, messages);
+        messages.forEach(m => {
+            const id = m && (m.id || m.msg_id);
+            if (id) ackIDs.push(id);
+        });
         if (sameID(conversationID, currentConversationID) && Array.isArray(messages) && messages.length) {
             currentMessages = mergeMessagesByIdentity(currentMessages, messages);
             renderCurrentMessages(false);
         }
     });
+    const messages = payload.messages || payload.Messages || [];
+    if (Array.isArray(messages) && messages.length) {
+        const byConversation = {};
+        messages.forEach(msg => {
+            if (!msg) return;
+            const conversationID = msg.conversation_id || msg.ConversationId;
+            const id = msg.id || msg.msg_id || msg.Id || msg.MsgId;
+            if (id) ackIDs.push(id);
+            if (!conversationID) return;
+            byConversation[conversationID] = byConversation[conversationID] || [];
+            byConversation[conversationID].push(msg);
+        });
+        Object.entries(byConversation).forEach(([conversationID, items]) => {
+            const cached = getCachedMessages(conversationID);
+            cacheMessages(conversationID, mergeMessagesByIdentity(cached, items));
+            if (sameID(conversationID, currentConversationID)) {
+                currentMessages = mergeMessagesByIdentity(currentMessages, items);
+                renderCurrentMessages(false);
+            }
+        });
+    }
+    const cursor = Number(payload.cursor || payload.Cursor || 0);
+    if (cursor) {
+        setLastSyncCursor(cursor);
+        queueSyncAck(cursor, ackIDs);
+        flushPendingSyncAck().catch(err => console.warn('同步ACK失败，稍后重试:', err));
+    }
 }
 
 function mergeMessagesByIdentity(existing = [], incoming = []) {
@@ -2549,7 +2654,7 @@ async function showRAGWorkspace(defaultTab = 'search', seedQuery = '', seedDocum
                         <strong>上传文件构建知识库</strong>
                         <p>支持 UTF-8 txt / Markdown / 代码文件 / PDF / docx / 图片。扫描件会尝试使用 GLM-OCR。</p>
                     </div>
-                    <button class="btn-secondary" onclick="uploadRAGFiles()">上传并入库</button>
+                    <button id="rag-upload-submit-btn" class="btn-secondary" onclick="uploadRAGFiles()">上传并入库</button>
                 </div>
                 <div class="modal-actions">
                     <button class="btn-secondary" onclick="clearRAGIngestForm()">清空</button>
@@ -2675,11 +2780,21 @@ async function ingestRAGDocument() {
 }
 
 async function uploadRAGFiles() {
+    if (ragUploadSubmitting) {
+        showToast('文件正在提交，请等待当前上传任务进入后台', 'warning');
+        return;
+    }
     const input = document.getElementById('rag-file-input');
-    const files = input?.files || [];
+    const files = Array.from(input?.files || []);
     if (!files.length) {
         showToast('请选择 txt、md、pdf 或 docx 文件', 'warning');
         return;
+    }
+    ragUploadSubmitting = true;
+    const submitBtn = document.getElementById('rag-upload-submit-btn');
+    if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.textContent = '提交中';
     }
     const resultEl = document.getElementById('rag-ingest-result');
     const uploadStart = Date.now();
@@ -2693,7 +2808,7 @@ async function uploadRAGFiles() {
             total: files.length,
             completed: 0,
             failed: 0,
-            files: Array.from(files).map(file => ({ file_name: file.name, status: 'uploading' })),
+            files: files.map(file => ({ file_name: file.name, status: 'uploading' })),
         },
         status: 'uploading',
         started_at: uploadStart,
@@ -2708,58 +2823,69 @@ async function uploadRAGFiles() {
         fileCount: files.length,
         elapsed: 0,
     });
-    const resp = await ragAPI.upload({
-        fileList: files,
-        title: document.getElementById('rag-title')?.value.trim() || '',
-        visibility: document.getElementById('rag-visibility')?.value || 'private',
-        groupID: currentConversationType === 'group' ? (conversationGroupMap[currentConversationID] || '') : '',
-        conversationID: currentConversationID || '',
-        onProgress: progress => {
-            const next = {
-                ...progress,
-                total: progress.total || totalBytes,
-                fileCount: files.length,
-                elapsed: Date.now() - uploadStart,
-            };
-            renderRAGUploadSubmitting(resultEl, next);
-            ragUploadJobs[tempJobID] = normalizeRAGUploadData(ragUploadJobs[tempJobID], {
-                status: progress.phase === 'submitted' ? 'processing' : 'uploading',
-                upload_percent: next.percent,
-                upload_loaded: next.loaded,
-                upload_total: next.total,
+    try {
+        const resp = await ragAPI.upload({
+            fileList: files,
+            title: document.getElementById('rag-title')?.value.trim() || '',
+            visibility: document.getElementById('rag-visibility')?.value || 'private',
+            groupID: currentConversationType === 'group' ? (conversationGroupMap[currentConversationID] || '') : '',
+            conversationID: currentConversationID || '',
+            onProgress: progress => {
+                const next = {
+                    ...progress,
+                    total: progress.total || totalBytes,
+                    fileCount: files.length,
+                    elapsed: Date.now() - uploadStart,
+                };
+                renderRAGUploadSubmitting(resultEl, next);
+                ragUploadJobs[tempJobID] = normalizeRAGUploadData(ragUploadJobs[tempJobID], {
+                    status: progress.phase === 'submitted' ? 'processing' : 'uploading',
+                    upload_percent: next.percent,
+                    upload_loaded: next.loaded,
+                    upload_total: next.total,
+                });
+                renderRAGUploadBubble();
+            },
+        });
+        delete ragUploadJobs[tempJobID];
+        renderRAGUploadBubble();
+        if (resp && resp.code === 0 && resp.data?.success) {
+            const jobID = resp.data.job_id;
+            if (input) input.value = '';
+            const titleInput = document.getElementById('rag-title');
+            if (titleInput) titleInput.value = '';
+            renderRAGUploadJob(resp.data, document.getElementById('rag-ingest-result') || resultEl);
+            upsertRAGUploadJob(resp.data);
+            if (jobID) {
+                showToast('上传任务已提交，后台正在解析入库', 'info');
+                pollRAGUploadJob(jobID, resultEl);
+            } else {
+                showToast('文件处理完成', 'success');
+                await loadKnowledgeSidebar();
+            }
+        } else {
+            ragUploadJobs[tempJobID] = normalizeRAGUploadData({
+                job_id: tempJobID,
+                job: {
+                    id: tempJobID,
+                    status: 'failed',
+                    total: files.length,
+                    completed: 0,
+                    failed: files.length,
+                    files: files.map(file => ({ file_name: file.name, status: 'failed' })),
+                },
+                status: 'failed',
+                started_at: uploadStart,
             });
             renderRAGUploadBubble();
-        },
-    });
-    delete ragUploadJobs[tempJobID];
-    renderRAGUploadBubble();
-    if (resp && resp.code === 0 && resp.data?.success) {
-        const jobID = resp.data.job_id;
-        renderRAGUploadJob(resp.data, document.getElementById('rag-ingest-result') || resultEl);
-        upsertRAGUploadJob(resp.data);
-        if (jobID) {
-            showToast('上传任务已提交，后台正在解析入库', 'info');
-            pollRAGUploadJob(jobID, resultEl);
-        } else {
-            showToast('文件处理完成', 'success');
-            await loadKnowledgeSidebar();
+            resultEl.innerHTML = `<div class="rag-status-line error">${escapeHTML(resp?.message || resp?.data?.msg || '上传失败')}</div>`;
         }
-    } else {
-        ragUploadJobs[tempJobID] = normalizeRAGUploadData({
-            job_id: tempJobID,
-            job: {
-                id: tempJobID,
-                status: 'failed',
-                total: files.length,
-                completed: 0,
-                failed: files.length,
-                files: Array.from(files).map(file => ({ file_name: file.name, status: 'failed' })),
-            },
-            status: 'failed',
-            started_at: uploadStart,
-        });
-        renderRAGUploadBubble();
-        resultEl.innerHTML = `<div class="rag-status-line error">${escapeHTML(resp?.message || resp?.data?.msg || '上传失败')}</div>`;
+    } finally {
+        ragUploadSubmitting = false;
+        if (submitBtn) {
+            submitBtn.disabled = false;
+            submitBtn.textContent = '上传并入库';
+        }
     }
 }
 
@@ -2970,12 +3096,18 @@ async function pollRAGUploadJob(jobID, resultEl, attempt = 0) {
         return;
     }
     const liveResultEl = document.getElementById('rag-ingest-result') || resultEl;
-    if (liveResultEl) renderRAGUploadJob(data, liveResultEl);
     upsertRAGUploadJob({ ...data, poll_error: '' });
+    if (liveResultEl) renderRAGUploadJob(ragUploadJobs[String(jobID)] || data, liveResultEl);
     const status = data.job?.status;
     if (isTerminalRAGUploadStatus(status)) {
         await loadKnowledgeSidebar();
         showToast(status === 'completed' ? 'RAG 文件入库完成' : (status === 'cancelled' ? 'RAG 文件入库任务已取消' : 'RAG 文件入库任务失败'), status === 'completed' ? 'success' : (status === 'cancelled' ? 'info' : 'error'));
+        if (status === 'completed') {
+            setTimeout(() => {
+                const latestStatus = ragUploadJobs[String(jobID)]?.job?.status || ragUploadJobs[String(jobID)]?.status;
+                if (latestStatus === 'completed') dismissRAGUploadJob(jobID);
+            }, 1800);
+        }
         return;
     }
     pollRAGUploadJob(jobID, resultEl, attempt + 1);
@@ -3160,7 +3292,7 @@ async function loadRAGGraph() {
     if (!view) return;
     view.innerHTML = '加载知识图谱...';
     const query = document.getElementById('rag-graph-query')?.value || '';
-    const resp = await ragAPI.graph(query, 120);
+    const resp = await ragAPI.graph(query, 260);
     if (!(resp && resp.code === 0 && resp.data?.success)) {
         view.innerHTML = `<div class="empty-tip">图谱加载失败<br><small>${escapeHTML(resp?.message || resp?.data?.msg || '')}</small></div>`;
         return;
@@ -3305,43 +3437,59 @@ async function showKnowledgeGraphWorkspace(seedQuery = '', seedDocumentID = 0) {
                 <button class="knowledge-back-btn" onclick="showKnowledgeHomeWorkspace()">返回知识工作台</button>
             </section>
             <section class="knowledge-toolbar">
-                <div class="knowledge-search">
-                    <input id="knowledge-query" type="text" placeholder="搜索节点，例如 agent_dispatch_records / msg-core-service" value="${escapeHTML(seedQuery)}" onkeydown="if(event.key==='Enter')loadKnowledgeGraph()">
-                    <button class="btn-primary" onclick="loadKnowledgeGraph()">搜索图谱</button>
-                    <button class="btn-secondary" onclick="resetKnowledgeGraphView()">重置视图</button>
-                </div>
-                <div class="knowledge-filter-row document-scope">
-                    <label>文章范围</label>
-                    <select id="knowledge-document-select" class="form-select" onchange="loadKnowledgeGraph()">
-                        <option value="0">全部文档</option>
-                    </select>
-                    <button class="btn-small ghost" onclick="rebuildSelectedKnowledgeGraph()">重建当前图谱</button>
-                    <button class="btn-small ghost" onclick="rebuildAllKnowledgeGraphs()">重建全部图谱</button>
-                    <button class="btn-small danger-soft" onclick="deleteSelectedKnowledgeGraph()">删除该文图谱</button>
-                </div>
-                <div class="knowledge-filter-row">
-                    <label>LLM 类型</label>
-                    <div id="knowledge-type-filters" class="knowledge-chip-group">
-                        <span class="knowledge-filter-placeholder">加载图谱后自动生成</span>
+                <div class="knowledge-toolbar-row primary">
+                    <div class="knowledge-search">
+                        <input id="knowledge-query" type="text" placeholder="搜索节点，例如 agent_dispatch_records / msg-core-service" value="${escapeHTML(seedQuery)}" onkeydown="if(event.key==='Enter')loadKnowledgeGraph()">
+                        <button class="btn-primary" onclick="loadKnowledgeGraph()">搜索图谱</button>
+                        <button class="btn-secondary" onclick="resetKnowledgeGraphView()">重置视图</button>
+                    </div>
+                    <div class="knowledge-filter-row document-scope">
+                        <label>文章范围</label>
+                        <select id="knowledge-document-select" class="form-select" onchange="loadKnowledgeGraph()">
+                            <option value="0">全部文档</option>
+                        </select>
+                        <button class="btn-small ghost" onclick="rebuildSelectedKnowledgeGraph()">重建当前图谱</button>
+                        <button class="btn-small ghost" onclick="rebuildAllKnowledgeGraphs()">重建全部图谱</button>
+                        <button class="btn-small danger-soft" onclick="deleteSelectedKnowledgeGraph()">删除该文图谱</button>
                     </div>
                 </div>
-                <div class="knowledge-filter-row split">
-                    <label>邻居深度</label>
-                    <select id="knowledge-hop-select" class="form-select" onchange="loadKnowledgeGraph()">
-                        <option value="1">一跳邻居</option>
-                        <option value="2">二跳邻居</option>
-                    </select>
-                    <label>社区</label>
-                    <select id="knowledge-community-select" class="form-select" onchange="loadKnowledgeGraph()">
-                        <option value="0">全部社区</option>
-                    </select>
-                </div>
-                <div class="knowledge-filter-row">
-                    <label>显示</label>
-                    <label class="checkbox-row compact">
-                        <input id="knowledge-show-document-roots" type="checkbox" ${knowledgeGraphShowDocumentRoots ? 'checked' : ''} onchange="toggleKnowledgeDocumentRoots(this.checked)">
-                        <span>显示文章根节点和包含关系</span>
-                    </label>
+                <div class="knowledge-toolbar-row filters">
+                    <div class="knowledge-filter-row">
+                        <label>LLM 类型</label>
+                        <div id="knowledge-type-filters" class="knowledge-chip-group">
+                            <span class="knowledge-filter-placeholder">加载图谱后自动生成</span>
+                        </div>
+                    </div>
+                    <div class="knowledge-filter-row">
+                        <label>LLM 关系</label>
+                        <div id="knowledge-relation-filters" class="knowledge-chip-group">
+                            <span class="knowledge-filter-placeholder">加载图谱后自动生成</span>
+                        </div>
+                    </div>
+                    <div class="knowledge-filter-row split">
+                        <label>邻居深度</label>
+                        <select id="knowledge-hop-select" class="form-select" onchange="loadKnowledgeGraph()">
+                            <option value="1">一跳邻居</option>
+                            <option value="2">二跳邻居</option>
+                        </select>
+                        <label>社区</label>
+                        <select id="knowledge-community-select" class="form-select" onchange="loadKnowledgeGraph()">
+                            <option value="0">全部社区</option>
+                        </select>
+                    </div>
+                    <div class="knowledge-filter-row visibility">
+                        <label>显示</label>
+                        <div class="knowledge-toggle-stack">
+                            <label class="checkbox-row compact">
+                                <input id="knowledge-show-document-roots" type="checkbox" ${knowledgeGraphShowDocumentRoots ? 'checked' : ''} onchange="toggleKnowledgeDocumentRoots(this.checked)">
+                                <span>文章根节点和包含关系</span>
+                            </label>
+                            <label class="checkbox-row compact">
+                                <input id="knowledge-show-generic-relations" type="checkbox" ${knowledgeGraphShowGenericRelations ? 'checked' : ''} onchange="toggleKnowledgeGenericRelations(this.checked)">
+                                <span>泛化关系/弱关联</span>
+                            </label>
+                        </div>
+                    </div>
                 </div>
             </section>
             <section class="knowledge-stage">
@@ -3384,6 +3532,12 @@ function toggleKnowledgeDocumentRoots(checked) {
     renderKnowledgeGraph();
 }
 
+function toggleKnowledgeGenericRelations(checked) {
+    knowledgeGraphShowGenericRelations = !!checked;
+    localStorage.setItem('claran_knowledge_show_generic_relations', JSON.stringify(knowledgeGraphShowGenericRelations));
+    renderKnowledgeGraph();
+}
+
 function selectedKnowledgeFilters(id) {
     return Array.from(document.querySelectorAll(`#${id} .knowledge-chip.active`)).map(btn => btn.dataset.value).filter(Boolean);
 }
@@ -3392,10 +3546,11 @@ function currentKnowledgeQueryOptions() {
     return {
         query: document.getElementById('knowledge-query')?.value.trim() || '',
         types: selectedKnowledgeFilters('knowledge-type-filters'),
+        relations: selectedKnowledgeFilters('knowledge-relation-filters'),
         communityID: document.getElementById('knowledge-community-select')?.value || 0,
         documentID: idString(document.getElementById('knowledge-document-select')?.value),
         hops: Number(document.getElementById('knowledge-hop-select')?.value || 1),
-        limit: 120,
+        limit: 260,
     };
 }
 
@@ -3429,6 +3584,7 @@ async function loadKnowledgeGraph() {
     knowledgeGraphCache = data;
     syncKnowledgeCommunityOptions(data.communities || []);
     syncKnowledgeTypeFilters(data);
+    syncKnowledgeRelationFilters(data);
     renderKnowledgeGraph();
 }
 
@@ -3446,6 +3602,20 @@ function syncKnowledgeTypeFilters(data = {}) {
     `).join('');
 }
 
+function syncKnowledgeRelationFilters(data = {}) {
+    const holder = document.getElementById('knowledge-relation-filters');
+    if (!holder) return;
+    const active = new Set(selectedKnowledgeFilters('knowledge-relation-filters'));
+    const relations = uniqueArray([...(data.stats?.relations || []), ...((data.edges || []).map(edge => knowledgeDisplayRelation(edge.relation)))]);
+    if (!relations.length) {
+        holder.innerHTML = '<span class="knowledge-filter-placeholder">暂无关系</span>';
+        return;
+    }
+    holder.innerHTML = relations.map(relation => `
+        <button class="knowledge-chip relation ${active.has(relation) ? 'active' : ''}" data-value="${escapeHTML(relation)}" onclick="toggleKnowledgeFilter(this)">${escapeHTML(knowledgeRelationLabel(relation))}</button>
+    `).join('');
+}
+
 function syncKnowledgeCommunityOptions(communities) {
     const select = document.getElementById('knowledge-community-select');
     if (!select) return;
@@ -3456,7 +3626,7 @@ function syncKnowledgeCommunityOptions(communities) {
 
 function renderKnowledgeGraph() {
     const data = knowledgeGraphCache || {};
-    const visibleGraph = filterKnowledgeDocumentRoots(data.nodes || [], data.edges || []);
+    const visibleGraph = filterKnowledgeGraphVisibility(data.nodes || [], data.edges || []);
     const nodes = visibleGraph.nodes;
     const edges = visibleGraph.edges;
     const communities = data.communities || [];
@@ -3518,6 +3688,42 @@ function isKnowledgeDocumentRoot(node) {
 
 function isKnowledgeContainsRelation(edge) {
     return ['CONTAINS', '包含'].includes(knowledgeDisplayRelation(edge?.relation || ''));
+}
+
+function isKnowledgeGenericRelation(edge) {
+    const relation = knowledgeDisplayRelation(edge?.relation || '').trim();
+    if (!relation) return true;
+    const normalized = relation.toUpperCase().replace(/[-\s]+/g, '_');
+    if (['RELATED_TO', 'RELATES_TO', 'RELATED', 'ASSOCIATED_WITH', 'ASSOCIATES_WITH'].includes(normalized)) {
+        return true;
+    }
+    const lower = relation.toLowerCase();
+    return ['相关', '关联', '有关', '提到', '提及', '同现', '共现', '同章共现', '同章共同说明', '同章说明', '上下文相关', '语义相关', '一起出现', 'co-occur', 'mentioned'].some(term => lower.includes(term.toLowerCase()));
+}
+
+function filterKnowledgeGraphVisibility(nodes = [], edges = []) {
+    const rootFiltered = filterKnowledgeDocumentRoots(nodes, edges);
+    let visibleEdges = rootFiltered.edges;
+    if (knowledgeGraphShowGenericRelations) {
+        return pruneKnowledgeNodesByVisibleEdges(rootFiltered.nodes, visibleEdges);
+    }
+    visibleEdges = rootFiltered.edges.filter(edge => !isKnowledgeGenericRelation(edge));
+    return pruneKnowledgeNodesByVisibleEdges(rootFiltered.nodes, visibleEdges);
+}
+
+function pruneKnowledgeNodesByVisibleEdges(nodes = [], edges = []) {
+    if (!edges.length) {
+        return { nodes: [], edges: [] };
+    }
+    const connectedIDs = new Set();
+    edges.forEach(edge => {
+        connectedIDs.add(String(edge.source_id));
+        connectedIDs.add(String(edge.target_id));
+    });
+    return {
+        nodes: nodes.filter(node => connectedIDs.has(String(node.id))),
+        edges,
+    };
 }
 
 function filterKnowledgeDocumentRoots(nodes = [], edges = []) {
@@ -3594,16 +3800,20 @@ function renderKnowledgeG6(nodes, edges) {
     if (!container) return;
     const width = container.clientWidth || 900;
     const height = container.clientHeight || 620;
+    const visualEdges = annotateKnowledgeParallelEdges(edges);
     const graphSize = nodes.length + edges.length;
-    const showEdgeLabels = edges.length <= 60;
+    const showEdgeLabels = true;
     const animateGraph = nodes.length <= 120 && edges.length <= 180;
     const edgeModel = edge => {
         const relationLabel = knowledgeRelationLabel(edge.relation || edge.label || edge.type || '关系');
+        const displayLabel = truncateKnowledgeLabel(relationLabel, edges.length > 120 ? 8 : 14);
         const model = {
             id: String(edge.id),
             source: String(edge.source_id),
             target: String(edge.target_id),
-            label: showEdgeLabels ? relationLabel : '',
+            type: 'quadratic',
+            curveOffset: edge._parallelOffset || 0,
+            label: displayLabel,
             data: edge,
             style: {
                 stroke: edge.color || '#64748b',
@@ -3611,11 +3821,12 @@ function renderKnowledgeG6(nodes, edges) {
                 endArrow: true,
                 opacity: 0.72,
             },
+            tooltip: relationLabel,
         };
         if (showEdgeLabels) {
-            model.style.labelText = relationLabel;
+            model.style.labelText = displayLabel;
             model.style.labelFill = '#334155';
-            model.style.labelFontSize = 11;
+            model.style.labelFontSize = edges.length > 120 ? 10 : 11;
             model.style.labelFontWeight = 700;
             model.style.labelBackgroundFill = '#ffffff';
             model.labelCfg = {
@@ -3651,7 +3862,7 @@ function renderKnowledgeG6(nodes, edges) {
                 style: { fill: '#21312b', fontSize: 12, fontWeight: 700 },
             },
         })),
-        edges: edges.map(edgeModel),
+        edges: visualEdges.map(edgeModel),
     };
     knowledgeGraphInstance = new G6.Graph({
         container: 'knowledge-g6-container',
@@ -3674,11 +3885,11 @@ function renderKnowledgeG6(nodes, edges) {
         defaultNode: { type: 'circle' },
         defaultEdge: {
             type: 'quadratic',
-            labelCfg: showEdgeLabels ? {
+            labelCfg: {
                 autoRotate: true,
                 refY: -8,
                 style: { fill: '#334155', fontSize: 11, fontWeight: 700, stroke: '#ffffff', lineWidth: 4 },
-            } : undefined,
+            },
         },
         nodeStateStyles: {
             hover: { lineWidth: 5, shadowBlur: 26 },
@@ -3777,21 +3988,23 @@ function renderKnowledgeSVGFallback(canvas, nodes, edges) {
     const radius = Math.min(width, height) * 0.36;
     const cx = width / 2;
     const cy = height / 2;
+    const visualEdges = annotateKnowledgeParallelEdges(edges);
     const positioned = nodes.map((node, idx) => {
         const angle = Math.PI * 2 * idx / Math.max(nodes.length, 1);
         return { ...node, x: cx + Math.cos(angle) * radius, y: cy + Math.sin(angle) * radius };
     });
     const nodeMap = Object.fromEntries(positioned.map(n => [String(n.id), n]));
-    const edgeHTML = edges.map(edge => {
+    const edgeHTML = visualEdges.map(edge => {
         const s = nodeMap[String(edge.source_id)];
         const t = nodeMap[String(edge.target_id)];
         if (!s || !t) return '';
-        const mx = (s.x + t.x) / 2;
-        const my = (s.y + t.y) / 2;
+        const path = knowledgeSVGEdgePath(s, t, edge._parallelOffset || 0);
+        const mx = path.labelX;
+        const my = path.labelY;
         const label = knowledgeRelationLabel(edge.relation);
         return `
             <g class="knowledge-svg-edge-group" onclick="renderKnowledgeEdgeDetail(${jsStringArg(edge.id)})">
-                <line x1="${s.x}" y1="${s.y}" x2="${t.x}" y2="${t.y}" class="knowledge-svg-edge"><title>${escapeHTML(label)}：${escapeHTML(edge.evidence || '')}</title></line>
+                <path d="${path.d}" class="knowledge-svg-edge"><title>${escapeHTML(label)}：${escapeHTML(edge.evidence || '')}</title></path>
                 <text x="${mx}" y="${my - 6}" text-anchor="middle" class="knowledge-svg-edge-label">${escapeHTML(truncateKnowledgeLabel(label, 14))}</text>
             </g>
         `;
@@ -3803,6 +4016,46 @@ function renderKnowledgeSVGFallback(canvas, nodes, edges) {
         </g>
     `).join('');
     canvas.innerHTML = `<svg class="knowledge-svg-fallback" viewBox="0 0 ${width} ${height}">${edgeHTML}${nodeHTML}</svg>`;
+}
+
+function annotateKnowledgeParallelEdges(edges = []) {
+    const groups = new Map();
+    for (const edge of edges) {
+        const source = String(edge.source_id);
+        const target = String(edge.target_id);
+        const key = source < target ? `${source}|${target}` : `${target}|${source}`;
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(edge);
+    }
+    const annotated = [];
+    for (const group of groups.values()) {
+        const sorted = [...group].sort((a, b) => Number(a.id || 0) - Number(b.id || 0));
+        const middle = (sorted.length - 1) / 2;
+        sorted.forEach((edge, index) => {
+            annotated.push({
+                ...edge,
+                _parallelIndex: index,
+                _parallelTotal: sorted.length,
+                _parallelOffset: sorted.length > 1 ? (index - middle) * 30 : 0,
+            });
+        });
+    }
+    return annotated;
+}
+
+function knowledgeSVGEdgePath(source, target, offset = 0) {
+    const mx = (source.x + target.x) / 2;
+    const my = (source.y + target.y) / 2;
+    const dx = target.x - source.x;
+    const dy = target.y - source.y;
+    const length = Math.max(Math.sqrt(dx * dx + dy * dy), 1);
+    const cx = mx + (-dy / length) * offset;
+    const cy = my + (dx / length) * offset;
+    return {
+        d: `M ${source.x} ${source.y} Q ${cx} ${cy} ${target.x} ${target.y}`,
+        labelX: cx,
+        labelY: cy,
+    };
 }
 
 async function renderKnowledgeNodeDetail(nodeID) {
@@ -4008,6 +4261,8 @@ async function loadKnowledgeNeighborhood(nodeID) {
     knowledgeGraphCache = resp.data;
     knowledgePathSelection.path = null;
     syncKnowledgeCommunityOptions(resp.data.communities || []);
+    syncKnowledgeTypeFilters(resp.data);
+    syncKnowledgeRelationFilters(resp.data);
     renderKnowledgeGraph();
     renderKnowledgeNodeDetail(nodeID);
 }
@@ -4343,12 +4598,11 @@ async function openConversation(conversationID, type, isDeletedGroup = false) {
     currentBotID = null;
     currentMessages = [];
     currentConversationRecipientCount = 0;
+    currentConversationUnreadCount = Number(unreadMap[conversationID] || 0);
     clearPendingReply();
     setActiveConversationHighlight(conversationID);
 
-    delete unreadMap[conversationID];
-    saveUnreadMap();
-    updateUnreadBadge();
+    renderMissedSummaryButton();
 
     document.getElementById('welcome-area').style.display = 'none';
     document.getElementById('chat-area').style.display = 'flex';
@@ -4439,16 +4693,6 @@ async function openConversation(conversationID, type, isDeletedGroup = false) {
         msgList.innerHTML = messages.map(m => createMessageHTML(m)).join('');
         hydrateMedia(msgList);
         msgList.scrollTop = msgList.scrollHeight;
-        const lastMsg = messages[messages.length - 1];
-        if (lastMsg && lastMsg.id) {
-            await messageAPI.markRead(conversationID, lastMsg.id);
-            loadConversations();
-        }
-        const refreshed = await messageAPI.getHistory(conversationID);
-        if (refreshed && refreshed.code === 0 && refreshed.data && refreshed.data.messages) {
-            currentMessages = mergeMessagesByIdentity(currentMessages, refreshed.data.messages);
-            cacheMessages(conversationID, currentMessages);
-        }
         if (openSeq !== conversationOpenSeq || !sameID(currentConversationID, targetConversationID) || currentBotID !== null) return;
         renderCurrentMessages();
     } else {
@@ -6223,16 +6467,26 @@ async function analyzeImageOCR(fileID, fileName = '图片') {
     showModal(`图片识别 - ${escapeHTML(fileName)}`, '<div class="empty-tip">正在调用 OCR 识别图片内容...</div>');
     const resp = await fileAPI.ocr(fileID);
     if (resp && resp.code === 0 && resp.data?.success) {
+        const text = cleanOCRDisplayText(resp.data.text || '');
         document.getElementById('modal-body').innerHTML = `
             <div class="agent-help-box">
                 <strong>OCR 识别结果</strong>
                 <p>这段文本来自图片解析，可复制给 Agent 继续分析；如果图片是复杂截图，结果可能需要人工校对。</p>
             </div>
-            <div class="ocr-result-text">${renderMarkdownText(resp.data.text || '未识别到文本')}</div>
+            <div class="ocr-result-text">${renderMarkdownText(text || '未识别到文本')}</div>
         `;
     } else {
         document.getElementById('modal-body').innerHTML = `<div class="empty-tip">图片识别失败<br><small>${escapeHTML(resp?.message || resp?.data?.msg || '请检查 OCR 配置或稍后重试')}</small></div>`;
     }
+}
+
+function cleanOCRDisplayText(text) {
+    let value = String(text || '').replace(/\r\n/g, '\n');
+    value = value.replace(/!?\[[^\]]*]\([^)]*bbox\s*=\s*\[[^\]]*][^)]*\)/gi, '');
+    value = value.replace(/^[\s'"]*!?\[\]\(\(?page\s*=\s*\d+\s*,\s*bbox\s*=\s*\[[^\]]+\]\)?\s*$/gim, '');
+    value = value.replace(/^[\s'"]*(?:page\s*=\s*\d+\s*,\s*)?bbox\s*=\s*\[[^\]]+\]\s*$/gim, '');
+    value = value.replace(/\n{3,}/g, '\n\n').trim();
+    return value;
 }
 
 function renderMessageContent(content, msgType, options = {}) {
@@ -7042,7 +7296,7 @@ async function loadBotSidebar() {
             return;
         }
         list.innerHTML = bots.map(b => `
-            <div class="list-item" data-bot-id="${escapeHTML(String(b.id))}" onclick="chatWithBot(${jsArg(b.id)})">
+            <div class="list-item" data-bot-id="${escapeHTML(String(b.id))}" onclick="startAgentPrivateChat(${jsArg(b.agent_user_id)})">
                 ${renderAvatarHTML(b.avatar, 'A', 'conv-avatar agent-avatar')}
                 <div class="list-item-info">
                     <div class="list-item-top">
@@ -7350,14 +7604,14 @@ async function smokeTestAgentSkill(botID) {
     const startedAt = Date.now();
     let timer = null;
     if (result) {
-        result.innerHTML = '<div class="search-loading"><div class="spinner"></div>正在运行 Skill smoke test · 已用时 0s · 最长等待 10 分钟</div>';
+        result.innerHTML = '<div class="search-loading"><div class="spinner"></div>正在运行 Skill smoke test · 已用时 0s · 最长等待 90 秒</div>';
         timer = setInterval(() => {
             const sec = Math.floor((Date.now() - startedAt) / 1000);
-            result.innerHTML = `<div class="search-loading"><div class="spinner"></div>正在运行 Skill smoke test · 已用时 ${sec}s · 最长等待 10 分钟</div>`;
+            result.innerHTML = `<div class="search-loading"><div class="spinner"></div>正在运行 Skill smoke test · 已用时 ${sec}s · 最长等待 90 秒</div>`;
         }, 1000);
     }
     try {
-        const resp = await withFrontendTimeout(agentAPI.smokeTestSkill(botID), 10 * 60 * 1000, 'Skill 测试超过 10 分钟仍未返回');
+        const resp = await withFrontendTimeout(agentAPI.smokeTestSkill(botID), 95 * 1000, 'Skill 测试超过 90 秒仍未返回');
         const data = resp?.data || {};
         const ok = resp && resp.code === 0 && data.success;
         if (result) {
@@ -7494,6 +7748,104 @@ function conversationArtifactLabel(type) {
         quote: '关键表述',
         memory_candidate: '候选记忆'
     }[type] || type || '归档产物';
+}
+
+function renderMissedSummaryArtifacts(artifacts = []) {
+    const groups = {
+        conversation_summary: [],
+        decision: [],
+        task: [],
+        topic_chunk: [],
+        topic: [],
+    };
+    (artifacts || []).forEach(item => {
+        const type = item.type || '';
+        if (groups[type]) groups[type].push(item);
+    });
+    const sections = [
+        ['conversation_summary', '摘要'],
+        ['decision', '决策'],
+        ['task', '待办'],
+        ['topic_chunk', '主题'],
+        ['topic', '主题'],
+    ];
+    const html = sections.map(([type, title]) => {
+        const items = groups[type] || [];
+        if (!items.length) return '';
+        return `
+            <section class="missed-summary-section">
+                <h4>${escapeHTML(title)}</h4>
+                ${items.map(item => `
+                    <article>
+                        <strong>${escapeHTML(item.title || conversationArtifactLabel(item.type))}</strong>
+                        <p>${escapeHTML(item.content || '')}</p>
+                    </article>
+                `).join('')}
+            </section>
+        `;
+    }).join('');
+    return html || '<div class="empty-tip">未提炼出足够明确的摘要内容</div>';
+}
+
+async function showMissedSummary() {
+    if (!currentConversationID) {
+        showToast('请先打开一个会话', 'warning');
+        return;
+    }
+    showModal('我错过了什么', '<div class="search-loading"><div class="spinner"></div>正在摘要未读消息...</div>');
+    try {
+        const resp = await conversationIntelligenceAPI.missedSummary(currentConversationID, 160);
+        const data = resp?.data || {};
+        if (!(resp && resp.code === 0 && data.success)) {
+            document.getElementById('modal-body').innerHTML = `<div class="empty-tip">摘要失败<br><small>${escapeHTML(resp?.message || data.msg || '')}</small></div>`;
+            return;
+        }
+        if (data.empty) {
+            document.getElementById('modal-body').innerHTML = '<div class="empty-tip">当前没有未读消息</div>';
+            delete unreadMap[currentConversationID];
+            currentConversationUnreadCount = 0;
+            saveUnreadMap();
+            updateUnreadBadge();
+            renderMissedSummaryButton();
+            return;
+        }
+        document.getElementById('modal-body').innerHTML = `
+            <div class="missed-summary-panel">
+                <div class="missed-summary-meta">
+                    <strong>${Number(data.message_count || 0)} 条未读消息</strong>
+                    <span>#${escapeHTML(String(data.start_message_id || ''))} - #${escapeHTML(String(data.end_message_id || ''))}</span>
+                </div>
+                ${renderMissedSummaryArtifacts(data.artifacts || [])}
+                <div class="modal-actions">
+                    <button class="btn-primary" onclick="markCurrentConversationRead(${jsArg(data.mark_read_message || data.end_message_id || 0)})">标记已读</button>
+                    <button class="btn-secondary" onclick="closeModal()">稍后处理</button>
+                </div>
+            </div>
+        `;
+    } catch (err) {
+        document.getElementById('modal-body').innerHTML = `<div class="empty-tip">摘要失败<br><small>${escapeHTML(err.message || String(err))}</small></div>`;
+    }
+}
+
+async function markCurrentConversationRead(messageID = 0) {
+    if (!currentConversationID) return;
+    const targetID = messageID || (currentMessages.length ? (currentMessages[currentMessages.length - 1].id || currentMessages[currentMessages.length - 1].msg_id || 0) : 0);
+    const resp = await messageAPI.markRead(currentConversationID, targetID);
+    if (resp && resp.code === 0 && (resp.data?.success !== false)) {
+        delete unreadMap[currentConversationID];
+        currentConversationUnreadCount = 0;
+        currentMessages = currentMessages.map(m => ({ ...m, is_read_by_me: true }));
+        cacheMessages(currentConversationID, currentMessages);
+        saveUnreadMap();
+        updateUnreadBadge();
+        renderMissedSummaryButton();
+        renderCurrentMessages(false);
+        loadConversations();
+        closeModal();
+        showToast('已标记为已读', 'success');
+    } else {
+        showToast(resp?.message || resp?.data?.msg || '标记已读失败', 'error');
+    }
 }
 
 async function showMemoryManager(defaultTab = 'facts') {
@@ -8124,7 +8476,7 @@ async function renderAdminUsers() {
         <div class="admin-section-head">
             <div>
                 <h3>用户治理</h3>
-                <p>查找用户后可执行封禁/解封。封禁用户会阻止其继续登录。</p>
+                <p>查找用户后可执行封禁/解封，也可以把普通用户设为管理员或取消管理员。</p>
             </div>
             <span>真实写入 user-service</span>
         </div>
@@ -8162,7 +8514,7 @@ async function renderAdminUsersList() {
     const users = resp?.data?.users || [];
     list.innerHTML = renderAdminTable(['用户', '角色', '状态', '系统用户', '创建时间', '操作'], users.map(u => [
         `<strong>${escapeHTML(u.nickname || u.username || '')}</strong><small>#${escapeHTML(entityID(u))} · ${escapeHTML(u.username || '')}</small>`,
-        escapeHTML(u.role || 'user'),
+        adminRoleBadge(u.role || 'user'),
         adminStatusBadge(u.status || ''),
         u.is_system ? '是' : '否',
         escapeHTML(u.created_at || ''),
@@ -8443,15 +8795,41 @@ function adminGroupStatusBadge(status) {
     return `<span class="admin-status-badge ${escapeHTML(normalized)}">${escapeHTML(label)}</span>`;
 }
 
+function adminRoleBadge(role) {
+    const normalized = role === 'admin' ? 'admin' : 'user';
+    const label = normalized === 'admin' ? '管理员' : '普通用户';
+    return `<span class="admin-role-badge ${escapeHTML(normalized)}">${escapeHTML(label)}</span>`;
+}
+
 function renderAdminUserActions(user) {
     const id = entityID(user);
     if (user.is_system) {
         return '<span class="admin-action-muted">系统用户</span>';
     }
-    if (user.status === 'banned') {
-        return `<button class="btn-small ghost" onclick="updateAdminUserStatus(${jsArg(id)}, 'offline')">解封</button>`;
+    const statusAction = user.status === 'banned'
+        ? `<button class="btn-small ghost" onclick="updateAdminUserStatus(${jsArg(id)}, 'offline')">解封</button>`
+        : `<button class="btn-small danger-soft" onclick="updateAdminUserStatus(${jsArg(id)}, 'banned')">封禁</button>`;
+    if (currentUser && sameID(id, currentUser.id)) {
+        return `${statusAction}<span class="admin-action-muted">当前管理员</span>`;
     }
-    return `<button class="btn-small danger-soft" onclick="updateAdminUserStatus(${jsArg(id)}, 'banned')">封禁</button>`;
+    const role = user.role === 'admin' ? 'admin' : 'user';
+    const nextRole = role === 'admin' ? 'user' : 'admin';
+    const roleLabel = role === 'admin' ? '取消管理员' : '设为管理员';
+    const roleClass = role === 'admin' ? 'danger-soft' : 'ghost';
+    const roleAction = `<button class="btn-small ${roleClass}" onclick="updateAdminUserRole(${jsArg(id)}, '${nextRole}')">${roleLabel}</button>`;
+    return `${statusAction}${roleAction}`;
+}
+
+async function updateAdminUserRole(userID, role) {
+    const action = role === 'admin' ? '设为管理员' : '取消管理员';
+    if (!confirm(`确认${action} #${userID}？`)) return;
+    const resp = await adminAPI.updateUserRole(userID, role);
+    if (resp && resp.code === 0 && (resp.data?.success !== false)) {
+        showToast(`${action}完成`, 'success');
+        renderAdminUsersList();
+    } else {
+        showToast(resp?.message || resp?.data?.msg || `${action}失败`, 'error');
+    }
 }
 
 async function updateAdminUserStatus(userID, status) {
@@ -9533,11 +9911,13 @@ function renderAgentRunHistory(botID) {
         const durationHTML = item.durationMs
             ? `<span class="agent-thinking-duration">思考 ${(item.durationMs / 1000).toFixed(1)} 秒</span>`
             : '';
+        const runBadgesHTML = renderAgentRunBadges(item);
         return `
             <div class="agent-chat-turn ${item.role === 'user' ? 'user' : 'agent'}">
                 <div class="agent-chat-avatar">${item.role === 'user' ? '我' : 'A'}</div>
                 <div class="agent-chat-bubble">
                     <div class="agent-chat-meta">${item.role === 'user' ? '你' : '智能助手'} · ${escapeHTML(item.time || '')}${thinkingHTML}${durationHTML}</div>
+                    ${runBadgesHTML}
                     <div class="agent-chat-text">${item.role === 'agent' ? renderMarkdownText(item.content || '') : escapeHTML(item.content || '')}</div>
                     ${resultCardsHTML}
                 </div>
@@ -9547,6 +9927,30 @@ function renderAgentRunHistory(botID) {
     if (shouldStickToBottom) {
         area.scrollTop = area.scrollHeight;
     }
+}
+
+function renderAgentRunBadges(item) {
+    if (!item || item.role !== 'agent') return '';
+    const badges = [];
+    if (item.action) badges.push({ type: 'action', label: `功能:${agentActionLabel(item.action)}` });
+    if (item.skill) badges.push({ type: 'skill', label: `Skill:${item.skill}` });
+    (item.tools || []).forEach(tool => badges.push({ type: 'tool', label: `Tool:${tool}` }));
+    (item.mcps || []).forEach(tool => badges.push({ type: 'mcp', label: `MCP:${tool}` }));
+    if (!badges.length) return '';
+    return `<div class="agent-run-badges">${badges.map(b => `<span class="${escapeHTML(b.type)}">${escapeHTML(b.label)}</span>`).join('')}</div>`;
+}
+
+function inferAgentRunMarkers(action, question, result = null) {
+    const text = `${question || ''}\n${typeof result === 'string' ? result : JSON.stringify(result || {})}`.toLowerCase();
+    const markers = { action, skill: '', tools: [], mcps: [] };
+    if (text.includes('skill') || text.includes('技能')) {
+        markers.skill = 'loaded';
+    }
+    const toolMatches = Array.from(new Set((text.match(/\b[a-z][a-z0-9_]*(?:tool|search|memory|knowledge|graph|creator)\b/g) || []).slice(0, 6)));
+    markers.tools = toolMatches.filter(name => !name.includes('mcp') && name !== 'skill');
+    const mcpMatches = Array.from(new Set((text.match(/\b(?:mcp|web_search|search_knowledge|search_memory|query_knowledge_graph|summarize_conversation)\b/g) || []).slice(0, 6)));
+    markers.mcps = mcpMatches;
+    return markers;
 }
 
 function pushAgentRunHistory(botID, item) {
@@ -9584,7 +9988,8 @@ async function submitAgentRun(botID, buttonEl = null) {
     agentRunAbortControllers[String(botID)] = controller;
     if (stopBtn) stopBtn.style.display = 'inline-flex';
     const startedAt = Date.now();
-    pushAgentRunHistory(botID, { role: 'agent', kind: 'thinking', content: `${agentActionLabel(action)}中...`, startedAt });
+    const markers = inferAgentRunMarkers(action, question);
+    pushAgentRunHistory(botID, { role: 'agent', kind: 'thinking', content: `${agentActionLabel(action)}中...`, startedAt, ...markers });
     const key = String(botID);
     const thinkingIndex = agentRunHistories[key].length - 1;
     const timer = setInterval(() => renderAgentRunHistory(botID), 100);
@@ -9605,13 +10010,13 @@ async function submitAgentRun(botID, buttonEl = null) {
         const approval = extractAgentApproval(resp);
         const durationMs = Date.now() - startedAt;
         if (approval) {
-            agentRunHistories[key][thinkingIndex] = { role: 'agent', kind: 'approval', approval, action, durationMs, time: new Date().toLocaleTimeString() };
+            agentRunHistories[key][thinkingIndex] = { role: 'agent', kind: 'approval', approval, durationMs, time: new Date().toLocaleTimeString(), ...inferAgentRunMarkers(action, question, approval) };
         } else if (resp && resp.code === 0 && resp.data && resp.data.success !== false) {
             const payload = normalizeAgentPayload(resp);
             const normalized = normalizeAgentResultForView(payload);
-            agentRunHistories[key][thinkingIndex] = { role: 'agent', content: normalized.text || '执行完成，但没有返回文本。', result: payload, durationMs, time: new Date().toLocaleTimeString() };
+            agentRunHistories[key][thinkingIndex] = { role: 'agent', content: normalized.text || '执行完成，但没有返回文本。', result: payload, durationMs, time: new Date().toLocaleTimeString(), ...inferAgentRunMarkers(action, question, payload) };
         } else {
-            agentRunHistories[key][thinkingIndex] = { role: 'agent', content: resp?.data?.msg || resp?.message || '智能助手执行失败', durationMs, time: new Date().toLocaleTimeString() };
+            agentRunHistories[key][thinkingIndex] = { role: 'agent', content: resp?.data?.msg || resp?.message || '智能助手执行失败', durationMs, time: new Date().toLocaleTimeString(), ...inferAgentRunMarkers(action, question, resp) };
         }
         renderAgentRunHistory(botID);
     } finally {

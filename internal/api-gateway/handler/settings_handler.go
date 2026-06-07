@@ -1,8 +1,9 @@
 package handler
 
 import (
+	"ClaranAIM/kitex_gen/settings"
+	"ClaranAIM/kitex_gen/settings/settingsservice"
 	"ClaranAIM/pkg/response"
-	"ClaranAIM/pkg/settingsclient"
 	"archive/zip"
 	"bytes"
 	"context"
@@ -19,7 +20,7 @@ import (
 
 // SettingsHandler 暴露用户级系统设置接口，例如可复用的大模型配置和提示词模板。
 type SettingsHandler struct {
-	svc settingsclient.Service
+	svc settingsservice.Client
 }
 
 const maxSkillUploadBytes int64 = 5 << 20
@@ -27,10 +28,10 @@ const maxSkillPackageFiles = 80
 
 // gatewaySettingsService 是 api-gateway 到 settings-service 的内部客户端。
 // main 启动时注入一次，handler 创建时只持有接口，避免网关 import settings-service 实现包。
-var gatewaySettingsService settingsclient.Service
+var gatewaySettingsService settingsservice.Client
 
 // InitSettingsService 将 settings-service 的客户端门面注册到 api-gateway。
-func InitSettingsService(svc settingsclient.Service) {
+func InitSettingsService(svc settingsservice.Client) {
 	gatewaySettingsService = svc
 }
 
@@ -58,12 +59,15 @@ func (h *SettingsHandler) ListLLMProfiles(ctx context.Context, c *app.RequestCon
 	if !ok {
 		return
 	}
-	profiles, err := h.svc.ListLLMProfiles(ctx, userID, c.DefaultQuery("usage_type", ""))
-	if err != nil {
+	resp, err := h.svc.ListLLMProfiles(ctx, &settings.ListLLMProfilesReq{UserId: userID, UsageType: c.DefaultQuery("usage_type", "")})
+	if err != nil || !resp.GetSuccess() {
+		if err == nil {
+			err = settingsStatusError(resp.GetSuccess(), resp.GetMsg())
+		}
 		response.Error(c, err.Error())
 		return
 	}
-	response.Success(c, map[string]interface{}{"success": true, "profiles": profiles})
+	response.Success(c, map[string]interface{}{"success": true, "profiles": resp.GetProfiles()})
 }
 
 // SaveLLMProfile 创建或更新当前用户的大模型配置。
@@ -80,23 +84,29 @@ func (h *SettingsHandler) SaveLLMProfile(ctx context.Context, c *app.RequestCont
 		response.BadRequest(c, "参数错误")
 		return
 	}
-	profile, err := h.svc.SaveLLMProfile(ctx, userID, settingsclient.SaveLLMProfileInput{
-		ID:           parseSettingsNumber(req.ID),
+	enabled, enabledSet := optionalBoolForRPC(req.Enabled, true)
+	resp, err := h.svc.SaveLLMProfile(ctx, &settings.SaveLLMProfileReq{
+		UserId:       userID,
+		Id:           parseSettingsNumber(req.ID),
 		Name:         req.Name,
 		ProviderType: req.ProviderType,
-		BaseURL:      req.BaseURL,
-		APIKey:       req.APIKey,
+		BaseUrl:      req.BaseURL,
+		ApiKey:       req.APIKey,
 		ModelName:    req.ModelName,
-		UsageType:    defaultSettingString(req.UsageType, settingsclient.ProviderTranslate),
+		UsageType:    defaultSettingString(req.UsageType, settingsProviderTranslate),
 		IsDefault:    req.IsDefault,
-		Enabled:      req.Enabled,
-		APIKeyAction: defaultSettingString(req.APIKeyAction, settingsclient.APIKeyActionKeep),
+		Enabled:      enabled,
+		EnabledSet:   enabledSet,
+		ApiKeyAction: defaultSettingString(req.APIKeyAction, settingsAPIKeyActionKeep),
 	})
-	if err != nil {
+	if err != nil || !resp.GetSuccess() {
+		if err == nil {
+			err = settingsStatusError(resp.GetSuccess(), resp.GetMsg())
+		}
 		response.BadRequest(c, err.Error())
 		return
 	}
-	response.Success(c, map[string]interface{}{"success": true, "profile": profile})
+	response.Success(c, map[string]interface{}{"success": true, "profile": resp.GetProfile()})
 }
 
 // DeleteLLMProfile 删除当前用户名下的一条大模型配置。
@@ -113,7 +123,11 @@ func (h *SettingsHandler) DeleteLLMProfile(ctx context.Context, c *app.RequestCo
 		response.BadRequest(c, "无效的配置ID")
 		return
 	}
-	if err := h.svc.DeleteLLMProfile(ctx, userID, id); err != nil {
+	resp, err := h.svc.DeleteLLMProfile(ctx, &settings.DeleteLLMProfileReq{UserId: userID, ProfileId: id})
+	if err != nil || !resp.GetSuccess() {
+		if err == nil {
+			err = settingsStatusError(resp.GetSuccess(), resp.GetMsg())
+		}
 		response.BadRequest(c, err.Error())
 		return
 	}
@@ -134,20 +148,24 @@ func (h *SettingsHandler) TestLLMProfile(ctx context.Context, c *app.RequestCont
 		response.BadRequest(c, "参数错误")
 		return
 	}
-	result, err := h.svc.TestLLMProfile(ctx, userID, settingsclient.TestLLMProfileInput{
-		ProfileID:    parseSettingsNumber(req.ProfileID),
+	resp, err := h.svc.TestLLMProfile(ctx, &settings.TestLLMProfileReq{
+		UserId:       userID,
+		ProfileId:    parseSettingsNumber(req.ProfileID),
 		ProviderType: req.ProviderType,
-		BaseURL:      req.BaseURL,
-		APIKey:       req.APIKey,
+		BaseUrl:      req.BaseURL,
+		ApiKey:       req.APIKey,
 		ModelName:    req.ModelName,
 		UsageType:    req.UsageType,
 		UseBuiltin:   req.UseBuiltin,
 	})
-	if err != nil {
+	if err != nil || !resp.GetSuccess() {
+		if err == nil {
+			err = settingsStatusError(resp.GetSuccess(), resp.GetMsg())
+		}
 		response.BadRequest(c, err.Error())
 		return
 	}
-	response.Success(c, map[string]interface{}{"success": true, "result": result})
+	response.Success(c, map[string]interface{}{"success": true, "result": resp})
 }
 
 // ListPrompts 返回当前用户保存的提示词模板。
@@ -159,12 +177,15 @@ func (h *SettingsHandler) ListPrompts(ctx context.Context, c *app.RequestContext
 	if !ok {
 		return
 	}
-	prompts, err := h.svc.ListPrompts(ctx, userID)
-	if err != nil {
+	resp, err := h.svc.ListPrompts(ctx, &settings.ListPromptsReq{UserId: userID})
+	if err != nil || !resp.GetSuccess() {
+		if err == nil {
+			err = settingsStatusError(resp.GetSuccess(), resp.GetMsg())
+		}
 		response.Error(c, err.Error())
 		return
 	}
-	response.Success(c, map[string]interface{}{"success": true, "prompts": prompts})
+	response.Success(c, map[string]interface{}{"success": true, "prompts": resp.GetPrompts()})
 }
 
 // SavePrompt 创建或更新当前用户的一条提示词模板。
@@ -181,19 +202,25 @@ func (h *SettingsHandler) SavePrompt(ctx context.Context, c *app.RequestContext)
 		response.BadRequest(c, "参数错误")
 		return
 	}
-	prompt, err := h.svc.SavePrompt(ctx, userID, settingsclient.SavePromptInput{
-		ID:        parseSettingsNumber(req.ID),
-		Type:      defaultSettingString(req.Type, settingsclient.ProviderTranslate),
+	enabled, enabledSet := optionalBoolForRPC(req.Enabled, true)
+	resp, err := h.svc.SavePrompt(ctx, &settings.SavePromptReq{
+		UserId:     userID,
+		Id:         parseSettingsNumber(req.ID),
+		Type:       defaultSettingString(req.Type, settingsProviderTranslate),
 		Name:      req.Name,
 		Content:   req.Content,
 		IsDefault: req.IsDefault,
-		Enabled:   req.Enabled,
+		Enabled:   enabled,
+		EnabledSet: enabledSet,
 	})
-	if err != nil {
+	if err != nil || !resp.GetSuccess() {
+		if err == nil {
+			err = settingsStatusError(resp.GetSuccess(), resp.GetMsg())
+		}
 		response.BadRequest(c, err.Error())
 		return
 	}
-	response.Success(c, map[string]interface{}{"success": true, "prompt": prompt})
+	response.Success(c, map[string]interface{}{"success": true, "prompt": resp.GetPrompt()})
 }
 
 // UploadSkill 接收浏览器上传的单文件 SKILL.md、zip 包或文件夹文件列表。
@@ -206,7 +233,7 @@ func (h *SettingsHandler) UploadSkill(ctx context.Context, c *app.RequestContext
 	if !ok {
 		return
 	}
-	scope := defaultSettingString(string(c.FormValue("scope")), settingsclient.SkillScopeGlobal)
+	scope := defaultSettingString(string(c.FormValue("scope")), settingsSkillScopeGlobal)
 	name := strings.TrimSpace(string(c.FormValue("name")))
 	description := strings.TrimSpace(string(c.FormValue("description")))
 	agentID, err := parseOptionalSettingsInt64(string(c.FormValue("agent_id")))
@@ -228,20 +255,24 @@ func (h *SettingsHandler) UploadSkill(ctx context.Context, c *app.RequestContext
 	if name == "" {
 		name = inferSkillName(files)
 	}
-	skill, err := h.svc.SaveSkill(ctx, userID, settingsclient.SaveSkillInput{
+	resp, err := h.svc.SaveSkill(ctx, &settings.SaveSkillReq{
+		UserId:      userID,
 		Username:    currentUsername(c),
 		Name:        name,
 		Description: description,
 		Scope:       scope,
-		AgentID:     agentID,
+		AgentId:     agentID,
 		Files:       files,
 		IsDefault:   isDefault,
 	})
-	if err != nil {
+	if err != nil || !resp.GetSuccess() {
+		if err == nil {
+			err = settingsStatusError(resp.GetSuccess(), resp.GetMsg())
+		}
 		response.BadRequest(c, err.Error())
 		return
 	}
-	response.Success(c, map[string]interface{}{"success": true, "skill": skill})
+	response.Success(c, map[string]interface{}{"success": true, "skill": resp.GetSkill()})
 }
 
 // ListSkills 返回当前用户配置过的全局 Skill 或某个 Agent 的专属 Skill。
@@ -258,12 +289,15 @@ func (h *SettingsHandler) ListSkills(ctx context.Context, c *app.RequestContext)
 		response.BadRequest(c, "无效的Agent ID")
 		return
 	}
-	skills, err := h.svc.ListSkills(ctx, userID, c.DefaultQuery("scope", ""), agentID)
-	if err != nil {
+	resp, err := h.svc.ListSkills(ctx, &settings.ListSkillsReq{UserId: userID, Scope: c.DefaultQuery("scope", ""), AgentId: agentID})
+	if err != nil || !resp.GetSuccess() {
+		if err == nil {
+			err = settingsStatusError(resp.GetSuccess(), resp.GetMsg())
+		}
 		response.Error(c, err.Error())
 		return
 	}
-	response.Success(c, map[string]interface{}{"success": true, "skills": skills})
+	response.Success(c, map[string]interface{}{"success": true, "skills": resp.GetSkills()})
 }
 
 // GetSkill 返回单个 Skill 的详情和可编辑的 SKILL.md 正文。
@@ -280,12 +314,15 @@ func (h *SettingsHandler) GetSkill(ctx context.Context, c *app.RequestContext) {
 		response.BadRequest(c, "无效的Skill ID")
 		return
 	}
-	skill, err := h.svc.GetSkill(ctx, userID, id)
-	if err != nil {
+	resp, err := h.svc.GetSkill(ctx, &settings.GetSkillReq{UserId: userID, SkillId: id})
+	if err != nil || !resp.GetSuccess() {
+		if err == nil {
+			err = settingsStatusError(resp.GetSuccess(), resp.GetMsg())
+		}
 		response.BadRequest(c, err.Error())
 		return
 	}
-	response.Success(c, map[string]interface{}{"success": true, "skill": skill})
+	response.Success(c, map[string]interface{}{"success": true, "skill": resp.GetSkill()})
 }
 
 // UpdateSkillContent 保存用户在前端编辑后的 Skill 入口 Markdown。
@@ -307,12 +344,15 @@ func (h *SettingsHandler) UpdateSkillContent(ctx context.Context, c *app.Request
 		response.BadRequest(c, "请求体格式错误")
 		return
 	}
-	skill, err := h.svc.UpdateSkillContent(ctx, userID, id, req.Name, req.Description, []byte(req.Content))
-	if err != nil {
+	resp, err := h.svc.UpdateSkillContent(ctx, &settings.UpdateSkillContentReq{UserId: userID, SkillId: id, Name: req.Name, Description: req.Description, Content: []byte(req.Content)})
+	if err != nil || !resp.GetSuccess() {
+		if err == nil {
+			err = settingsStatusError(resp.GetSuccess(), resp.GetMsg())
+		}
 		response.BadRequest(c, err.Error())
 		return
 	}
-	response.Success(c, map[string]interface{}{"success": true, "skill": skill})
+	response.Success(c, map[string]interface{}{"success": true, "skill": resp.GetSkill()})
 }
 
 // DeleteSkill 删除当前用户拥有的 Skill 元数据。
@@ -329,7 +369,11 @@ func (h *SettingsHandler) DeleteSkill(ctx context.Context, c *app.RequestContext
 		response.BadRequest(c, "无效的Skill ID")
 		return
 	}
-	if err := h.svc.DeleteSkill(ctx, userID, id); err != nil {
+	resp, err := h.svc.DeleteSkill(ctx, &settings.DeleteSkillReq{UserId: userID, SkillId: id})
+	if err != nil || !resp.GetSuccess() {
+		if err == nil {
+			err = settingsStatusError(resp.GetSuccess(), resp.GetMsg())
+		}
 		response.BadRequest(c, err.Error())
 		return
 	}
@@ -356,12 +400,15 @@ func (h *SettingsHandler) ListMCPServers(ctx context.Context, c *app.RequestCont
 		return
 	}
 	includeDisabled := strings.EqualFold(c.DefaultQuery("include_disabled", "false"), "true")
-	servers, err := h.svc.ListMCPServers(ctx, userID, c.DefaultQuery("scope", ""), agentID, conversationID, includeDisabled)
-	if err != nil {
+	resp, err := h.svc.ListMCPServers(ctx, &settings.ListMCPServersReq{UserId: userID, Scope: c.DefaultQuery("scope", ""), AgentId: agentID, ConversationId: conversationID, IncludeDisabled: includeDisabled})
+	if err != nil || !resp.GetSuccess() {
+		if err == nil {
+			err = settingsStatusError(resp.GetSuccess(), resp.GetMsg())
+		}
 		response.Error(c, err.Error())
 		return
 	}
-	response.Success(c, map[string]interface{}{"success": true, "servers": servers})
+	response.Success(c, map[string]interface{}{"success": true, "servers": resp.GetServers()})
 }
 
 // SaveMCPServer 创建或更新当前用户的外部 MCP Server 配置。
@@ -378,32 +425,38 @@ func (h *SettingsHandler) SaveMCPServer(ctx context.Context, c *app.RequestConte
 		response.BadRequest(c, "参数错误")
 		return
 	}
-	server, err := h.svc.SaveMCPServer(ctx, userID, settingsclient.SaveMCPServerInput{
-		ID:             parseSettingsNumber(req.ID),
-		AgentID:        parseSettingsNumber(req.AgentID),
-		ConversationID: parseSettingsNumber(req.ConversationID),
-		Scope:          defaultSettingString(req.Scope, settingsclient.MCPScopeUser),
+	enabled, enabledSet := optionalBoolForRPC(req.Enabled, true)
+	resp, err := h.svc.SaveMCPServer(ctx, &settings.SaveMCPServerReq{
+		UserId:         userID,
+		Id:             parseSettingsNumber(req.ID),
+		AgentId:        parseSettingsNumber(req.AgentID),
+		ConversationId: parseSettingsNumber(req.ConversationID),
+		Scope:          defaultSettingString(req.Scope, settingsMCPScopeUser),
 		Name:           req.Name,
 		Description:    req.Description,
-		Transport:      defaultSettingString(req.Transport, settingsclient.MCPTransportStreamableHTTP),
-		EndpointURL:    req.EndpointURL,
+		Transport:      defaultSettingString(req.Transport, settingsMCPTransportStreamableHTTP),
+		EndpointUrl:    req.EndpointURL,
 		Command:        req.Command,
-		ArgsJSON:       req.ArgsJSON,
-		EnvJSON:        req.EnvJSON,
-		HeadersJSON:    req.HeadersJSON,
+		ArgsJson:       req.ArgsJSON,
+		EnvJson:        req.EnvJSON,
+		HeadersJson:    req.HeadersJSON,
 		AuthType:       req.AuthType,
 		Secret:         req.Secret,
-		SecretAction:   defaultSettingString(req.SecretAction, settingsclient.APIKeyActionKeep),
-		Enabled:        req.Enabled,
-		TrustLevel:     defaultSettingString(req.TrustLevel, settingsclient.MCPTrustLow),
-		AllowToolsJSON: req.AllowToolsJSON,
-		DenyToolsJSON:  req.DenyToolsJSON,
+		SecretAction:   defaultSettingString(req.SecretAction, settingsAPIKeyActionKeep),
+		Enabled:        enabled,
+		EnabledSet:     enabledSet,
+		TrustLevel:     defaultSettingString(req.TrustLevel, settingsMCPTrustLow),
+		AllowToolsJson: req.AllowToolsJSON,
+		DenyToolsJson:  req.DenyToolsJSON,
 	})
-	if err != nil {
+	if err != nil || !resp.GetSuccess() {
+		if err == nil {
+			err = settingsStatusError(resp.GetSuccess(), resp.GetMsg())
+		}
 		response.BadRequest(c, err.Error())
 		return
 	}
-	response.Success(c, map[string]interface{}{"success": true, "server": server})
+	response.Success(c, map[string]interface{}{"success": true, "server": resp.GetServer()})
 }
 
 // DeleteMCPServer 删除当前用户拥有的外部 MCP Server 配置。
@@ -420,7 +473,11 @@ func (h *SettingsHandler) DeleteMCPServer(ctx context.Context, c *app.RequestCon
 		response.BadRequest(c, "无效的MCP配置ID")
 		return
 	}
-	if err := h.svc.DeleteMCPServer(ctx, userID, id); err != nil {
+	resp, err := h.svc.DeleteMCPServer(ctx, &settings.DeleteMCPServerReq{UserId: userID, ServerId: id})
+	if err != nil || !resp.GetSuccess() {
+		if err == nil {
+			err = settingsStatusError(resp.GetSuccess(), resp.GetMsg())
+		}
 		response.BadRequest(c, err.Error())
 		return
 	}
@@ -494,11 +551,11 @@ type mcpServerReq struct {
 }
 
 // collectSkillUploadFiles 将 multipart 上传转换为 settings-service 可保存的 Skill 文件列表。
-func collectSkillUploadFiles(headers []*multipart.FileHeader) ([]settingsclient.SkillFileInput, error) {
+func collectSkillUploadFiles(headers []*multipart.FileHeader) ([]*settings.SkillFile, error) {
 	if len(headers) == 0 {
 		return nil, errors.New("请上传Skill文件")
 	}
-	out := make([]settingsclient.SkillFileInput, 0)
+	out := make([]*settings.SkillFile, 0)
 	var total int64
 	for _, header := range headers {
 		if header == nil {
@@ -525,7 +582,7 @@ func collectSkillUploadFiles(headers []*multipart.FileHeader) ([]settingsclient.
 			out = append(out, zipFiles...)
 			continue
 		}
-		out = append(out, settingsclient.SkillFileInput{
+		out = append(out, &settings.SkillFile{
 			Path:    normalizeBrowserSkillPath(header.Filename),
 			Content: data,
 		})
@@ -537,7 +594,7 @@ func collectSkillUploadFiles(headers []*multipart.FileHeader) ([]settingsclient.
 }
 
 // unzipSkillFiles 解开 zip Skill 包，并保留包内相对路径交给 settings-service 二次校验。
-func unzipSkillFiles(data []byte) ([]settingsclient.SkillFileInput, error) {
+func unzipSkillFiles(data []byte) ([]*settings.SkillFile, error) {
 	reader, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
 	if err != nil {
 		return nil, errors.New("Skill zip包格式错误")
@@ -545,7 +602,7 @@ func unzipSkillFiles(data []byte) ([]settingsclient.SkillFileInput, error) {
 	if len(reader.File) > maxSkillPackageFiles {
 		return nil, errors.New("Skill包文件数量过多")
 	}
-	out := make([]settingsclient.SkillFileInput, 0, len(reader.File))
+	out := make([]*settings.SkillFile, 0, len(reader.File))
 	var total int64
 	for _, zf := range reader.File {
 		if zf.FileInfo().IsDir() {
@@ -564,7 +621,7 @@ func unzipSkillFiles(data []byte) ([]settingsclient.SkillFileInput, error) {
 		if readErr != nil {
 			return nil, errors.New("读取Skill zip包失败")
 		}
-		out = append(out, settingsclient.SkillFileInput{
+		out = append(out, &settings.SkillFile{
 			Path:    normalizeBrowserSkillPath(zf.Name),
 			Content: content,
 		})
@@ -583,8 +640,11 @@ func normalizeBrowserSkillPath(path string) string {
 }
 
 // inferSkillName 根据上传文件名推断一个给用户展示的 Skill 名称。
-func inferSkillName(files []settingsclient.SkillFileInput) string {
+func inferSkillName(files []*settings.SkillFile) string {
 	for _, f := range files {
+		if f == nil {
+			continue
+		}
 		base := filepath.Base(filepath.ToSlash(f.Path))
 		if strings.EqualFold(base, "SKILL.md") {
 			dir := filepath.Base(filepath.Dir(filepath.ToSlash(f.Path)))
@@ -635,4 +695,23 @@ func defaultSettingString(value, fallback string) string {
 		return fallback
 	}
 	return strings.TrimSpace(value)
+}
+
+const (
+	settingsProviderTranslate          = "translation"
+	settingsSkillScopeGlobal           = "global"
+	settingsMCPScopeUser               = "user"
+	settingsMCPTransportStreamableHTTP = "streamable_http"
+	settingsMCPTrustLow                = "low"
+	settingsAPIKeyActionKeep           = "keep"
+)
+
+func settingsStatusError(success bool, msg string) error {
+	if success {
+		return nil
+	}
+	if strings.TrimSpace(msg) == "" {
+		msg = "settings-service RPC调用失败"
+	}
+	return errors.New(msg)
 }

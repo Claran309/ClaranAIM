@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strconv"
 
 	"github.com/cloudwego/hertz/pkg/app"
@@ -473,6 +474,16 @@ func (h *MessageHandler) SyncOnReconnect(ctx context.Context, c *app.RequestCont
 	if !ok {
 		return
 	}
+	afterCursor, ok := parseNonNegativeQueryInt64(c, "cursor", 0)
+	if !ok {
+		return
+	}
+	if afterCursor == 0 {
+		afterCursor, ok = parseNonNegativeQueryInt64(c, "after_cursor", 0)
+		if !ok {
+			return
+		}
+	}
 	convsResp, err := client.MessageClient.GetUserConversations(ctx, &message.GetUserConversationsReq{UserId: userID})
 	if err != nil {
 		response.Error(c, err.Error())
@@ -482,12 +493,18 @@ func (h *MessageHandler) SyncOnReconnect(ctx context.Context, c *app.RequestCont
 		"success":       convsResp.GetSuccess(),
 		"conversations": convsResp.GetConversations(),
 		"windows":       []map[string]interface{}{},
+		"messages":      []*message.Message{},
+		"events":        []map[string]interface{}{},
+		"cursor":        afterCursor,
+		"has_more":      false,
 	}
 	if convsResp == nil || !convsResp.GetSuccess() {
 		response.Success(c, payload)
 		return
 	}
 	windows := make([]map[string]interface{}, 0, len(convsResp.GetConversations()))
+	changes := make([]*message.Message, 0)
+	nextCursor := afterCursor
 	for _, conv := range convsResp.GetConversations() {
 		if conv == nil || conv.GetConversationId() <= 0 {
 			continue
@@ -506,9 +523,80 @@ func (h *MessageHandler) SyncOnReconnect(ctx context.Context, c *app.RequestCont
 			"success":         true,
 			"messages":        history.GetMessages(),
 		})
+		for _, msg := range history.GetMessages() {
+			if msg == nil || msg.GetId() <= afterCursor {
+				continue
+			}
+			changes = append(changes, msg)
+			if msg.GetId() > nextCursor {
+				nextCursor = msg.GetId()
+			}
+		}
+	}
+	sort.Slice(changes, func(i, j int) bool { return changes[i].GetId() < changes[j].GetId() })
+	events := make([]map[string]interface{}, 0, len(changes))
+	for _, msg := range changes {
+		events = append(events, map[string]interface{}{
+			"type":            "message",
+			"cursor":          msg.GetId(),
+			"message_id":      msg.GetId(),
+			"conversation_id": msg.GetConversationId(),
+		})
 	}
 	payload["windows"] = windows
+	payload["messages"] = changes
+	payload["events"] = events
+	payload["cursor"] = nextCursor
+	payload["has_more"] = len(changes) >= int(limit)
 	response.Success(c, payload)
+}
+
+// AckSync 确认当前浏览器/设备已收到并合并某批同步变更。
+// ACK 不是已读，不会推进 conversation_participants.last_read_message_id。
+func (h *MessageHandler) AckSync(ctx context.Context, c *app.RequestContext) {
+	type ackReq struct {
+		Cursor     json.Number   `json:"cursor"`
+		MessageIDs []json.Number `json:"message_ids"`
+		DeviceID   string        `json:"device_id"`
+	}
+	var req ackReq
+	if err := bindJSONUseNumber(c, &req); err != nil {
+		response.BadRequest(c, "参数错误")
+		return
+	}
+	userID, ok := requireCurrentUserID(c)
+	if !ok {
+		return
+	}
+	cursor := int64(0)
+	if req.Cursor.String() != "" {
+		parsed, err := numberToInt64(req.Cursor)
+		if err != nil || parsed < 0 {
+			response.BadRequest(c, "无效的同步游标")
+			return
+		}
+		cursor = parsed
+	}
+	ids := make([]int64, 0, len(req.MessageIDs))
+	for _, raw := range req.MessageIDs {
+		id, err := numberToInt64(raw)
+		if err != nil || id <= 0 {
+			response.BadRequest(c, "无效的消息ID")
+			return
+		}
+		ids = append(ids, id)
+		if id > cursor {
+			cursor = id
+		}
+	}
+	response.Success(c, map[string]interface{}{
+		"success":     true,
+		"user_id":     userID,
+		"cursor":      cursor,
+		"acked_count": len(ids),
+		"device_id":   req.DeviceID,
+		"msg":         "同步ACK已接收",
+	})
 }
 
 // TranslateMessage 通过 msg-core-service 手动翻译一条当前用户可见的文本消息。

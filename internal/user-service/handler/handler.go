@@ -132,6 +132,15 @@ func (h *UserServiceImpl) UpdateStatus(ctx context.Context, req *user.UpdateStat
 	return &user.UpdateStatusResp{Success: true, Msg: "状态更新成功"}, nil
 }
 
+// UpdateRole 更新真人用户系统角色，供管理台用户治理入口调用。
+func (h *UserServiceImpl) UpdateRole(ctx context.Context, req *user.UpdateRoleReq) (resp *user.UpdateRoleResp, err error) {
+	err = h.svc.UpdateRole(ctx, req.GetOperatorId(), req.GetUserId(), req.GetRole())
+	if err != nil {
+		return &user.UpdateRoleResp{Success: false, Msg: err.Error()}, nil
+	}
+	return &user.UpdateRoleResp{Success: true, Msg: "角色更新成功"}, nil
+}
+
 // AddFriend 添加好友 RPC 方法
 // 双向添加：A 添加 B 时，B 的好友列表也会出现 A
 // 添加后清除双方的好友列表缓存

@@ -4,7 +4,6 @@ package service
 import (
 	"ClaranAIM/internal/settings-service/dao"
 	"ClaranAIM/internal/settings-service/model"
-	"ClaranAIM/pkg/settingsclient"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -17,13 +16,6 @@ import (
 	"time"
 )
 
-// APIKeyAction* 复用 pkg/settingsclient 的协议值，避免 service 层和 HTTP 客户端对密钥操作语义不一致。
-const (
-	APIKeyActionKeep  = settingsclient.APIKeyActionKeep
-	APIKeyActionSet   = settingsclient.APIKeyActionSet
-	APIKeyActionClear = settingsclient.APIKeyActionClear
-)
-
 // DefaultLLMConfig 保存平台默认 OpenAI 兼容模型供应商配置。
 type DefaultLLMConfig struct {
 	APIKey  string
@@ -33,39 +25,24 @@ type DefaultLLMConfig struct {
 
 // SettingsService 管理用户/系统 LLM profile 和 prompt 模板。
 type SettingsService interface {
-	SaveLLMProfile(ctx context.Context, ownerID int64, input SaveLLMProfileInput) (*settingsclient.LLMProfile, error)
-	ListLLMProfiles(ctx context.Context, ownerID int64, usageType string) ([]settingsclient.LLMProfile, error)
+	SaveLLMProfile(ctx context.Context, ownerID int64, input SaveLLMProfileInput) (*LLMProfile, error)
+	ListLLMProfiles(ctx context.Context, ownerID int64, usageType string) ([]LLMProfile, error)
 	DeleteLLMProfile(ctx context.Context, ownerID, profileID int64) error
-	TestLLMProfile(ctx context.Context, ownerID int64, input settingsclient.TestLLMProfileInput) (settingsclient.TestLLMProfileResult, error)
-	SavePrompt(ctx context.Context, ownerID int64, input SavePromptInput) (*settingsclient.PromptTemplate, error)
-	ListPrompts(ctx context.Context, ownerID int64) ([]settingsclient.PromptTemplate, error)
+	TestLLMProfile(ctx context.Context, ownerID int64, input TestLLMProfileInput) (TestLLMProfileResult, error)
+	SavePrompt(ctx context.Context, ownerID int64, input SavePromptInput) (*PromptTemplate, error)
+	ListPrompts(ctx context.Context, ownerID int64) ([]PromptTemplate, error)
 	ResolveTranslationConfig(ctx context.Context, ownerID int64) (ResolvedLLMConfig, error)
 	ResolveLLMProfile(ctx context.Context, ownerID, profileID int64) (ResolvedLLMConfig, error)
-	SaveSkill(ctx context.Context, ownerID int64, input SaveSkillInput) (*settingsclient.AgentSkill, error)
-	GetSkill(ctx context.Context, ownerID, skillID int64) (*settingsclient.AgentSkill, error)
-	UpdateSkillContent(ctx context.Context, ownerID, skillID int64, name, description string, content []byte) (*settingsclient.AgentSkill, error)
-	ListSkills(ctx context.Context, ownerID int64, scope string, agentID int64) ([]settingsclient.AgentSkill, error)
+	SaveSkill(ctx context.Context, ownerID int64, input SaveSkillInput) (*AgentSkill, error)
+	GetSkill(ctx context.Context, ownerID, skillID int64) (*AgentSkill, error)
+	UpdateSkillContent(ctx context.Context, ownerID, skillID int64, name, description string, content []byte) (*AgentSkill, error)
+	ListSkills(ctx context.Context, ownerID int64, scope string, agentID int64) ([]AgentSkill, error)
 	DeleteSkill(ctx context.Context, ownerID, skillID int64) error
-	SaveMCPServer(ctx context.Context, ownerID int64, input SaveMCPServerInput) (*settingsclient.MCPServerConfig, error)
-	ListMCPServers(ctx context.Context, ownerID int64, scope string, agentID, conversationID int64, includeDisabled bool) ([]settingsclient.MCPServerConfig, error)
-	ResolveMCPServers(ctx context.Context, ownerID, agentID, conversationID int64) ([]settingsclient.MCPServerConfig, error)
+	SaveMCPServer(ctx context.Context, ownerID int64, input SaveMCPServerInput) (*MCPServerConfig, error)
+	ListMCPServers(ctx context.Context, ownerID int64, scope string, agentID, conversationID int64, includeDisabled bool) ([]MCPServerConfig, error)
+	ResolveMCPServers(ctx context.Context, ownerID, agentID, conversationID int64) ([]MCPServerConfig, error)
 	DeleteMCPServer(ctx context.Context, ownerID, serverID int64) error
 }
-
-// SaveLLMProfileInput 描述一份可复用模型供应商配置。
-type SaveLLMProfileInput = settingsclient.SaveLLMProfileInput
-
-// SavePromptInput 描述一次 prompt 模板保存请求。
-type SavePromptInput = settingsclient.SavePromptInput
-
-// SaveSkillInput 描述一次 Skill 包上传保存请求。
-type SaveSkillInput = settingsclient.SaveSkillInput
-
-// SaveMCPServerInput 描述一次外部 MCP Server 配置保存请求。
-type SaveMCPServerInput = settingsclient.SaveMCPServerInput
-
-// ResolvedLLMConfig 是为某个任务解析出的模型供应商和 prompt 配置。
-type ResolvedLLMConfig = settingsclient.ResolvedLLMConfig
 
 // settingsServiceImpl 是 SettingsService 的默认实现，负责密钥治理、默认配置回退和 DTO 脱敏。
 type settingsServiceImpl struct {
@@ -114,7 +91,7 @@ func NewSettingsService(repo dao.SettingsRepository, defaultLLM DefaultLLMConfig
 
 // SaveLLMProfile 保存一份可复用 LLM 供应商配置。
 // API Key 保存后不再返回给浏览器，响应中只暴露 has_api_key 供前端展示是否已配置。
-func (s *settingsServiceImpl) SaveLLMProfile(ctx context.Context, ownerID int64, input SaveLLMProfileInput) (*settingsclient.LLMProfile, error) {
+func (s *settingsServiceImpl) SaveLLMProfile(ctx context.Context, ownerID int64, input SaveLLMProfileInput) (*LLMProfile, error) {
 	if ownerID <= 0 {
 		return nil, errors.New("用户未登录")
 	}
@@ -183,13 +160,13 @@ func (s *settingsServiceImpl) loadWritableProfile(ctx context.Context, ownerID i
 }
 
 // ListLLMProfiles 返回当前用户的 LLM profile 列表，并对密钥脱敏。
-func (s *settingsServiceImpl) ListLLMProfiles(ctx context.Context, ownerID int64, usageType string) ([]settingsclient.LLMProfile, error) {
+func (s *settingsServiceImpl) ListLLMProfiles(ctx context.Context, ownerID int64, usageType string) ([]LLMProfile, error) {
 	enabled := true
 	profiles, err := s.repo.ListLLMProfiles(ctx, dao.LLMProfileFilter{Scope: model.ScopeUser, OwnerID: ownerID, UsageType: usageType, Enabled: &enabled})
 	if err != nil {
 		return nil, err
 	}
-	out := make([]settingsclient.LLMProfile, 0, len(profiles))
+	out := make([]LLMProfile, 0, len(profiles))
 	for i := range profiles {
 		out = append(out, *sanitizeLLMProfile(&profiles[i]))
 	}
@@ -213,17 +190,17 @@ func (s *settingsServiceImpl) DeleteLLMProfile(ctx context.Context, ownerID, pro
 
 // TestLLMProfile 用最小请求验证用户填写或已保存的模型配置是否可用。
 // 该方法不保存任何密钥；错误信息会脱敏后返回给前端，便于用户定位 BaseURL、模型名或 API Key 问题。
-func (s *settingsServiceImpl) TestLLMProfile(ctx context.Context, ownerID int64, input settingsclient.TestLLMProfileInput) (settingsclient.TestLLMProfileResult, error) {
+func (s *settingsServiceImpl) TestLLMProfile(ctx context.Context, ownerID int64, input TestLLMProfileInput) (TestLLMProfileResult, error) {
 	if ownerID <= 0 {
-		return settingsclient.TestLLMProfileResult{}, errors.New("用户未登录")
+		return TestLLMProfileResult{}, errors.New("用户未登录")
 	}
 	cfg, err := s.resolveTestLLMConfig(ctx, ownerID, input)
 	if err != nil {
-		return settingsclient.TestLLMProfileResult{}, err
+		return TestLLMProfileResult{}, err
 	}
 	start := time.Now()
 	msg, err := testLLMEndpoint(ctx, cfg)
-	result := settingsclient.TestLLMProfileResult{
+	result := TestLLMProfileResult{
 		OK:           err == nil,
 		Msg:          defaultString(msg, "连通测试通过"),
 		LatencyMS:    time.Since(start).Milliseconds(),
@@ -236,7 +213,7 @@ func (s *settingsServiceImpl) TestLLMProfile(ctx context.Context, ownerID int64,
 	return result, nil
 }
 
-func (s *settingsServiceImpl) resolveTestLLMConfig(ctx context.Context, ownerID int64, input settingsclient.TestLLMProfileInput) (ResolvedLLMConfig, error) {
+func (s *settingsServiceImpl) resolveTestLLMConfig(ctx context.Context, ownerID int64, input TestLLMProfileInput) (ResolvedLLMConfig, error) {
 	if input.UseBuiltin {
 		cfg := ResolvedLLMConfig{
 			APIKey:       strings.TrimSpace(s.defaultLLM.APIKey),
@@ -245,19 +222,19 @@ func (s *settingsServiceImpl) resolveTestLLMConfig(ctx context.Context, ownerID 
 			ProviderType: defaultString(input.ProviderType, "openai_compatible"),
 		}
 		switch input.UsageType {
-		case settingsclient.ProviderEmbedding:
+		case ProviderEmbedding:
 			cfg.APIKey = firstNonEmpty(os.Getenv("RAG_EMBEDDING_API_KEY"), cfg.APIKey)
 			cfg.BaseURL = firstNonEmpty(os.Getenv("RAG_EMBEDDING_URL"), cfg.BaseURL)
 			cfg.ModelName = firstNonEmpty(os.Getenv("RAG_EMBEDDING_MODEL"), "embedding-3")
-		case settingsclient.ProviderOCR:
+		case ProviderOCR:
 			cfg.APIKey = firstNonEmpty(os.Getenv("DOCUMENT_OCR_API_KEY"), cfg.APIKey)
 			cfg.BaseURL = firstNonEmpty(os.Getenv("DOCUMENT_OCR_URL"), cfg.BaseURL)
 			cfg.ModelName = firstNonEmpty(os.Getenv("DOCUMENT_OCR_MODEL"), "glm-ocr")
-		case settingsclient.ProviderRerank:
+		case ProviderRerank:
 			cfg.APIKey = firstNonEmpty(os.Getenv("RAG_RERANK_API_KEY"), cfg.APIKey)
 			cfg.BaseURL = firstNonEmpty(os.Getenv("RAG_RERANK_URL"), cfg.BaseURL)
 			cfg.ModelName = firstNonEmpty(os.Getenv("RAG_RERANK_MODEL"), "rerank")
-		case settingsclient.ProviderRAGRouter:
+		case ProviderRAGRouter:
 			cfg.BaseURL = firstNonEmpty(os.Getenv("RAG_ROUTER_BASE_URL"), cfg.BaseURL)
 			cfg.ModelName = firstNonEmpty(os.Getenv("RAG_ROUTER_MODEL"), cfg.ModelName)
 		}
@@ -283,11 +260,11 @@ func (s *settingsServiceImpl) resolveTestLLMConfig(ctx context.Context, ownerID 
 	}
 	if cfg.ModelName == "" {
 		switch input.UsageType {
-		case settingsclient.ProviderEmbedding:
+		case ProviderEmbedding:
 			cfg.ModelName = "embedding-3"
-		case settingsclient.ProviderOCR:
+		case ProviderOCR:
 			cfg.ModelName = "glm-ocr"
-		case settingsclient.ProviderRerank:
+		case ProviderRerank:
 			cfg.ModelName = "rerank"
 		}
 	}
@@ -303,17 +280,17 @@ func testLLMEndpoint(ctx context.Context, cfg ResolvedLLMConfig) (string, error)
 	usage := strings.TrimSpace(cfg.PromptTemplate)
 	var payload map[string]interface{}
 	switch usage {
-	case settingsclient.ProviderEmbedding:
+	case ProviderEmbedding:
 		if !strings.HasSuffix(endpoint, "/embeddings") {
 			endpoint += "/embeddings"
 		}
 		payload = map[string]interface{}{"model": cfg.ModelName, "input": "ClaranAIM 连通测试", "dimensions": 16}
-	case settingsclient.ProviderOCR:
+	case ProviderOCR:
 		if !strings.HasSuffix(endpoint, "/layout_parsing") {
 			endpoint += "/layout_parsing"
 		}
 		payload = map[string]interface{}{"model": cfg.ModelName, "file": "https://cdn.bigmodel.cn/static/logo/introduction.png"}
-	case settingsclient.ProviderRerank:
+	case ProviderRerank:
 		if !strings.HasSuffix(endpoint, "/rerank") {
 			endpoint += "/rerank"
 		}
@@ -368,7 +345,7 @@ func sanitizeConnectivityError(err error) string {
 }
 
 // SavePrompt 保存当前用户拥有的 prompt 模板。
-func (s *settingsServiceImpl) SavePrompt(ctx context.Context, ownerID int64, input SavePromptInput) (*settingsclient.PromptTemplate, error) {
+func (s *settingsServiceImpl) SavePrompt(ctx context.Context, ownerID int64, input SavePromptInput) (*PromptTemplate, error) {
 	if ownerID <= 0 {
 		return nil, errors.New("用户未登录")
 	}
@@ -405,13 +382,13 @@ func (s *settingsServiceImpl) SavePrompt(ctx context.Context, ownerID int64, inp
 }
 
 // ListPrompts 返回当前用户的 prompt 模板列表。
-func (s *settingsServiceImpl) ListPrompts(ctx context.Context, ownerID int64) ([]settingsclient.PromptTemplate, error) {
+func (s *settingsServiceImpl) ListPrompts(ctx context.Context, ownerID int64) ([]PromptTemplate, error) {
 	enabled := true
 	prompts, err := s.repo.ListPrompts(ctx, dao.PromptFilter{Scope: model.ScopeUser, OwnerID: ownerID, Enabled: &enabled})
 	if err != nil {
 		return nil, err
 	}
-	out := make([]settingsclient.PromptTemplate, 0, len(prompts))
+	out := make([]PromptTemplate, 0, len(prompts))
 	for i := range prompts {
 		out = append(out, *promptToDTO(&prompts[i]))
 	}
@@ -503,7 +480,7 @@ func (s *settingsServiceImpl) ResolveLLMProfile(ctx context.Context, ownerID, pr
 //
 // 浏览器不能直接指定 runtime 使用的目录；settings-service 会把单个 SKILL.md、
 // zip 或文件夹展开后的文件写入受控根目录，然后返回安全的 SkillsDir。
-func (s *settingsServiceImpl) SaveSkill(ctx context.Context, ownerID int64, input SaveSkillInput) (*settingsclient.AgentSkill, error) {
+func (s *settingsServiceImpl) SaveSkill(ctx context.Context, ownerID int64, input SaveSkillInput) (*AgentSkill, error) {
 	if ownerID <= 0 {
 		return nil, errors.New("用户未登录")
 	}
@@ -563,7 +540,7 @@ func (s *settingsServiceImpl) SaveSkill(ctx context.Context, ownerID int64, inpu
 }
 
 // ListSkills 返回当前用户可用的 Skill 列表。
-func (s *settingsServiceImpl) ListSkills(ctx context.Context, ownerID int64, scope string, agentID int64) ([]settingsclient.AgentSkill, error) {
+func (s *settingsServiceImpl) ListSkills(ctx context.Context, ownerID int64, scope string, agentID int64) ([]AgentSkill, error) {
 	if ownerID <= 0 {
 		return nil, errors.New("用户未登录")
 	}
@@ -577,7 +554,7 @@ func (s *settingsServiceImpl) ListSkills(ctx context.Context, ownerID int64, sco
 	if err != nil {
 		return nil, err
 	}
-	out := make([]settingsclient.AgentSkill, 0, len(skills))
+	out := make([]AgentSkill, 0, len(skills))
 	for i := range skills {
 		out = append(out, *skillToDTO(&skills[i]))
 	}
@@ -586,7 +563,7 @@ func (s *settingsServiceImpl) ListSkills(ctx context.Context, ownerID int64, sco
 
 // GetSkill 读取当前用户拥有的 Skill 元数据和入口 SKILL.md 内容。
 // 列表接口只返回摘要，编辑器需要用该方法按需读取正文，避免每次打开设置页都传输大文本。
-func (s *settingsServiceImpl) GetSkill(ctx context.Context, ownerID, skillID int64) (*settingsclient.AgentSkill, error) {
+func (s *settingsServiceImpl) GetSkill(ctx context.Context, ownerID, skillID int64) (*AgentSkill, error) {
 	if ownerID <= 0 || skillID <= 0 {
 		return nil, errors.New("用户和Skill不能为空")
 	}
@@ -609,7 +586,7 @@ func (s *settingsServiceImpl) GetSkill(ctx context.Context, ownerID, skillID int
 
 // UpdateSkillContent 覆盖当前 Skill 的入口 SKILL.md 并同步基础元数据。
 // 只允许改入口文件正文，zip 包中的其他辅助文件保留不动；这样前端可以安全编辑核心指令，同时不破坏资源目录。
-func (s *settingsServiceImpl) UpdateSkillContent(ctx context.Context, ownerID, skillID int64, name, description string, content []byte) (*settingsclient.AgentSkill, error) {
+func (s *settingsServiceImpl) UpdateSkillContent(ctx context.Context, ownerID, skillID int64, name, description string, content []byte) (*AgentSkill, error) {
 	if ownerID <= 0 || skillID <= 0 {
 		return nil, errors.New("用户和Skill不能为空")
 	}
@@ -666,7 +643,7 @@ func (s *settingsServiceImpl) DeleteSkill(ctx context.Context, ownerID, skillID 
 
 // SaveMCPServer 保存用户自定义外部 MCP Server 配置。
 // 列表接口会脱敏 Secret；只有 ResolveMCPServers 会把 Secret 返回给 mcp-gateway 做服务间调用。
-func (s *settingsServiceImpl) SaveMCPServer(ctx context.Context, ownerID int64, input SaveMCPServerInput) (*settingsclient.MCPServerConfig, error) {
+func (s *settingsServiceImpl) SaveMCPServer(ctx context.Context, ownerID int64, input SaveMCPServerInput) (*MCPServerConfig, error) {
 	if ownerID <= 0 {
 		return nil, errors.New("用户未登录")
 	}
@@ -758,7 +735,7 @@ func (s *settingsServiceImpl) SaveMCPServer(ctx context.Context, ownerID int64, 
 }
 
 // ListMCPServers 返回当前用户可见的 MCP 配置列表，默认只返回启用项并脱敏。
-func (s *settingsServiceImpl) ListMCPServers(ctx context.Context, ownerID int64, scope string, agentID, conversationID int64, includeDisabled bool) ([]settingsclient.MCPServerConfig, error) {
+func (s *settingsServiceImpl) ListMCPServers(ctx context.Context, ownerID int64, scope string, agentID, conversationID int64, includeDisabled bool) ([]MCPServerConfig, error) {
 	if ownerID <= 0 {
 		return nil, errors.New("用户未登录")
 	}
@@ -781,7 +758,7 @@ func (s *settingsServiceImpl) ListMCPServers(ctx context.Context, ownerID int64,
 }
 
 // ResolveMCPServers 解析某次 Agent 运行可用的 MCP Server，包含全局、用户、Agent、会话四个作用域。
-func (s *settingsServiceImpl) ResolveMCPServers(ctx context.Context, ownerID, agentID, conversationID int64) ([]settingsclient.MCPServerConfig, error) {
+func (s *settingsServiceImpl) ResolveMCPServers(ctx context.Context, ownerID, agentID, conversationID int64) ([]MCPServerConfig, error) {
 	if ownerID <= 0 {
 		return nil, errors.New("用户未登录")
 	}
@@ -835,11 +812,11 @@ func (s *settingsServiceImpl) decryptSecret(value string) (string, error) {
 }
 
 // sanitizeLLMProfile 将数据库模型转换为脱敏 DTO。
-func sanitizeLLMProfile(profile *model.LLMProfile) *settingsclient.LLMProfile {
+func sanitizeLLMProfile(profile *model.LLMProfile) *LLMProfile {
 	if profile == nil {
 		return nil
 	}
-	return &settingsclient.LLMProfile{
+	return &LLMProfile{
 		ID:           profile.ID,
 		Name:         profile.Name,
 		ProviderType: profile.ProviderType,
@@ -853,11 +830,11 @@ func sanitizeLLMProfile(profile *model.LLMProfile) *settingsclient.LLMProfile {
 }
 
 // promptToDTO 将 prompt 数据库模型转换为客户端 DTO。
-func promptToDTO(prompt *model.PromptTemplate) *settingsclient.PromptTemplate {
+func promptToDTO(prompt *model.PromptTemplate) *PromptTemplate {
 	if prompt == nil {
 		return nil
 	}
-	return &settingsclient.PromptTemplate{
+	return &PromptTemplate{
 		ID:        prompt.ID,
 		Type:      prompt.Type,
 		Name:      prompt.Name,
@@ -868,11 +845,11 @@ func promptToDTO(prompt *model.PromptTemplate) *settingsclient.PromptTemplate {
 }
 
 // skillToDTO 将数据库模型转换为跨服务 DTO。
-func skillToDTO(skill *model.AgentSkill) *settingsclient.AgentSkill {
+func skillToDTO(skill *model.AgentSkill) *AgentSkill {
 	if skill == nil {
 		return nil
 	}
-	dto := &settingsclient.AgentSkill{
+	dto := &AgentSkill{
 		ID:          skill.ID,
 		OwnerID:     skill.OwnerID,
 		AgentID:     skill.AgentID,
@@ -893,11 +870,11 @@ func skillToDTO(skill *model.AgentSkill) *settingsclient.AgentSkill {
 	return dto
 }
 
-func mcpServerToDTO(server *model.MCPServerConfig, includeSecret bool) *settingsclient.MCPServerConfig {
+func mcpServerToDTO(server *model.MCPServerConfig, includeSecret bool) *MCPServerConfig {
 	if server == nil {
 		return nil
 	}
-	dto := &settingsclient.MCPServerConfig{
+	dto := &MCPServerConfig{
 		ID:             server.ID,
 		OwnerID:        server.OwnerID,
 		AgentID:        server.AgentID,
@@ -924,8 +901,8 @@ func mcpServerToDTO(server *model.MCPServerConfig, includeSecret bool) *settings
 	return dto
 }
 
-func mcpServersToDTO(servers []model.MCPServerConfig, includeSecret bool) []settingsclient.MCPServerConfig {
-	out := make([]settingsclient.MCPServerConfig, 0, len(servers))
+func mcpServersToDTO(servers []model.MCPServerConfig, includeSecret bool) []MCPServerConfig {
+	out := make([]MCPServerConfig, 0, len(servers))
 	for i := range servers {
 		dto := mcpServerToDTO(&servers[i], includeSecret)
 		if dto != nil {
@@ -935,7 +912,7 @@ func mcpServersToDTO(servers []model.MCPServerConfig, includeSecret bool) []sett
 	return out
 }
 
-func (s *settingsServiceImpl) mcpServerToDTO(server *model.MCPServerConfig, includeSecret bool) *settingsclient.MCPServerConfig {
+func (s *settingsServiceImpl) mcpServerToDTO(server *model.MCPServerConfig, includeSecret bool) *MCPServerConfig {
 	dto := mcpServerToDTO(server, includeSecret)
 	if dto == nil || !includeSecret {
 		return dto
@@ -949,8 +926,8 @@ func (s *settingsServiceImpl) mcpServerToDTO(server *model.MCPServerConfig, incl
 	return dto
 }
 
-func (s *settingsServiceImpl) mcpServersToDTO(servers []model.MCPServerConfig, includeSecret bool) []settingsclient.MCPServerConfig {
-	out := make([]settingsclient.MCPServerConfig, 0, len(servers))
+func (s *settingsServiceImpl) mcpServersToDTO(servers []model.MCPServerConfig, includeSecret bool) []MCPServerConfig {
+	out := make([]MCPServerConfig, 0, len(servers))
 	for i := range servers {
 		dto := s.mcpServerToDTO(&servers[i], includeSecret)
 		if dto != nil {
@@ -1068,15 +1045,15 @@ func extractSkillSummary(content string, fallback string) string {
 }
 
 // normalizeSkillFiles 统一单文件和多文件 Skill 包输入。
-func normalizeSkillFiles(input SaveSkillInput) ([]settingsclient.SkillFileInput, string, error) {
+func normalizeSkillFiles(input SaveSkillInput) ([]SkillFileInput, string, error) {
 	if len(input.Files) > 0 {
-		files := make([]settingsclient.SkillFileInput, 0, len(input.Files))
+		files := make([]SkillFileInput, 0, len(input.Files))
 		for _, f := range input.Files {
 			clean, err := cleanSkillRelativePath(f.Path)
 			if err != nil {
 				return nil, "", err
 			}
-			files = append(files, settingsclient.SkillFileInput{Path: clean, Content: f.Content})
+			files = append(files, SkillFileInput{Path: clean, Content: f.Content})
 		}
 		return files, "package", nil
 	}
@@ -1090,7 +1067,7 @@ func normalizeSkillFiles(input SaveSkillInput) ([]settingsclient.SkillFileInput,
 	if !strings.EqualFold(clean, "SKILL.md") {
 		return nil, "", errors.New("单文件上传必须命名为SKILL.md")
 	}
-	return []settingsclient.SkillFileInput{{Path: clean, Content: input.Content}}, "markdown", nil
+	return []SkillFileInput{{Path: clean, Content: input.Content}}, "markdown", nil
 }
 
 // cleanSkillRelativePath 校验 Skill 包内部路径，禁止绝对路径和路径穿越。
@@ -1111,7 +1088,7 @@ func cleanSkillRelativePath(path string) (string, error) {
 // normalizeSkillPackageRoot 找到上传包中的 SKILL.md，并把所有文件裁剪到同一个包根目录下。
 // 例如浏览器目录上传 Skill/SKILL.md 和 Skill/references/a.md 时，落盘目录就是 .../Skill，
 // EntryFile 仍是相对包根的 SKILL.md，runtime 不需要理解浏览器原始目录层级。
-func normalizeSkillPackageRoot(files []settingsclient.SkillFileInput) ([]settingsclient.SkillFileInput, string, string, error) {
+func normalizeSkillPackageRoot(files []SkillFileInput) ([]SkillFileInput, string, string, error) {
 	entryPath := ""
 	for _, f := range files {
 		normalized := filepath.ToSlash(f.Path)
@@ -1127,7 +1104,7 @@ func normalizeSkillPackageRoot(files []settingsclient.SkillFileInput) ([]setting
 	if packageDir == "." || packageDir == "/" {
 		packageDir = ""
 	}
-	out := make([]settingsclient.SkillFileInput, 0, len(files))
+	out := make([]SkillFileInput, 0, len(files))
 	for _, f := range files {
 		path := filepath.ToSlash(f.Path)
 		rel := path
@@ -1142,7 +1119,7 @@ func normalizeSkillPackageRoot(files []settingsclient.SkillFileInput) ([]setting
 		if err != nil {
 			return nil, "", "", err
 		}
-		out = append(out, settingsclient.SkillFileInput{Path: clean, Content: f.Content})
+		out = append(out, SkillFileInput{Path: clean, Content: f.Content})
 	}
 	if len(out) == 0 {
 		return nil, "", "", errors.New("Skill包为空")
@@ -1151,7 +1128,7 @@ func normalizeSkillPackageRoot(files []settingsclient.SkillFileInput) ([]setting
 }
 
 // writeSkillFiles 将 Skill 包写入受控存储根目录。
-func (s *settingsServiceImpl) writeSkillFiles(ownerID int64, username string, agentID int64, scope, name, packageDir string, files []settingsclient.SkillFileInput) (string, error) {
+func (s *settingsServiceImpl) writeSkillFiles(ownerID int64, username string, agentID int64, scope, name, packageDir string, files []SkillFileInput) (string, error) {
 	root := strings.TrimSpace(s.skillStorageRoot)
 	if root == "" {
 		root = "storage/agent/skills"

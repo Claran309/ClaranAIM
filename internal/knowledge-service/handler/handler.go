@@ -4,7 +4,6 @@ package handler
 import (
 	knowledgesvc "ClaranAIM/internal/knowledge-service/service"
 	"ClaranAIM/kitex_gen/knowledge"
-	"ClaranAIM/pkg/knowledgeclient"
 	"context"
 )
 
@@ -21,7 +20,7 @@ func NewKnowledgeServiceImpl(svc knowledgesvc.KnowledgeService) knowledge.Knowle
 
 // GetGraphView 返回前端知识图谱画布需要的节点、关系、社区和统计信息。
 func (h *KnowledgeServiceImpl) GetGraphView(ctx context.Context, req *knowledge.KnowledgeGraphReq) (*knowledge.KnowledgeGraphResp, error) {
-	view, err := h.svc.GetGraphView(ctx, req.GetViewerId(), knowledgeclient.GraphQuery{
+	view, err := h.svc.GetGraphView(ctx, req.GetViewerId(), knowledgesvc.GraphQuery{
 		Query:           req.GetQuery(),
 		TypeFilters:     req.GetTypeFilters(),
 		RelationFilters: req.GetRelationFilters(),
@@ -38,7 +37,7 @@ func (h *KnowledgeServiceImpl) GetGraphView(ctx context.Context, req *knowledge.
 
 // GetNodeDetail 返回节点详情、相邻节点和相关关系。
 func (h *KnowledgeServiceImpl) GetNodeDetail(ctx context.Context, req *knowledge.KnowledgeNodeDetailReq) (*knowledge.KnowledgeNodeDetailResp, error) {
-	detail, err := h.svc.GetNodeDetail(ctx, req.GetViewerId(), req.GetNodeId(), knowledgeclient.GraphQuery{
+	detail, err := h.svc.GetNodeDetail(ctx, req.GetViewerId(), req.GetNodeId(), knowledgesvc.GraphQuery{
 		Query:      req.GetQuery(),
 		Limit:      int(req.GetLimit()),
 		DocumentID: req.GetDocumentId(),
@@ -52,7 +51,7 @@ func (h *KnowledgeServiceImpl) GetNodeDetail(ctx context.Context, req *knowledge
 
 // GetEdgeDetail 返回关系详情、两端节点和证据来源。
 func (h *KnowledgeServiceImpl) GetEdgeDetail(ctx context.Context, req *knowledge.KnowledgeEdgeDetailReq) (*knowledge.KnowledgeEdgeDetailResp, error) {
-	detail, err := h.svc.GetEdgeDetail(ctx, req.GetViewerId(), req.GetEdgeId(), knowledgeclient.GraphQuery{
+	detail, err := h.svc.GetEdgeDetail(ctx, req.GetViewerId(), req.GetEdgeId(), knowledgesvc.GraphQuery{
 		Query:      req.GetQuery(),
 		Limit:      int(req.GetLimit()),
 		DocumentID: req.GetDocumentId(),
@@ -66,7 +65,7 @@ func (h *KnowledgeServiceImpl) GetEdgeDetail(ctx context.Context, req *knowledge
 
 // GetNeighborhood 返回某个实体的一跳或多跳邻域子图。
 func (h *KnowledgeServiceImpl) GetNeighborhood(ctx context.Context, req *knowledge.KnowledgeNeighborhoodReq) (*knowledge.KnowledgeGraphResp, error) {
-	view, err := h.svc.GetNeighborhood(ctx, req.GetViewerId(), req.GetNodeId(), knowledgeclient.GraphQuery{
+	view, err := h.svc.GetNeighborhood(ctx, req.GetViewerId(), req.GetNodeId(), knowledgesvc.GraphQuery{
 		Query:           req.GetQuery(),
 		TypeFilters:     req.GetTypeFilters(),
 		RelationFilters: req.GetRelationFilters(),
@@ -83,7 +82,7 @@ func (h *KnowledgeServiceImpl) GetNeighborhood(ctx context.Context, req *knowled
 
 // GetPath 返回两个实体之间的最短可见路径，用于前端高亮和解释链路。
 func (h *KnowledgeServiceImpl) GetPath(ctx context.Context, req *knowledge.KnowledgePathReq) (*knowledge.KnowledgePathResp, error) {
-	path, err := h.svc.GetPath(ctx, req.GetViewerId(), req.GetSourceId(), req.GetTargetId(), knowledgeclient.GraphQuery{
+	path, err := h.svc.GetPath(ctx, req.GetViewerId(), req.GetSourceId(), req.GetTargetId(), knowledgesvc.GraphQuery{
 		Query:      req.GetQuery(),
 		Limit:      int(req.GetLimit()),
 		DocumentID: req.GetDocumentId(),
@@ -97,7 +96,7 @@ func (h *KnowledgeServiceImpl) GetPath(ctx context.Context, req *knowledge.Knowl
 
 // CreateGraphReviewCandidate 把当前图谱节点或关系提交到人工候选审核区。
 func (h *KnowledgeServiceImpl) CreateGraphReviewCandidate(ctx context.Context, req *knowledge.CreateGraphReviewCandidateReq) (*knowledge.GraphReviewCandidateResp, error) {
-	candidate, err := h.svc.CreateGraphReviewCandidate(ctx, req.GetViewerId(), knowledgeclient.CreateGraphReviewCandidateInput{
+	candidate, err := h.svc.CreateGraphReviewCandidate(ctx, req.GetViewerId(), knowledgesvc.CreateGraphReviewCandidateInput{
 		ItemType: req.GetItemType(),
 		ItemID:   req.GetItemId(),
 		Reason:   req.GetReason(),
@@ -111,7 +110,7 @@ func (h *KnowledgeServiceImpl) CreateGraphReviewCandidate(ctx context.Context, r
 
 // ListGraphReviewCandidates 返回当前用户提交的图谱候选审核记录。
 func (h *KnowledgeServiceImpl) ListGraphReviewCandidates(ctx context.Context, req *knowledge.ListGraphReviewCandidatesReq) (*knowledge.ListGraphReviewCandidatesResp, error) {
-	list, err := h.svc.ListGraphReviewCandidates(ctx, req.GetViewerId(), knowledgeclient.ListGraphReviewCandidatesInput{
+	list, err := h.svc.ListGraphReviewCandidates(ctx, req.GetViewerId(), knowledgesvc.ListGraphReviewCandidatesInput{
 		Status:   req.GetStatus(),
 		ItemType: req.GetItemType(),
 		Limit:    int(req.GetLimit()),
@@ -125,7 +124,7 @@ func (h *KnowledgeServiceImpl) ListGraphReviewCandidates(ctx context.Context, re
 
 // ReviewGraphCandidate 对图谱候选执行通过或拒绝。
 func (h *KnowledgeServiceImpl) ReviewGraphCandidate(ctx context.Context, req *knowledge.ReviewGraphCandidateReq) (*knowledge.GraphReviewCandidateResp, error) {
-	candidate, err := h.svc.ReviewGraphCandidate(ctx, req.GetViewerId(), knowledgeclient.ReviewGraphCandidateInput{
+	candidate, err := h.svc.ReviewGraphCandidate(ctx, req.GetViewerId(), knowledgesvc.ReviewGraphCandidateInput{
 		CandidateID: req.GetCandidateId(),
 		Action:      req.GetAction(),
 		Note:        req.GetNote(),
@@ -136,7 +135,7 @@ func (h *KnowledgeServiceImpl) ReviewGraphCandidate(ctx context.Context, req *kn
 	return &knowledge.GraphReviewCandidateResp{Success: true, Candidate: toRPCReviewCandidate(candidate)}, nil
 }
 
-func toRPCGraphView(view *knowledgeclient.GraphView) *knowledge.KnowledgeGraphResp {
+func toRPCGraphView(view *knowledgesvc.GraphView) *knowledge.KnowledgeGraphResp {
 	if view == nil {
 		return &knowledge.KnowledgeGraphResp{Success: false, Msg: "knowledge-service返回空图谱"}
 	}
@@ -150,7 +149,7 @@ func toRPCGraphView(view *knowledgeclient.GraphView) *knowledge.KnowledgeGraphRe
 	}
 }
 
-func toRPCNodeDetail(detail *knowledgeclient.NodeDetail) *knowledge.KnowledgeNodeDetailResp {
+func toRPCNodeDetail(detail *knowledgesvc.NodeDetail) *knowledge.KnowledgeNodeDetailResp {
 	if detail == nil {
 		return &knowledge.KnowledgeNodeDetailResp{Success: false, Msg: "knowledge-service返回空节点详情"}
 	}
@@ -163,7 +162,7 @@ func toRPCNodeDetail(detail *knowledgeclient.NodeDetail) *knowledge.KnowledgeNod
 	}
 }
 
-func toRPCEdgeDetail(detail *knowledgeclient.EdgeDetail) *knowledge.KnowledgeEdgeDetailResp {
+func toRPCEdgeDetail(detail *knowledgesvc.EdgeDetail) *knowledge.KnowledgeEdgeDetailResp {
 	if detail == nil {
 		return &knowledge.KnowledgeEdgeDetailResp{Success: false, Msg: "knowledge-service返回空关系详情"}
 	}
@@ -176,7 +175,7 @@ func toRPCEdgeDetail(detail *knowledgeclient.EdgeDetail) *knowledge.KnowledgeEdg
 	}
 }
 
-func toRPCPath(path *knowledgeclient.PathDetail) *knowledge.KnowledgePathResp {
+func toRPCPath(path *knowledgesvc.PathDetail) *knowledge.KnowledgePathResp {
 	if path == nil {
 		return &knowledge.KnowledgePathResp{Success: false, Msg: "knowledge-service返回空路径"}
 	}
@@ -190,7 +189,7 @@ func toRPCPath(path *knowledgeclient.PathDetail) *knowledge.KnowledgePathResp {
 	}
 }
 
-func toRPCNodes(nodes []knowledgeclient.GraphNode) []*knowledge.KnowledgeGraphNode {
+func toRPCNodes(nodes []knowledgesvc.GraphNode) []*knowledge.KnowledgeGraphNode {
 	out := make([]*knowledge.KnowledgeGraphNode, 0, len(nodes))
 	for i := range nodes {
 		out = append(out, toRPCNode(nodes[i]))
@@ -198,14 +197,14 @@ func toRPCNodes(nodes []knowledgeclient.GraphNode) []*knowledge.KnowledgeGraphNo
 	return out
 }
 
-func toRPCNodePtr(node *knowledgeclient.GraphNode) *knowledge.KnowledgeGraphNode {
+func toRPCNodePtr(node *knowledgesvc.GraphNode) *knowledge.KnowledgeGraphNode {
 	if node == nil {
 		return nil
 	}
 	return toRPCNode(*node)
 }
 
-func toRPCNode(node knowledgeclient.GraphNode) *knowledge.KnowledgeGraphNode {
+func toRPCNode(node knowledgesvc.GraphNode) *knowledge.KnowledgeGraphNode {
 	return &knowledge.KnowledgeGraphNode{
 		Id:          node.ID,
 		Name:        node.Name,
@@ -219,7 +218,7 @@ func toRPCNode(node knowledgeclient.GraphNode) *knowledge.KnowledgeGraphNode {
 	}
 }
 
-func toRPCEdges(edges []knowledgeclient.GraphEdge) []*knowledge.KnowledgeGraphEdge {
+func toRPCEdges(edges []knowledgesvc.GraphEdge) []*knowledge.KnowledgeGraphEdge {
 	out := make([]*knowledge.KnowledgeGraphEdge, 0, len(edges))
 	for i := range edges {
 		out = append(out, toRPCEdge(edges[i]))
@@ -227,7 +226,7 @@ func toRPCEdges(edges []knowledgeclient.GraphEdge) []*knowledge.KnowledgeGraphEd
 	return out
 }
 
-func toRPCEdge(edge knowledgeclient.GraphEdge) *knowledge.KnowledgeGraphEdge {
+func toRPCEdge(edge knowledgesvc.GraphEdge) *knowledge.KnowledgeGraphEdge {
 	return &knowledge.KnowledgeGraphEdge{
 		Id:          edge.ID,
 		SourceId:    edge.SourceID,
@@ -241,7 +240,7 @@ func toRPCEdge(edge knowledgeclient.GraphEdge) *knowledge.KnowledgeGraphEdge {
 	}
 }
 
-func toRPCCommunities(communities []knowledgeclient.GraphCommunity) []*knowledge.KnowledgeGraphCommunity {
+func toRPCCommunities(communities []knowledgesvc.GraphCommunity) []*knowledge.KnowledgeGraphCommunity {
 	out := make([]*knowledge.KnowledgeGraphCommunity, 0, len(communities))
 	for i := range communities {
 		community := communities[i]
@@ -256,7 +255,7 @@ func toRPCCommunities(communities []knowledgeclient.GraphCommunity) []*knowledge
 	return out
 }
 
-func toRPCStats(stats knowledgeclient.GraphStats) *knowledge.KnowledgeGraphStats {
+func toRPCStats(stats knowledgesvc.GraphStats) *knowledge.KnowledgeGraphStats {
 	return &knowledge.KnowledgeGraphStats{
 		NodeCount:      int64(stats.NodeCount),
 		EdgeCount:      int64(stats.EdgeCount),
@@ -266,7 +265,7 @@ func toRPCStats(stats knowledgeclient.GraphStats) *knowledge.KnowledgeGraphStats
 	}
 }
 
-func toRPCReviewCandidates(candidates []knowledgeclient.GraphReviewCandidate) []*knowledge.GraphReviewCandidate {
+func toRPCReviewCandidates(candidates []knowledgesvc.GraphReviewCandidate) []*knowledge.GraphReviewCandidate {
 	out := make([]*knowledge.GraphReviewCandidate, 0, len(candidates))
 	for i := range candidates {
 		out = append(out, toRPCReviewCandidate(&candidates[i]))
@@ -274,7 +273,7 @@ func toRPCReviewCandidates(candidates []knowledgeclient.GraphReviewCandidate) []
 	return out
 }
 
-func toRPCReviewCandidate(candidate *knowledgeclient.GraphReviewCandidate) *knowledge.GraphReviewCandidate {
+func toRPCReviewCandidate(candidate *knowledgesvc.GraphReviewCandidate) *knowledge.GraphReviewCandidate {
 	if candidate == nil {
 		return nil
 	}

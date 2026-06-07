@@ -55,6 +55,13 @@ var serviceMethods = map[string]kitex.MethodInfo{
 		false,
 		kitex.WithStreamingMode(kitex.StreamingNone),
 	),
+	"UpdateRole": kitex.NewMethodInfo(
+		updateRoleHandler,
+		newUserServiceUpdateRoleArgs,
+		newUserServiceUpdateRoleResult,
+		false,
+		kitex.WithStreamingMode(kitex.StreamingNone),
+	),
 	"AddFriend": kitex.NewMethodInfo(
 		addFriendHandler,
 		newUserServiceAddFriendArgs,
@@ -292,6 +299,24 @@ func newUserServiceUpdateStatusResult() interface{} {
 	return user.NewUserServiceUpdateStatusResult()
 }
 
+func updateRoleHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
+	realArg := arg.(*user.UserServiceUpdateRoleArgs)
+	realResult := result.(*user.UserServiceUpdateRoleResult)
+	success, err := handler.(user.UserService).UpdateRole(ctx, realArg.Req)
+	if err != nil {
+		return err
+	}
+	realResult.Success = success
+	return nil
+}
+func newUserServiceUpdateRoleArgs() interface{} {
+	return user.NewUserServiceUpdateRoleArgs()
+}
+
+func newUserServiceUpdateRoleResult() interface{} {
+	return user.NewUserServiceUpdateRoleResult()
+}
+
 func addFriendHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
 	realArg := arg.(*user.UserServiceAddFriendArgs)
 	realResult := result.(*user.UserServiceAddFriendResult)
@@ -519,6 +544,16 @@ func (p *kClient) UpdateStatus(ctx context.Context, req *user.UpdateStatusReq) (
 	_args.Req = req
 	var _result user.UserServiceUpdateStatusResult
 	if err = p.c.Call(ctx, "UpdateStatus", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
+
+func (p *kClient) UpdateRole(ctx context.Context, req *user.UpdateRoleReq) (r *user.UpdateRoleResp, err error) {
+	var _args user.UserServiceUpdateRoleArgs
+	_args.Req = req
+	var _result user.UserServiceUpdateRoleResult
+	if err = p.c.Call(ctx, "UpdateRole", &_args, &_result); err != nil {
 		return
 	}
 	return _result.GetSuccess(), nil

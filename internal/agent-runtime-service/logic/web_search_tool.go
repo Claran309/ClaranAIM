@@ -1,7 +1,8 @@
 package logic
 
 import (
-	"ClaranAIM/pkg/websearchclient"
+	"ClaranAIM/kitex_gen/web_search"
+	"ClaranAIM/kitex_gen/web_search/websearchservice"
 	"context"
 	"fmt"
 	"strings"
@@ -10,11 +11,11 @@ import (
 
 var (
 	webSearchServiceMu sync.RWMutex
-	webSearchService   websearchclient.Service
+	webSearchService   websearchservice.Client
 )
 
 // SetWebSearchService 注入 web-search-service RPC 客户端。
-func SetWebSearchService(svc websearchclient.Service) {
+func SetWebSearchService(svc websearchservice.Client) {
 	webSearchServiceMu.Lock()
 	defer webSearchServiceMu.Unlock()
 	webSearchService = svc
@@ -43,24 +44,24 @@ func SearchWeb(ctx context.Context, input *WebSearchParams) (string, error) {
 	if svc == nil {
 		return "联网搜索不可用：agent-runtime-service 尚未连接 web-search-service。", nil
 	}
-	result, err := svc.Augment(ctx, websearchclient.AugmentInput{
+	result, err := svc.Augment(ctx, &web_search.AugmentReq{
 		Query:       query,
-		Limit:       input.Limit,
-		MaxFetch:    input.MaxFetch,
-		MaxPassages: input.MaxPassages,
+		Limit:       int64(input.Limit),
+		MaxFetch:    int64(input.MaxFetch),
+		MaxPassages: int64(input.MaxPassages),
 	})
 	if err != nil {
 		return "", err
 	}
 	var b strings.Builder
 	b.WriteString("## 联网搜索增强结果\n")
-	b.WriteString(result.AnswerContext)
+	b.WriteString(result.GetAnswerContext())
 	b.WriteString("\n\n## 来源\n")
-	if len(result.Sources) == 0 {
+	if len(result.GetSources()) == 0 {
 		b.WriteString("- 未找到可用网页来源。\n")
 	} else {
-		for i, source := range result.Sources {
-			b.WriteString(fmt.Sprintf("- [%d] %s\n  URL: %s\n  trusted=%t score=%.3f status=%s\n", i+1, firstNonEmptyTool(source.Title, source.URL), source.URL, source.Trusted, source.Score, source.FetchStatus))
+		for i, source := range result.GetSources() {
+			b.WriteString(fmt.Sprintf("- [%d] %s\n  URL: %s\n  trusted=%t score=%.3f status=%s\n", i+1, firstNonEmptyTool(source.GetTitle(), source.GetUrl()), source.GetUrl(), source.GetTrusted(), source.GetScore(), source.GetFetchStatus()))
 		}
 	}
 	return b.String(), nil

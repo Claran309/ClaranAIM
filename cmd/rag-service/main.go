@@ -12,7 +12,6 @@ import (
 	"ClaranAIM/pkg/health"
 	"ClaranAIM/pkg/logger"
 	"ClaranAIM/pkg/observability"
-	"ClaranAIM/pkg/settingsclient"
 	"context"
 	"net"
 	"strings"
@@ -124,10 +123,6 @@ func main() {
 	if err != nil {
 		logger.Warn("创建settings-service客户端失败，RAG将只使用项目内置Router", "error", err)
 	}
-	var settingsSvc settingsclient.Service
-	if settingsRPCClient != nil {
-		settingsSvc = settingsclient.NewRPCClient(settingsRPCClient)
-	}
 	repo := ragdao.NewRepository(db)
 	graphStore := graphstore.GraphStore(graphstore.NewMemoryStore())
 	if cfg.Neo4j.Enabled {
@@ -162,7 +157,7 @@ func main() {
 		graphExtractor,
 		graphSummarizer,
 	)
-	if settingsSvc != nil {
+	if settingsRPCClient != nil {
 		ragService = ragsvc.NewRAGServiceWithGraphStoreRouterProviderAndGraphExtractor(
 			repo,
 			graphStore,
@@ -174,12 +169,12 @@ func main() {
 			reranker,
 			cragEvaluator,
 			selfJudge,
-			settingsSvc,
+			settingsRPCClient,
 			nil,
 			graphExtractor,
 			graphSummarizer,
 		)
-		logger.Info("RAG用户级Router配置解析已启用", "usage_type", settingsclient.ProviderRAGRouter)
+		logger.Info("RAG用户级Router配置解析已启用", "usage_type", "rag_router")
 	}
 
 	r, err := etcd.NewEtcdRegistry(cfg.Etcd.Endpoints)

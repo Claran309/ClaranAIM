@@ -1,7 +1,8 @@
 package logic
 
 import (
-	"ClaranAIM/pkg/mcpclient"
+	"ClaranAIM/kitex_gen/mcp_gateway"
+	"ClaranAIM/kitex_gen/mcp_gateway/mcpgatewayservice"
 	"context"
 	"encoding/json"
 	"strings"
@@ -18,12 +19,12 @@ const (
 
 var (
 	mcpServiceMu sync.RWMutex
-	mcpService   mcpclient.Service
+	mcpService   mcpgatewayservice.Client
 )
 
 // SetMCPService 注入 mcp-gateway-service RPC 客户端。
 // Agent 工具统一通过 MCP Gateway 暴露内部服务和用户自定义远程 MCP Server。
-func SetMCPService(svc mcpclient.Service) {
+func SetMCPService(svc mcpgatewayservice.Client) {
 	mcpServiceMu.Lock()
 	defer mcpServiceMu.Unlock()
 	mcpService = svc
@@ -157,9 +158,12 @@ func MCPListTools(ctx context.Context, input *MCPListToolsParams) (string, error
 	}
 	agentID, _ := ctx.Value(mcpAgentIDKey).(int64)
 	conversationID, _ := ctx.Value(mcpConversationIDKey).(int64)
-	tools, err := svc.ListTools(ctx, mcpclient.ListToolsInput{UserID: userID, AgentID: agentID, ConversationID: conversationID})
+	toolsResp, err := svc.ListTools(ctx, &mcp_gateway.ListToolsReq{UserId: userID, AgentId: agentID, ConversationId: conversationID})
 	if err != nil {
 		return "", err
+	}
+	if !toolsResp.GetSuccess() {
+		return firstNonEmptyTool(toolsResp.GetMsg(), "MCP工具发现失败"), nil
 	}
 	includeSchema := input != nil && input.IncludeSchema
 	type visibleTool struct {
@@ -170,17 +174,20 @@ func MCPListTools(ctx context.Context, input *MCPListToolsParams) (string, error
 		RequiresApproval bool   `json:"requires_approval"`
 		InputSchemaJSON  string `json:"input_schema_json,omitempty"`
 	}
-	out := make([]visibleTool, 0, len(tools))
-	for _, tool := range tools {
+	out := make([]visibleTool, 0, len(toolsResp.GetTools()))
+	for _, tool := range toolsResp.GetTools() {
+		if tool == nil {
+			continue
+		}
 		item := visibleTool{
-			Name:             tool.Name,
-			Description:      tool.Description,
-			Source:           tool.Source,
-			ServerName:       tool.ServerName,
-			RequiresApproval: tool.RequiresApproval,
+			Name:             tool.GetName(),
+			Description:      tool.GetDescription(),
+			Source:           tool.GetSource(),
+			ServerName:       tool.GetServerName(),
+			RequiresApproval: tool.GetRequiresApproval(),
 		}
 		if includeSchema {
-			item.InputSchemaJSON = tool.InputSchemaJSON
+			item.InputSchemaJSON = tool.GetInputSchemaJson()
 		}
 		out = append(out, item)
 	}
@@ -229,24 +236,24 @@ func callMCPToolRaw(ctx context.Context, toolName, argumentsJSON string) (string
 	}
 	agentID, _ := ctx.Value(mcpAgentIDKey).(int64)
 	conversationID, _ := ctx.Value(mcpConversationIDKey).(int64)
-	result, err := svc.CallTool(ctx, mcpclient.CallToolInput{
-		UserID:         userID,
-		AgentID:        agentID,
-		ConversationID: conversationID,
+	result, err := svc.CallTool(ctx, &mcp_gateway.CallToolReq{
+		UserId:         userID,
+		AgentId:        agentID,
+		ConversationId: conversationID,
 		ToolName:       toolName,
-		ArgumentsJSON:  argumentsJSON,
+		ArgumentsJson:  argumentsJSON,
 	})
 	if err != nil {
 		return "", err
 	}
-	if strings.TrimSpace(result.ResultText) != "" {
-		return result.ResultText, nil
+	if strings.TrimSpace(result.GetResultText()) != "" {
+		return result.GetResultText(), nil
 	}
-	if strings.TrimSpace(result.ResultJSON) != "" {
-		return result.ResultJSON, nil
+	if strings.TrimSpace(result.GetResultJson()) != "" {
+		return result.GetResultJson(), nil
 	}
-	if result.Msg != "" {
-		return result.Msg, nil
+	if result.GetMsg() != "" {
+		return result.GetMsg(), nil
 	}
 	return "MCP工具调用完成，但没有返回可读内容。", nil
 }

@@ -19,7 +19,6 @@
 - `internal/memory-service/service/service.go`
 - `idl/memory.thrift`
 - `kitex_gen/memory/memoryservice`
-- `pkg/memoryclient`
 - `internal/api-gateway/handler/memory_handler.go`
 - `internal/agent-manager-service/service/service.go`
 
@@ -58,10 +57,10 @@ session
 
 含义：
 
-- user：用户长期偏好。
-- group：群背景。
-- conversation：某会话上下文。
-- session：某次 Agent 长会话。
+  user：用户长期偏好。
+  group：群背景。
+  conversation：某会话上下文。
+  session：某次 Agent 长会话。
 
 ## Type
 
@@ -96,17 +95,17 @@ disabled
 ready
 ```
 
-这说明 memory-service 未来可以接 embedding，但现在仍是 MySQL MVP。
+这说明 memory service 未来可以接 embedding，但现在仍是 MySQL MVP。
 
 ## 用户治理
 
 用户必须能：
 
-- 查看记忆。
-- 创建记忆。
-- 编辑记忆。
-- 删除记忆。
-- 禁用记忆。
+  查看记忆。
+  创建记忆。
+  编辑记忆。
+  删除记忆。
+  禁用记忆。
 
 否则 Agent 记忆会变成不可控黑箱。
 
@@ -114,10 +113,10 @@ ready
 
 你应该能回答：
 
-- Memory 和 RAG 的区别是什么？
-- scope 为什么不能只有 user？
-- speaking_style 为什么默认应私有？
-- VectorStatus 有什么演进意义？
+  Memory 和 RAG 的区别是什么？
+  scope 为什么不能只有 user？
+  speaking_style 为什么默认应私有？
+  VectorStatus 有什么演进意义？
 
 ## 动手任务
 

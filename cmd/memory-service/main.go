@@ -20,7 +20,7 @@ import (
 )
 
 // main 启动记忆服务的 Kitex RPC API。
-// 记忆能力由 api-gateway 和 Agent 服务通过 memoryclient.RPCClient 调用，暂不暴露浏览器直连端口。
+// 记忆能力由 api-gateway 和 Agent 服务通过 kitex_gen/memory/memoryservice.Client 调用，暂不暴露浏览器直连端口。
 func main() {
 	logger.InitService("memory-service")
 

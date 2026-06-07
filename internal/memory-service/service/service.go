@@ -4,7 +4,6 @@ package service
 import (
 	"ClaranAIM/internal/memory-service/dao"
 	"ClaranAIM/internal/memory-service/model"
-	"ClaranAIM/pkg/memoryclient"
 	"ClaranAIM/pkg/observability"
 	"context"
 	"errors"
@@ -17,29 +16,16 @@ import (
 
 // MemoryService 暴露 Phase4 记忆能力，供 api-gateway 和 Agent runtime 调用。
 type MemoryService interface {
-	CreateMemory(ctx context.Context, input CreateMemoryInput) (*memoryclient.MemoryFact, error)
-	ListMemories(ctx context.Context, viewerID int64, filter dao.MemoryFilter) ([]memoryclient.MemoryFact, int64, error)
+	CreateMemory(ctx context.Context, input CreateMemoryInput) (*MemoryFact, error)
+	ListMemories(ctx context.Context, viewerID int64, filter dao.MemoryFilter) ([]MemoryFact, int64, error)
 	Recall(ctx context.Context, input RecallInput) (RecallResult, error)
-	UpdateMemory(ctx context.Context, viewerID, memoryID int64, input UpdateMemoryInput) (*memoryclient.MemoryFact, error)
+	UpdateMemory(ctx context.Context, viewerID, memoryID int64, input UpdateMemoryInput) (*MemoryFact, error)
 	DeleteMemory(ctx context.Context, viewerID, memoryID int64) error
-	CreateCandidate(ctx context.Context, input CandidateInput) (*memoryclient.MemoryCandidate, error)
-	ListCandidates(ctx context.Context, viewerID int64, filter memoryclient.CandidateFilter) ([]memoryclient.MemoryCandidate, int64, error)
-	AcceptCandidate(ctx context.Context, viewerID, candidateID int64) (*memoryclient.MemoryCandidate, error)
-	RejectCandidate(ctx context.Context, viewerID, candidateID int64) (*memoryclient.MemoryCandidate, error)
+	CreateCandidate(ctx context.Context, input CandidateInput) (*MemoryCandidate, error)
+	ListCandidates(ctx context.Context, viewerID int64, filter CandidateFilter) ([]MemoryCandidate, int64, error)
+	AcceptCandidate(ctx context.Context, viewerID, candidateID int64) (*MemoryCandidate, error)
+	RejectCandidate(ctx context.Context, viewerID, candidateID int64) (*MemoryCandidate, error)
 }
-
-// CreateMemoryInput 是创建单条记忆事实的 API 入参结构。
-type CreateMemoryInput = memoryclient.CreateMemoryInput
-
-// UpdateMemoryInput 保存用户可编辑记忆的可选更新字段。
-type UpdateMemoryInput = memoryclient.UpdateMemoryInput
-
-// RecallInput 限定记忆召回边界，避免把不相关用户、群或会话的记忆注入 Agent。
-type RecallInput = memoryclient.RecallInput
-
-// RecallResult 保存召回到的记忆事实，以及可直接拼入 prompt 的文本块。
-type RecallResult = memoryclient.RecallResult
-type CandidateInput = memoryclient.CandidateInput
 
 // memoryServiceImpl 是 MemoryService 的默认实现，负责参数校验、权限裁剪和 DTO 转换。
 type memoryServiceImpl struct {
@@ -65,7 +51,7 @@ func NewMemoryServiceWithRAG(repo dao.MemoryRepository, vector MemoryVectorIndex
 
 // CreateMemory 校验并保存一条记忆事实。
 // 用户偏好、发言习惯等个人画像默认私有，因为这些信息只应由本人查看和管理。
-func (s *memoryServiceImpl) CreateMemory(ctx context.Context, input CreateMemoryInput) (*memoryclient.MemoryFact, error) {
+func (s *memoryServiceImpl) CreateMemory(ctx context.Context, input CreateMemoryInput) (*MemoryFact, error) {
 	if s.repo == nil {
 		return nil, errors.New("memory repository未配置")
 	}
@@ -117,7 +103,7 @@ func (s *memoryServiceImpl) CreateMemory(ctx context.Context, input CreateMemory
 
 // ListMemories 只返回当前用户拥有的记忆。
 // 即使调用方传入更宽的过滤条件，这里也会强制按 owner_user_id 裁剪，避免个人画像被越权列出。
-func (s *memoryServiceImpl) ListMemories(ctx context.Context, viewerID int64, filter dao.MemoryFilter) ([]memoryclient.MemoryFact, int64, error) {
+func (s *memoryServiceImpl) ListMemories(ctx context.Context, viewerID int64, filter dao.MemoryFilter) ([]MemoryFact, int64, error) {
 	if s.repo == nil {
 		return nil, 0, errors.New("memory repository未配置")
 	}
@@ -188,7 +174,7 @@ func (s *memoryServiceImpl) Recall(ctx context.Context, input RecallInput) (Reca
 
 // UpdateMemory 修改当前用户拥有的记忆。
 // 用户可以编辑、关闭或调整自己的记忆，但不能修改他人的记忆事实。
-func (s *memoryServiceImpl) UpdateMemory(ctx context.Context, viewerID, memoryID int64, input UpdateMemoryInput) (*memoryclient.MemoryFact, error) {
+func (s *memoryServiceImpl) UpdateMemory(ctx context.Context, viewerID, memoryID int64, input UpdateMemoryInput) (*MemoryFact, error) {
 	fact, err := s.loadOwnedMemory(ctx, viewerID, memoryID)
 	if err != nil {
 		return nil, err
@@ -246,7 +232,7 @@ func (s *memoryServiceImpl) DeleteMemory(ctx context.Context, viewerID, memoryID
 }
 
 // CreateCandidate 保存一条 pending 候选记忆，等待用户确认或规则接受。
-func (s *memoryServiceImpl) CreateCandidate(ctx context.Context, input CandidateInput) (*memoryclient.MemoryCandidate, error) {
+func (s *memoryServiceImpl) CreateCandidate(ctx context.Context, input CandidateInput) (*MemoryCandidate, error) {
 	if s.repo == nil {
 		return nil, errors.New("memory repository未配置")
 	}
@@ -295,7 +281,7 @@ func (s *memoryServiceImpl) CreateCandidate(ctx context.Context, input Candidate
 // ListCandidates 返回候选记忆列表，用于用户治理页或 admin-service 审核台。
 // viewerID > 0 时强制按 owner_user_id 裁剪；viewerID == 0 是内部管理入口的全局查询约定，
 // api-gateway 的普通用户入口会注入真实用户 ID，不能直接拿到全局候选。
-func (s *memoryServiceImpl) ListCandidates(ctx context.Context, viewerID int64, filter memoryclient.CandidateFilter) ([]memoryclient.MemoryCandidate, int64, error) {
+func (s *memoryServiceImpl) ListCandidates(ctx context.Context, viewerID int64, filter CandidateFilter) ([]MemoryCandidate, int64, error) {
 	if s.repo == nil {
 		return nil, 0, errors.New("memory repository未配置")
 	}
@@ -318,7 +304,7 @@ func (s *memoryServiceImpl) ListCandidates(ctx context.Context, viewerID int64, 
 }
 
 // AcceptCandidate 把 pending 候选转为正式记忆，并按冲突策略处理旧记忆。
-func (s *memoryServiceImpl) AcceptCandidate(ctx context.Context, viewerID, candidateID int64) (*memoryclient.MemoryCandidate, error) {
+func (s *memoryServiceImpl) AcceptCandidate(ctx context.Context, viewerID, candidateID int64) (*MemoryCandidate, error) {
 	candidate, err := s.loadOwnedCandidate(ctx, viewerID, candidateID)
 	if err != nil {
 		return nil, err
@@ -364,7 +350,7 @@ func (s *memoryServiceImpl) AcceptCandidate(ctx context.Context, viewerID, candi
 }
 
 // RejectCandidate 拒绝候选记忆，不写入 memory_facts。
-func (s *memoryServiceImpl) RejectCandidate(ctx context.Context, viewerID, candidateID int64) (*memoryclient.MemoryCandidate, error) {
+func (s *memoryServiceImpl) RejectCandidate(ctx context.Context, viewerID, candidateID int64) (*MemoryCandidate, error) {
 	candidate, err := s.loadOwnedCandidate(ctx, viewerID, candidateID)
 	if err != nil {
 		return nil, err
@@ -505,7 +491,7 @@ func FormatMemoryContext(facts []model.MemoryFact) string {
 }
 
 // FormatClientMemoryContext 将 DTO 记忆转换成 prompt 文本，供 memory-service 外部调用方使用。
-func FormatClientMemoryContext(facts []memoryclient.MemoryFact) string {
+func FormatClientMemoryContext(facts []MemoryFact) string {
 	modelFacts := make([]model.MemoryFact, 0, len(facts))
 	for _, fact := range facts {
 		modelFacts = append(modelFacts, model.MemoryFact{
@@ -804,8 +790,8 @@ func roundScore(value float64) float64 {
 }
 
 // memoryFactsToDTO 批量将数据库模型转换为客户端 DTO。
-func memoryFactsToDTO(facts []model.MemoryFact) []memoryclient.MemoryFact {
-	out := make([]memoryclient.MemoryFact, 0, len(facts))
+func memoryFactsToDTO(facts []model.MemoryFact) []MemoryFact {
+	out := make([]MemoryFact, 0, len(facts))
 	for i := range facts {
 		out = append(out, *memoryFactToDTO(&facts[i]))
 	}
@@ -813,11 +799,11 @@ func memoryFactsToDTO(facts []model.MemoryFact) []memoryclient.MemoryFact {
 }
 
 // memoryFactToDTO 将单条数据库记忆模型转换为客户端 DTO。
-func memoryFactToDTO(fact *model.MemoryFact) *memoryclient.MemoryFact {
+func memoryFactToDTO(fact *model.MemoryFact) *MemoryFact {
 	if fact == nil {
 		return nil
 	}
-	return &memoryclient.MemoryFact{
+	return &MemoryFact{
 		ID:               fact.ID,
 		BotID:            fact.BotID,
 		UserID:           fact.UserID,
@@ -847,19 +833,19 @@ func memoryFactToDTO(fact *model.MemoryFact) *memoryclient.MemoryFact {
 	}
 }
 
-func candidatesToDTO(candidates []model.MemoryCandidate) []memoryclient.MemoryCandidate {
-	out := make([]memoryclient.MemoryCandidate, 0, len(candidates))
+func candidatesToDTO(candidates []model.MemoryCandidate) []MemoryCandidate {
+	out := make([]MemoryCandidate, 0, len(candidates))
 	for i := range candidates {
 		out = append(out, *candidateToDTO(&candidates[i]))
 	}
 	return out
 }
 
-func candidateToDTO(candidate *model.MemoryCandidate) *memoryclient.MemoryCandidate {
+func candidateToDTO(candidate *model.MemoryCandidate) *MemoryCandidate {
 	if candidate == nil {
 		return nil
 	}
-	return &memoryclient.MemoryCandidate{
+	return &MemoryCandidate{
 		ID:                 candidate.ID,
 		BotID:              candidate.BotID,
 		UserID:             candidate.UserID,

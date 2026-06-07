@@ -60,6 +60,7 @@ struct IngestDocumentReq {
     6: string visibility
     7: i64 group_id
     8: i64 conversation_id
+    9: string graph_relation_mode
 }
 
 struct IngestDocumentResp {

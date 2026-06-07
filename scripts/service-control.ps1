@@ -1,5 +1,5 @@
 param(
-    [ValidateSet("start", "stop", "restart", "status")]
+    [ValidateSet("start", "stop", "status")]
     [string]$Action = "start",
     [switch]$NoDocker
 )
@@ -330,19 +330,6 @@ switch ($Action) {
         }
         exit 0
     }
-    "restart" {
-        Write-Host "Restarting ClaranAIM services..."
-        foreach ($svc in (Get-ReversedServices)) {
-            Stop-ServiceProcess $svc
-        }
-        Start-Sleep -Seconds 2
-        if ($NoDocker) {
-            & $PSCommandPath -Action start -NoDocker
-        } else {
-            & $PSCommandPath -Action start
-        }
-        exit $LASTEXITCODE
-    }
     "start" {
         Write-Host "========================================"
         Write-Host "  ClaranAIM Services Starting"
@@ -381,7 +368,7 @@ switch ($Action) {
         Write-Host "  MinIO Console:        http://127.0.0.1:9001"
         Write-Host "  Frontend:             Open dist/index.html in browser"
         Write-Host ""
-        Write-Host "Use scripts\status.bat to inspect, scripts\stop.bat to stop residual go-run processes, scripts\restart.bat to restart."
+        Write-Host "Use scripts\status.bat to inspect status, scripts\stop.bat to stop residual go-run processes, and scripts\start.bat to start again."
         exit $(if ($blocked.Count -eq 0 -and -not $hasFatalLogs -and -not $hasRuntimeIssues) { 0 } else { 1 })
     }
 }

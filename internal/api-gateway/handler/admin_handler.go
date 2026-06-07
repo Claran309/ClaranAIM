@@ -74,6 +74,36 @@ func (h *AdminHandler) UpdateUserStatus(ctx context.Context, c *app.RequestConte
 	response.Success(c, resp)
 }
 
+func (h *AdminHandler) UpdateUserRole(ctx context.Context, c *app.RequestContext) {
+	var req struct {
+		Role string `json:"role"`
+	}
+	if err := c.BindJSON(&req); err != nil {
+		response.BadRequest(c, "参数错误")
+		return
+	}
+	userID := pathOrQueryInt(c, "id", "user_id", 0)
+	if userID <= 0 {
+		response.BadRequest(c, "无效的用户ID")
+		return
+	}
+	role := strings.ToLower(strings.TrimSpace(req.Role))
+	if role != "user" && role != "admin" {
+		response.BadRequest(c, "role只能是user或admin")
+		return
+	}
+	resp, err := client.UserClient.UpdateRole(ctx, &user.UpdateRoleReq{
+		OperatorId: currentAdminID(c),
+		UserId:     userID,
+		Role:       role,
+	})
+	if err != nil {
+		response.Error(c, err.Error())
+		return
+	}
+	response.Success(c, resp)
+}
+
 func (h *AdminHandler) ListGroups(ctx context.Context, c *app.RequestContext) {
 	resp, err := client.AdminClient.ListGroups(ctx, &admin.ListGroupsReq{
 		AdminId: currentAdminID(c),

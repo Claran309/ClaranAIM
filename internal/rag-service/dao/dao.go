@@ -32,6 +32,7 @@ type SearchFilter struct {
 	DocumentID     int64
 	Limit          int
 	Offset         int
+	KnowledgeOnly  bool
 }
 
 // Repository 定义 rag-service 所需的持久化能力。
@@ -87,6 +88,10 @@ func (r *repositoryImpl) CreateDocumentWithChunks(ctx context.Context, doc *mode
 // ListDocuments 返回当前用户拥有或公共可见的知识文档。
 func (r *repositoryImpl) ListDocuments(ctx context.Context, filter SearchFilter) ([]model.Document, int64, error) {
 	query := visibleDocuments(r.db.WithContext(ctx).Table("rag_documents").Where("rag_documents.deleted_at IS NULL"), filter.ViewerID)
+	if filter.KnowledgeOnly {
+		query = query.Where("LOWER(COALESCE(source_type, '')) NOT IN ?", hiddenKnowledgeDocumentSourceTypes()).
+			Where("(source IS NULL OR source = '' OR source NOT LIKE ?)", "conversation:%")
+	}
 	var total int64
 	if err := query.Count(&total).Error; err != nil {
 		return nil, 0, err
@@ -102,6 +107,10 @@ func (r *repositoryImpl) ListDocuments(ctx context.Context, filter SearchFilter)
 	var docs []model.Document
 	err := query.Order("updated_at DESC, id DESC").Limit(limit).Offset(offset).Find(&docs).Error
 	return docs, total, err
+}
+
+func hiddenKnowledgeDocumentSourceTypes() []string {
+	return []string{"conversation", "chat", "conversation_summary", "conversation_topic", "conversation_digest"}
 }
 
 // CountChildChunksByDocumentIDs 统计每篇文档真正参与检索的 child chunk 数量。

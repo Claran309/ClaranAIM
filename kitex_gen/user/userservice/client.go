@@ -17,6 +17,7 @@ type Client interface {
 	UpdateUserInfo(ctx context.Context, req *user.UpdateUserInfoReq, callOptions ...callopt.Option) (r *user.UpdateUserInfoResp, err error)
 	UpdateAvatar(ctx context.Context, req *user.UpdateAvatarReq, callOptions ...callopt.Option) (r *user.UpdateAvatarResp, err error)
 	UpdateStatus(ctx context.Context, req *user.UpdateStatusReq, callOptions ...callopt.Option) (r *user.UpdateStatusResp, err error)
+	UpdateRole(ctx context.Context, req *user.UpdateRoleReq, callOptions ...callopt.Option) (r *user.UpdateRoleResp, err error)
 	AddFriend(ctx context.Context, req *user.AddFriendReq, callOptions ...callopt.Option) (r *user.AddFriendResp, err error)
 	DeleteFriend(ctx context.Context, req *user.DeleteFriendReq, callOptions ...callopt.Option) (r *user.DeleteFriendResp, err error)
 	GetFriendList(ctx context.Context, req *user.GetFriendListReq, callOptions ...callopt.Option) (r *user.GetFriendListResp, err error)
@@ -85,6 +86,11 @@ func (p *kUserServiceClient) UpdateAvatar(ctx context.Context, req *user.UpdateA
 func (p *kUserServiceClient) UpdateStatus(ctx context.Context, req *user.UpdateStatusReq, callOptions ...callopt.Option) (r *user.UpdateStatusResp, err error) {
 	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
 	return p.kClient.UpdateStatus(ctx, req)
+}
+
+func (p *kUserServiceClient) UpdateRole(ctx context.Context, req *user.UpdateRoleReq, callOptions ...callopt.Option) (r *user.UpdateRoleResp, err error) {
+	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
+	return p.kClient.UpdateRole(ctx, req)
 }
 
 func (p *kUserServiceClient) AddFriend(ctx context.Context, req *user.AddFriendReq, callOptions ...callopt.Option) (r *user.AddFriendResp, err error) {

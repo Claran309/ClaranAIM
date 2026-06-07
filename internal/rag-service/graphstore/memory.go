@@ -345,8 +345,11 @@ func (s *MemoryStore) entityLocked(id int64) (model.Entity, bool) {
 }
 
 func normalizeGraphLimits(limit, hops int) (int, int) {
-	if limit <= 0 || limit > 200 {
+	if limit <= 0 {
 		limit = 80
+	}
+	if limit > 260 {
+		limit = 260
 	}
 	if hops <= 0 {
 		hops = 1

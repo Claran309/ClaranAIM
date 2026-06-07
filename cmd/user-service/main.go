@@ -11,7 +11,10 @@ import (
 	"ClaranAIM/pkg/health"
 	"ClaranAIM/pkg/logger"
 	"ClaranAIM/pkg/observability"
+	"context"
 	"net"
+	"os"
+	"strings"
 
 	"github.com/cloudwego/kitex/pkg/rpcinfo"
 	"github.com/cloudwego/kitex/pkg/transmeta"
@@ -50,6 +53,7 @@ func main() {
 
 	userRepo := dao.NewUserRepo(db)
 	userService := service.NewUserService(userRepo, redisClient)
+	bootstrapAdmin(userService)
 	userHandler := handler.NewUserServiceImpl(userService)
 
 	handler.InitJWTConfigWithRefresh(cfg.JWT.SecretKey, cfg.JWT.AccessExpiration, cfg.JWT.RefreshExpiration)
@@ -85,5 +89,18 @@ func main() {
 	})
 	if err := svr.Run(); err != nil {
 		logger.Fatal("服务启动失败", "error", err)
+	}
+}
+
+func bootstrapAdmin(userService service.UserService) {
+	username := strings.TrimSpace(os.Getenv("BOOTSTRAP_ADMIN_USERNAME"))
+	password := strings.TrimSpace(os.Getenv("BOOTSTRAP_ADMIN_PASSWORD"))
+	nickname := strings.TrimSpace(os.Getenv("BOOTSTRAP_ADMIN_NICKNAME"))
+	admin, created, err := userService.BootstrapAdmin(context.Background(), username, password, nickname)
+	if err != nil {
+		logger.Fatal("初始化管理员账号失败", "error", err)
+	}
+	if created {
+		logger.Info("空库管理员账号已初始化", "user_id", admin.ID, "username", admin.Username)
 	}
 }

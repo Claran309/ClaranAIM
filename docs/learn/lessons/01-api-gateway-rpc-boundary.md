@@ -23,44 +23,44 @@
 - `internal/api-gateway/handler/memory_handler.go`
 - `internal/api-gateway/handler/settings_handler.go`
 - `internal/api-gateway/client/rpc_client.go`
-- `pkg/settingsclient`
-- `pkg/memoryclient`
+- `kitex_gen/settings/settingsservice`
+- `kitex_gen/memory/memoryservice`
 
 ## api-gateway 的职责
 
 api-gateway 负责：
 
-- 对外统一 `/api/v1/*`。
-- CORS。
-- JWT。
-- 用户/IP 限流。
-- 参数绑定。
-- 从 JWT 中取当前用户 ID。
-- 调下游服务。
-- 返回统一响应。
+  对外统一 `/api/v1/*`。
+  CORS。
+  JWT。
+  用户/IP 限流。
+  参数绑定。
+  从 JWT 中取当前用户 ID。
+  调下游服务。
+  返回统一响应。
 
 它不负责：
 
-- 保存业务事实。
-- 直接写 Kafka。
-- 运行 Agent。
-- 跨服务复杂事务。
-- 长连接推送。
+  保存业务事实。
+  直接写 Kafka。
+  运行 Agent。
+  跨服务复杂事务。
+  长连接推送。
 
 ## Kitex RPC 是内部业务通信边界
 
 项目主干使用 Kitex RPC，例如：
 
-- user-service。
-- group-service。
-- msg-core-service。
-- file-service。
-- agent-manager-service。
-- agent-runtime-service。
-- memory-service。
-- settings-service。
+  user service。
+  group service。
+  msg core service。
+  file service。
+  agent manager service。
+  agent runtime service。
+  memory service。
+  settings service。
 
-api-gateway 负责把浏览器 HTTP 请求转成 Kitex RPC 请求。settings、memory、msg-core 翻译能力都已经进入 IDL，不再通过 transport/http 做普通服务间调用。学习时重点是边界：
+api gateway 负责把浏览器 HTTP 请求转成 Kitex RPC 请求。settings、memory、msg core 翻译能力都已经进入 IDL，不再通过 transport/http 做普通服务间调用。学习时重点是边界：
 
 ```text
 网关只做门面
@@ -109,11 +109,11 @@ POST   /agent/run
 POST   /agent/summarize
 POST   /agent/ask
 POST   /agent/insights
-POST   /agent/reply-candidates
+POST   /agent/reply candidates
 GET    /agent/approvals
 POST   /agent/approval/confirm
 POST   /agent/approval/reject
-POST   /agent/add-friend
+POST   /agent/add friend
 POST   /agent/route/create
 DELETE /agent/route/delete
 ```
@@ -123,18 +123,18 @@ DELETE /agent/route/delete
 ## Settings 路由
 
 ```text
-GET    /settings/llm-profiles
-POST   /settings/llm-profiles
-DELETE /settings/llm-profiles/:id
+GET    /settings/llm profiles
+POST   /settings/llm profiles
+DELETE /settings/llm profiles/:id
 GET    /settings/prompts
 POST   /settings/prompts
 ```
 
 用途：
 
-- 保存用户自己的 OpenAI-compatible LLM 配置。
-- 创建 Agent 时用 `llm_profile_id` 解析成 base_url、api_key、model。
-- 保存翻译 Prompt。
+  保存用户自己的 OpenAI compatible LLM 配置。
+  创建 Agent 时用 `llm_profile_id` 解析成 base_url、api_key、model。
+  保存翻译 Prompt。
 
 ## Memory 路由
 
@@ -147,9 +147,9 @@ DELETE /memory/:id
 
 用途：
 
-- 用户查看自己的记忆。
-- 手动创建/编辑/删除记忆。
-- 治理 Agent 可用的长期上下文。
+  用户查看自己的记忆。
+  手动创建/编辑/删除记忆。
+  治理 Agent 可用的长期上下文。
 
 ## 文件上传边界
 
@@ -157,13 +157,13 @@ DELETE /memory/:id
 
 ```text
 浏览器上传文件
-  -> api-gateway 解析 multipart
-  -> 写本地或 MinIO
-  -> 调 file-service 保存元数据
-  -> 前端把 file_id/url/name 作为消息 content 发给 msg-core
+   > api gateway 解析 multipart
+   > 写本地或 MinIO
+   > 调 file service 保存元数据
+   > 前端把 file_id/url/name 作为消息 content 发给 msg core
 ```
 
-file-service 管元数据，msg-core 管消息引用，不把大文件二进制塞进消息表。
+file service 管元数据，msg core 管消息引用，不把大文件二进制塞进消息表。
 
 ## 最新参数校验变化
 
@@ -176,10 +176,10 @@ parseNonNegativeQueryInt64
 
 影响：
 
-- 历史消息 `limit` 必须是正整数，并且最大值受限。
-- 搜索 `limit` 必须是正整数。
-- `before_id`、`conversation_id`、`offset` 等必须是非负整数。
-- file list、agent billing、agent sessions 也复用了这些校验。
+  历史消息 `limit` 必须是正整数，并且最大值受限。
+  搜索 `limit` 必须是正整数。
+  `before_id`、`conversation_id`、`offset` 等必须是非负整数。
+  file list、agent billing、agent sessions 也复用了这些校验。
 
 这属于网关层应该做的轻量防护：别让非法分页参数直接打进服务层。
 
@@ -187,11 +187,11 @@ parseNonNegativeQueryInt64
 
 你应该能回答：
 
-- api-gateway 为什么不直接写数据库？
-- api-gateway 如何把浏览器 HTTP 请求转换成下游 Kitex RPC？
-- 创建 Agent 时 `llm_profile_id` 是怎么用的？
-- `/agent/approval/confirm` 为什么是 MVP？
-- 为什么分页 limit 要在网关层限制最大值？
+  api gateway 为什么不直接写数据库？
+  api gateway 如何把浏览器 HTTP 请求转换成下游 Kitex RPC？
+  创建 Agent 时 `llm_profile_id` 是怎么用的？
+  `/agent/approval/confirm` 为什么是 MVP？
+  为什么分页 limit 要在网关层限制最大值？
 
 ## 动手任务
 

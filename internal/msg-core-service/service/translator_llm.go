@@ -1,7 +1,6 @@
 package service
 
 import (
-	"ClaranAIM/pkg/settingsclient"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -23,7 +22,7 @@ func NewOpenAICompatibleTranslator() *OpenAICompatibleTranslator {
 }
 
 // Translate 发送单次翻译 prompt，并返回模型回复文本。
-func (t *OpenAICompatibleTranslator) Translate(ctx context.Context, cfg settingsclient.ResolvedLLMConfig, prompt string) (string, error) {
+func (t *OpenAICompatibleTranslator) Translate(ctx context.Context, cfg ResolvedLLMConfig, prompt string) (string, error) {
 	baseURL := strings.TrimRight(cfg.BaseURL, "/")
 	if baseURL == "" || cfg.APIKey == "" || cfg.ModelName == "" {
 		return "", errors.New("翻译LLM配置不完整")

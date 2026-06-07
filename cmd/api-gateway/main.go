@@ -5,18 +5,11 @@ import (
 	"ClaranAIM/internal/api-gateway/handler"
 	"ClaranAIM/internal/api-gateway/router"
 	"ClaranAIM/pkg/config"
-	"ClaranAIM/pkg/conversationintelclient"
 	"ClaranAIM/pkg/documentparser"
 	"ClaranAIM/pkg/health"
 	"ClaranAIM/pkg/jwt"
-	"ClaranAIM/pkg/knowledgeclient"
 	"ClaranAIM/pkg/logger"
-	"ClaranAIM/pkg/mcpclient"
-	"ClaranAIM/pkg/memoryclient"
 	"ClaranAIM/pkg/observability"
-	"ClaranAIM/pkg/ragclient"
-	"ClaranAIM/pkg/settingsclient"
-	"ClaranAIM/pkg/websearchclient"
 
 	"github.com/cloudwego/hertz/pkg/app/server"
 )
@@ -43,10 +36,9 @@ func main() {
 	handler.InitFileStorage(cfg)
 	handler.InitDTMConfig(cfg.DTM)
 	handler.InitAdminObservabilityLinks(cfg.Observability)
-	handler.InitMemoryService(memoryclient.NewRPCClient(client.MemoryClient))
-	ragService := ragclient.NewRPCClient(client.RAGLongTaskClient)
-	handler.InitRAGService(ragService)
-	handler.InitKnowledgeService(knowledgeclient.NewRPCClient(client.KnowledgeClient))
+	handler.InitMemoryService(client.MemoryClient)
+	handler.InitRAGService(client.RAGLongTaskClient)
+	handler.InitKnowledgeService(client.KnowledgeClient)
 	if cfg.Document.OCRProvider == "glm" && cfg.Document.OCRURL != "" && cfg.Document.OCRAPIKey != "" {
 		ocrProvider := documentparser.NewGLMLayoutOCRProvider(cfg.Document.OCRURL, cfg.Document.OCRAPIKey, cfg.Document.OCRModel)
 		handler.InitDocumentOCR(ocrProvider)
@@ -55,12 +47,11 @@ func main() {
 	} else {
 		logger.Info("文档OCR解析未启用，扫描件PDF和图片上传将无法自动抽取文本")
 	}
-	settingsService := settingsclient.NewRPCClient(client.SettingsClient)
-	handler.InitSettingsService(settingsService)
-	handler.InitAgentSettingsService(settingsService)
-	handler.InitWebSearchService(websearchclient.NewRPCClient(client.WebSearchClient))
-	handler.InitConversationIntelligenceService(conversationintelclient.NewRPCClient(client.ConversationIntelligenceClient))
-	handler.InitMCPService(mcpclient.NewRPCClient(client.MCPGatewayClient))
+	handler.InitSettingsService(client.SettingsClient)
+	handler.InitAgentSettingsService(client.SettingsClient)
+	handler.InitWebSearchService(client.WebSearchClient)
+	handler.InitConversationIntelligenceService(client.ConversationIntelligenceClient)
+	handler.InitMCPService(client.MCPGatewayClient)
 	if cfg.DTM.Enabled {
 		logger.Info("DTM分布式事务配置已启用", "server", cfg.DTM.Server)
 	} else {

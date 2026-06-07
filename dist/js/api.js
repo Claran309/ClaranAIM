@@ -302,7 +302,9 @@ const messageAPI = {
     markOfflineRead: (messageIDs = []) =>
         request('POST', '/message/offline/read', { message_ids: (messageIDs || []).map(apiID) }),
     unreadCount: () => request('GET', '/message/unread-count'),
-    sync: (limit = 30) => request('GET', `/message/sync?limit=${limit}`),
+    sync: (limit = 30, cursor = 0) => request('GET', `/message/sync?limit=${limit}&cursor=${apiID(cursor || 0)}`),
+    ackSync: (cursor = 0, messageIDs = [], deviceID = '') =>
+        request('POST', '/message/sync/ack', { cursor: apiID(cursor || 0), message_ids: (messageIDs || []).map(apiID), device_id: deviceID }),
     translate: (messageID, targetLanguage = '中文', force = false) =>
         request('POST', '/message/translate', { message_id: apiID(messageID), target_language: targetLanguage, force }),
 };
@@ -451,6 +453,8 @@ const conversationIntelligenceAPI = {
     createJob: (data) => request('POST', '/conversation-intelligence/jobs', data),
     processJob: (id) => request('POST', `/conversation-intelligence/jobs/${apiID(id)}/process`, {}),
     retryJob: (id) => request('POST', `/conversation-intelligence/jobs/${apiID(id)}/retry`, {}),
+    missedSummary: (conversationID, limit = 120) =>
+        request('POST', '/conversation-intelligence/missed-summary', { conversation_id: apiID(conversationID), limit }),
     jobs: (params = {}) => {
         const query = new URLSearchParams();
         Object.entries(params || {}).forEach(([key, value]) => {
@@ -541,10 +545,10 @@ const ragAPI = {
     cancelUpload: (jobID) => request('DELETE', `/rag/upload/${apiID(jobID)}`),
     cancelAllUploads: () => request('DELETE', '/rag/upload'),
     search: (data) => request('POST', '/rag/search', data),
-    graph: (query = '', limit = 80, documentID = 0, hops = 1) => {
+    graph: (query = '', limit = 260, documentID = 0, hops = 1) => {
         const params = new URLSearchParams();
         if (query) params.set('query', query);
-        params.set('limit', String(limit || 80));
+        params.set('limit', String(limit || 260));
         if (documentID) params.set('document_id', apiID(documentID));
         if (hops) params.set('hops', String(hops));
         return request('GET', `/rag/graph?${params.toString()}`);
@@ -562,14 +566,15 @@ const ragAPI = {
 };
 
 const knowledgeAPI = {
-    graph: ({ query = '', types = [], communityID = 0, hops = 1, limit = 160, documentID = 0 } = {}) => {
+    graph: ({ query = '', types = [], relations = [], communityID = 0, hops = 1, limit = 260, documentID = 0 } = {}) => {
         const params = new URLSearchParams();
         if (query) params.set('query', query);
         if (types.length) params.set('types', types.join(','));
+        if (relations.length) params.set('relations', relations.join(','));
         if (communityID) params.set('community_id', apiID(communityID));
         if (documentID) params.set('document_id', apiID(documentID));
         params.set('hops', String(hops || 1));
-        params.set('limit', String(limit || 160));
+        params.set('limit', String(limit || 260));
         return request('GET', `/knowledge/graph?${params.toString()}`);
     },
     node: (id, options = '') => {
@@ -579,6 +584,7 @@ const knowledgeAPI = {
         } else if (options && typeof options === 'object') {
             if (options.query) params.set('query', options.query);
             if (options.types?.length) params.set('types', options.types.join(','));
+            if (options.relations?.length) params.set('relations', options.relations.join(','));
             if (options.communityID) params.set('community_id', apiID(options.communityID));
             if (options.documentID) params.set('document_id', apiID(options.documentID));
             if (options.hops) params.set('hops', String(options.hops));
@@ -594,6 +600,7 @@ const knowledgeAPI = {
         } else if (options && typeof options === 'object') {
             if (options.query) params.set('query', options.query);
             if (options.types?.length) params.set('types', options.types.join(','));
+            if (options.relations?.length) params.set('relations', options.relations.join(','));
             if (options.communityID) params.set('community_id', apiID(options.communityID));
             if (options.documentID) params.set('document_id', apiID(options.documentID));
             if (options.hops) params.set('hops', String(options.hops));
@@ -606,6 +613,7 @@ const knowledgeAPI = {
         const params = new URLSearchParams();
         if (options.query) params.set('query', options.query);
         if (options.types?.length) params.set('types', options.types.join(','));
+        if (options.relations?.length) params.set('relations', options.relations.join(','));
         if (options.communityID) params.set('community_id', apiID(options.communityID));
         if (options.documentID) params.set('document_id', apiID(options.documentID));
         if (options.hops) params.set('hops', String(options.hops));
@@ -740,6 +748,7 @@ const adminAPI = {
     users: (params = {}) => request('GET', `/admin/users?${new URLSearchParams(params).toString()}`),
     updateUserStatus: (id, status, reason = '') =>
         request('POST', `/admin/users/${apiID(id)}/status`, { status, reason }),
+    updateUserRole: (id, role) => request('POST', `/admin/users/${apiID(id)}/role`, { role }),
     groups: (params = {}) => request('GET', `/admin/groups?${new URLSearchParams(params).toString()}`),
     updateGroupStatus: (id, status, reason = '') =>
         request('POST', `/admin/groups/${apiID(id)}/status`, { status, reason }),

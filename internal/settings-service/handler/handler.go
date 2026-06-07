@@ -4,7 +4,6 @@ package handler
 import (
 	settingssvc "ClaranAIM/internal/settings-service/service"
 	"ClaranAIM/kitex_gen/settings"
-	"ClaranAIM/pkg/settingsclient"
 	"context"
 )
 
@@ -21,7 +20,7 @@ func NewSettingsServiceImpl(svc settingssvc.SettingsService) settings.SettingsSe
 
 // SaveLLMProfile 保存用户的 LLM 预设，并返回脱敏后的配置。
 func (h *SettingsServiceImpl) SaveLLMProfile(ctx context.Context, req *settings.SaveLLMProfileReq) (*settings.SaveLLMProfileResp, error) {
-	profile, err := h.svc.SaveLLMProfile(ctx, req.UserId, settingsclient.SaveLLMProfileInput{
+	profile, err := h.svc.SaveLLMProfile(ctx, req.UserId, settingssvc.SaveLLMProfileInput{
 		ID:           req.Id,
 		Name:         req.Name,
 		ProviderType: req.ProviderType,
@@ -58,7 +57,7 @@ func (h *SettingsServiceImpl) DeleteLLMProfile(ctx context.Context, req *setting
 
 // TestLLMProfile 对用户填写或已保存的模型配置做一次最小连通测试。
 func (h *SettingsServiceImpl) TestLLMProfile(ctx context.Context, req *settings.TestLLMProfileReq) (*settings.TestLLMProfileResp, error) {
-	result, err := h.svc.TestLLMProfile(ctx, req.UserId, settingsclient.TestLLMProfileInput{
+	result, err := h.svc.TestLLMProfile(ctx, req.UserId, settingssvc.TestLLMProfileInput{
 		ProfileID:    req.ProfileId,
 		ProviderType: req.ProviderType,
 		BaseURL:      req.BaseUrl,
@@ -82,7 +81,7 @@ func (h *SettingsServiceImpl) TestLLMProfile(ctx context.Context, req *settings.
 
 // SavePrompt 保存用户 Prompt 模板。
 func (h *SettingsServiceImpl) SavePrompt(ctx context.Context, req *settings.SavePromptReq) (*settings.SavePromptResp, error) {
-	prompt, err := h.svc.SavePrompt(ctx, req.UserId, settingsclient.SavePromptInput{
+	prompt, err := h.svc.SavePrompt(ctx, req.UserId, settingssvc.SavePromptInput{
 		ID:        req.Id,
 		Type:      req.Type,
 		Name:      req.Name,
@@ -142,7 +141,7 @@ func (h *SettingsServiceImpl) ResolveLLMProfile(ctx context.Context, req *settin
 
 // SaveSkill 保存用户上传的 Agent Skill 包元数据。
 func (h *SettingsServiceImpl) SaveSkill(ctx context.Context, req *settings.SaveSkillReq) (*settings.SaveSkillResp, error) {
-	skill, err := h.svc.SaveSkill(ctx, req.UserId, settingsclient.SaveSkillInput{
+	skill, err := h.svc.SaveSkill(ctx, req.UserId, settingssvc.SaveSkillInput{
 		ID:          req.Id,
 		Name:        req.Name,
 		Description: req.Description,
@@ -198,7 +197,7 @@ func (h *SettingsServiceImpl) DeleteSkill(ctx context.Context, req *settings.Del
 
 // SaveMCPServer 保存用户外部 MCP Server 配置。
 func (h *SettingsServiceImpl) SaveMCPServer(ctx context.Context, req *settings.SaveMCPServerReq) (*settings.SaveMCPServerResp, error) {
-	server, err := h.svc.SaveMCPServer(ctx, req.UserId, settingsclient.SaveMCPServerInput{
+	server, err := h.svc.SaveMCPServer(ctx, req.UserId, settingssvc.SaveMCPServerInput{
 		ID:             req.Id,
 		AgentID:        req.AgentId,
 		ConversationID: req.ConversationId,
@@ -251,7 +250,7 @@ func (h *SettingsServiceImpl) DeleteMCPServer(ctx context.Context, req *settings
 	return &settings.DeleteMCPServerResp{Success: true, Msg: "删除成功"}, nil
 }
 
-func toRPCLLMProfile(profile *settingsclient.LLMProfile) *settings.LLMProfile {
+func toRPCLLMProfile(profile *settingssvc.LLMProfile) *settings.LLMProfile {
 	if profile == nil {
 		return nil
 	}
@@ -268,7 +267,7 @@ func toRPCLLMProfile(profile *settingsclient.LLMProfile) *settings.LLMProfile {
 	}
 }
 
-func toRPCLLMProfiles(profiles []settingsclient.LLMProfile) []*settings.LLMProfile {
+func toRPCLLMProfiles(profiles []settingssvc.LLMProfile) []*settings.LLMProfile {
 	out := make([]*settings.LLMProfile, 0, len(profiles))
 	for i := range profiles {
 		out = append(out, toRPCLLMProfile(&profiles[i]))
@@ -276,7 +275,7 @@ func toRPCLLMProfiles(profiles []settingsclient.LLMProfile) []*settings.LLMProfi
 	return out
 }
 
-func toRPCPrompt(prompt *settingsclient.PromptTemplate) *settings.PromptTemplate {
+func toRPCPrompt(prompt *settingssvc.PromptTemplate) *settings.PromptTemplate {
 	if prompt == nil {
 		return nil
 	}
@@ -290,7 +289,7 @@ func toRPCPrompt(prompt *settingsclient.PromptTemplate) *settings.PromptTemplate
 	}
 }
 
-func toRPCPrompts(prompts []settingsclient.PromptTemplate) []*settings.PromptTemplate {
+func toRPCPrompts(prompts []settingssvc.PromptTemplate) []*settings.PromptTemplate {
 	out := make([]*settings.PromptTemplate, 0, len(prompts))
 	for i := range prompts {
 		out = append(out, toRPCPrompt(&prompts[i]))
@@ -298,18 +297,18 @@ func toRPCPrompts(prompts []settingsclient.PromptTemplate) []*settings.PromptTem
 	return out
 }
 
-func toClientSkillFiles(files []*settings.SkillFile) []settingsclient.SkillFileInput {
-	out := make([]settingsclient.SkillFileInput, 0, len(files))
+func toClientSkillFiles(files []*settings.SkillFile) []settingssvc.SkillFileInput {
+	out := make([]settingssvc.SkillFileInput, 0, len(files))
 	for _, file := range files {
 		if file == nil {
 			continue
 		}
-		out = append(out, settingsclient.SkillFileInput{Path: file.Path, Content: file.Content})
+		out = append(out, settingssvc.SkillFileInput{Path: file.Path, Content: file.Content})
 	}
 	return out
 }
 
-func toRPCAgentSkill(skill *settingsclient.AgentSkill) *settings.AgentSkill {
+func toRPCAgentSkill(skill *settingssvc.AgentSkill) *settings.AgentSkill {
 	if skill == nil {
 		return nil
 	}
@@ -330,7 +329,7 @@ func toRPCAgentSkill(skill *settingsclient.AgentSkill) *settings.AgentSkill {
 	}
 }
 
-func toRPCAgentSkills(skills []settingsclient.AgentSkill) []*settings.AgentSkill {
+func toRPCAgentSkills(skills []settingssvc.AgentSkill) []*settings.AgentSkill {
 	out := make([]*settings.AgentSkill, 0, len(skills))
 	for i := range skills {
 		out = append(out, toRPCAgentSkill(&skills[i]))
@@ -338,7 +337,7 @@ func toRPCAgentSkills(skills []settingsclient.AgentSkill) []*settings.AgentSkill
 	return out
 }
 
-func toRPCMCPServer(server *settingsclient.MCPServerConfig) *settings.MCPServerConfig {
+func toRPCMCPServer(server *settingssvc.MCPServerConfig) *settings.MCPServerConfig {
 	if server == nil {
 		return nil
 	}
@@ -366,7 +365,7 @@ func toRPCMCPServer(server *settingsclient.MCPServerConfig) *settings.MCPServerC
 	}
 }
 
-func toRPCMCPServers(servers []settingsclient.MCPServerConfig) []*settings.MCPServerConfig {
+func toRPCMCPServers(servers []settingssvc.MCPServerConfig) []*settings.MCPServerConfig {
 	out := make([]*settings.MCPServerConfig, 0, len(servers))
 	for i := range servers {
 		out = append(out, toRPCMCPServer(&servers[i]))

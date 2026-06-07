@@ -825,6 +825,91 @@ var fieldIDToName_UpdateStatusResp = map[int16]string{
 	2: "msg",
 }
 
+type UpdateRoleReq struct {
+	OperatorId int64  `thrift:"operator_id,1" frugal:"1,default,i64" json:"operator_id"`
+	UserId     int64  `thrift:"user_id,2" frugal:"2,default,i64" json:"user_id"`
+	Role       string `thrift:"role,3" frugal:"3,default,string" json:"role"`
+}
+
+func NewUpdateRoleReq() *UpdateRoleReq {
+	return &UpdateRoleReq{}
+}
+
+func (p *UpdateRoleReq) InitDefault() {
+}
+
+func (p *UpdateRoleReq) GetOperatorId() (v int64) {
+	return p.OperatorId
+}
+
+func (p *UpdateRoleReq) GetUserId() (v int64) {
+	return p.UserId
+}
+
+func (p *UpdateRoleReq) GetRole() (v string) {
+	return p.Role
+}
+func (p *UpdateRoleReq) SetOperatorId(val int64) {
+	p.OperatorId = val
+}
+func (p *UpdateRoleReq) SetUserId(val int64) {
+	p.UserId = val
+}
+func (p *UpdateRoleReq) SetRole(val string) {
+	p.Role = val
+}
+
+func (p *UpdateRoleReq) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("UpdateRoleReq(%+v)", *p)
+}
+
+var fieldIDToName_UpdateRoleReq = map[int16]string{
+	1: "operator_id",
+	2: "user_id",
+	3: "role",
+}
+
+type UpdateRoleResp struct {
+	Success bool   `thrift:"success,1" frugal:"1,default,bool" json:"success"`
+	Msg     string `thrift:"msg,2" frugal:"2,default,string" json:"msg"`
+}
+
+func NewUpdateRoleResp() *UpdateRoleResp {
+	return &UpdateRoleResp{}
+}
+
+func (p *UpdateRoleResp) InitDefault() {
+}
+
+func (p *UpdateRoleResp) GetSuccess() (v bool) {
+	return p.Success
+}
+
+func (p *UpdateRoleResp) GetMsg() (v string) {
+	return p.Msg
+}
+func (p *UpdateRoleResp) SetSuccess(val bool) {
+	p.Success = val
+}
+func (p *UpdateRoleResp) SetMsg(val string) {
+	p.Msg = val
+}
+
+func (p *UpdateRoleResp) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("UpdateRoleResp(%+v)", *p)
+}
+
+var fieldIDToName_UpdateRoleResp = map[int16]string{
+	1: "success",
+	2: "msg",
+}
+
 type AddFriendReq struct {
 	UserId   int64  `thrift:"user_id,1" frugal:"1,default,i64" json:"user_id"`
 	FriendId int64  `thrift:"friend_id,2" frugal:"2,default,i64" json:"friend_id"`
@@ -1778,6 +1863,8 @@ type UserService interface {
 
 	UpdateStatus(ctx context.Context, req *UpdateStatusReq) (r *UpdateStatusResp, err error)
 
+	UpdateRole(ctx context.Context, req *UpdateRoleReq) (r *UpdateRoleResp, err error)
+
 	AddFriend(ctx context.Context, req *AddFriendReq) (r *AddFriendResp, err error)
 
 	DeleteFriend(ctx context.Context, req *DeleteFriendReq) (r *DeleteFriendResp, err error)
@@ -2250,6 +2337,82 @@ func (p *UserServiceUpdateStatusResult) String() string {
 }
 
 var fieldIDToName_UserServiceUpdateStatusResult = map[int16]string{
+	0: "success",
+}
+
+type UserServiceUpdateRoleArgs struct {
+	Req *UpdateRoleReq `thrift:"req,1" frugal:"1,default,UpdateRoleReq" json:"req"`
+}
+
+func NewUserServiceUpdateRoleArgs() *UserServiceUpdateRoleArgs {
+	return &UserServiceUpdateRoleArgs{}
+}
+
+func (p *UserServiceUpdateRoleArgs) InitDefault() {
+}
+
+var UserServiceUpdateRoleArgs_Req_DEFAULT *UpdateRoleReq
+
+func (p *UserServiceUpdateRoleArgs) GetReq() (v *UpdateRoleReq) {
+	if !p.IsSetReq() {
+		return UserServiceUpdateRoleArgs_Req_DEFAULT
+	}
+	return p.Req
+}
+func (p *UserServiceUpdateRoleArgs) SetReq(val *UpdateRoleReq) {
+	p.Req = val
+}
+
+func (p *UserServiceUpdateRoleArgs) IsSetReq() bool {
+	return p.Req != nil
+}
+
+func (p *UserServiceUpdateRoleArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("UserServiceUpdateRoleArgs(%+v)", *p)
+}
+
+var fieldIDToName_UserServiceUpdateRoleArgs = map[int16]string{
+	1: "req",
+}
+
+type UserServiceUpdateRoleResult struct {
+	Success *UpdateRoleResp `thrift:"success,0,optional" frugal:"0,optional,UpdateRoleResp" json:"success,omitempty"`
+}
+
+func NewUserServiceUpdateRoleResult() *UserServiceUpdateRoleResult {
+	return &UserServiceUpdateRoleResult{}
+}
+
+func (p *UserServiceUpdateRoleResult) InitDefault() {
+}
+
+var UserServiceUpdateRoleResult_Success_DEFAULT *UpdateRoleResp
+
+func (p *UserServiceUpdateRoleResult) GetSuccess() (v *UpdateRoleResp) {
+	if !p.IsSetSuccess() {
+		return UserServiceUpdateRoleResult_Success_DEFAULT
+	}
+	return p.Success
+}
+func (p *UserServiceUpdateRoleResult) SetSuccess(x interface{}) {
+	p.Success = x.(*UpdateRoleResp)
+}
+
+func (p *UserServiceUpdateRoleResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *UserServiceUpdateRoleResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("UserServiceUpdateRoleResult(%+v)", *p)
+}
+
+var fieldIDToName_UserServiceUpdateRoleResult = map[int16]string{
 	0: "success",
 }
 

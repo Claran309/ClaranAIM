@@ -7,8 +7,9 @@ import (
 	"ClaranAIM/internal/api-gateway/client"
 	"ClaranAIM/kitex_gen/bot_runtime"
 	"ClaranAIM/kitex_gen/message"
+	"ClaranAIM/kitex_gen/settings"
+	"ClaranAIM/kitex_gen/settings/settingsservice"
 	"ClaranAIM/pkg/response"
-	"ClaranAIM/pkg/settingsclient"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -63,11 +64,11 @@ var agentApprovals = struct {
 
 // gatewayAgentSettingsService 用于创建 Agent 时解析用户保存的 LLM 预设。
 // 网关只拿服务间密钥结果，不把 API Key 明文返回给浏览器。
-var gatewayAgentSettingsService settingsclient.Service
+var gatewayAgentSettingsService settingsservice.Client
 
 // InitAgentSettingsService 注入 settings-service 客户端。
 // 创建 Agent 时可以引用用户保存的 LLM profile，但浏览器永远拿不到 profile 中的 API Key 明文。
-func InitAgentSettingsService(svc settingsclient.Service) {
+func InitAgentSettingsService(svc settingsservice.Client) {
 	gatewayAgentSettingsService = svc
 }
 
@@ -201,15 +202,18 @@ func (h *AgentHandler) CreateAgent(ctx context.Context, c *app.RequestContext) {
 			response.Error(c, "settings-service未初始化")
 			return
 		}
-		profile, err := gatewayAgentSettingsService.ResolveLLMProfile(ctx, id, req.LLMProfileID)
-		if err != nil {
+		profile, err := gatewayAgentSettingsService.ResolveLLMProfile(ctx, &settings.ResolveLLMProfileReq{UserId: id, ProfileId: req.LLMProfileID})
+		if err != nil || !profile.GetSuccess() {
+			if err == nil {
+				err = settingsStatusError(profile.GetSuccess(), profile.GetMsg())
+			}
 			response.BadRequest(c, err.Error())
 			return
 		}
 		req.Type = "custom"
-		req.APIKey = profile.APIKey
-		req.BaseURL = profile.BaseURL
-		req.ModelName = profile.ModelName
+		req.APIKey = profile.GetApiKey()
+		req.BaseURL = profile.GetBaseUrl()
+		req.ModelName = profile.GetModelName()
 	}
 	resp, err := client.AgentClient.CreateBot(ctx, client.NewCreateAgentReq(req.Name, req.Type, req.Description, req.ModelName, req.APIKey, req.BaseURL, req.SystemPrompt, req.SkillsDir, req.AgentRoot, req.Avatar, req.Signature, req.WorkspaceRoot, req.ToolPolicy, id, req.ContextMessageLimit, req.MemoryRecallLimit, req.MaxOutputTokens, req.Temperature, req.GroupTriggerMode, req.AutoReplyEnabled))
 	if err != nil {
@@ -277,14 +281,17 @@ func (h *AgentHandler) UpdateAgent(ctx context.Context, c *app.RequestContext) {
 			response.Error(c, "settings-service未初始化")
 			return
 		}
-		profile, err := gatewayAgentSettingsService.ResolveLLMProfile(ctx, id, req.LLMProfileID)
-		if err != nil {
+		profile, err := gatewayAgentSettingsService.ResolveLLMProfile(ctx, &settings.ResolveLLMProfileReq{UserId: id, ProfileId: req.LLMProfileID})
+		if err != nil || !profile.GetSuccess() {
+			if err == nil {
+				err = settingsStatusError(profile.GetSuccess(), profile.GetMsg())
+			}
 			response.BadRequest(c, err.Error())
 			return
 		}
-		req.APIKey = profile.APIKey
-		req.BaseURL = profile.BaseURL
-		req.ModelName = profile.ModelName
+		req.APIKey = profile.GetApiKey()
+		req.BaseURL = profile.GetBaseUrl()
+		req.ModelName = profile.GetModelName()
 	}
 	resp, err := client.AgentClient.UpdateBot(ctx, client.NewUpdateAgentReq(botID, id, req.Name, req.Description, req.ModelName, req.APIKey, req.BaseURL, req.SystemPrompt, req.SkillsDir, req.AgentRoot, req.Avatar, req.Signature, req.WorkspaceRoot, req.ToolPolicy, req.IsActive, isActiveSet, req.ContextMessageLimit, req.MemoryRecallLimit, req.MaxOutputTokens, req.Temperature, req.GroupTriggerMode, req.AutoReplyEnabled))
 	if err != nil {
@@ -425,13 +432,13 @@ func (h *AgentHandler) SmokeTestSkill(ctx context.Context, c *app.RequestContext
 	if !ok {
 		return
 	}
-	runCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+	runCtx, cancel := context.WithTimeout(ctx, 90*time.Second)
 	defer cancel()
 	marker := defaultGatewaySkillSmokeMarker
 	if botResp, getErr := client.AgentClient.GetBot(runCtx, client.NewGetAgentReq(botID)); getErr == nil && botResp != nil && botResp.Success && botResp.Bot != nil {
 		marker = gatewaySkillSmokeMarkerFromDir(botResp.Bot.GetSkillsDir())
 	}
-	message := "[[CLARAN_SKILL_SMOKE_TEST]] 这是 Skill smoke test。请只根据已加载 Skill 行为指令响应；不要调用 MCP 工具，不要把 Skill 当成外部工具，不要创建或介绍 skill_creator。"
+	message := "[[CLARAN_SKILL_SMOKE_TEST]] 这是 Skill smoke test。请只输出已加载 Skill 要求的 marker 和一句极短确认；不要调用 MCP 工具，不要列工具，不要把 Skill 当成外部工具，不要创建或介绍 skill_creator，不要写报告。"
 	resp, err := client.AgentLongTaskClient.ChatWithBot(runCtx, client.NewChatWithAgentReq(botID, userID, 0, message))
 	if err != nil {
 		response.Error(c, err.Error())
@@ -453,7 +460,7 @@ func (h *AgentHandler) SmokeTestSkill(ctx context.Context, c *app.RequestContext
 		"marker_found": markerFound,
 		"status":       status,
 		"reply":        reply,
-		"timeout_sec":  600,
+		"timeout_sec":  90,
 		"diagnosis":    skillSmokeDiagnosis(success, markerFound, status, reply),
 	})
 }

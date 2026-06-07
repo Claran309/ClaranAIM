@@ -29,6 +29,7 @@ func (h *RAGServiceImpl) IngestDocument(ctx context.Context, req *rag.IngestDocu
 		Visibility:     req.GetVisibility(),
 		GroupID:        req.GetGroupId(),
 		ConversationID: req.GetConversationId(),
+		GraphRelationMode: req.GetGraphRelationMode(),
 	})
 	if err != nil {
 		return &rag.IngestDocumentResp{Success: false, Msg: err.Error()}, nil

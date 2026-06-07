@@ -105,6 +105,7 @@ func mergeDuplicateFriendGroups(db *gorm.DB) error {
 // 面向接口编程，便于单元测试时替换为 mock 实现
 type UserRepository interface {
 	CreateUser(ctx context.Context, user *model.User) error
+	CountUsers(ctx context.Context) (int64, error)
 	GetUserByUsername(ctx context.Context, username string) (*model.User, error)
 	GetUserByID(ctx context.Context, id int64) (*model.User, error)
 	UpdateUser(ctx context.Context, user *model.User) error
@@ -133,6 +134,13 @@ func NewUserRepo(db *gorm.DB) UserRepository {
 // CreateUser 创建新用户记录
 func (r *userRepositoryImpl) CreateUser(ctx context.Context, user *model.User) error {
 	return r.db.WithContext(ctx).Create(user).Error
+}
+
+// CountUsers 返回 users 表中的全部账号数量，供空库首次启动引导管理员使用。
+func (r *userRepositoryImpl) CountUsers(ctx context.Context) (int64, error) {
+	var total int64
+	err := r.db.WithContext(ctx).Model(&model.User{}).Count(&total).Error
+	return total, err
 }
 
 // GetUserByUsername 根据用户名查询用户（用于登录和注册去重）
