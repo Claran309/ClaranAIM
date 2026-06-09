@@ -353,5 +353,6 @@ docker compose -f deployment\docker\docker-compose.full.yaml down
 
 ## 文档索引
 
+- [DeepWiki项目解析](https://deepwiki.com/Claran309/ClaranAIM)
 - [API 文档](docs/apiDoc.md)
 - [阶段计划](docs/plan.md)
