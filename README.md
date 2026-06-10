@@ -20,6 +20,15 @@ ClaranAIM 是一个 Agent-Native AIM 系统，AIM = Agent + Instant Messaging
 - **系统治理台**：管理员可管理用户、群组、文件、Agent、账单、审核、MCP 调用、公告、审计和可观测性入口，并可把其他用户设为管理员或降回普通用户
 - **可观测性**：接入 OpenTelemetry、Prometheus、Grafana、Jaeger、ELK 和本地日志目录，便于排查网关、Kitex 服务、Agent 和 RAG 链路
 
+
+## 文档索引
+|  文档   | 索引  |
+|  ----  | ----  |
+| DeepWiki项目解析  |**[DeepWiki-ClaranAIM](https://deepwiki.com/Claran309/ClaranAIM.)** |
+| 项目总结  |**[AIM项目总结梳理](https://www.claran-blog.work/go-AIM/)** |
+| API 文档  |**[apiDoc.md](docs/apiDoc.md)** |
+| 阶段计划  |**[plan.md](docs/plan.md)** |
+
 ## 架构图
 
 ```mermaid
@@ -222,15 +231,6 @@ ClaranAIM/
 ├── go.sum
 └── README.md
 ```
-
-
-## 文档索引
-|  文档   | 索引  |
-|  ----  | ----  |
-| 项目总结  |**[AIM项目总结梳理](https://www.claran-blog.work/go-AIM/)** |
-| API 文档  |**[apiDoc.md](docs/apiDoc.md)** |
-| 阶段计划  |**[plan.md](docs/plan.md)** |
-| DeepWiki项目解析  |**[DeepWiki-ClaranAIM](https://deepwiki.com/Claran309/ClaranAIM.)** |
 
 
 ## 部署方式
