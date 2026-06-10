@@ -223,6 +223,16 @@ ClaranAIM/
 └── README.md
 ```
 
+
+## 文档索引
+|  文档   | 索引  |
+|  ----  | ----  |
+| 项目总结  |**[AIM项目总结梳理](https://www.claran-blog.work/go-AIM/)** |
+| API 文档  |**[apiDoc.md](docs/apiDoc.md)** |
+| 阶段计划  |**[plan.md](docs/plan.md)** |
+| DeepWiki项目解析  |**[DeepWiki-ClaranAIM](https://deepwiki.com/Claran309/ClaranAIM.)** |
+
+
 ## 部署方式
 
 ### 方式一：Docker 启动基础设施，本地启动 Go 服务
@@ -350,9 +360,3 @@ docker compose -f deployment\docker\docker-compose.full.yaml down
 - 全量 compose：`deployment/docker/docker-compose.full.yaml`
 - 服务镜像 Dockerfile：`deployment/docker/Dockerfile.service`
 - 可观测性配置：`deployment/docker/observability/`
-
-## 文档索引
-
-- [DeepWiki项目解析](https://deepwiki.com/Claran309/ClaranAIM)
-- [API 文档](docs/apiDoc.md)
-- [阶段计划](docs/plan.md)
