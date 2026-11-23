@@ -80,7 +80,7 @@ func attachReflection(run *store.RunInfo, result reflection.Result) {
 
 // recordReflectionMetrics 把 Reflection 结果写入 Prometheus/OTel，便于按结果聚合失败率。
 func recordReflectionMetrics(result reflection.Result) {
-	status := "skip"
+	var status string
 	switch {
 	case !result.Called:
 		status = "skip"
