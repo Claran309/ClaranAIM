@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // GormDeliveryRecord 是 processed_events 表模型。
@@ -52,6 +53,34 @@ func (s *GormReliabilityStore) IsProcessed(ctx context.Context, key string) (boo
 		return false, err
 	}
 	return record.State == DeliveryStateProcessed, nil
+}
+
+// TryClaim 用主键唯一约束实现跨实例原子抢占。
+// 首次插入成功即拿到处理权；已存在时只允许 failed 立即重试，
+// 或 processing 超过租约窗口后由其他实例接管。
+func (s *GormReliabilityStore) TryClaim(ctx context.Context, key string, envelope events.Envelope) (bool, error) {
+	record := gormRecordFromEnvelope(key, envelope)
+	record.State = DeliveryStateProcessing
+	record.Attempts = 0
+	res := s.db.WithContext(ctx).Clauses(clause.OnConflict{DoNothing: true}).Create(&record)
+	if res.Error != nil {
+		return false, res.Error
+	}
+	if res.RowsAffected == 1 {
+		return true, nil
+	}
+	staleBefore := time.Now().Add(-staleProcessingWindow)
+	claim := s.db.WithContext(ctx).Model(&GormDeliveryRecord{}).
+		Where("`key` = ? AND (state = ? OR (state = ? AND updated_at < ?))",
+			key, DeliveryStateFailed, DeliveryStateProcessing, staleBefore).
+		Updates(map[string]interface{}{
+			"state":      DeliveryStateProcessing,
+			"updated_at": time.Now(),
+		})
+	if claim.Error != nil {
+		return false, claim.Error
+	}
+	return claim.RowsAffected == 1, nil
 }
 
 func (s *GormReliabilityStore) RecordFailure(ctx context.Context, key string, envelope events.Envelope, handleErr error) (int, error) {

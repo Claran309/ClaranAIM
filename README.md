@@ -480,6 +480,19 @@ go test -tags=integration ./internal/msg-core-service/service/... -v
 
 CI 配置在 [`.github/workflows/ci.yml`](.github/workflows/ci.yml)，包含 gofmt、go vet、golangci-lint、go build、`go test -race`、msg-core MySQL 集成测试和 compose 文件校验。
 
+集成测试覆盖 6 组真实 MySQL 场景（串行执行，避免共享 `event_outbox` 表互相清表）：
+
+```bash
+go test -p 1 -tags=integration ./internal/msg-core-service/service/...
+go test -p 1 -tags=integration ./internal/agent-runtime-service/store/...
+go test -p 1 -tags=integration ./internal/agent-manager-service/dao/...
+go test -p 1 -tags=integration ./internal/memory-service/service/...
+go test -p 1 -tags=integration ./internal/group-service/service/...
+go test -p 1 -tags=integration ./pkg/eventbus/...
+```
+
+契约与可靠性约束也有自动化测试：`internal/architecture` 校验跨服务 import、IDL 与生成代码同步、Thrift 字段编号唯一、RPC 方法存在；`pkg/eventbus` 用 MySQL 主键唯一约束验证两个 consumer 实例并发时同一事件只执行一次。
+
 ## 运维与排障
 
 - 本地服务状态：`scripts\status.bat`

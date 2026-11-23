@@ -17,7 +17,14 @@ const (
 	DeliveryStateProcessed = "processed"
 	DeliveryStateFailed    = "failed"
 	DeliveryStateDead      = "dead"
+	// DeliveryStateProcessing 表示某个 consumer 实例已抢占该事件。
+	// 它用于多实例竞争：抢占成功后其他实例必须跳过，避免同一事件被广播两次。
+	DeliveryStateProcessing = "processing"
 )
+
+// staleProcessingWindow 是 processing 状态的租约。
+// 实例在抢占后崩溃会留下 processing 记录，超过该窗口后允许其他实例重新抢占。
+const staleProcessingWindow = 2 * time.Minute
 
 // DeliveryRecord 是 consumer 侧的可靠性事实。
 // 同一 consumer_group + event_id 只应成功处理一次；失败达到阈值后进入死信，避免卡住 Kafka 分区。
@@ -39,6 +46,9 @@ type DeliveryRecord struct {
 // 生产实现可以落 MySQL；测试和无 DB 的网关可使用内存实现。
 type ReliabilityStore interface {
 	IsProcessed(ctx context.Context, key string) (bool, error)
+	// TryClaim 原子抢占一条事件。返回 true 表示当前实例负责处理；
+	// false 表示已被其他实例处理、正在处理或已进入死信。
+	TryClaim(ctx context.Context, key string, envelope events.Envelope) (bool, error)
 	RecordFailure(ctx context.Context, key string, envelope events.Envelope, err error) (int, error)
 	MarkProcessed(ctx context.Context, key string, envelope events.Envelope) error
 	MarkDeadLetter(ctx context.Context, key string, envelope events.Envelope, err error) error
@@ -67,11 +77,11 @@ func NewReliableHandler(store ReliabilityStore, consumer string, maxAttempts int
 			return next(ctx, envelope)
 		}
 		key := ConsumerEventKey(consumer, envelope)
-		processed, err := store.IsProcessed(ctx, key)
+		claimed, err := store.TryClaim(ctx, key, envelope)
 		if err != nil {
 			return err
 		}
-		if processed {
+		if !claimed {
 			observability.RecordBusinessEvent("kafka_consumer", consumer, "already_processed")
 			return nil
 		}
@@ -117,6 +127,39 @@ func (s *MemoryReliabilityStore) IsProcessed(ctx context.Context, key string) (b
 	defer s.mu.Unlock()
 	record, ok := s.records[key]
 	return ok && record.State == DeliveryStateProcessed, nil
+}
+
+// TryClaim 在内存实现中同样保证同一 key 只有一个调用方能拿到处理权。
+func (s *MemoryReliabilityStore) TryClaim(ctx context.Context, key string, envelope events.Envelope) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := time.Now()
+	record, ok := s.records[key]
+	if ok {
+		switch record.State {
+		case DeliveryStateProcessed, DeliveryStateDead:
+			return false, nil
+		case DeliveryStateFailed:
+			record.State = DeliveryStateProcessing
+			record.UpdatedAt = now
+			s.records[key] = record
+			return true, nil
+		case DeliveryStateProcessing:
+			if now.Sub(record.UpdatedAt) < staleProcessingWindow {
+				return false, nil
+			}
+			record.UpdatedAt = now
+			s.records[key] = record
+			return true, nil
+		}
+	}
+	record = newDeliveryRecord(key, envelope)
+	record.State = DeliveryStateProcessing
+	// 抢占本身不算一次处理尝试，Attempts 只由 RecordFailure 累加。
+	record.Attempts = 0
+	record.UpdatedAt = now
+	s.records[key] = record
+	return true, nil
 }
 
 func (s *MemoryReliabilityStore) RecordFailure(ctx context.Context, key string, envelope events.Envelope, err error) (int, error) {

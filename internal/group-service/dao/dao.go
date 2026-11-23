@@ -102,7 +102,14 @@ func (r *groupRepositoryImpl) UpdateGroup(ctx context.Context, group *model.Grou
 
 // DeleteGroup 删除群组记录（仅删除 groups 表，不级联删除成员记录）
 func (r *groupRepositoryImpl) DeleteGroup(ctx context.Context, id int64) error {
-	return r.db.WithContext(ctx).Where("id = ?", id).Delete(&model.Group{}).Error
+	// 群资料和成员关系必须一起删除；只删 groups 会留下孤儿成员记录，
+	// 导致 DTM 补偿后 GetGroupMembers 仍能查到已解散群的成员。
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.WithContext(ctx).Where("group_id = ?", id).Delete(&model.GroupMember{}).Error; err != nil {
+			return err
+		}
+		return tx.WithContext(ctx).Where("id = ?", id).Delete(&model.Group{}).Error
+	})
 }
 
 // GetUserGroups 获取用户所在的所有群组
