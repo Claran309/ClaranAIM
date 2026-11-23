@@ -239,6 +239,9 @@ services:
       GF_SECURITY_ADMIN_USER: admin
       GF_SECURITY_ADMIN_PASSWORD: admin123
       GF_USERS_DEFAULT_THEME: light
+      GF_RENDERING_SERVER_URL: http://grafana-renderer:8081/render
+      GF_RENDERING_CALLBACK_URL: http://grafana:3000/
+      GF_LOG_FILTERS_RENDERING: rendering:debug
     ports:
       - "8086:3000"
     volumes:
@@ -248,6 +251,19 @@ services:
     depends_on:
       - prometheus
       - jaeger
+      - grafana-renderer
+    networks:
+      - claran-net
+
+  grafana-renderer:
+    image: grafana/grafana-image-renderer:latest
+    container_name: claran-grafana-renderer
+    restart: unless-stopped
+    environment:
+      ENABLE_METRICS: "true"
+      RENDERING_MODE: default
+    ports:
+      - "8087:8081"
     networks:
       - claran-net
 

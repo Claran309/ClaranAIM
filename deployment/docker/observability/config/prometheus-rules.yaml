@@ -33,8 +33,8 @@ groups:
           description: "客户端发送通道持续满，部分连接可能已断开或处理过慢。"
 
       - alert: ClaranMsgWriteP99High
-        expr: histogram_quantile(0.99, sum by (le) (rate(claran_business_duration_ms_bucket{domain="msg_core",operation="send_message"}[5m]))) > 500
-        for: 10m
+        expr: histogram_quantile(0.99, sum by (le) (increase(claran_business_duration_ms_bucket{domain="msg_core",operation="send_message"}[10m]))) > 500
+        for: 5m
         labels:
           severity: warning
         annotations:

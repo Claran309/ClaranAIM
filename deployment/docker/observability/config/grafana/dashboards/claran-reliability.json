@@ -34,7 +34,7 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.99, sum by (le) (rate(claran_business_duration_ms_bucket{domain=\"msg_core\",operation=\"send_message\"}[5m])))",
+          "expr": "histogram_quantile(0.99, sum by (le) (increase(claran_business_duration_ms_bucket{domain=\"msg_core\",operation=\"send_message\"}[10m])))",
           "legendFormat": "msg write p99",
           "refId": "A"
         }
@@ -128,7 +128,9 @@
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "percentunit"
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1
         },
         "overrides": []
       },
@@ -150,7 +152,7 @@
       },
       "targets": [
         {
-          "expr": "max(claran_business_gauge{domain=\"websocket\",name=\"push_failure_rate\"})",
+          "expr": "max(claran_business_gauge{domain=\"websocket\",name=\"push_failure_rate\"}) or vector(0)",
           "legendFormat": "ws push failure rate",
           "refId": "A"
         }
@@ -177,3 +179,5 @@
   "uid": "claran-reliability",
   "version": 1
 }
+
+

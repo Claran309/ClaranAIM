@@ -515,16 +515,12 @@ func SetBusinessGauge(domain, name string, value float64) {
 	if runtime == nil || !runtime.Enabled {
 		return
 	}
+	// 直接改 Prometheus GaugeVec，不走 otel MeterProvider：
+	// 否则同名 metric 会以 gauge 类型重复导出到 /metrics，与现有 histogram/counter 冲突，
+	// 导致 Grafana 轴刻度异常（例如百分比被放大 100 倍）。
 	domain = cleanLabel(domain, "unknown")
 	name = cleanLabel(name, "unknown")
 	businessGauge.WithLabelValues(runtime.ServiceName, domain, name).Set(value)
-	if runtime.otelMetrics != nil {
-		runtime.otelMetrics.businessGauge.Record(context.Background(), value, metric.WithAttributes(
-			attribute.String("service", runtime.ServiceName),
-			attribute.String("domain", domain),
-			attribute.String("name", name),
-		))
-	}
 	updateUptime(runtime)
 }
 

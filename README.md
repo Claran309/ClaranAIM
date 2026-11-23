@@ -421,6 +421,8 @@ Kitex server user-service.GetUserInfo
 
 查看方式：`http://127.0.0.1:8085` 搜索 service=`api-gateway`，或直接打开 trace 页面（示例 trace：`http://127.0.0.1:8085/trace/01d65f934fc0c9b4f04aee1276992a71`）。
 
+![Jaeger trace：gateway → msg-core → user](docs/observability/jaeger_trace.png)
+
 四个可靠性指标（Prometheus `claran_business_*`）：
 
 | 指标 | 查询 | 本次实测 |
@@ -444,6 +446,8 @@ Reflection 也有独立指标和告警（`deployment/docker/observability/config
 - `ClaranReflectionFailureRateHigh`（失败率 >20%）、`ClaranReflectionLatencyHigh`（P95 >8s）。
 
 面板：Grafana `ClaranAIM Reliability`（uid `claran-reliability`），含消息写入 P99、Outbox 积压、Kafka 延迟、WS 失败率四张图。
+
+![Grafana 可靠性面板](docs/observability/grafana_reliability.png)
 
 复现步骤：
 
