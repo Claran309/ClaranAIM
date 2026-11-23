@@ -524,7 +524,7 @@ go test -tags=integration ./internal/msg-core-service/service/... -v
 
 CI 配置在 [`.github/workflows/ci.yml`](.github/workflows/ci.yml)，包含 gofmt、go vet、golangci-lint、go build、`go test -race`、msg-core MySQL 集成测试和 compose 文件校验。
 
-集成测试覆盖 6 组真实 MySQL 场景（串行执行，避免共享 `event_outbox` 表互相清表）：
+集成测试覆盖 8 组真实 MySQL 场景（串行执行，避免共享 `event_outbox` 表互相清表）。核心 3 个服务共 34 个集成测试（msg-core 11、agent-runtime 13、agent-manager 10）：
 
 ```bash
 go test -p 1 -tags=integration ./internal/msg-core-service/service/...

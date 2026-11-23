@@ -166,7 +166,7 @@ ClaranAIM 是一个 AIM 系统：Agent + Instant Messaging。IM 负责用户、�
 
 | 编号 | 状态 | 证据 |
 | --- | --- | --- |
-| A1 测试与 CI 止血 | 完成 | CI 4 job 全绿；真实 MySQL 集成测试 33 个，覆盖 msg-core 生命周期、runtime 会话/预算/审批恢复、manager approval、memory consolidation、group DTM 补偿、eventbus 多实例、outbox worker |
+| A1 测试与 CI 止血 | 完成 | CI 4 job 全绿；核心 3 个服务 34 个真实 MySQL 集成测试（msg-core 11、runtime 13、manager 10），全仓 48 个；覆盖消息生命周期、运行预算/审批恢复、Agent DAO/计费/调度幂等、memory 巩固、group DTM 补偿、eventbus 多实例、outbox worker |
 | A2 清理服务边界 | 完成 | `pkg/agentkit` + `internal/architecture/service_boundary_test.go` |
 | A3 会话与审批持久化 | 完成 | `agent_sessions/agent_messages/agent_runs/agent_approvals/agent_checkpoints`；滚动摘要；审批从网关内存迁到 manager MySQL |
 | A4 Agent 运行预算与检查点 | 完成 | `RunBudget{MaxSteps,MaxInputTokens,MaxOutputTokens,MaxCostUSD,Deadline}`；Eino checkpoint 恢复；`agent_runs` 记录状态/步数/成本/中断原因 |
