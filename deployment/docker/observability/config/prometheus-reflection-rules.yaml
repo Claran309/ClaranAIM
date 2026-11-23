@@ -1,0 +1,25 @@
+groups:
+  - name: claran-reflection
+    rules:
+      - alert: ClaranReflectionFailureRateHigh
+        expr: |
+          sum(rate(claran_business_events_total{domain="agent_reflection",status="fail"}[15m]))
+          /
+          clamp_min(sum(rate(claran_business_events_total{domain="agent_reflection",status=~"pass|revise|fail"}[15m])), 0.001)
+          > 0.2
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Agent Reflection 失败率超过 20%"
+          description: "critic 持续给出 complete=false/grounded=false 且未能改写，检查 Agent 工具结果与 critic prompt。"
+
+      - alert: ClaranReflectionLatencyHigh
+        expr: |
+          histogram_quantile(0.95, sum by (le) (rate(claran_business_duration_ms_bucket{domain="agent_reflection",operation="run"}[15m]))) > 8000
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Agent Reflection P95 超过 8 秒"
+          description: "critic 模型响应过慢，考虑换更便宜的 critic 模型或调低 reflection_timeout_ms。"

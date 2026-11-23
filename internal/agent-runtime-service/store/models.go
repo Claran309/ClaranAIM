@@ -48,6 +48,7 @@ type AgentRun struct {
 	ApprovalID      string     `gorm:"column:approval_id;type:varchar(64);index;not null;default:''"`
 	InterruptedTool string     `gorm:"column:interrupted_tool;type:varchar(128);not null;default:''"`
 	CheckpointJSON  string     `gorm:"column:checkpoint_json;type:mediumtext"`
+	ReflectionJSON  string     `gorm:"column:reflection_json;type:mediumtext"`
 	StartedAt       time.Time  `gorm:"column:started_at;autoCreateTime"`
 	FinishedAt      *time.Time `gorm:"column:finished_at"`
 }

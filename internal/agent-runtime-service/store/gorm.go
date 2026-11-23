@@ -363,6 +363,7 @@ func runToModel(run *RunInfo) *AgentRun {
 		ApprovalID:      run.ApprovalID,
 		InterruptedTool: run.InterruptedTool,
 		CheckpointJSON:  run.CheckpointJSON,
+		ReflectionJSON:  run.ReflectionJSON,
 		StartedAt:       run.StartedAt,
 		FinishedAt:      run.FinishedAt,
 	}
@@ -384,6 +385,7 @@ func runFromModel(run AgentRun) RunInfo {
 		ApprovalID:      run.ApprovalID,
 		InterruptedTool: run.InterruptedTool,
 		CheckpointJSON:  run.CheckpointJSON,
+		ReflectionJSON:  run.ReflectionJSON,
 		StartedAt:       run.StartedAt,
 		FinishedAt:      run.FinishedAt,
 	}

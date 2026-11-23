@@ -92,6 +92,10 @@ func SearchKnowledgeBase(ctx context.Context, input *KnowledgeSearchParams) (str
 	if check := resp.GetSelfCheck(); check != nil {
 		b.WriteString(fmt.Sprintf("- Self-RAG：Retrieve=%t, IsRel=%t, IsSup=%t, IsUse=%t\n", check.GetRetrieve(), check.GetIsRel(), check.GetIsSup(), check.GetIsUse()))
 	}
+	verdict := EvaluateGrounding(resp.GetSelfCheck())
+	if !verdict.Allowed {
+		return GroundingBlockedOutput(verdict, resp.GetAnswer()), nil
+	}
 	b.WriteString("\n## 答案草稿\n")
 	b.WriteString(resp.GetAnswer())
 	b.WriteString("\n\n## 来源\n")

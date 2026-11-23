@@ -179,6 +179,16 @@ ClaranAIM 是一个 AIM 系统：Agent + Instant Messaging。IM 负责用户、�
 | A11 仓库清理 | 完成 | 删除空目录；`.gitignore` 覆盖 smoke 产物；`go vet` 干净；README 目录结构同步 |
 | A12 可选加分项 | 完成 | IDL 契约测试（struct/字段编号/RPC 方法同步）、DTM 补偿失败与幂等测试、Kafka/Outbox 积压指标、限流器测试、多实例 consumer 原子抢占测试 |
 
+### 4.2 Reflection 补充清单（R1-R7）完成情况
+
+| 编号 | 项目 | 状态 | 证据 |
+| --- | --- | --- | --- |
+| R4 | ClaranAIM ReflectionMiddleware | 完成 | `internal/agent-runtime-service/reflection`：critic JSON、最多 1 轮改写、超时/坏 JSON/超预算保留原稿、结果写入 `agent_runs.reflection_json` |
+| R5 | Self-RAG 门禁 | 完成 | `logic/grounding.go`：IsRel/IsSup/IsUse 阻断草稿；最终答案兜底改写 |
+| R6 | Reflection 可观测性 | 完成 | `agent_reflection_*` 指标、reflection span、2 条告警 |
+| R7 | Reflection 评测集 | 完成 | 50 条四类用例；improve_rate 0.40、harm_rate 0.00 |
+| R1-R3 | `RaiseMyFish` 侧 | 不在本仓库范围 | 交接文档明确为另一项目 |
+
 - `[x]` 表示代码中已有明确服务、接口、数据模型或前端入口，并能形成基本闭环。
 - `[~]` 表示主链路已跑通，但还有明显生产化、深度能力或体验缺口。
 - `[ ]` 表示当前代码中没有可用闭环，或只是占位/规划。

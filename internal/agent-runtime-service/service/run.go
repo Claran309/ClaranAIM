@@ -262,6 +262,9 @@ func (s *runtimeServiceImpl) runAgent(ctx context.Context, req *bot_runtime.RunA
 		s.finishRun(ctx, run, store.RunStatusFailed, "", "", tracker, usage, "Agent返回为空")
 		return failRun("Agent返回为空"), nil
 	}
+	reply = applyGroundingGate(reply)
+	reflectionResult := s.runReflection(ctx, req, run, reply)
+	reply = reflectionResult.Answer
 	if persistSession && s.sessionStore != nil {
 		if err := s.sessionStore.AppendMessage(ctx, sessionID, owner, "assistant", reply, usage.output); err != nil {
 			log.Printf("持久化助手回复失败 session=%s err=%v", sessionID, err)
@@ -272,6 +275,7 @@ func (s *runtimeServiceImpl) runAgent(ctx context.Context, req *bot_runtime.RunA
 	run.InputTokens = usage.input
 	run.OutputTokens = usage.output
 	run.CostUSD = tracker.cost(usage)
+	attachReflection(run, reflectionResult)
 	now := time.Now()
 	run.FinishedAt = &now
 	s.updateRun(ctx, run)
@@ -374,6 +378,9 @@ func (s *runtimeServiceImpl) ResumeAgent(ctx context.Context, req *bot_runtime.R
 		s.finishRun(ctx, run, store.RunStatusFailed, req.ApprovalId, "", tracker, usage, "Agent返回为空")
 		return failResume("Agent返回为空"), nil
 	}
+	reply = applyGroundingGate(reply)
+	reflectionResult := s.runReflectionForResume(ctx, req, run, reply)
+	reply = reflectionResult.Answer
 	if s.sessionStore != nil && run.SessionID != "" {
 		owner := store.SessionOwner{BotID: run.BotID, UserID: run.UserID, ConversationID: run.ConversationID}
 		if err := s.sessionStore.AppendMessage(ctx, run.SessionID, owner, "assistant", reply, usage.output); err != nil {
@@ -385,6 +392,7 @@ func (s *runtimeServiceImpl) ResumeAgent(ctx context.Context, req *bot_runtime.R
 	run.InputTokens = usage.input
 	run.OutputTokens = usage.output
 	run.CostUSD = tracker.cost(usage)
+	attachReflection(run, reflectionResult)
 	now := time.Now()
 	run.FinishedAt = &now
 	s.updateRun(ctx, run)
@@ -519,6 +527,21 @@ func budgetReply(partial, reason string) string {
 		return "运行已中断：达到" + label + "预算。"
 	}
 	return partial + "\n\n[运行已中断：达到" + label + "预算，以上为已完成部分。]"
+}
+
+// applyGroundingGate 是 R5 的最后一道兜底：
+// 当模型在没有说明“资料不足”的情况下给出确定性结论时，把它降级为可核实的说明，
+// 避免 Self-RAG 已判定 IsSup=false 但最终答案仍然假装确定。
+func applyGroundingGate(reply string) string {
+	if !logic.AnswerNeedsGroundingRewrite(reply) {
+		return reply
+	}
+	return "当前检索资料不足以支撑一个确定结论，我不会把猜测当作事实。\n\n" +
+		"可以尝试：\n" +
+		"- 换一个更具体的关键词或文档范围重新检索；\n" +
+		"- 使用联网搜索补充外部资料；\n" +
+		"- 或者补充你能提供的上下文，我再判断。\n\n" +
+		"原始回答中的推测部分已隐藏，避免误导。"
 }
 
 func setRunCheckpointJSON(run *store.RunInfo, approval *bot_runtime.AgentApprovalInfo) {

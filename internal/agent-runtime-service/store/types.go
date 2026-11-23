@@ -74,6 +74,7 @@ type RunInfo struct {
 	ApprovalID      string
 	InterruptedTool string
 	CheckpointJSON  string
+	ReflectionJSON  string
 	StartedAt       time.Time
 	FinishedAt      *time.Time
 }

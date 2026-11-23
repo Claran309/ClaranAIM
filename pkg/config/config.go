@@ -119,6 +119,16 @@ type AgentConfig struct {
 	CozeloopToken string `yaml:"cozeloop_api_token"`
 	CozeloopWSID  string `yaml:"cozeloop_workspace_id"`
 	SkillsDir     string `yaml:"skills_dir"`
+	// ReflectionEnabled 控制 Agent 最终输出后的 critic 自检。
+	ReflectionEnabled bool `yaml:"reflection_enabled"`
+	// ReflectionCriticModel 为空时复用当前 Agent 模型。
+	ReflectionCriticModel   string  `yaml:"reflection_critic_model"`
+	ReflectionCriticAPIKey  string  `yaml:"reflection_critic_api_key"`
+	ReflectionCriticBaseURL string  `yaml:"reflection_critic_base_url"`
+	ReflectionMaxTokens     int64   `yaml:"reflection_max_tokens"`
+	ReflectionTimeoutMS     int64   `yaml:"reflection_timeout_ms"`
+	ReflectionMinAnswerRune int     `yaml:"reflection_min_answer_runes"`
+	ReflectionMaxCostUSD    float64 `yaml:"reflection_max_cost_usd"`
 }
 
 // SkillsConfig 控制 settings-service 保存用户上传 Agent Skill 包的位置。

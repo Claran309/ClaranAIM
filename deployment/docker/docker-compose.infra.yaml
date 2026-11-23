@@ -210,6 +210,7 @@ services:
     volumes:
       - ./observability/config/prometheus.yaml:/etc/prometheus/prometheus.yml:ro
       - ./observability/config/prometheus-rules.yaml:/etc/prometheus/rules/prometheus-rules.yaml:ro
+      - ./observability/config/prometheus-reflection-rules.yaml:/etc/prometheus/rules/prometheus-reflection-rules.yaml:ro
     ports:
       - "8084:9090"
     depends_on:

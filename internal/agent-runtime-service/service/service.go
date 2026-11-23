@@ -3,6 +3,7 @@ package service
 
 import (
 	"ClaranAIM/internal/agent-runtime-service/agent"
+	"ClaranAIM/internal/agent-runtime-service/reflection"
 	"ClaranAIM/internal/agent-runtime-service/store"
 	"ClaranAIM/kitex_gen/bot_runtime"
 	"ClaranAIM/pkg/agentkit/component"
@@ -45,6 +46,7 @@ type RuntimeConfig struct {
 	RunStore            store.RunStore
 	CheckpointStore     store.CheckpointStore
 	DefaultBudget       RunBudget
+	Reflection          reflection.Config
 }
 
 // runtimeServiceImpl 是 AgentRuntimeService 的默认实现，持有会话存储、运行配置和 Agent 实例缓存。
@@ -52,6 +54,7 @@ type runtimeServiceImpl struct {
 	sessionStore    store.SessionStore
 	runStore        store.RunStore
 	checkpointStore store.CheckpointStore
+	reflection      reflection.Config
 	cfg             RuntimeConfig
 	agentCache      map[string]adk.Agent
 	agentCacheOrder []string
@@ -79,6 +82,7 @@ func NewAgentRuntimeService(cfg RuntimeConfig) AgentRuntimeService {
 		sessionStore:    cfg.SessionStore,
 		runStore:        cfg.RunStore,
 		checkpointStore: cfg.CheckpointStore,
+		reflection:      cfg.Reflection,
 		cfg:             cfg,
 		agentCache:      make(map[string]adk.Agent),
 	}

@@ -537,6 +537,39 @@ func StartSpan(ctx context.Context, name string, attrs ...attribute.KeyValue) (c
 	return runtime.tracer.Start(ctx, cleanLabel(name, "operation"), trace.WithAttributes(attrs...))
 }
 
+// RecordReflection 记录 Agent Reflection 的通过/改写/失败与成本。
+// result 取 pass / revise / fail / skip，issues 是问题数量，不记录问题正文。
+func RecordReflection(result string, latency time.Duration, inputTokens, outputTokens int64, changed bool, issues int) {
+	runtime := current()
+	if runtime == nil || !runtime.Enabled {
+		return
+	}
+	result = cleanLabel(result, "unknown")
+	RecordBusinessEvent("agent_reflection", "run", result)
+	RecordBusinessDuration("agent_reflection", "run", result, latency)
+	SetBusinessGauge("agent_reflection", "issues", float64(issues))
+	SetBusinessGauge("agent_reflection", "input_tokens", float64(inputTokens))
+	SetBusinessGauge("agent_reflection", "output_tokens", float64(outputTokens))
+	changedValue := 0.0
+	if changed {
+		changedValue = 1
+	}
+	SetBusinessGauge("agent_reflection", "changed", changedValue)
+	if runtime.tracer != nil {
+		_, span := runtime.tracer.Start(context.Background(), "agent_reflection")
+		span.SetAttributes(
+			attribute.String("reflection.result", result),
+			attribute.Int64("reflection.latency_ms", latency.Milliseconds()),
+			attribute.Int64("reflection.input_tokens", inputTokens),
+			attribute.Int64("reflection.output_tokens", outputTokens),
+			attribute.Bool("reflection.changed", changed),
+			attribute.Int("reflection.issues", issues),
+		)
+		span.End()
+	}
+	updateUptime(runtime)
+}
+
 // Attribute creates a trace attribute without exposing OpenTelemetry imports to callers.
 func Attribute(key, value string) attribute.KeyValue {
 	return attribute.String(key, value)

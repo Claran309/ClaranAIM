@@ -437,6 +437,12 @@ Kitex server user-service.GetUserInfo
 
 另外两条辅助告警：`ClaranWebSocketPushFailureRateHigh`（>5%）、`ClaranMsgWriteP99High`（>500ms）。
 
+Reflection 也有独立指标和告警（`deployment/docker/observability/config/prometheus-reflection-rules.yaml`）：
+
+- `agent_reflection_total{result="pass|revise|fail|skip"}`，用于按结果聚合失败率。
+- `agent_reflection_latency_ms`、`agent_reflection_tokens`、`agent_reflection_changed`、`agent_reflection_issues`。
+- `ClaranReflectionFailureRateHigh`（失败率 >20%）、`ClaranReflectionLatencyHigh`（P95 >8s）。
+
 面板：Grafana `ClaranAIM Reliability`（uid `claran-reliability`），含消息写入 P99、Outbox 积压、Kafka 延迟、WS 失败率四张图。
 
 复现步骤：
@@ -448,6 +454,40 @@ go build -o .smoke-bin/api-gateway.exe ./cmd/api-gateway
 ```
 
 限制：本地链路默认关闭 Kafka 时 Outbox 只会积压不发布；Kafka 消费指标只有在 `websocket-gateway` 实际消费到消息后才出现。
+
+## Agent Reflection
+
+Agent 最终输出后会经过一轮 critic 自检（`internal/agent-runtime-service/reflection`）：
+
+- critic 只输出 JSON：`{"complete","grounded","issues","revised_answer"}`；
+- 只有 `complete=false` 或 `grounded=false` 才改写，且最多 1 轮；
+- critic 超时、返回非 JSON、token 超预算时保留原稿，并把原因写入 `agent_runs.reflection_json`；
+- 高风险工具（写文件/执行命令/发消息）在 critic 确认前不算完成；
+- Reflection 的输入/输出 token 和成本写入运行记录，但不记录答案正文。
+
+Self-RAG 已从“只打印”升级为最终答案门禁（R5）：
+
+- `IsRel=false`：本轮检索结果不可用，工具输出会要求换关键词或澄清问题；
+- `IsSup=false`：禁止把答案草稿当确定结论，工具输出显式标记“资料不足”；
+- `IsUse=false`：先追问用户真实目标，再决定是否继续检索；
+- Agent 最终答案若在没有依据时给出“根据资料可以确定/文档明确指出”等确定性措辞，会被降级为“资料不足”说明。
+
+Reflection 评测集（`internal/agent-runtime-service/reflection/eval_test.go`）固定 50 条，分四类：
+
+```powershell
+go test ./internal/agent-runtime-service/reflection/... -run TestReflectionEvalReport -v
+```
+
+最近一次脚本化 critic 结果：
+
+| 类别 | 用例数 | 改善 | 伤害 |
+| --- | --- | --- | --- |
+| 该改（答非所问/编造/漏证据） | 20 | 20 | 0 |
+| 不该改（已正确） | 15 | 0 | 0 |
+| 预算边界（超时/超 token） | 10 | 0 | 0 |
+| 安全边界（不泄漏内部提示） | 5 | 0 | 0 |
+
+`changed_rate=0.40`、`improve_rate=0.40`、`harm_rate=0.00`。这组数字证明门禁和回退路径可工作，不代表真实模型的批判质量；真实模型评测需要设置 `REFLECTION_EVAL_LIVE=true` 和对应 critic 配置。
 
 提交前跑一遍与 CI 相同的门禁：
 
