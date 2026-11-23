@@ -106,10 +106,12 @@ jobs:
           # 多个包共用 event_outbox 表，必须串行执行，否则会互相清表造成偶发失败。
           go test -p 1 -tags=integration ./internal/msg-core-service/service/... -v
           go test -p 1 -tags=integration ./internal/agent-runtime-service/store/... -v
+          go test -p 1 -tags=integration ./internal/agent-runtime-service/service/... -v
           go test -p 1 -tags=integration ./internal/agent-manager-service/dao/... -v
           go test -p 1 -tags=integration ./internal/memory-service/service/... -v
           go test -p 1 -tags=integration ./internal/group-service/service/... -v
           go test -p 1 -tags=integration ./pkg/eventbus/... -v
+          go test -p 1 -tags=integration ./pkg/outbox/... -v
 
   compose-config:
     name: Validate compose manifests
