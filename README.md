@@ -2,15 +2,24 @@
 
 [![CI](https://github.com/Claran309/ClaranAIM/actions/workflows/ci.yml/badge.svg)](https://github.com/Claran309/ClaranAIM/actions/workflows/ci.yml)
 
-ClaranAIM 是一个 Agent-Native AIM 系统，AIM = Agent + Instant Messaging
+ClaranAIM 是一个 Agent-Native AIM 系统，AIM = Agent + Instant Messaging。
 
-它不是把聊天机器人挂在 IM 旁边，而是把 Agent 设计成 IM 里的原生成员：Agent 拥有身份、会话、权限、记忆、Skill、MCP 工具和审计记录，可以进入私聊和群聊，理解真实聊天上下文，处理文件与知识库，在协作链路里执行任务并沉淀结果
+它不是把聊天机器人挂在 IM 旁边，而是把 Agent 做成 IM 里的真实成员：Agent 有自己的系统用户身份、会话、权限、记忆、Skill、MCP 工具和审计记录，可以进入私聊和群聊，读取授权上下文，处理文件与知识库，并把关键结论写回长期记忆。
 
-在 ClaranAIM 里，IM 不只是消息 UI，而是 Agent 的上下文入口、事件总线、权限边界和协作现场。人和 Agent 可以在同一条会话链路中讨论、调用工具、检索知识、生成摘要、追踪执行过程，并让关键结论进入长期记忆和系统治理流程
+17 个服务按领域拆分，真正需要按领域理解的只有 3 个核心域：
 
-本项目Agent模块草台，这部分很多东西都只是MVP，待全面合理优化（上下文管理、向量记忆写回召回、记忆时效性/权重、tool calling & function calling、数据库mcp、skill工程、多agent协作）
+| 核心域 | 负责什么 | 关键问题 | 关键方案 | 可验证数字 |
+| --- | --- | --- | --- | --- |
+| 消息一致性域 | 会话、消息事实、已读游标、Outbox、WebSocket 推送 | 写库成功但事件丢失、重复投递、多端乱序 | 消息与 Outbox 同事务、consumer 幂等表 + 死信、用户级同步游标 | msg-core 单测 + 4 个真实 MySQL 集成测试；一条发送链路 7 span 跨 3 服务 |
+| Agent 运行时域 | 配置、权限、长会话、运行预算、工具审批、Eino 执行 | 长会话丢失、工具越权、失控调用 | MySQL 会话 + 滚动摘要、Eino checkpoint 恢复、RunBudget 四维预算、高风险工具审批中断 | 会话/运行/审批/checkpoint 真实 MySQL 测试；预算与恢复单测 |
+| 知识与记忆域 | RAG 入库、Hybrid 检索、GraphRAG、长期记忆治理 | 检索质量无法量化、记忆越积越脏 | 父子切片 + BM25/向量 RRF、可配置质量门禁、候选记忆 → 确认 → 巩固 | 50 条检索评测：Hybrid RRF Recall@5 = 1.000；权限泄漏 0 |
 
-另：展示还未测试docker-compose，测试后会在readme此处更新说明
+其余服务是 IM 基础能力（用户、好友、群、文件、历史、设置）和治理入口（admin、MCP Gateway、conversation-intelligence）。它们重要，但不是面试叙事的主线。
+
+**个人实现 vs 框架能力**：Kitex、Thrift、Hertz、Eino ADK、GORM、Kafka-go、Milvus/Neo4j 客户端、OpenTelemetry SDK 都是框架能力；本人实现的是服务拆分与边界、消息/Outbox/幂等/游标的一致性设计、Agent 会话与运行预算/审批恢复、RAG 切片与检索编排、记忆候选与巩固、CI 与可观测性样板。Eino 提供 DeepAgent 与 checkpoint 机制，审批中间件、预算追踪、运行记录和恢复入口是本项目代码。
+
+**已知限制**：本地默认 embedding 是 `glm`，未配置 Key 时才回退 hash（启动日志会告警）；CRAG/Self-RAG 默认是规则版质量门禁，不是论文实现；rerank 在当前 50 条合成评测上没有提升；多 Agent 群聊协作（Phase 7）尚未开始；K8s、灰度发布和 K6 压测不在当前范围。
+
 ## 核心能力
 
 - **Agent 原生 IM**：Agent 可作为真实系统用户进入私聊和群聊，读取授权上下文，执行总结、问答、洞察、回复建议、Skill 和工具调用
@@ -230,6 +239,7 @@ ClaranAIM/
 │   ├── observability/                     # OTel、metrics、trace
 │   ├── outbox/                            # 事务 Outbox
 │   ├── password/                          # bcrypt
+│   ├── pricing/                           # 模型 token 价格估算（manager/runtime 共用）
 │   └── response/                          # HTTP 响应封装
 ├── idl/                                     # Thrift IDL
 ├── kitex_gen/                               # Kitex 生成代码
@@ -246,6 +256,9 @@ ClaranAIM/
         ├── milvus/
         ├── neo4j/
         └── observability/
+            ├── config/prometheus.yaml           # 抓取配置
+            ├── config/prometheus-rules.yaml     # Outbox/Kafka/WS/消息写入告警
+            └── config/grafana/dashboards/       # ClaranAIM Overview / Reliability 面板
 ├── docs/
     ├── apiDoc.md
     ├── plan.md
@@ -389,6 +402,52 @@ docker compose -f deployment\docker\docker-compose.full.yaml down
 
 
 ## 开发与测试
+
+## 可观测性样板
+
+`gateway → msg-core → MySQL → Outbox → Kafka → websocket` 是项目里最值得讲的一条链路，也是本轮补的观测样板。
+
+实测一条 `POST /api/v1/message/send` 的 Jaeger trace 包含 7 个 span，跨 3 个服务：
+
+```text
+HTTP POST /api/v1/message/send                (api-gateway)
+Kitex client msg-core-service.SendMessage     (api-gateway)
+Kitex server msg-core-service.SendMessage     (msg-core-service)
+Kitex client msg-core-service.GetConversationParticipants
+Kitex server msg-core-service.GetConversationParticipants
+Kitex client user-service.GetUserInfo
+Kitex server user-service.GetUserInfo
+```
+
+查看方式：`http://127.0.0.1:8085` 搜索 service=`api-gateway`，或直接打开 trace 页面（示例 trace：`http://127.0.0.1:8085/trace/01d65f934fc0c9b4f04aee1276992a71`）。
+
+四个可靠性指标（Prometheus `claran_business_*`）：
+
+| 指标 | 查询 | 本次实测 |
+| --- | --- | --- |
+| 消息写入 P99 | `histogram_quantile(0.99, sum by (le) (rate(claran_business_duration_ms_bucket{domain="msg_core",operation="send_message"}[5m])))` | 49.75 ms |
+| Outbox 积压 | `max(claran_business_gauge{domain="outbox",name="backlog"})` | 0 |
+| Kafka 消费延迟 | `max(claran_business_gauge{domain="kafka_consumer",name="message_age_seconds"})` | 0.024 s |
+| WS 推送失败率 | `max(claran_business_gauge{domain="websocket",name="push_failure_rate"})` | 0 |
+
+两个告警规则在 `deployment/docker/observability/config/prometheus-rules.yaml`，已用 `promtool` 校验并加载：
+
+- `ClaranOutboxBacklogHigh`：Outbox backlog > 1000 持续 5 分钟。
+- `ClaranKafkaConsumerLagHigh`：消费消息年龄 > 30 秒持续 2 分钟。
+
+另外两条辅助告警：`ClaranWebSocketPushFailureRateHigh`（>5%）、`ClaranMsgWriteP99High`（>500ms）。
+
+面板：Grafana `ClaranAIM Reliability`（uid `claran-reliability`），含消息写入 P99、Outbox 积压、Kafka 延迟、WS 失败率四张图。
+
+复现步骤：
+
+```powershell
+docker compose -f deployment/docker/docker-compose.infra.yaml --env-file .env up -d etcd kafka redis otel-collector jaeger prometheus grafana
+go build -o .smoke-bin/api-gateway.exe ./cmd/api-gateway
+# 启动 user/msg-core/websocket/api-gateway 后发一条消息，然后查询上面四个 PromQL
+```
+
+限制：本地链路默认关闭 Kafka 时 Outbox 只会积压不发布；Kafka 消费指标只有在 `websocket-gateway` 实际消费到消息后才出现。
 
 提交前跑一遍与 CI 相同的门禁：
 

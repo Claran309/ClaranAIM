@@ -2,6 +2,7 @@ package eventbus
 
 import (
 	"ClaranAIM/pkg/events"
+	"ClaranAIM/pkg/observability"
 	"context"
 	"errors"
 	"log"
@@ -112,6 +113,11 @@ func (c *KafkaConsumer) Run(ctx context.Context, handler Handler) {
 			log.Printf("Kafka事件解析失败: %v", err)
 			_ = c.reader.CommitMessages(ctx, msg)
 			continue
+		}
+		stats := c.reader.Stats()
+		observability.SetBusinessGauge("kafka_consumer", "lag", float64(stats.Lag))
+		if !msg.Time.IsZero() {
+			observability.SetBusinessGauge("kafka_consumer", "message_age_seconds", time.Since(msg.Time).Seconds())
 		}
 		if err := handler(ctx, envelope); err != nil {
 			log.Printf("Kafka事件处理失败 type=%s key=%s err=%v", envelope.Type, envelope.Key, err)

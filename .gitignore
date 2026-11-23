@@ -94,3 +94,7 @@ storage/**/*.gif
 .codex/
 .claude/
 .cursor/
+
+# Local smoke-test artifacts
+.smoke-bin/
+.smoke-logs/

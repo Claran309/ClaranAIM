@@ -131,6 +131,7 @@ type Store interface {
 	MarkRetry(ctx context.Context, id int64, publishErr error) error
 	MarkDead(ctx context.Context, id int64, publishErr error) error
 	Requeue(ctx context.Context, id int64) error
+	CountBacklog(ctx context.Context) (int64, error)
 }
 
 // GormStore 是基于 MySQL/GORM 的 Outbox 存储实现。
@@ -191,6 +192,15 @@ func (s *GormStore) FetchDue(ctx context.Context, limit int, lockFor time.Durati
 		return tx.Where("id IN ?", ids).Order("id ASC").Find(&selected).Error
 	})
 	return selected, err
+}
+
+// CountBacklog 返回 pending/retrying 事件数量，用于积压告警。
+func (s *GormStore) CountBacklog(ctx context.Context) (int64, error) {
+	var count int64
+	err := s.db.WithContext(ctx).Model(&Event{}).
+		Where("status IN ?", []string{StatusPending, StatusRetrying}).
+		Count(&count).Error
+	return count, err
 }
 
 // MarkPublished 将事件标记为已发布，并清理锁定状态和上次错误。
@@ -322,6 +332,9 @@ func (w *Worker) ProcessOnce(ctx context.Context) error {
 		return err
 	}
 	observability.SetBusinessGauge("outbox", "due_batch_size", float64(len(records)))
+	if backlog, backlogErr := w.store.CountBacklog(ctx); backlogErr == nil {
+		observability.SetBusinessGauge("outbox", "backlog", float64(backlog))
+	}
 	for _, record := range records {
 		envelope, err := record.Envelope()
 		if err != nil {

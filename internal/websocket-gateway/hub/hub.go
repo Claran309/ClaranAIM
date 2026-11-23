@@ -89,15 +89,18 @@ func (h *Hub) Run() {
 		case msg := <-h.broadcast:
 			// 消息广播：向每个目标用户的所有连接推送消息
 			h.mu.Lock()
+			delivered, failed := 0, 0
 			for _, uid := range msg.TargetUserIDs {
 				if clients, ok := h.clients[uid]; ok {
 					for c := range clients {
 						select {
 						case c.Send <- msg.Data:
 							// 消息成功放入发送通道
+							delivered++
 						default:
 							// 发送通道已满，说明客户端处理慢或已断开
 							// 关闭通道并移除该连接
+							failed++
 							close(c.Send)
 							delete(clients, c)
 							if len(clients) == 0 {
@@ -109,6 +112,18 @@ func (h *Hub) Run() {
 			}
 			observability.SetBusinessGauge("websocket", "online_connections", float64(h.connectionCountLocked()))
 			observability.RecordBusinessEvent("websocket", "broadcast", "attempted")
+			if delivered > 0 {
+				observability.AddBusinessEvents("websocket", "delivery", "success", int64(delivered))
+			}
+			if failed > 0 {
+				observability.AddBusinessEvents("websocket", "delivery", "failure", int64(failed))
+			}
+			total := delivered + failed
+			failureRate := 0.0
+			if total > 0 {
+				failureRate = float64(failed) / float64(total)
+			}
+			observability.SetBusinessGauge("websocket", "push_failure_rate", failureRate)
 			h.mu.Unlock()
 		}
 	}

@@ -8,6 +8,7 @@ import (
 	"ClaranAIM/pkg/cache"
 	"ClaranAIM/pkg/cache/redis"
 	"ClaranAIM/pkg/events"
+	"ClaranAIM/pkg/observability"
 	"ClaranAIM/pkg/outbox"
 	"context"
 	"encoding/json"
@@ -423,7 +424,16 @@ func (s *messageServiceImpl) SendMessage(ctx context.Context, conversationID, se
 // SendMessageExt 以原子方式持久化消息和投递事件。
 // 事务内会写入消息事实、更新会话排序时间、创建用户级消息状态，并追加 message.created Outbox 事件。
 // Kafka/WebSocket 发布稍后由 Outbox Worker 完成，因此进程在 DB 提交后崩溃也不会丢事件。
-func (s *messageServiceImpl) SendMessageExt(ctx context.Context, opts SendMessageOptions) (*model.Message, error) {
+func (s *messageServiceImpl) SendMessageExt(ctx context.Context, opts SendMessageOptions) (result *model.Message, err error) {
+	start := time.Now()
+	defer func() {
+		status := "success"
+		if err != nil {
+			status = "error"
+		}
+		observability.RecordBusinessDuration("msg_core", "send_message", status, time.Since(start))
+		observability.RecordBusinessEvent("msg_core", "send_message", status)
+	}()
 	content := opts.Content
 	if content == "" {
 		return nil, errors.New("消息内容不能为空")

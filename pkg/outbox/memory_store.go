@@ -42,6 +42,19 @@ func (s *MemoryStore) FetchDue(ctx context.Context, limit int, lockFor time.Dura
 	return out, nil
 }
 
+// CountBacklog 返回内存中待发布事件数量。
+func (s *MemoryStore) CountBacklog(ctx context.Context) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var count int64
+	for _, record := range s.events {
+		if record.Status == StatusPending || record.Status == StatusRetrying {
+			count++
+		}
+	}
+	return count, nil
+}
+
 func (s *MemoryStore) MarkPublished(ctx context.Context, id int64) error {
 	return s.update(id, func(record *Event) {
 		now := time.Now()

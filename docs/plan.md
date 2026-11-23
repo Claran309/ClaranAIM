@@ -160,6 +160,25 @@ ClaranAIM 是一个 AIM 系统：Agent + Instant Messaging。IM 负责用户、�
 
 ## 4. 状态口径与假设
 
+### 4.1 优化清单（2026-11-23）完成情况
+
+原始清单在本地 `D:\CodeStudy\growing\项目\项目优化清单-20261123.md`，仓库内只记录结论。
+
+| 编号 | 状态 | 证据 |
+| --- | --- | --- |
+| A1 测试与 CI 止血 | 部分完成 | CI 4 job 全绿；66+ 测试；真实 MySQL 集成测试覆盖 msg-core、runtime store、manager approval、memory consolidation |
+| A2 清理服务边界 | 完成 | `pkg/agentkit` + `internal/architecture/service_boundary_test.go` |
+| A3 会话与审批持久化 | 完成 | `agent_sessions/agent_messages/agent_runs/agent_approvals/agent_checkpoints`；滚动摘要；审批从网关内存迁到 manager MySQL |
+| A4 Agent 运行预算与检查点 | 完成 | `RunBudget{MaxSteps,MaxInputTokens,MaxOutputTokens,MaxCostUSD,Deadline}`；Eino checkpoint 恢复；`agent_runs` 记录状态/步数/成本/中断原因 |
+| A5 拆分 RAG god service | 完成 | `service.go` 296 行；拆为 ingest/retrieve/quality/graph/constructors/helpers |
+| A6 真实 embedding + 评测集 | 完成 | 默认 `glm`；50 条评测；README 有 Recall@5/MRR/nDCG/负例/权限泄漏表 |
+| A7 CRAG/Self-RAG 正名或补实 | 完成 | 明确定位为 Rule-based quality gate，阈值可配置，可选 LLM judge |
+| A8 记忆闭环 | 完成 | 候选 → 接受 → 正式记忆；`source_event_ids`、`reference_count`、`corrected_at`；定时巩固合并/衰减/归档 |
+| A9 可观测性样板 | 完成 | 消息写入 P99、Outbox 积压、Kafka 消费延迟、WS 失败率；4 条告警；Grafana Reliability 面板 |
+| A10 README 与叙事 | 完成 | 3 个核心域、个人实现边界、已知限制 |
+| A11 仓库清理 | 完成 | 删除空目录；`.gitignore` 覆盖 smoke 产物；`go vet` 干净；README 目录结构同步 |
+| A12 可选加分项 | 进行中 | 见后续提交 |
+
 - `[x]` 表示代码中已有明确服务、接口、数据模型或前端入口，并能形成基本闭环。
 - `[~]` 表示主链路已跑通，但还有明显生产化、深度能力或体验缺口。
 - `[ ]` 表示当前代码中没有可用闭环，或只是占位/规划。

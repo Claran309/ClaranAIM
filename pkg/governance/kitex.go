@@ -9,14 +9,17 @@ import (
 	"context"
 	"time"
 
+	"github.com/bytedance/gopkg/cloud/metainfo"
 	"github.com/cloudwego/kitex/client"
 	"github.com/cloudwego/kitex/pkg/circuitbreak"
 	"github.com/cloudwego/kitex/pkg/endpoint"
 	"github.com/cloudwego/kitex/pkg/limit"
 	"github.com/cloudwego/kitex/pkg/loadbalance"
 	"github.com/cloudwego/kitex/pkg/rpcinfo"
+	"github.com/cloudwego/kitex/pkg/transmeta"
 	"github.com/cloudwego/kitex/server"
 	"github.com/cloudwego/kitex/transport"
+	"go.opentelemetry.io/otel"
 )
 
 // 普通 RPC 默认 5 秒超时，避免下游服务异常时请求线程无限挂起。
@@ -40,6 +43,7 @@ func clientTimeout(cfg config.RPCGovernanceConfig, allowDisable bool) (time.Dura
 func clientOptions(cfg config.RPCGovernanceConfig, allowDisableTimeout bool) []client.Option {
 	opts := []client.Option{
 		client.WithTransportProtocol(transport.TTHeader),
+		client.WithMetaHandler(transmeta.ClientTTHeaderHandler),
 		client.WithLoadBalancer(loadbalance.NewWeightedRoundRobinBalancer()),
 		client.WithMiddleware(observabilityMiddleware("client")),
 	}
@@ -87,6 +91,11 @@ func observabilityMiddleware(kind string) endpoint.Middleware {
 	return func(next endpoint.Endpoint) endpoint.Endpoint {
 		return func(ctx context.Context, req, resp interface{}) error {
 			service, method := rpcTarget(ctx)
+			if kind == "client" {
+				ctx = injectTraceContext(ctx)
+			} else {
+				ctx = extractTraceContext(ctx)
+			}
 			spanCtx, span := observability.StartSpan(
 				ctx,
 				"Kitex "+kind+" "+service+"."+method,
@@ -106,6 +115,56 @@ func observabilityMiddleware(kind string) endpoint.Middleware {
 			return err
 		}
 	}
+}
+
+// injectTraceContext 把当前 span 的 traceparent 写入 Kitex TTHeader 元信息，
+// 让下游服务在同一个 trace 下继续记录 span。
+func injectTraceContext(ctx context.Context) context.Context {
+	carrier := &metadataCarrier{values: map[string]string{}}
+	otel.GetTextMapPropagator().Inject(ctx, carrier)
+	for key, value := range carrier.values {
+		ctx = metainfo.WithPersistentValue(ctx, key, value)
+	}
+	return ctx
+}
+
+// extractTraceContext 从 TTHeader 元信息恢复上游 traceparent，缺失时保持当前 context。
+func extractTraceContext(ctx context.Context) context.Context {
+	values := metainfo.GetAllPersistentValues(ctx)
+	if len(values) == 0 {
+		return ctx
+	}
+	return otel.GetTextMapPropagator().Extract(ctx, &metadataCarrier{values: values})
+}
+
+// metadataCarrier 是 OpenTelemetry TextMapCarrier 在 Kitex 元信息上的轻量适配。
+type metadataCarrier struct {
+	values map[string]string
+}
+
+func (c *metadataCarrier) Get(key string) string {
+	if c == nil {
+		return ""
+	}
+	return c.values[key]
+}
+
+func (c *metadataCarrier) Set(key, value string) {
+	if c == nil || c.values == nil {
+		return
+	}
+	c.values[key] = value
+}
+
+func (c *metadataCarrier) Keys() []string {
+	if c == nil {
+		return nil
+	}
+	keys := make([]string, 0, len(c.values))
+	for key := range c.values {
+		keys = append(keys, key)
+	}
+	return keys
 }
 
 func rpcTarget(ctx context.Context) (string, string) {

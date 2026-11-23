@@ -28,17 +28,25 @@ services:
       - claran-net
 
   etcd:
-    image: bitnami/etcd:3.5
+    image: quay.io/coreos/etcd:v3.5.25
     container_name: claran-etcd
     restart: unless-stopped
     ports:
       - "2379:2379"
       - "2380:2380"
-    environment:
-      ALLOW_NONE_AUTHENTICATION: "yes"
-      ETCD_ADVERTISE_CLIENT_URLS: http://etcd:2379
+    command:
+      - /usr/local/bin/etcd
+      - --name=claran-etcd
+      - --data-dir=/etcd-data
+      - --advertise-client-urls=http://0.0.0.0:2379
+      - --listen-client-urls=http://0.0.0.0:2379
+      - --listen-peer-urls=http://0.0.0.0:2380
+      - --initial-advertise-peer-urls=http://0.0.0.0:2380
+      - --initial-cluster=claran-etcd=http://0.0.0.0:2380
+      - --initial-cluster-state=new
+      - --initial-cluster-token=claran-etcd
     volumes:
-      - claran_etcd_data:/bitnami/etcd
+      - claran_etcd_data:/etcd-data
     networks:
       - claran-net
 
@@ -201,6 +209,7 @@ services:
       - "host.docker.internal:host-gateway"
     volumes:
       - ./observability/config/prometheus.yaml:/etc/prometheus/prometheus.yml:ro
+      - ./observability/config/prometheus-rules.yaml:/etc/prometheus/rules/prometheus-rules.yaml:ro
     ports:
       - "8084:9090"
     depends_on:

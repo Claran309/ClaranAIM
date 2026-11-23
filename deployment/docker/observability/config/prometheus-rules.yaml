@@ -1,0 +1,42 @@
+groups:
+  - name: claran-reliability
+    rules:
+      - alert: ClaranOutboxBacklogHigh
+        expr: max(claran_business_gauge{domain="outbox",name="backlog"}) > 1000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Outbox 积压超过 1000"
+          description: "outbox backlog 连续 5 分钟超过 1000，消息可能无法及时投递到 Kafka。"
+
+      - alert: ClaranKafkaConsumerLagHigh
+        expr: max(claran_business_gauge{domain="kafka_consumer",name="message_age_seconds"}) > 30
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Kafka 消费延迟超过 30 秒"
+          description: "最近一条消费消息的年龄超过 30 秒，检查 consumer 处理能力和下游依赖。"
+
+      - alert: ClaranWebSocketPushFailureRateHigh
+        expr: |
+          sum(rate(claran_business_events_total{domain="websocket",operation="delivery",status="failure"}[5m]))
+          /
+          clamp_min(sum(rate(claran_business_events_total{domain="websocket",operation="delivery"}[5m])), 0.001)
+          > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "WebSocket 推送失败率超过 5%"
+          description: "客户端发送通道持续满，部分连接可能已断开或处理过慢。"
+
+      - alert: ClaranMsgWriteP99High
+        expr: histogram_quantile(0.99, sum by (le) (rate(claran_business_duration_ms_bucket{domain="msg_core",operation="send_message"}[5m]))) > 500
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "消息写入 P99 超过 500ms"
+          description: "msg-core 消息写入与 Outbox 事务 P99 持续超过 500ms，检查 MySQL 锁和慢查询。"

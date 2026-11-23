@@ -460,6 +460,14 @@ func RecordRPCRequest(service, method, status string, duration time.Duration) {
 
 // RecordBusinessEvent records a domain-level business event.
 func RecordBusinessEvent(domain, operation, status string) {
+	AddBusinessEvents(domain, operation, status, 1)
+}
+
+// AddBusinessEvents 批量累加同一业务事件，适合一次广播包含多条投递结果。
+func AddBusinessEvents(domain, operation, status string, count int64) {
+	if count <= 0 {
+		return
+	}
 	runtime := current()
 	if runtime == nil || !runtime.Enabled {
 		return
@@ -467,9 +475,9 @@ func RecordBusinessEvent(domain, operation, status string) {
 	domain = cleanLabel(domain, "unknown")
 	operation = cleanLabel(operation, "unknown")
 	status = cleanLabel(status, "unknown")
-	businessEventsTotal.WithLabelValues(runtime.ServiceName, domain, operation, status).Inc()
+	businessEventsTotal.WithLabelValues(runtime.ServiceName, domain, operation, status).Add(float64(count))
 	if runtime.otelMetrics != nil {
-		runtime.otelMetrics.businessEvents.Add(context.Background(), 1, metric.WithAttributes(
+		runtime.otelMetrics.businessEvents.Add(context.Background(), count, metric.WithAttributes(
 			attribute.String("service", runtime.ServiceName),
 			attribute.String("domain", domain),
 			attribute.String("operation", operation),
