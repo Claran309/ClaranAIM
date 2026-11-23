@@ -168,8 +168,8 @@ ClaranAIM 是一个 AIM 系统：Agent + Instant Messaging。IM 负责用户、�
 | --- | --- | --- |
 | A1 测试与 CI 止血 | 完成 | CI 4 job 全绿；核心 3 个服务 36 个真实 MySQL 集成测试（msg-core 13、runtime 13、manager 10），全仓 52 个；覆盖消息生命周期、乱序 ACK 游标单调性、多端重复 ACK 去重、真实 Kafka 重复投递幂等、consumer 崩溃租约接管、运行预算/审批恢复、Agent DAO/计费/调度幂等、memory 巩固、group DTM 补偿、outbox worker |
 | A2 清理服务边界 | 完成 | `pkg/agentkit` + `internal/architecture/service_boundary_test.go` |
-| A3 会话与审批持久化 | 完成 | `agent_sessions/agent_messages/agent_runs/agent_approvals/agent_checkpoints`；滚动摘要；审批从网关内存迁到 manager MySQL |
-| A4 Agent 运行预算与检查点 | 完成 | `RunBudget{MaxSteps,MaxInputTokens,MaxOutputTokens,MaxCostUSD,Deadline}`；Eino checkpoint 恢复；`agent_runs` 记录状态/步数/成本/中断原因 |
+| A3 会话与审批持久化 | 完成 | `agent_sessions/agent_messages/agent_runs/agent_approvals/agent_checkpoints`；滚动摘要；会话缓存上限 256 且可从 JSONL 恢复；审批从网关内存迁到 manager MySQL；日志只记角色和长度 |
+| A4 Agent 运行预算与检查点 | 完成 | `RunBudget{MaxSteps,MaxInputTokens,MaxOutputTokens,MaxCostUSD,Deadline}`；Eino checkpoint 恢复；`agent_runs` 记录状态/步数/成本/中断原因；Agent 弹窗可查看单次运行成本 |
 | A5 拆分 RAG god service | 完成 | `service.go` 296 行；拆为 ingest/retrieve/quality/graph/constructors/helpers |
 | A6 真实 embedding + 评测集 | 完成 | 默认 `glm`；50 条评测；README 有 Recall@5/MRR/nDCG/负例/权限泄漏表 |
 | A7 CRAG/Self-RAG 正名或补实 | 完成 | 明确定位为 Rule-based quality gate，阈值可配置，可选 LLM judge |

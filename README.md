@@ -18,6 +18,8 @@ ClaranAIM 是一个 Agent-Native AIM 系统，AIM = Agent + Instant Messaging。
 
 **个人实现 vs 框架能力**：Kitex、Thrift、Hertz、Eino ADK、GORM、Kafka-go、Milvus/Neo4j 客户端、OpenTelemetry SDK 都是框架能力；本人实现的是服务拆分与边界、消息/Outbox/幂等/游标的一致性设计、Agent 会话与运行预算/审批恢复、RAG 切片与检索编排、记忆候选与巩固、CI 与可观测性样板。Eino 提供 DeepAgent 与 checkpoint 机制，审批中间件、预算追踪、运行记录和恢复入口是本项目代码。
 
+**运行成本可见**：Agent 运行弹窗里的“运行记录与成本”直接读 `agent_runs`，展示每次运行的状态、步数、输入/输出 token、美元成本和中断原因；数据由 runtime 写入，不是前端估算。
+
 **已知限制**：本地默认 embedding 是 `glm`，未配置 Key 时才回退 hash（启动日志会告警）；CRAG/Self-RAG 默认是规则版质量门禁，不是论文实现；rerank 在当前 50 条合成评测上没有提升；多 Agent 群聊协作（Phase 7）尚未开始；K8s、灰度发布和 K6 压测不在当前范围。
 
 ## 核心能力

@@ -97,6 +97,10 @@ type Store struct {
 	dir      string
 }
 
+// maxCachedSessions 限制进程内会话缓存数量。
+// 会话正文仍完整保存在 JSONL 文件里，淘汰只影响内存缓存，下次读取会从磁盘重新加载。
+const maxCachedSessions = 256
+
 // NewStore 创建新的会话存储
 func NewStore(dir string) (*Store, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -197,6 +201,12 @@ func (s *Store) GetSession(id string) (*Session, error) {
 	}
 
 	// 将会话加入缓存
+	if len(s.sessions) >= maxCachedSessions {
+		for id := range s.sessions {
+			delete(s.sessions, id)
+			break
+		}
+	}
 	s.sessions[id] = session
 
 	return session, nil

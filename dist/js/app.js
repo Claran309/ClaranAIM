@@ -9879,6 +9879,7 @@ async function showAgentRunModal(botID, botName) {
             </div>
             <div class="agent-run-footer">
                 <button class="btn-inline" onclick="loadAgentSessions(${jsArg(botID)}, document.getElementById('agent-run-conversation')?.value || 0, 'agent-run-history')">查看会话记录</button>
+                <button class="btn-inline" onclick="loadAgentRuns(${jsArg(botID)}, document.getElementById('agent-run-conversation')?.value || 0, 'agent-run-history')">运行记录与成本</button>
             </div>
         </div>
     `);
@@ -10088,6 +10089,61 @@ async function loadAgentSessions(botID, conversationID, resultElID) {
         pushAgentRunHistory(botID, { role: 'agent', kind: 'sessions', html: sessionHTML });
     } else if (area) {
         area.innerHTML = `<div class="agent-session-list">${sessionHTML}</div>`;
+    }
+}
+
+// loadAgentRuns 展示每次 Agent 运行的状态、步数、token、成本和中断原因。
+// 这是 A4 的“面板能看到单次运行成本”，数据来自 agent_runs 表而不是前端估算。
+async function loadAgentRuns(botID, conversationID, resultElID) {
+    const area = document.getElementById(resultElID);
+    if (area) area.innerHTML = '<div class="search-loading"><div class="spinner"></div>正在加载运行记录...</div>';
+    const resp = await agentAPI.listRuns(botID, conversationID || 0, 50);
+    if (!(resp && resp.code === 0 && resp.data && resp.data.success)) {
+        const msg = resp?.data?.msg || '运行记录加载失败';
+        if (resultElID === 'agent-run-history') {
+            pushAgentRunHistory(botID, { role: 'agent', content: msg });
+        } else if (area) {
+            area.innerHTML = `<div class="empty-tip">${escapeHTML(msg)}</div>`;
+        }
+        return;
+    }
+    const runs = resp.data.runs || [];
+    if (runs.length === 0) {
+        const empty = '暂无运行记录。发送一条消息后再查看。';
+        if (resultElID === 'agent-run-history') {
+            pushAgentRunHistory(botID, { role: 'agent', content: empty });
+        } else if (area) {
+            area.innerHTML = `<div class="empty-tip">${escapeHTML(empty)}</div>`;
+        }
+        return;
+    }
+    const statusLabel = {
+        completed: '完成',
+        failed: '失败',
+        pending_approval: '等待审批',
+        budget_exceeded: '预算中断',
+        running: '运行中',
+    };
+    const runsHTML = runs.map(run => {
+        const status = statusLabel[run.status] || run.status || '未知';
+        const cost = Number(run.cost_usd || 0).toFixed(6);
+        const tokens = `${run.input_tokens || 0} / ${run.output_tokens || 0}`;
+        const reason = run.interrupt_reason ? ` · 中断：${escapeHTML(run.interrupt_reason)}` : '';
+        const started = escapeHTML(run.started_at || '未知时间');
+        return `
+            <div class="agent-session-card">
+                <div class="agent-session-main">
+                    <strong>${escapeHTML(status)} · $${cost} · ${escapeHTML(tokens)} tokens</strong>
+                    <span>${started}</span>
+                </div>
+                <code>run=${escapeHTML(String(run.run_id || ''))} · step=${run.step || 0}${reason}</code>
+            </div>
+        `;
+    }).join('');
+    if (resultElID === 'agent-run-history') {
+        pushAgentRunHistory(botID, { role: 'agent', kind: 'sessions', html: `<div class="agent-session-list">${runsHTML}</div>` });
+    } else if (area) {
+        area.innerHTML = `<div class="agent-session-list">${runsHTML}</div>`;
     }
 }
 

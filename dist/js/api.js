@@ -405,6 +405,8 @@ const agentAPI = {
     listPermissions: (botID) => request('GET', `/agent/${botID}/permissions`),
     listSessions: (botID, conversationID = 0) =>
         request('GET', `/agent/${botID}/sessions?conversation_id=${apiID(conversationID)}`),
+    listRuns: (botID, conversationID = 0, limit = 50) =>
+        request('GET', `/agent/${botID}/runs?conversation_id=${apiID(conversationID)}&limit=${apiID(limit)}`),
     listApprovals: () => request('GET', '/agent/approvals'),
     confirmApproval: (approvalID, message = '') =>
         request('POST', '/agent/approval/confirm', { approval_id: approvalID, message }),
