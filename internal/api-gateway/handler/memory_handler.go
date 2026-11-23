@@ -172,18 +172,18 @@ func (h *MemoryHandler) UpdateMemory(ctx context.Context, c *app.RequestContext)
 	resp, err := h.svc.UpdateMemory(ctx, &memory.UpdateMemoryReq{
 		ViewerId:      userID,
 		MemoryId:      memoryID,
-		Scope:        req.Scope,
-		Type:         req.Type,
-		Title:        req.Title,
-		Content:      req.Content,
-		Source:       req.Source,
-		Visibility:   req.Visibility,
-		Enabled:      enabled,
-		EnabledSet:   enabledSet,
-		VectorStatus: req.VectorStatus,
-		Confidence:   req.Confidence,
+		Scope:         req.Scope,
+		Type:          req.Type,
+		Title:         req.Title,
+		Content:       req.Content,
+		Source:        req.Source,
+		Visibility:    req.Visibility,
+		Enabled:       enabled,
+		EnabledSet:    enabledSet,
+		VectorStatus:  req.VectorStatus,
+		Confidence:    req.Confidence,
 		ConfidenceSet: req.Confidence > 0,
-		Importance:   req.Importance,
+		Importance:    req.Importance,
 		ImportanceSet: req.Importance > 0,
 	})
 	if err != nil || !resp.GetSuccess() {
@@ -472,9 +472,9 @@ func defaultMemorySource(source string) string {
 
 const (
 	memoryScopeUser         = "user"
-	memoryTypePreference   = "preference"
+	memoryTypePreference    = "preference"
 	memoryVisibilityPrivate = "private"
-	memoryVectorPending    = "pending"
+	memoryVectorPending     = "pending"
 )
 
 func optionalBoolForRPC(value *bool, fallback bool) (bool, bool) {

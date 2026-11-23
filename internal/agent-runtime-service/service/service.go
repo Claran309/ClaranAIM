@@ -3,9 +3,9 @@ package service
 
 import (
 	"ClaranAIM/internal/agent-runtime-service/agent"
-	"ClaranAIM/internal/agent-runtime-service/component"
 	"ClaranAIM/internal/agent-runtime-service/logic"
 	"ClaranAIM/kitex_gen/bot_runtime"
+	"ClaranAIM/pkg/agentkit/component"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"

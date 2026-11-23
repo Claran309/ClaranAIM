@@ -21,14 +21,14 @@ func NewRAGServiceImpl(svc ragsvc.RAGService) rag.RAGService {
 // IngestDocument 写入知识文档，并触发分块、向量索引和轻量 GraphRAG 抽取。
 func (h *RAGServiceImpl) IngestDocument(ctx context.Context, req *rag.IngestDocumentReq) (*rag.IngestDocumentResp, error) {
 	result, err := h.svc.IngestDocument(ctx, ragsvc.IngestInput{
-		OwnerID:        req.GetOwnerId(),
-		Title:          req.GetTitle(),
-		Content:        req.GetContent(),
-		Source:         req.GetSource(),
-		SourceType:     req.GetSourceType(),
-		Visibility:     req.GetVisibility(),
-		GroupID:        req.GetGroupId(),
-		ConversationID: req.GetConversationId(),
+		OwnerID:           req.GetOwnerId(),
+		Title:             req.GetTitle(),
+		Content:           req.GetContent(),
+		Source:            req.GetSource(),
+		SourceType:        req.GetSourceType(),
+		Visibility:        req.GetVisibility(),
+		GroupID:           req.GetGroupId(),
+		ConversationID:    req.GetConversationId(),
 		GraphRelationMode: req.GetGraphRelationMode(),
 	})
 	if err != nil {
