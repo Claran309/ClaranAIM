@@ -141,12 +141,8 @@ func NewDeepAgent(ctx context.Context, model *openai.ChatModel, agentRoot string
 		Handlers: handlers,
 		// 配置模型重试策略，处理速率限制错误
 		ModelRetryConfig: &adk.ModelRetryConfig{
-			MaxRetries: 5,
-			IsRetryAble: func(_ context.Context, err error) bool {
-				return strings.Contains(err.Error(), "429") ||
-					strings.Contains(err.Error(), "Too Many Requests") ||
-					strings.Contains(err.Error(), "qpm limit")
-			},
+			MaxRetries:  5,
+			IsRetryAble: isRateLimitError,
 		},
 	}
 	agent, err := deep.New(ctx, agentConfig)
@@ -155,6 +151,21 @@ func NewDeepAgent(ctx context.Context, model *openai.ChatModel, agentRoot string
 	}
 
 	return agent, nil
+}
+
+// isRateLimitError 判断模型错误是否属于可重试的速率限制。
+// 只对 429/QPM 这类“稍后重试会成功”的错误重试；鉴权失败、模型不存在等必须立即失败。
+func isRateLimitError(_ context.Context, err error) bool {
+	if err == nil {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	for _, marker := range []string{"429", "too many requests", "qpm limit", "rate limit"} {
+		if strings.Contains(message, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func toolPolicyDisablesTools(toolPolicy string) bool {
