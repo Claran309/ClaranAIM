@@ -43,7 +43,11 @@ func main() {
 		embedder = memorysvc.NewGLMMemoryEmbeddingProvider(cfg.MemoryRAG.EmbeddingURL, cfg.MemoryRAG.EmbeddingAPIKey, cfg.MemoryRAG.EmbeddingModel, cfg.MemoryRAG.EmbeddingDimension)
 		logger.Info("Memory GLM Embedding已启用", "model", cfg.MemoryRAG.EmbeddingModel)
 	} else {
-		logger.Info("Memory 使用hash embedding降级模式")
+		logger.Warn("Memory Embedding降级为hash，仅适用于测试/离线评估",
+			"embedding_provider", "hash",
+			"configured_provider", cfg.MemoryRAG.EmbeddingProvider,
+			"api_key_configured", cfg.MemoryRAG.EmbeddingAPIKey != "",
+		)
 	}
 	vectorIndex := memorysvc.MemoryVectorIndex(memorysvc.NewLocalMemoryVectorIndex(embedder))
 	if cfg.MemoryRAG.MilvusEnabled {

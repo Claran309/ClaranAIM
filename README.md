@@ -17,10 +17,42 @@ ClaranAIM 是一个 Agent-Native AIM 系统，AIM = Agent + Instant Messaging
 - **可靠消息同步**：支持 WebSocket 实时推送、上线同步、用户级同步游标、ACK 重试、乱序补偿和多端去重合并，ACK 表示设备收到，不等同于已读
 - **Conversation Intelligence**：会话活动可自动或手动归档为摘要、决策、待办、主题、引用和候选记忆，并写入长期 RAG / Memory 治理链路
 - **未读摘要**：聊天页提供“我错过了什么”，只总结当前用户未读范围，不自动标记已读
-- **RAG 与知识图谱**：支持文档上传、异步解析、OCR、Hybrid Search、Rerank、GraphRAG、知识图谱查询、关系审核、文档图谱重建和可视化
+- **RAG 与知识图谱**：支持文档上传、异步解析、OCR、Hybrid Search、Rerank、GraphRAG、知识图谱查询、关系审核、文档图谱重建和可视化；质量门禁默认为可配置的规则版 CRAG/Self-RAG，可选 LLM judge
 - **MCP / Tool / Skill**：提供 MCP Server 配置、工具调用、调用追踪、Agent Skill 上传、运行测试和工具执行标识
 - **系统治理台**：管理员可管理用户、群组、文件、Agent、账单、审核、MCP 调用、公告、审计和可观测性入口，并可把其他用户设为管理员或降回普通用户
 - **可观测性**：接入 OpenTelemetry、Prometheus、Grafana、Jaeger、ELK 和本地日志目录，便于排查网关、Kitex 服务、Agent 和 RAG 链路
+
+## RAG 检索评测
+
+评测集固定为 25 个主题 × 2 条 query，共 50 条；语料 26 个 chunk，其中 1 个是仅 owner 2 可见的权限拒绝样本。评测同时检查召回质量和权限泄漏。
+
+```powershell
+$env:RAG_EVAL_EMBEDDING="glm"
+$env:RAG_EMBEDDING_API_KEY="<your-key>"
+go test ./internal/rag-service/service/... -run TestRetrievalEvalReport -v
+```
+
+最近一次使用 GLM `embedding-3` 的结果：
+
+| 策略 | Recall@5 | MRR | nDCG@5 | negative_false_rate | permission_leak_rate |
+| --- | --- | --- | --- | --- | --- |
+| keyword_only | 0.960 | 0.960 | 0.960 | 0.080 | 0.000 |
+| vector_only | 0.980 | 0.887 | 0.910 | 0.250 | 0.000 |
+| hybrid_rrf | 1.000 | 0.952 | 0.964 | 0.250 | 0.000 |
+| hybrid_rrf_rerank | 1.000 | 0.952 | 0.964 | 0.250 | 0.000 |
+
+结论：Hybrid RRF 把 Recall@5 从 keyword-only 的 0.960 提升到 1.000；在这组合成 hard-negative 上，本地 rerank 没有提升 MRR/nDCG，因此不把“Rerank 一定更好”写成结论。模型 rerank 需要在真实业务数据上重新评测。`negative_false_rate=0.250` 说明负例仍会被召回，后续 R5 的 Self-RAG 门禁要负责阻止“资料不足却硬答”。
+
+默认 `rag.embedding_provider` 和 `memory_rag.embedding_provider` 都是 `glm`；只有测试/离线评估才允许 hash fallback，启动时会打印 `embedding_provider=hash` 警告。
+
+## RAG 质量门禁
+
+默认实现是 **Rule-based quality gate**，不是论文级 CRAG/Self-RAG：
+
+- `RuleCRAGEvaluator` 根据 retrieval quality、coverage、specificity、conflict 输出 correct/incorrect/ambiguous。
+- `RuleSelfRAGJudge` 输出 `IsRel`、`IsSup`、`IsUse`。
+- 所有阈值都在 `pkg/config/config.go` 中配置（`rag.crag_*`、`rag.self_rag_relevance_threshold`），不硬编码。
+- 配置 `rag.router_provider=llm` 时可启用 LLM CRAG/Self-RAG judge；LLM 超时、返回非 JSON 或状态码异常时自动回退规则版。
 
 
 ## 文档索引
@@ -132,7 +164,7 @@ flowchart TB
 | 缓存 | Redis |
 | 对象存储 | MinIO、本地存储 |
 | 消息与一致性 | Kafka、Transactional Outbox、DTM Saga |
-| RAG | Hybrid Search、BM25、RRF、Rerank、CRAG、Self-RAG、Adaptive Router、parent-child chunk |
+| RAG | Hybrid Search、BM25、RRF、Rerank、Rule-based CRAG/Self-RAG quality gate（可选 LLM judge）、Adaptive Router、parent-child chunk |
 | 向量与图谱 | Milvus、Neo4j、GraphRAG |
 | 前端 | 原生 HTML、CSS、JavaScript、G6 知识图谱可视化 |
 | 认证与安全 | JWT、bcrypt、AES-GCM |

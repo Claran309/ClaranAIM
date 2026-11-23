@@ -143,6 +143,13 @@ type RAGConfig struct {
 	RerankURL          string `yaml:"rerank_url"`
 	RerankAPIKey       string `yaml:"rerank_api_key"`
 	RerankModel        string `yaml:"rerank_model"`
+	// Rule-based quality gate 阈值；LLM judge 不可用时使用这些值。
+	CRAGIncorrectScore        float64 `yaml:"crag_incorrect_score"`
+	CRAGIncorrectQuality      float64 `yaml:"crag_incorrect_quality"`
+	CRAGAmbiguousScore        float64 `yaml:"crag_ambiguous_score"`
+	CRAGAmbiguousCoverage     float64 `yaml:"crag_ambiguous_coverage"`
+	CRAGAmbiguousConflict     float64 `yaml:"crag_ambiguous_conflict"`
+	SelfRAGRelevanceThreshold float64 `yaml:"self_rag_relevance_threshold"`
 }
 
 // MemoryRAGConfig 控制 memory-service 的长期记忆向量召回和融合打分策略。
@@ -307,7 +314,13 @@ func Load(configPath string) (*Config, error) {
 	v.SetDefault("neo4j.database", "neo4j")
 	v.SetDefault("rag.embedding_dim", 256)
 	v.SetDefault("rag.default_mode", "adaptive")
-	v.SetDefault("rag.embedding_provider", "hash")
+	v.SetDefault("rag.embedding_provider", "glm")
+	v.SetDefault("rag.crag_incorrect_score", 0.32)
+	v.SetDefault("rag.crag_incorrect_quality", 0.18)
+	v.SetDefault("rag.crag_ambiguous_score", 0.62)
+	v.SetDefault("rag.crag_ambiguous_coverage", 0.45)
+	v.SetDefault("rag.crag_ambiguous_conflict", 0.55)
+	v.SetDefault("rag.self_rag_relevance_threshold", 0.50)
 	v.SetDefault("rag.embedding_url", "https://open.bigmodel.cn/api/paas/v4/embeddings")
 	v.SetDefault("rag.embedding_model", "embedding-3")
 	v.SetDefault("rag.embedding_dimension", 0)
@@ -318,7 +331,7 @@ func Load(configPath string) (*Config, error) {
 	v.SetDefault("milvus.collection", "claran_rag_chunks")
 	v.SetDefault("memory_rag.enabled", true)
 	v.SetDefault("memory_rag.embedding_dim", 256)
-	v.SetDefault("memory_rag.embedding_provider", "hash")
+	v.SetDefault("memory_rag.embedding_provider", "glm")
 	v.SetDefault("memory_rag.embedding_url", "https://open.bigmodel.cn/api/paas/v4/embeddings")
 	v.SetDefault("memory_rag.embedding_model", "embedding-3")
 	v.SetDefault("memory_rag.embedding_dimension", 0)

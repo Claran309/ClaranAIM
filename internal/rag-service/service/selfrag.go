@@ -30,13 +30,20 @@ type SelfRAGJudge interface {
 	Judge(ctx context.Context, input SelfRAGJudgeInput) (SelfRAGJudgement, error)
 }
 
-type RuleSelfRAGJudge struct{}
+// RuleSelfRAGJudge 是默认的确定性 Self-RAG 检查器。
+type RuleSelfRAGJudge struct {
+	RelevanceThreshold float64
+}
 
-func (RuleSelfRAGJudge) Judge(ctx context.Context, input SelfRAGJudgeInput) (SelfRAGJudgement, error) {
+func (j RuleSelfRAGJudge) Judge(ctx context.Context, input SelfRAGJudgeInput) (SelfRAGJudgement, error) {
 	_ = ctx
 	hasSources := len(input.Chunks) > 0
+	relevanceThreshold := j.RelevanceThreshold
+	if relevanceThreshold <= 0 {
+		relevanceThreshold = 0.50
+	}
 	return SelfRAGJudgement{
-		IsRel:  input.CRAG.Relevance >= 0.50,
+		IsRel:  input.CRAG.Relevance >= relevanceThreshold,
 		IsSup:  input.CRAG.Label == CRAGLabelCorrect || input.CRAG.Label == CRAGLabelAmbiguous,
 		IsUse:  hasSources && strings.TrimSpace(input.Answer) != "",
 		Reason: "规则Self-RAG评估",

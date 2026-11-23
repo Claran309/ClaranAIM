@@ -37,19 +37,47 @@ type CRAGEvaluator interface {
 	Evaluate(ctx context.Context, input CRAGEvaluateInput) (CRAGEvaluation, error)
 }
 
-type RuleCRAGEvaluator struct{}
+// RuleCRAGEvaluator 是默认的确定性质量门禁。
+// 字段为 0 时使用内置默认阈值，生产环境可通过 config 注入。
+type RuleCRAGEvaluator struct {
+	IncorrectScore    float64
+	IncorrectQuality  float64
+	AmbiguousScore    float64
+	AmbiguousCoverage float64
+	AmbiguousConflict float64
+}
 
-func (RuleCRAGEvaluator) Evaluate(ctx context.Context, input CRAGEvaluateInput) (CRAGEvaluation, error) {
+func (e RuleCRAGEvaluator) Evaluate(ctx context.Context, input CRAGEvaluateInput) (CRAGEvaluation, error) {
 	_ = ctx
 	quality := retrievalQuality(input.Chunks)
 	coverage := math.Min(1, float64(len(input.Chunks))/3)
 	specificity := averageSpecificity(input.Chunks)
 	conflict := conflictScore(input.Chunks)
 	score := clamp01(0.40*quality + 0.25*coverage + 0.25*specificity + 0.10*(1-conflict))
+	incorrectScore := e.IncorrectScore
+	if incorrectScore <= 0 {
+		incorrectScore = 0.32
+	}
+	incorrectQuality := e.IncorrectQuality
+	if incorrectQuality <= 0 {
+		incorrectQuality = 0.18
+	}
+	ambiguousScore := e.AmbiguousScore
+	if ambiguousScore <= 0 {
+		ambiguousScore = 0.62
+	}
+	ambiguousCoverage := e.AmbiguousCoverage
+	if ambiguousCoverage <= 0 {
+		ambiguousCoverage = 0.45
+	}
+	ambiguousConflict := e.AmbiguousConflict
+	if ambiguousConflict <= 0 {
+		ambiguousConflict = 0.55
+	}
 	label := CRAGLabelCorrect
-	if score < 0.32 || quality < 0.18 {
+	if score < incorrectScore || quality < incorrectQuality {
 		label = CRAGLabelIncorrect
-	} else if score < 0.62 || coverage < 0.45 || conflict > 0.55 {
+	} else if score < ambiguousScore || coverage < ambiguousCoverage || conflict > ambiguousConflict {
 		label = CRAGLabelAmbiguous
 	}
 	return CRAGEvaluation{

@@ -60,7 +60,11 @@ func main() {
 		embedder = ragsvc.NewGLMEmbeddingProvider(cfg.RAG.EmbeddingURL, cfg.RAG.EmbeddingAPIKey, cfg.RAG.EmbeddingModel, cfg.RAG.EmbeddingDimension)
 		logger.Info("GLM Embedding已启用", "model", cfg.RAG.EmbeddingModel)
 	} else {
-		logger.Info("使用hash embedding降级模式")
+		logger.Warn("Embedding降级为hash，仅适用于测试/离线评估",
+			"embedding_provider", "hash",
+			"configured_provider", cfg.RAG.EmbeddingProvider,
+			"api_key_configured", cfg.RAG.EmbeddingAPIKey != "",
+		)
 	}
 	var router ragsvc.RAGRouter
 	if cfg.RAG.RouterProvider == "llm" {
@@ -74,15 +78,23 @@ func main() {
 			logger.Warn("RAG Router配置不完整，已降级规则路由", "provider", cfg.RAG.RouterProvider)
 		}
 	}
-	var cragEvaluator ragsvc.CRAGEvaluator = ragsvc.RuleCRAGEvaluator{}
-	var selfJudge ragsvc.SelfRAGJudge = ragsvc.RuleSelfRAGJudge{}
+	ruleCRAG := ragsvc.RuleCRAGEvaluator{
+		IncorrectScore:    cfg.RAG.CRAGIncorrectScore,
+		IncorrectQuality:  cfg.RAG.CRAGIncorrectQuality,
+		AmbiguousScore:    cfg.RAG.CRAGAmbiguousScore,
+		AmbiguousCoverage: cfg.RAG.CRAGAmbiguousCoverage,
+		AmbiguousConflict: cfg.RAG.CRAGAmbiguousConflict,
+	}
+	ruleSelfRAG := ragsvc.RuleSelfRAGJudge{RelevanceThreshold: cfg.RAG.SelfRAGRelevanceThreshold}
+	var cragEvaluator ragsvc.CRAGEvaluator = ruleCRAG
+	var selfJudge ragsvc.SelfRAGJudge = ruleSelfRAG
 	if cfg.RAG.RouterProvider == "llm" {
 		cragAPIKey := firstNonEmpty(cfg.RAG.RouterAPIKey, cfg.LLM.DefaultAPIKey)
 		cragBaseURL := firstNonEmpty(cfg.RAG.RouterBaseURL, cfg.LLM.DefaultBaseURL)
 		cragModel := firstNonEmpty(cfg.RAG.RouterModel, cfg.LLM.DefaultModel, "glm-4-flash")
 		if cragAPIKey != "" && cragBaseURL != "" {
-			cragEvaluator = ragsvc.NewLLMCRAGEvaluator(cragAPIKey, cragBaseURL, cragModel, ragsvc.RuleCRAGEvaluator{})
-			selfJudge = ragsvc.NewLLMSelfRAGJudge(cragAPIKey, cragBaseURL, cragModel, ragsvc.RuleSelfRAGJudge{})
+			cragEvaluator = ragsvc.NewLLMCRAGEvaluator(cragAPIKey, cragBaseURL, cragModel, ruleCRAG)
+			selfJudge = ragsvc.NewLLMSelfRAGJudge(cragAPIKey, cragBaseURL, cragModel, ruleSelfRAG)
 			logger.Info("RAG LLM CRAG Evaluator已启用", "model", cragModel)
 			logger.Info("RAG LLM Self-RAG Judge已启用", "model", cragModel)
 		} else {

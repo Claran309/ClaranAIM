@@ -3,12 +3,16 @@ package service
 import (
 	"ClaranAIM/internal/rag-service/model"
 	"ClaranAIM/pkg/idgen"
+	"ClaranAIM/pkg/logger"
 	"context"
 	"errors"
 	"fmt"
 	"regexp"
 	"strings"
+	"sync"
 )
+
+var embeddingFallbackOnce sync.Once
 
 type chunkPlan struct {
 	parentTitle   string
@@ -394,7 +398,15 @@ func (s *ragServiceImpl) embedding(ctx context.Context, text string) []float32 {
 	if s.embedder != nil {
 		if vector, err := s.embedder.Embed(ctx, text); err == nil && len(vector) > 0 {
 			return normalizeVectorDim(vector, s.embeddingDim)
+		} else {
+			embeddingFallbackOnce.Do(func() {
+				logger.Warn("RAG embedding调用失败，已回退hash；该模式仅适用于测试/离线评估", "error", err)
+			})
 		}
+	} else {
+		embeddingFallbackOnce.Do(func() {
+			logger.Warn("RAG embedding未配置，已回退hash；该模式仅适用于测试/离线评估")
+		})
 	}
 	return hashEmbedding(text, s.embeddingDim)
 }
