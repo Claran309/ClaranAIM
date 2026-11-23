@@ -3,7 +3,7 @@ package service
 
 import (
 	"ClaranAIM/internal/agent-runtime-service/agent"
-	"ClaranAIM/internal/agent-runtime-service/logic"
+	"ClaranAIM/internal/agent-runtime-service/store"
 	"ClaranAIM/kitex_gen/bot_runtime"
 	"ClaranAIM/pkg/agentkit/component"
 	"context"
@@ -24,10 +24,13 @@ import (
 )
 
 const runtimeSessionHistoryMessageLimit = 12
+const maxAgentCacheEntries = 64
 
 // AgentRuntimeService 执行由 agent-manager-service 传入配置的 Agent，并维护轻量长会话记忆。
 type AgentRuntimeService interface {
 	RunAgent(ctx context.Context, req *bot_runtime.RunAgentReq) (*bot_runtime.RunAgentResp, error)
+	ResumeAgent(ctx context.Context, req *bot_runtime.ResumeAgentReq) (*bot_runtime.ResumeAgentResp, error)
+	ListAgentRuns(ctx context.Context, req *bot_runtime.ListAgentRunsReq) (*bot_runtime.ListAgentRunsResp, error)
 	RunTask(ctx context.Context, req *bot_runtime.AgentTaskReq) (*bot_runtime.AgentTaskResp, error)
 	GetAgentSessions(ctx context.Context, req *bot_runtime.GetAgentSessionReq) (*bot_runtime.GetAgentSessionResp, error)
 }
@@ -38,39 +41,59 @@ type RuntimeConfig struct {
 	DefaultWorkspaceDir string
 	CozeloopToken       string
 	CozeloopWorkspaceID string
+	SessionStore        store.SessionStore
+	RunStore            store.RunStore
+	CheckpointStore     store.CheckpointStore
+	DefaultBudget       RunBudget
 }
 
 // runtimeServiceImpl 是 AgentRuntimeService 的默认实现，持有会话存储、运行配置和 Agent 实例缓存。
 type runtimeServiceImpl struct {
-	sessionStore *component.Store
-	cfg          RuntimeConfig
-	agentCache   map[string]adk.Agent
-	mu           sync.RWMutex
+	sessionStore    store.SessionStore
+	runStore        store.RunStore
+	checkpointStore store.CheckpointStore
+	cfg             RuntimeConfig
+	agentCache      map[string]adk.Agent
+	agentCacheOrder []string
+	mu              sync.RWMutex
 }
 
 // NewAgentRuntimeService 创建只负责执行的 Agent runtime。
 func NewAgentRuntimeService(cfg RuntimeConfig) AgentRuntimeService {
-	var store *component.Store
-	if cfg.SessionDir != "" {
-		var err error
-		store, err = component.NewStore(cfg.SessionDir)
+	if cfg.SessionStore == nil && cfg.SessionDir != "" {
+		jsonlStore, err := store.NewJSONLStore(cfg.SessionDir)
 		if err != nil {
 			log.Printf("初始化Agent会话存储失败: %v", err)
+		} else {
+			cfg.SessionStore = jsonlStore
 		}
 	}
+	fallback := store.NewMemoryRuntimeStore()
+	if cfg.RunStore == nil {
+		cfg.RunStore = fallback
+	}
+	if cfg.CheckpointStore == nil {
+		cfg.CheckpointStore = fallback
+	}
 	return &runtimeServiceImpl{
-		sessionStore: store,
-		cfg:          cfg,
-		agentCache:   make(map[string]adk.Agent),
+		sessionStore:    cfg.SessionStore,
+		runStore:        cfg.RunStore,
+		checkpointStore: cfg.CheckpointStore,
+		cfg:             cfg,
+		agentCache:      make(map[string]adk.Agent),
 	}
 }
 
 // RunAgent 使用长会话上下文执行一轮用户指令。
 func (s *runtimeServiceImpl) RunAgent(ctx context.Context, req *bot_runtime.RunAgentReq) (*bot_runtime.RunAgentResp, error) {
-	var cancel context.CancelFunc
-	ctx, cancel = withDefaultAgentRunTimeout(ctx)
+	var rpcBudget *bot_runtime.RunBudget
+	if req != nil {
+		rpcBudget = req.GetBudget()
+	}
+	budget := s.runBudget(rpcBudget)
+	ctx, cancel := withRunBudget(ctx, budget)
 	defer cancel()
-	return s.runAgent(ctx, req, true)
+	return s.runAgent(ctx, req, true, budget)
 }
 
 func withDefaultAgentRunTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
@@ -81,105 +104,6 @@ func withDefaultAgentRunTimeout(ctx context.Context) (context.Context, context.C
 		return context.WithCancel(ctx)
 	}
 	return context.WithTimeout(ctx, 10*time.Minute)
-}
-
-// runAgent 执行 Agent 主流程：校验配置、恢复历史消息、调用 Eino ADK、收集回复和 token usage。
-// persistSession=false 时用于一次性结构化任务，不把总结/洞察任务污染到普通聊天长会话里。
-func (s *runtimeServiceImpl) runAgent(ctx context.Context, req *bot_runtime.RunAgentReq, persistSession bool) (*bot_runtime.RunAgentResp, error) {
-	if req == nil || req.Bot == nil {
-		return failRun("Agent配置不能为空"), nil
-	}
-	if strings.TrimSpace(req.Input) == "" {
-		return failRun("输入不能为空"), nil
-	}
-	if err := validateRuntimeBot(req.Bot); err != nil {
-		return failRun(err.Error()), nil
-	}
-
-	ag, err := s.getOrCreateAgent(ctx, req.Bot)
-	if err != nil {
-		return failRun(fmt.Sprintf("创建Agent失败: %v", err)), nil
-	}
-
-	sessionID := req.SessionId
-	if sessionID == "" {
-		sessionID = defaultSessionID(req.Bot.BotId, req.UserId, req.ConversationId)
-	}
-
-	var historyMsgs []*schema.Message
-	if persistSession && s.sessionStore != nil {
-		session, sessErr := s.sessionStore.GetSession(sessionID)
-		if sessErr == nil {
-			historyMsgs = trimRuntimeSessionHistory(session.GetMessages(), runtimeSessionHistoryMessageLimit)
-		} else {
-			log.Printf("加载Agent会话失败 session=%s err=%v", sessionID, sessErr)
-		}
-	}
-
-	userMsg := schema.UserMessage(req.Input)
-	inputMsgs := make([]adk.Message, 0, len(historyMsgs)+1)
-	for _, msg := range historyMsgs {
-		inputMsgs = append(inputMsgs, msg)
-	}
-	inputMsgs = append(inputMsgs, userMsg)
-
-	var collector replyCollector
-	var usage tokenUsage
-	for attempt := 0; attempt < 2; attempt++ {
-		collector = replyCollector{}
-		usage = tokenUsage{}
-		runCtx := logic.WithRAGRuntimeContext(ctx, req.UserId, req.ConversationId)
-		runCtx = logic.WithMCPRuntimeContext(runCtx, req.UserId, req.Bot.BotId, req.ConversationId)
-		iter := ag.Run(runCtx, &adk.AgentInput{Messages: inputMsgs})
-		retry := false
-		for {
-			event, ok := iter.Next()
-			if !ok {
-				break
-			}
-			if event.Err != nil {
-				if attempt == 0 && isTransientAgentRunError(event.Err) {
-					log.Printf("Agent执行遇到临时模型错误，准备重试一次: %v", event.Err)
-					retry = true
-					break
-				}
-				return failRun(fmt.Sprintf("Agent执行失败: %v", event.Err)), nil
-			}
-			if event.Action != nil && event.Action.Interrupted != nil {
-				return pendingApprovalRun(sessionID, event.Action.Interrupted), nil
-			}
-			if event.Output != nil && event.Output.MessageOutput != nil {
-				msg, err := event.Output.MessageOutput.GetMessage()
-				if err == nil && msg != nil {
-					collector.mergeResolvedMessage(event.Output.MessageOutput.Role, msg)
-					usage.mergeMessageUsage(msg)
-				}
-			}
-		}
-		if retry {
-			continue
-		}
-		break
-	}
-
-	reply := collector.String()
-	if reply == "" {
-		return failRun("Agent返回为空"), nil
-	}
-	if persistSession && s.sessionStore != nil {
-		if session, sessErr := s.sessionStore.GetSession(sessionID); sessErr == nil {
-			_ = session.Append(userMsg)
-			_ = session.Append(schema.AssistantMessage(reply, nil))
-		}
-	}
-
-	return &bot_runtime.RunAgentResp{
-		Success:   true,
-		Reply:     reply,
-		Usage:     usage.toRPC(),
-		SessionId: sessionID,
-		Msg:       "ok",
-	}, nil
 }
 
 func trimRuntimeSessionHistory(messages []*schema.Message, limit int) []*schema.Message {
@@ -209,13 +133,16 @@ func (s *runtimeServiceImpl) RunTask(ctx context.Context, req *bot_runtime.Agent
 		return failTask("Agent配置不能为空"), nil
 	}
 	taskPrompt := buildTaskPrompt(req.TaskType, req.Question)
+	budget := s.runBudget(nil)
+	ctx, cancel := withRunBudget(ctx, budget)
+	defer cancel()
 	runResp, _ := s.runAgent(ctx, &bot_runtime.RunAgentReq{
 		Bot:            req.Bot,
 		UserId:         req.UserId,
 		ConversationId: req.ConversationId,
 		Input:          taskPrompt,
 		Context:        req.Context,
-	}, false)
+	}, false, budget)
 	if runResp == nil || !runResp.Success {
 		msg := "Agent任务执行失败"
 		if runResp != nil && runResp.Msg != "" {
@@ -232,28 +159,30 @@ func (s *runtimeServiceImpl) RunTask(ctx context.Context, req *bot_runtime.Agent
 	}, nil
 }
 
-// GetAgentSessions 列出当前轻量 JSONL 存储中的长会话元数据。
+// GetAgentSessions 列出当前会话存储中的长会话元数据。
 func (s *runtimeServiceImpl) GetAgentSessions(ctx context.Context, req *bot_runtime.GetAgentSessionReq) (*bot_runtime.GetAgentSessionResp, error) {
 	if s.sessionStore == nil {
 		return &bot_runtime.GetAgentSessionResp{Success: true, Sessions: []*bot_runtime.AgentSessionInfo{}}, nil
 	}
-	metas, err := s.sessionStore.ListSessions()
+	owner := store.SessionOwner{}
+	if req != nil {
+		owner = store.SessionOwner{
+			BotID:          req.BotId,
+			UserID:         req.UserId,
+			ConversationID: req.ConversationId,
+		}
+	}
+	metas, err := s.sessionStore.ListSessions(ctx, owner)
 	if err != nil {
 		return &bot_runtime.GetAgentSessionResp{Success: false, Msg: err.Error()}, nil
 	}
-	prefix := ""
-	if req != nil {
-		prefix = defaultSessionID(req.BotId, req.UserId, req.ConversationId)
-	}
 	out := make([]*bot_runtime.AgentSessionInfo, 0, len(metas))
 	for _, meta := range metas {
-		if req != nil && prefix != "" && !strings.HasPrefix(meta.ID, prefix) {
-			continue
-		}
 		out = append(out, &bot_runtime.AgentSessionInfo{
 			SessionId: meta.ID,
 			Title:     meta.Title,
 			CreatedAt: meta.CreatedAt.Format(time.RFC3339),
+			Summary:   meta.Summary,
 		})
 	}
 	return &bot_runtime.GetAgentSessionResp{Success: true, Sessions: out}, nil
@@ -273,10 +202,11 @@ func (s *runtimeServiceImpl) getOrCreateAgent(ctx context.Context, bot *bot_runt
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if ag, ok := s.agentCache[cacheKey]; ok {
+		s.touchAgentCache(cacheKey)
 		return ag, nil
 	}
 
-	chatModel, err := component.NewChatModel(ctx, bot.ApiKey, bot.BaseUrl, bot.ModelName)
+	chatModel, err := component.NewChatModel(ctx, bot.ApiKey, bot.BaseUrl, bot.ModelName, bot.MaxOutputTokens, bot.Temperature)
 	if err != nil {
 		return nil, err
 	}
@@ -288,8 +218,36 @@ func (s *runtimeServiceImpl) getOrCreateAgent(ctx context.Context, bot *bot_runt
 	if err != nil {
 		return nil, err
 	}
-	s.agentCache[cacheKey] = ag
+	s.storeAgentCache(cacheKey, ag)
 	return ag, nil
+}
+
+// storeAgentCache 写入有界 Agent 实例缓存；超过上限时按最近使用顺序淘汰。
+func (s *runtimeServiceImpl) storeAgentCache(key string, ag adk.Agent) {
+	if _, exists := s.agentCache[key]; !exists && len(s.agentCache) >= maxAgentCacheEntries {
+		for len(s.agentCacheOrder) > 0 {
+			oldest := s.agentCacheOrder[0]
+			s.agentCacheOrder = s.agentCacheOrder[1:]
+			if _, ok := s.agentCache[oldest]; ok {
+				delete(s.agentCache, oldest)
+				break
+			}
+		}
+	}
+	s.agentCache[key] = ag
+	s.agentCacheOrder = append(s.agentCacheOrder, key)
+}
+
+// touchAgentCache 把命中项移动到队尾，调用方必须持有写锁或读锁保护。
+func (s *runtimeServiceImpl) touchAgentCache(key string) {
+	for i, item := range s.agentCacheOrder {
+		if item != key {
+			continue
+		}
+		s.agentCacheOrder = append(append(s.agentCacheOrder[:i], s.agentCacheOrder[i+1:]...), key)
+		return
+	}
+	s.agentCacheOrder = append(s.agentCacheOrder, key)
 }
 
 // resolveWorkspaceRoot 解析并校验 Agent 工作目录。
@@ -374,6 +332,8 @@ func runtimeAgentCacheKey(bot *bot_runtime.RuntimeBotConfig) string {
 		bot.WorkspaceRoot,
 		bot.ToolPolicy,
 		fmt.Sprintf("%t", bot.IncludeDomainTools),
+		fmt.Sprintf("%d", bot.MaxOutputTokens),
+		fmt.Sprintf("%.4f", bot.Temperature),
 	}, "\x00")))
 	return hex.EncodeToString(sum[:])
 }

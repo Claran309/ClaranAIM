@@ -5,7 +5,6 @@ package bot
 import (
 	"context"
 	"fmt"
-	"strings"
 )
 
 type CreateBotReq struct {
@@ -93,21 +92,27 @@ func (p *CreateBotReq) GetWorkspaceRoot() (v string) {
 func (p *CreateBotReq) GetToolPolicy() (v string) {
 	return p.ToolPolicy
 }
+
 func (p *CreateBotReq) GetContextMessageLimit() (v int64) {
 	return p.ContextMessageLimit
 }
+
 func (p *CreateBotReq) GetMemoryRecallLimit() (v int64) {
 	return p.MemoryRecallLimit
 }
+
 func (p *CreateBotReq) GetMaxOutputTokens() (v int64) {
 	return p.MaxOutputTokens
 }
+
 func (p *CreateBotReq) GetTemperature() (v float64) {
 	return p.Temperature
 }
+
 func (p *CreateBotReq) GetGroupTriggerMode() (v string) {
 	return p.GroupTriggerMode
 }
+
 func (p *CreateBotReq) GetAutoReplyEnabled() (v bool) {
 	return p.AutoReplyEnabled
 }
@@ -179,159 +184,6 @@ func (p *CreateBotReq) String() string {
 	return fmt.Sprintf("CreateBotReq(%+v)", *p)
 }
 
-func (p *CreateBotReq) DeepEqual(ano *CreateBotReq) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Name) {
-		return false
-	}
-	if !p.Field2DeepEqual(ano.Type) {
-		return false
-	}
-	if !p.Field3DeepEqual(ano.Description) {
-		return false
-	}
-	if !p.Field4DeepEqual(ano.ModelName) {
-		return false
-	}
-	if !p.Field5DeepEqual(ano.ApiKey) {
-		return false
-	}
-	if !p.Field6DeepEqual(ano.BaseUrl) {
-		return false
-	}
-	if !p.Field7DeepEqual(ano.SystemPrompt) {
-		return false
-	}
-	if !p.Field8DeepEqual(ano.SkillsDir) {
-		return false
-	}
-	if !p.Field9DeepEqual(ano.AgentRoot) {
-		return false
-	}
-	if !p.Field10DeepEqual(ano.OwnerId) {
-		return false
-	}
-	if !p.Field11DeepEqual(ano.Avatar) {
-		return false
-	}
-	if !p.Field12DeepEqual(ano.Signature) {
-		return false
-	}
-	if !p.Field13DeepEqual(ano.WorkspaceRoot) {
-		return false
-	}
-	if !p.Field14DeepEqual(ano.ToolPolicy) {
-		return false
-	}
-	if p.ContextMessageLimit != ano.ContextMessageLimit || p.MemoryRecallLimit != ano.MemoryRecallLimit || p.MaxOutputTokens != ano.MaxOutputTokens || p.Temperature != ano.Temperature || p.GroupTriggerMode != ano.GroupTriggerMode || p.AutoReplyEnabled != ano.AutoReplyEnabled {
-		return false
-	}
-	return true
-}
-
-func (p *CreateBotReq) Field1DeepEqual(src string) bool {
-
-	if strings.Compare(p.Name, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *CreateBotReq) Field2DeepEqual(src string) bool {
-
-	if strings.Compare(p.Type, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *CreateBotReq) Field3DeepEqual(src string) bool {
-
-	if strings.Compare(p.Description, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *CreateBotReq) Field4DeepEqual(src string) bool {
-
-	if strings.Compare(p.ModelName, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *CreateBotReq) Field5DeepEqual(src string) bool {
-
-	if strings.Compare(p.ApiKey, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *CreateBotReq) Field6DeepEqual(src string) bool {
-
-	if strings.Compare(p.BaseUrl, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *CreateBotReq) Field7DeepEqual(src string) bool {
-
-	if strings.Compare(p.SystemPrompt, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *CreateBotReq) Field8DeepEqual(src string) bool {
-
-	if strings.Compare(p.SkillsDir, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *CreateBotReq) Field9DeepEqual(src string) bool {
-
-	if strings.Compare(p.AgentRoot, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *CreateBotReq) Field10DeepEqual(src int64) bool {
-
-	if p.OwnerId != src {
-		return false
-	}
-	return true
-}
-func (p *CreateBotReq) Field11DeepEqual(src string) bool {
-
-	if strings.Compare(p.Avatar, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *CreateBotReq) Field12DeepEqual(src string) bool {
-
-	if strings.Compare(p.Signature, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *CreateBotReq) Field13DeepEqual(src string) bool {
-
-	if strings.Compare(p.WorkspaceRoot, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *CreateBotReq) Field14DeepEqual(src string) bool {
-
-	if strings.Compare(p.ToolPolicy, src) != 0 {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_CreateBotReq = map[int16]string{
 	1:  "name",
 	2:  "type",
@@ -394,46 +246,6 @@ func (p *CreateBotResp) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("CreateBotResp(%+v)", *p)
-}
-
-func (p *CreateBotResp) DeepEqual(ano *CreateBotResp) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Success) {
-		return false
-	}
-	if !p.Field2DeepEqual(ano.BotId) {
-		return false
-	}
-	if !p.Field3DeepEqual(ano.Msg) {
-		return false
-	}
-	return true
-}
-
-func (p *CreateBotResp) Field1DeepEqual(src bool) bool {
-
-	if p.Success != src {
-		return false
-	}
-	return true
-}
-func (p *CreateBotResp) Field2DeepEqual(src int64) bool {
-
-	if p.BotId != src {
-		return false
-	}
-	return true
-}
-func (p *CreateBotResp) Field3DeepEqual(src string) bool {
-
-	if strings.Compare(p.Msg, src) != 0 {
-		return false
-	}
-	return true
 }
 
 var fieldIDToName_CreateBotResp = map[int16]string{
@@ -537,12 +349,30 @@ func (p *UpdateBotReq) GetToolPolicy() (v string) {
 func (p *UpdateBotReq) GetIsActiveSet() (v bool) {
 	return p.IsActiveSet
 }
-func (p *UpdateBotReq) GetContextMessageLimit() (v int64) { return p.ContextMessageLimit }
-func (p *UpdateBotReq) GetMemoryRecallLimit() (v int64)   { return p.MemoryRecallLimit }
-func (p *UpdateBotReq) GetMaxOutputTokens() (v int64)     { return p.MaxOutputTokens }
-func (p *UpdateBotReq) GetTemperature() (v float64)       { return p.Temperature }
-func (p *UpdateBotReq) GetGroupTriggerMode() (v string)   { return p.GroupTriggerMode }
-func (p *UpdateBotReq) GetAutoReplyEnabled() (v bool)     { return p.AutoReplyEnabled }
+
+func (p *UpdateBotReq) GetContextMessageLimit() (v int64) {
+	return p.ContextMessageLimit
+}
+
+func (p *UpdateBotReq) GetMemoryRecallLimit() (v int64) {
+	return p.MemoryRecallLimit
+}
+
+func (p *UpdateBotReq) GetMaxOutputTokens() (v int64) {
+	return p.MaxOutputTokens
+}
+
+func (p *UpdateBotReq) GetTemperature() (v float64) {
+	return p.Temperature
+}
+
+func (p *UpdateBotReq) GetGroupTriggerMode() (v string) {
+	return p.GroupTriggerMode
+}
+
+func (p *UpdateBotReq) GetAutoReplyEnabled() (v bool) {
+	return p.AutoReplyEnabled
+}
 func (p *UpdateBotReq) SetBotId(val int64) {
 	p.BotId = val
 }
@@ -591,191 +421,30 @@ func (p *UpdateBotReq) SetToolPolicy(val string) {
 func (p *UpdateBotReq) SetIsActiveSet(val bool) {
 	p.IsActiveSet = val
 }
-func (p *UpdateBotReq) SetContextMessageLimit(val int64) { p.ContextMessageLimit = val }
-func (p *UpdateBotReq) SetMemoryRecallLimit(val int64)   { p.MemoryRecallLimit = val }
-func (p *UpdateBotReq) SetMaxOutputTokens(val int64)     { p.MaxOutputTokens = val }
-func (p *UpdateBotReq) SetTemperature(val float64)       { p.Temperature = val }
-func (p *UpdateBotReq) SetGroupTriggerMode(val string)   { p.GroupTriggerMode = val }
-func (p *UpdateBotReq) SetAutoReplyEnabled(val bool)     { p.AutoReplyEnabled = val }
+func (p *UpdateBotReq) SetContextMessageLimit(val int64) {
+	p.ContextMessageLimit = val
+}
+func (p *UpdateBotReq) SetMemoryRecallLimit(val int64) {
+	p.MemoryRecallLimit = val
+}
+func (p *UpdateBotReq) SetMaxOutputTokens(val int64) {
+	p.MaxOutputTokens = val
+}
+func (p *UpdateBotReq) SetTemperature(val float64) {
+	p.Temperature = val
+}
+func (p *UpdateBotReq) SetGroupTriggerMode(val string) {
+	p.GroupTriggerMode = val
+}
+func (p *UpdateBotReq) SetAutoReplyEnabled(val bool) {
+	p.AutoReplyEnabled = val
+}
 
 func (p *UpdateBotReq) String() string {
 	if p == nil {
 		return "<nil>"
 	}
 	return fmt.Sprintf("UpdateBotReq(%+v)", *p)
-}
-
-func (p *UpdateBotReq) DeepEqual(ano *UpdateBotReq) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.BotId) {
-		return false
-	}
-	if !p.Field2DeepEqual(ano.OperatorId) {
-		return false
-	}
-	if !p.Field3DeepEqual(ano.Name) {
-		return false
-	}
-	if !p.Field4DeepEqual(ano.Description) {
-		return false
-	}
-	if !p.Field5DeepEqual(ano.ModelName) {
-		return false
-	}
-	if !p.Field6DeepEqual(ano.ApiKey) {
-		return false
-	}
-	if !p.Field7DeepEqual(ano.BaseUrl) {
-		return false
-	}
-	if !p.Field8DeepEqual(ano.SystemPrompt) {
-		return false
-	}
-	if !p.Field9DeepEqual(ano.SkillsDir) {
-		return false
-	}
-	if !p.Field10DeepEqual(ano.AgentRoot) {
-		return false
-	}
-	if !p.Field11DeepEqual(ano.IsActive) {
-		return false
-	}
-	if !p.Field12DeepEqual(ano.Avatar) {
-		return false
-	}
-	if !p.Field13DeepEqual(ano.Signature) {
-		return false
-	}
-	if !p.Field14DeepEqual(ano.WorkspaceRoot) {
-		return false
-	}
-	if !p.Field15DeepEqual(ano.ToolPolicy) {
-		return false
-	}
-	if !p.Field16DeepEqual(ano.IsActiveSet) {
-		return false
-	}
-	if p.ContextMessageLimit != ano.ContextMessageLimit || p.MemoryRecallLimit != ano.MemoryRecallLimit || p.MaxOutputTokens != ano.MaxOutputTokens || p.Temperature != ano.Temperature || p.GroupTriggerMode != ano.GroupTriggerMode || p.AutoReplyEnabled != ano.AutoReplyEnabled {
-		return false
-	}
-	return true
-}
-
-func (p *UpdateBotReq) Field1DeepEqual(src int64) bool {
-
-	if p.BotId != src {
-		return false
-	}
-	return true
-}
-func (p *UpdateBotReq) Field2DeepEqual(src int64) bool {
-
-	if p.OperatorId != src {
-		return false
-	}
-	return true
-}
-func (p *UpdateBotReq) Field3DeepEqual(src string) bool {
-
-	if strings.Compare(p.Name, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *UpdateBotReq) Field4DeepEqual(src string) bool {
-
-	if strings.Compare(p.Description, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *UpdateBotReq) Field5DeepEqual(src string) bool {
-
-	if strings.Compare(p.ModelName, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *UpdateBotReq) Field6DeepEqual(src string) bool {
-
-	if strings.Compare(p.ApiKey, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *UpdateBotReq) Field7DeepEqual(src string) bool {
-
-	if strings.Compare(p.BaseUrl, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *UpdateBotReq) Field8DeepEqual(src string) bool {
-
-	if strings.Compare(p.SystemPrompt, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *UpdateBotReq) Field9DeepEqual(src string) bool {
-
-	if strings.Compare(p.SkillsDir, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *UpdateBotReq) Field10DeepEqual(src string) bool {
-
-	if strings.Compare(p.AgentRoot, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *UpdateBotReq) Field11DeepEqual(src bool) bool {
-
-	if p.IsActive != src {
-		return false
-	}
-	return true
-}
-func (p *UpdateBotReq) Field12DeepEqual(src string) bool {
-
-	if strings.Compare(p.Avatar, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *UpdateBotReq) Field13DeepEqual(src string) bool {
-
-	if strings.Compare(p.Signature, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *UpdateBotReq) Field14DeepEqual(src string) bool {
-
-	if strings.Compare(p.WorkspaceRoot, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *UpdateBotReq) Field15DeepEqual(src string) bool {
-
-	if strings.Compare(p.ToolPolicy, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *UpdateBotReq) Field16DeepEqual(src bool) bool {
-
-	if p.IsActiveSet != src {
-		return false
-	}
-	return true
 }
 
 var fieldIDToName_UpdateBotReq = map[int16]string{
@@ -836,36 +505,6 @@ func (p *UpdateBotResp) String() string {
 	return fmt.Sprintf("UpdateBotResp(%+v)", *p)
 }
 
-func (p *UpdateBotResp) DeepEqual(ano *UpdateBotResp) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Success) {
-		return false
-	}
-	if !p.Field2DeepEqual(ano.Msg) {
-		return false
-	}
-	return true
-}
-
-func (p *UpdateBotResp) Field1DeepEqual(src bool) bool {
-
-	if p.Success != src {
-		return false
-	}
-	return true
-}
-func (p *UpdateBotResp) Field2DeepEqual(src string) bool {
-
-	if strings.Compare(p.Msg, src) != 0 {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_UpdateBotResp = map[int16]string{
 	1: "success",
 	2: "msg",
@@ -894,26 +533,6 @@ func (p *GetBotReq) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("GetBotReq(%+v)", *p)
-}
-
-func (p *GetBotReq) DeepEqual(ano *GetBotReq) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.BotId) {
-		return false
-	}
-	return true
-}
-
-func (p *GetBotReq) Field1DeepEqual(src int64) bool {
-
-	if p.BotId != src {
-		return false
-	}
-	return true
 }
 
 var fieldIDToName_GetBotReq = map[int16]string{
@@ -1025,12 +644,30 @@ func (p *BotInfo) GetWorkspaceRoot() (v string) {
 func (p *BotInfo) GetToolPolicy() (v string) {
 	return p.ToolPolicy
 }
-func (p *BotInfo) GetContextMessageLimit() (v int64) { return p.ContextMessageLimit }
-func (p *BotInfo) GetMemoryRecallLimit() (v int64)   { return p.MemoryRecallLimit }
-func (p *BotInfo) GetMaxOutputTokens() (v int64)     { return p.MaxOutputTokens }
-func (p *BotInfo) GetTemperature() (v float64)       { return p.Temperature }
-func (p *BotInfo) GetGroupTriggerMode() (v string)   { return p.GroupTriggerMode }
-func (p *BotInfo) GetAutoReplyEnabled() (v bool)     { return p.AutoReplyEnabled }
+
+func (p *BotInfo) GetContextMessageLimit() (v int64) {
+	return p.ContextMessageLimit
+}
+
+func (p *BotInfo) GetMemoryRecallLimit() (v int64) {
+	return p.MemoryRecallLimit
+}
+
+func (p *BotInfo) GetMaxOutputTokens() (v int64) {
+	return p.MaxOutputTokens
+}
+
+func (p *BotInfo) GetTemperature() (v float64) {
+	return p.Temperature
+}
+
+func (p *BotInfo) GetGroupTriggerMode() (v string) {
+	return p.GroupTriggerMode
+}
+
+func (p *BotInfo) GetAutoReplyEnabled() (v bool) {
+	return p.AutoReplyEnabled
+}
 func (p *BotInfo) SetId(val int64) {
 	p.Id = val
 }
@@ -1085,211 +722,30 @@ func (p *BotInfo) SetWorkspaceRoot(val string) {
 func (p *BotInfo) SetToolPolicy(val string) {
 	p.ToolPolicy = val
 }
-func (p *BotInfo) SetContextMessageLimit(val int64) { p.ContextMessageLimit = val }
-func (p *BotInfo) SetMemoryRecallLimit(val int64)   { p.MemoryRecallLimit = val }
-func (p *BotInfo) SetMaxOutputTokens(val int64)     { p.MaxOutputTokens = val }
-func (p *BotInfo) SetTemperature(val float64)       { p.Temperature = val }
-func (p *BotInfo) SetGroupTriggerMode(val string)   { p.GroupTriggerMode = val }
-func (p *BotInfo) SetAutoReplyEnabled(val bool)     { p.AutoReplyEnabled = val }
+func (p *BotInfo) SetContextMessageLimit(val int64) {
+	p.ContextMessageLimit = val
+}
+func (p *BotInfo) SetMemoryRecallLimit(val int64) {
+	p.MemoryRecallLimit = val
+}
+func (p *BotInfo) SetMaxOutputTokens(val int64) {
+	p.MaxOutputTokens = val
+}
+func (p *BotInfo) SetTemperature(val float64) {
+	p.Temperature = val
+}
+func (p *BotInfo) SetGroupTriggerMode(val string) {
+	p.GroupTriggerMode = val
+}
+func (p *BotInfo) SetAutoReplyEnabled(val bool) {
+	p.AutoReplyEnabled = val
+}
 
 func (p *BotInfo) String() string {
 	if p == nil {
 		return "<nil>"
 	}
 	return fmt.Sprintf("BotInfo(%+v)", *p)
-}
-
-func (p *BotInfo) DeepEqual(ano *BotInfo) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Id) {
-		return false
-	}
-	if !p.Field2DeepEqual(ano.Name) {
-		return false
-	}
-	if !p.Field3DeepEqual(ano.Type) {
-		return false
-	}
-	if !p.Field4DeepEqual(ano.Description) {
-		return false
-	}
-	if !p.Field5DeepEqual(ano.ModelName) {
-		return false
-	}
-	if !p.Field6DeepEqual(ano.BaseUrl) {
-		return false
-	}
-	if !p.Field7DeepEqual(ano.SystemPrompt) {
-		return false
-	}
-	if !p.Field8DeepEqual(ano.SkillsDir) {
-		return false
-	}
-	if !p.Field9DeepEqual(ano.AgentRoot) {
-		return false
-	}
-	if !p.Field10DeepEqual(ano.OwnerId) {
-		return false
-	}
-	if !p.Field11DeepEqual(ano.IsActive) {
-		return false
-	}
-	if !p.Field12DeepEqual(ano.CreatedAt) {
-		return false
-	}
-	if !p.Field13DeepEqual(ano.UpdatedAt) {
-		return false
-	}
-	if !p.Field14DeepEqual(ano.AgentUserId) {
-		return false
-	}
-	if !p.Field15DeepEqual(ano.Avatar) {
-		return false
-	}
-	if !p.Field16DeepEqual(ano.Signature) {
-		return false
-	}
-	if !p.Field17DeepEqual(ano.WorkspaceRoot) {
-		return false
-	}
-	if !p.Field18DeepEqual(ano.ToolPolicy) {
-		return false
-	}
-	if p.ContextMessageLimit != ano.ContextMessageLimit || p.MemoryRecallLimit != ano.MemoryRecallLimit || p.MaxOutputTokens != ano.MaxOutputTokens || p.Temperature != ano.Temperature || p.GroupTriggerMode != ano.GroupTriggerMode || p.AutoReplyEnabled != ano.AutoReplyEnabled {
-		return false
-	}
-	return true
-}
-
-func (p *BotInfo) Field1DeepEqual(src int64) bool {
-
-	if p.Id != src {
-		return false
-	}
-	return true
-}
-func (p *BotInfo) Field2DeepEqual(src string) bool {
-
-	if strings.Compare(p.Name, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *BotInfo) Field3DeepEqual(src string) bool {
-
-	if strings.Compare(p.Type, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *BotInfo) Field4DeepEqual(src string) bool {
-
-	if strings.Compare(p.Description, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *BotInfo) Field5DeepEqual(src string) bool {
-
-	if strings.Compare(p.ModelName, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *BotInfo) Field6DeepEqual(src string) bool {
-
-	if strings.Compare(p.BaseUrl, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *BotInfo) Field7DeepEqual(src string) bool {
-
-	if strings.Compare(p.SystemPrompt, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *BotInfo) Field8DeepEqual(src string) bool {
-
-	if strings.Compare(p.SkillsDir, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *BotInfo) Field9DeepEqual(src string) bool {
-
-	if strings.Compare(p.AgentRoot, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *BotInfo) Field10DeepEqual(src int64) bool {
-
-	if p.OwnerId != src {
-		return false
-	}
-	return true
-}
-func (p *BotInfo) Field11DeepEqual(src bool) bool {
-
-	if p.IsActive != src {
-		return false
-	}
-	return true
-}
-func (p *BotInfo) Field12DeepEqual(src string) bool {
-
-	if strings.Compare(p.CreatedAt, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *BotInfo) Field13DeepEqual(src string) bool {
-
-	if strings.Compare(p.UpdatedAt, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *BotInfo) Field14DeepEqual(src int64) bool {
-
-	if p.AgentUserId != src {
-		return false
-	}
-	return true
-}
-func (p *BotInfo) Field15DeepEqual(src string) bool {
-
-	if strings.Compare(p.Avatar, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *BotInfo) Field16DeepEqual(src string) bool {
-
-	if strings.Compare(p.Signature, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *BotInfo) Field17DeepEqual(src string) bool {
-
-	if strings.Compare(p.WorkspaceRoot, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *BotInfo) Field18DeepEqual(src string) bool {
-
-	if strings.Compare(p.ToolPolicy, src) != 0 {
-		return false
-	}
-	return true
 }
 
 var fieldIDToName_BotInfo = map[int16]string{
@@ -1384,76 +840,6 @@ func (p *BotPermission) String() string {
 	return fmt.Sprintf("BotPermission(%+v)", *p)
 }
 
-func (p *BotPermission) DeepEqual(ano *BotPermission) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Id) {
-		return false
-	}
-	if !p.Field2DeepEqual(ano.BotId) {
-		return false
-	}
-	if !p.Field3DeepEqual(ano.UserId) {
-		return false
-	}
-	if !p.Field4DeepEqual(ano.Role) {
-		return false
-	}
-	if !p.Field5DeepEqual(ano.CreatedAt) {
-		return false
-	}
-	if !p.Field6DeepEqual(ano.UpdatedAt) {
-		return false
-	}
-	return true
-}
-
-func (p *BotPermission) Field1DeepEqual(src int64) bool {
-
-	if p.Id != src {
-		return false
-	}
-	return true
-}
-func (p *BotPermission) Field2DeepEqual(src int64) bool {
-
-	if p.BotId != src {
-		return false
-	}
-	return true
-}
-func (p *BotPermission) Field3DeepEqual(src int64) bool {
-
-	if p.UserId != src {
-		return false
-	}
-	return true
-}
-func (p *BotPermission) Field4DeepEqual(src string) bool {
-
-	if strings.Compare(p.Role, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *BotPermission) Field5DeepEqual(src string) bool {
-
-	if strings.Compare(p.CreatedAt, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *BotPermission) Field6DeepEqual(src string) bool {
-
-	if strings.Compare(p.UpdatedAt, src) != 0 {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_BotPermission = map[int16]string{
 	1: "id",
 	2: "bot_id",
@@ -1513,46 +899,6 @@ func (p *GetBotResp) String() string {
 	return fmt.Sprintf("GetBotResp(%+v)", *p)
 }
 
-func (p *GetBotResp) DeepEqual(ano *GetBotResp) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Success) {
-		return false
-	}
-	if !p.Field2DeepEqual(ano.Bot) {
-		return false
-	}
-	if !p.Field3DeepEqual(ano.Msg) {
-		return false
-	}
-	return true
-}
-
-func (p *GetBotResp) Field1DeepEqual(src bool) bool {
-
-	if p.Success != src {
-		return false
-	}
-	return true
-}
-func (p *GetBotResp) Field2DeepEqual(src *BotInfo) bool {
-
-	if !p.Bot.DeepEqual(src) {
-		return false
-	}
-	return true
-}
-func (p *GetBotResp) Field3DeepEqual(src string) bool {
-
-	if strings.Compare(p.Msg, src) != 0 {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_GetBotResp = map[int16]string{
 	1: "success",
 	2: "bot",
@@ -1590,36 +936,6 @@ func (p *ListBotsReq) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("ListBotsReq(%+v)", *p)
-}
-
-func (p *ListBotsReq) DeepEqual(ano *ListBotsReq) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.OwnerId) {
-		return false
-	}
-	if !p.Field2DeepEqual(ano.Type) {
-		return false
-	}
-	return true
-}
-
-func (p *ListBotsReq) Field1DeepEqual(src int64) bool {
-
-	if p.OwnerId != src {
-		return false
-	}
-	return true
-}
-func (p *ListBotsReq) Field2DeepEqual(src string) bool {
-
-	if strings.Compare(p.Type, src) != 0 {
-		return false
-	}
-	return true
 }
 
 var fieldIDToName_ListBotsReq = map[int16]string{
@@ -1668,52 +984,6 @@ func (p *ListBotsResp) String() string {
 	return fmt.Sprintf("ListBotsResp(%+v)", *p)
 }
 
-func (p *ListBotsResp) DeepEqual(ano *ListBotsResp) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Success) {
-		return false
-	}
-	if !p.Field2DeepEqual(ano.Bots) {
-		return false
-	}
-	if !p.Field3DeepEqual(ano.Msg) {
-		return false
-	}
-	return true
-}
-
-func (p *ListBotsResp) Field1DeepEqual(src bool) bool {
-
-	if p.Success != src {
-		return false
-	}
-	return true
-}
-func (p *ListBotsResp) Field2DeepEqual(src []*BotInfo) bool {
-
-	if len(p.Bots) != len(src) {
-		return false
-	}
-	for i, v := range p.Bots {
-		_src := src[i]
-		if !v.DeepEqual(_src) {
-			return false
-		}
-	}
-	return true
-}
-func (p *ListBotsResp) Field3DeepEqual(src string) bool {
-
-	if strings.Compare(p.Msg, src) != 0 {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_ListBotsResp = map[int16]string{
 	1: "success",
 	2: "bots",
@@ -1753,36 +1023,6 @@ func (p *DeleteBotReq) String() string {
 	return fmt.Sprintf("DeleteBotReq(%+v)", *p)
 }
 
-func (p *DeleteBotReq) DeepEqual(ano *DeleteBotReq) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.BotId) {
-		return false
-	}
-	if !p.Field2DeepEqual(ano.OperatorId) {
-		return false
-	}
-	return true
-}
-
-func (p *DeleteBotReq) Field1DeepEqual(src int64) bool {
-
-	if p.BotId != src {
-		return false
-	}
-	return true
-}
-func (p *DeleteBotReq) Field2DeepEqual(src int64) bool {
-
-	if p.OperatorId != src {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_DeleteBotReq = map[int16]string{
 	1: "bot_id",
 	2: "operator_id",
@@ -1819,36 +1059,6 @@ func (p *DeleteBotResp) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("DeleteBotResp(%+v)", *p)
-}
-
-func (p *DeleteBotResp) DeepEqual(ano *DeleteBotResp) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Success) {
-		return false
-	}
-	if !p.Field2DeepEqual(ano.Msg) {
-		return false
-	}
-	return true
-}
-
-func (p *DeleteBotResp) Field1DeepEqual(src bool) bool {
-
-	if p.Success != src {
-		return false
-	}
-	return true
-}
-func (p *DeleteBotResp) Field2DeepEqual(src string) bool {
-
-	if strings.Compare(p.Msg, src) != 0 {
-		return false
-	}
-	return true
 }
 
 var fieldIDToName_DeleteBotResp = map[int16]string{
@@ -1905,56 +1115,6 @@ func (p *ChatWithBotReq) String() string {
 	return fmt.Sprintf("ChatWithBotReq(%+v)", *p)
 }
 
-func (p *ChatWithBotReq) DeepEqual(ano *ChatWithBotReq) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.BotId) {
-		return false
-	}
-	if !p.Field2DeepEqual(ano.UserId) {
-		return false
-	}
-	if !p.Field3DeepEqual(ano.ConversationId) {
-		return false
-	}
-	if !p.Field4DeepEqual(ano.Message) {
-		return false
-	}
-	return true
-}
-
-func (p *ChatWithBotReq) Field1DeepEqual(src int64) bool {
-
-	if p.BotId != src {
-		return false
-	}
-	return true
-}
-func (p *ChatWithBotReq) Field2DeepEqual(src int64) bool {
-
-	if p.UserId != src {
-		return false
-	}
-	return true
-}
-func (p *ChatWithBotReq) Field3DeepEqual(src int64) bool {
-
-	if p.ConversationId != src {
-		return false
-	}
-	return true
-}
-func (p *ChatWithBotReq) Field4DeepEqual(src string) bool {
-
-	if strings.Compare(p.Message, src) != 0 {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_ChatWithBotReq = map[int16]string{
 	1: "bot_id",
 	2: "user_id",
@@ -1963,12 +1123,15 @@ var fieldIDToName_ChatWithBotReq = map[int16]string{
 }
 
 type ChatWithBotResp struct {
-	Success      bool    `thrift:"success,1" frugal:"1,default,bool" json:"success"`
-	Reply        string  `thrift:"reply,2" frugal:"2,default,string" json:"reply"`
-	InputTokens  int64   `thrift:"input_tokens,3" frugal:"3,default,i64" json:"input_tokens"`
-	OutputTokens int64   `thrift:"output_tokens,4" frugal:"4,default,i64" json:"output_tokens"`
-	Cost         float64 `thrift:"cost,5" frugal:"5,default,double" json:"cost"`
-	Msg          string  `thrift:"msg,6" frugal:"6,default,string" json:"msg"`
+	Success      bool               `thrift:"success,1" frugal:"1,default,bool" json:"success"`
+	Reply        string             `thrift:"reply,2" frugal:"2,default,string" json:"reply"`
+	InputTokens  int64              `thrift:"input_tokens,3" frugal:"3,default,i64" json:"input_tokens"`
+	OutputTokens int64              `thrift:"output_tokens,4" frugal:"4,default,i64" json:"output_tokens"`
+	Cost         float64            `thrift:"cost,5" frugal:"5,default,double" json:"cost"`
+	Msg          string             `thrift:"msg,6" frugal:"6,default,string" json:"msg"`
+	SessionId    *string            `thrift:"session_id,7,optional" frugal:"7,optional,string" json:"session_id,omitempty"`
+	RunId        *string            `thrift:"run_id,8,optional" frugal:"8,optional,string" json:"run_id,omitempty"`
+	Approval     *AgentApprovalInfo `thrift:"approval,9,optional" frugal:"9,optional,AgentApprovalInfo" json:"approval,omitempty"`
 }
 
 func NewChatWithBotResp() *ChatWithBotResp {
@@ -2001,6 +1164,33 @@ func (p *ChatWithBotResp) GetCost() (v float64) {
 func (p *ChatWithBotResp) GetMsg() (v string) {
 	return p.Msg
 }
+
+var ChatWithBotResp_SessionId_DEFAULT string
+
+func (p *ChatWithBotResp) GetSessionId() (v string) {
+	if !p.IsSetSessionId() {
+		return ChatWithBotResp_SessionId_DEFAULT
+	}
+	return *p.SessionId
+}
+
+var ChatWithBotResp_RunId_DEFAULT string
+
+func (p *ChatWithBotResp) GetRunId() (v string) {
+	if !p.IsSetRunId() {
+		return ChatWithBotResp_RunId_DEFAULT
+	}
+	return *p.RunId
+}
+
+var ChatWithBotResp_Approval_DEFAULT *AgentApprovalInfo
+
+func (p *ChatWithBotResp) GetApproval() (v *AgentApprovalInfo) {
+	if !p.IsSetApproval() {
+		return ChatWithBotResp_Approval_DEFAULT
+	}
+	return p.Approval
+}
 func (p *ChatWithBotResp) SetSuccess(val bool) {
 	p.Success = val
 }
@@ -2019,82 +1209,33 @@ func (p *ChatWithBotResp) SetCost(val float64) {
 func (p *ChatWithBotResp) SetMsg(val string) {
 	p.Msg = val
 }
+func (p *ChatWithBotResp) SetSessionId(val *string) {
+	p.SessionId = val
+}
+func (p *ChatWithBotResp) SetRunId(val *string) {
+	p.RunId = val
+}
+func (p *ChatWithBotResp) SetApproval(val *AgentApprovalInfo) {
+	p.Approval = val
+}
+
+func (p *ChatWithBotResp) IsSetSessionId() bool {
+	return p.SessionId != nil
+}
+
+func (p *ChatWithBotResp) IsSetRunId() bool {
+	return p.RunId != nil
+}
+
+func (p *ChatWithBotResp) IsSetApproval() bool {
+	return p.Approval != nil
+}
 
 func (p *ChatWithBotResp) String() string {
 	if p == nil {
 		return "<nil>"
 	}
 	return fmt.Sprintf("ChatWithBotResp(%+v)", *p)
-}
-
-func (p *ChatWithBotResp) DeepEqual(ano *ChatWithBotResp) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Success) {
-		return false
-	}
-	if !p.Field2DeepEqual(ano.Reply) {
-		return false
-	}
-	if !p.Field3DeepEqual(ano.InputTokens) {
-		return false
-	}
-	if !p.Field4DeepEqual(ano.OutputTokens) {
-		return false
-	}
-	if !p.Field5DeepEqual(ano.Cost) {
-		return false
-	}
-	if !p.Field6DeepEqual(ano.Msg) {
-		return false
-	}
-	return true
-}
-
-func (p *ChatWithBotResp) Field1DeepEqual(src bool) bool {
-
-	if p.Success != src {
-		return false
-	}
-	return true
-}
-func (p *ChatWithBotResp) Field2DeepEqual(src string) bool {
-
-	if strings.Compare(p.Reply, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *ChatWithBotResp) Field3DeepEqual(src int64) bool {
-
-	if p.InputTokens != src {
-		return false
-	}
-	return true
-}
-func (p *ChatWithBotResp) Field4DeepEqual(src int64) bool {
-
-	if p.OutputTokens != src {
-		return false
-	}
-	return true
-}
-func (p *ChatWithBotResp) Field5DeepEqual(src float64) bool {
-
-	if p.Cost != src {
-		return false
-	}
-	return true
-}
-func (p *ChatWithBotResp) Field6DeepEqual(src string) bool {
-
-	if strings.Compare(p.Msg, src) != 0 {
-		return false
-	}
-	return true
 }
 
 var fieldIDToName_ChatWithBotResp = map[int16]string{
@@ -2104,6 +1245,406 @@ var fieldIDToName_ChatWithBotResp = map[int16]string{
 	4: "output_tokens",
 	5: "cost",
 	6: "msg",
+	7: "session_id",
+	8: "run_id",
+	9: "approval",
+}
+
+type AgentApprovalInfo struct {
+	ApprovalId     string `thrift:"approval_id,1" frugal:"1,default,string" json:"approval_id"`
+	RunId          string `thrift:"run_id,2" frugal:"2,default,string" json:"run_id"`
+	InterruptId    string `thrift:"interrupt_id,3" frugal:"3,default,string" json:"interrupt_id"`
+	SessionId      string `thrift:"session_id,4" frugal:"4,default,string" json:"session_id"`
+	BotId          int64  `thrift:"bot_id,5" frugal:"5,default,i64" json:"bot_id"`
+	UserId         int64  `thrift:"user_id,6" frugal:"6,default,i64" json:"user_id"`
+	ConversationId int64  `thrift:"conversation_id,7" frugal:"7,default,i64" json:"conversation_id"`
+	Status         string `thrift:"status,8" frugal:"8,default,string" json:"status"`
+	ToolName       string `thrift:"tool_name,9" frugal:"9,default,string" json:"tool_name"`
+	ArgumentsJson  string `thrift:"arguments_json,10" frugal:"10,default,string" json:"arguments_json"`
+	Description    string `thrift:"description,11" frugal:"11,default,string" json:"description"`
+	CreatedAt      string `thrift:"created_at,12" frugal:"12,default,string" json:"created_at"`
+	UpdatedAt      string `thrift:"updated_at,13" frugal:"13,default,string" json:"updated_at"`
+}
+
+func NewAgentApprovalInfo() *AgentApprovalInfo {
+	return &AgentApprovalInfo{}
+}
+
+func (p *AgentApprovalInfo) InitDefault() {
+}
+
+func (p *AgentApprovalInfo) GetApprovalId() (v string) {
+	return p.ApprovalId
+}
+
+func (p *AgentApprovalInfo) GetRunId() (v string) {
+	return p.RunId
+}
+
+func (p *AgentApprovalInfo) GetInterruptId() (v string) {
+	return p.InterruptId
+}
+
+func (p *AgentApprovalInfo) GetSessionId() (v string) {
+	return p.SessionId
+}
+
+func (p *AgentApprovalInfo) GetBotId() (v int64) {
+	return p.BotId
+}
+
+func (p *AgentApprovalInfo) GetUserId() (v int64) {
+	return p.UserId
+}
+
+func (p *AgentApprovalInfo) GetConversationId() (v int64) {
+	return p.ConversationId
+}
+
+func (p *AgentApprovalInfo) GetStatus() (v string) {
+	return p.Status
+}
+
+func (p *AgentApprovalInfo) GetToolName() (v string) {
+	return p.ToolName
+}
+
+func (p *AgentApprovalInfo) GetArgumentsJson() (v string) {
+	return p.ArgumentsJson
+}
+
+func (p *AgentApprovalInfo) GetDescription() (v string) {
+	return p.Description
+}
+
+func (p *AgentApprovalInfo) GetCreatedAt() (v string) {
+	return p.CreatedAt
+}
+
+func (p *AgentApprovalInfo) GetUpdatedAt() (v string) {
+	return p.UpdatedAt
+}
+func (p *AgentApprovalInfo) SetApprovalId(val string) {
+	p.ApprovalId = val
+}
+func (p *AgentApprovalInfo) SetRunId(val string) {
+	p.RunId = val
+}
+func (p *AgentApprovalInfo) SetInterruptId(val string) {
+	p.InterruptId = val
+}
+func (p *AgentApprovalInfo) SetSessionId(val string) {
+	p.SessionId = val
+}
+func (p *AgentApprovalInfo) SetBotId(val int64) {
+	p.BotId = val
+}
+func (p *AgentApprovalInfo) SetUserId(val int64) {
+	p.UserId = val
+}
+func (p *AgentApprovalInfo) SetConversationId(val int64) {
+	p.ConversationId = val
+}
+func (p *AgentApprovalInfo) SetStatus(val string) {
+	p.Status = val
+}
+func (p *AgentApprovalInfo) SetToolName(val string) {
+	p.ToolName = val
+}
+func (p *AgentApprovalInfo) SetArgumentsJson(val string) {
+	p.ArgumentsJson = val
+}
+func (p *AgentApprovalInfo) SetDescription(val string) {
+	p.Description = val
+}
+func (p *AgentApprovalInfo) SetCreatedAt(val string) {
+	p.CreatedAt = val
+}
+func (p *AgentApprovalInfo) SetUpdatedAt(val string) {
+	p.UpdatedAt = val
+}
+
+func (p *AgentApprovalInfo) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("AgentApprovalInfo(%+v)", *p)
+}
+
+var fieldIDToName_AgentApprovalInfo = map[int16]string{
+	1:  "approval_id",
+	2:  "run_id",
+	3:  "interrupt_id",
+	4:  "session_id",
+	5:  "bot_id",
+	6:  "user_id",
+	7:  "conversation_id",
+	8:  "status",
+	9:  "tool_name",
+	10: "arguments_json",
+	11: "description",
+	12: "created_at",
+	13: "updated_at",
+}
+
+type ListAgentApprovalsReq struct {
+	UserId int64  `thrift:"user_id,1" frugal:"1,default,i64" json:"user_id"`
+	BotId  int64  `thrift:"bot_id,2" frugal:"2,default,i64" json:"bot_id"`
+	Status string `thrift:"status,3" frugal:"3,default,string" json:"status"`
+}
+
+func NewListAgentApprovalsReq() *ListAgentApprovalsReq {
+	return &ListAgentApprovalsReq{}
+}
+
+func (p *ListAgentApprovalsReq) InitDefault() {
+}
+
+func (p *ListAgentApprovalsReq) GetUserId() (v int64) {
+	return p.UserId
+}
+
+func (p *ListAgentApprovalsReq) GetBotId() (v int64) {
+	return p.BotId
+}
+
+func (p *ListAgentApprovalsReq) GetStatus() (v string) {
+	return p.Status
+}
+func (p *ListAgentApprovalsReq) SetUserId(val int64) {
+	p.UserId = val
+}
+func (p *ListAgentApprovalsReq) SetBotId(val int64) {
+	p.BotId = val
+}
+func (p *ListAgentApprovalsReq) SetStatus(val string) {
+	p.Status = val
+}
+
+func (p *ListAgentApprovalsReq) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("ListAgentApprovalsReq(%+v)", *p)
+}
+
+var fieldIDToName_ListAgentApprovalsReq = map[int16]string{
+	1: "user_id",
+	2: "bot_id",
+	3: "status",
+}
+
+type ListAgentApprovalsResp struct {
+	Success   bool                 `thrift:"success,1" frugal:"1,default,bool" json:"success"`
+	Approvals []*AgentApprovalInfo `thrift:"approvals,2" frugal:"2,default,list<AgentApprovalInfo>" json:"approvals"`
+	Msg       string               `thrift:"msg,3" frugal:"3,default,string" json:"msg"`
+}
+
+func NewListAgentApprovalsResp() *ListAgentApprovalsResp {
+	return &ListAgentApprovalsResp{}
+}
+
+func (p *ListAgentApprovalsResp) InitDefault() {
+}
+
+func (p *ListAgentApprovalsResp) GetSuccess() (v bool) {
+	return p.Success
+}
+
+func (p *ListAgentApprovalsResp) GetApprovals() (v []*AgentApprovalInfo) {
+	return p.Approvals
+}
+
+func (p *ListAgentApprovalsResp) GetMsg() (v string) {
+	return p.Msg
+}
+func (p *ListAgentApprovalsResp) SetSuccess(val bool) {
+	p.Success = val
+}
+func (p *ListAgentApprovalsResp) SetApprovals(val []*AgentApprovalInfo) {
+	p.Approvals = val
+}
+func (p *ListAgentApprovalsResp) SetMsg(val string) {
+	p.Msg = val
+}
+
+func (p *ListAgentApprovalsResp) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("ListAgentApprovalsResp(%+v)", *p)
+}
+
+var fieldIDToName_ListAgentApprovalsResp = map[int16]string{
+	1: "success",
+	2: "approvals",
+	3: "msg",
+}
+
+type ResumeAgentReq struct {
+	ApprovalId string `thrift:"approval_id,1" frugal:"1,default,string" json:"approval_id"`
+	UserId     int64  `thrift:"user_id,2" frugal:"2,default,i64" json:"user_id"`
+	Approved   bool   `thrift:"approved,3" frugal:"3,default,bool" json:"approved"`
+	Reason     string `thrift:"reason,4" frugal:"4,default,string" json:"reason"`
+}
+
+func NewResumeAgentReq() *ResumeAgentReq {
+	return &ResumeAgentReq{}
+}
+
+func (p *ResumeAgentReq) InitDefault() {
+}
+
+func (p *ResumeAgentReq) GetApprovalId() (v string) {
+	return p.ApprovalId
+}
+
+func (p *ResumeAgentReq) GetUserId() (v int64) {
+	return p.UserId
+}
+
+func (p *ResumeAgentReq) GetApproved() (v bool) {
+	return p.Approved
+}
+
+func (p *ResumeAgentReq) GetReason() (v string) {
+	return p.Reason
+}
+func (p *ResumeAgentReq) SetApprovalId(val string) {
+	p.ApprovalId = val
+}
+func (p *ResumeAgentReq) SetUserId(val int64) {
+	p.UserId = val
+}
+func (p *ResumeAgentReq) SetApproved(val bool) {
+	p.Approved = val
+}
+func (p *ResumeAgentReq) SetReason(val string) {
+	p.Reason = val
+}
+
+func (p *ResumeAgentReq) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("ResumeAgentReq(%+v)", *p)
+}
+
+var fieldIDToName_ResumeAgentReq = map[int16]string{
+	1: "approval_id",
+	2: "user_id",
+	3: "approved",
+	4: "reason",
+}
+
+type ResumeAgentResp struct {
+	Success      bool               `thrift:"success,1" frugal:"1,default,bool" json:"success"`
+	Reply        string             `thrift:"reply,2" frugal:"2,default,string" json:"reply"`
+	InputTokens  int64              `thrift:"input_tokens,3" frugal:"3,default,i64" json:"input_tokens"`
+	OutputTokens int64              `thrift:"output_tokens,4" frugal:"4,default,i64" json:"output_tokens"`
+	Cost         float64            `thrift:"cost,5" frugal:"5,default,double" json:"cost"`
+	Msg          string             `thrift:"msg,6" frugal:"6,default,string" json:"msg"`
+	SessionId    string             `thrift:"session_id,7" frugal:"7,default,string" json:"session_id"`
+	RunId        string             `thrift:"run_id,8" frugal:"8,default,string" json:"run_id"`
+	Approval     *AgentApprovalInfo `thrift:"approval,9,optional" frugal:"9,optional,AgentApprovalInfo" json:"approval,omitempty"`
+}
+
+func NewResumeAgentResp() *ResumeAgentResp {
+	return &ResumeAgentResp{}
+}
+
+func (p *ResumeAgentResp) InitDefault() {
+}
+
+func (p *ResumeAgentResp) GetSuccess() (v bool) {
+	return p.Success
+}
+
+func (p *ResumeAgentResp) GetReply() (v string) {
+	return p.Reply
+}
+
+func (p *ResumeAgentResp) GetInputTokens() (v int64) {
+	return p.InputTokens
+}
+
+func (p *ResumeAgentResp) GetOutputTokens() (v int64) {
+	return p.OutputTokens
+}
+
+func (p *ResumeAgentResp) GetCost() (v float64) {
+	return p.Cost
+}
+
+func (p *ResumeAgentResp) GetMsg() (v string) {
+	return p.Msg
+}
+
+func (p *ResumeAgentResp) GetSessionId() (v string) {
+	return p.SessionId
+}
+
+func (p *ResumeAgentResp) GetRunId() (v string) {
+	return p.RunId
+}
+
+var ResumeAgentResp_Approval_DEFAULT *AgentApprovalInfo
+
+func (p *ResumeAgentResp) GetApproval() (v *AgentApprovalInfo) {
+	if !p.IsSetApproval() {
+		return ResumeAgentResp_Approval_DEFAULT
+	}
+	return p.Approval
+}
+func (p *ResumeAgentResp) SetSuccess(val bool) {
+	p.Success = val
+}
+func (p *ResumeAgentResp) SetReply(val string) {
+	p.Reply = val
+}
+func (p *ResumeAgentResp) SetInputTokens(val int64) {
+	p.InputTokens = val
+}
+func (p *ResumeAgentResp) SetOutputTokens(val int64) {
+	p.OutputTokens = val
+}
+func (p *ResumeAgentResp) SetCost(val float64) {
+	p.Cost = val
+}
+func (p *ResumeAgentResp) SetMsg(val string) {
+	p.Msg = val
+}
+func (p *ResumeAgentResp) SetSessionId(val string) {
+	p.SessionId = val
+}
+func (p *ResumeAgentResp) SetRunId(val string) {
+	p.RunId = val
+}
+func (p *ResumeAgentResp) SetApproval(val *AgentApprovalInfo) {
+	p.Approval = val
+}
+
+func (p *ResumeAgentResp) IsSetApproval() bool {
+	return p.Approval != nil
+}
+
+func (p *ResumeAgentResp) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("ResumeAgentResp(%+v)", *p)
+}
+
+var fieldIDToName_ResumeAgentResp = map[int16]string{
+	1: "success",
+	2: "reply",
+	3: "input_tokens",
+	4: "output_tokens",
+	5: "cost",
+	6: "msg",
+	7: "session_id",
+	8: "run_id",
+	9: "approval",
 }
 
 type AgentTaskReq struct {
@@ -2155,56 +1696,6 @@ func (p *AgentTaskReq) String() string {
 	return fmt.Sprintf("AgentTaskReq(%+v)", *p)
 }
 
-func (p *AgentTaskReq) DeepEqual(ano *AgentTaskReq) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.BotId) {
-		return false
-	}
-	if !p.Field2DeepEqual(ano.UserId) {
-		return false
-	}
-	if !p.Field3DeepEqual(ano.ConversationId) {
-		return false
-	}
-	if !p.Field4DeepEqual(ano.Question) {
-		return false
-	}
-	return true
-}
-
-func (p *AgentTaskReq) Field1DeepEqual(src int64) bool {
-
-	if p.BotId != src {
-		return false
-	}
-	return true
-}
-func (p *AgentTaskReq) Field2DeepEqual(src int64) bool {
-
-	if p.UserId != src {
-		return false
-	}
-	return true
-}
-func (p *AgentTaskReq) Field3DeepEqual(src int64) bool {
-
-	if p.ConversationId != src {
-		return false
-	}
-	return true
-}
-func (p *AgentTaskReq) Field4DeepEqual(src string) bool {
-
-	if strings.Compare(p.Question, src) != 0 {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_AgentTaskReq = map[int16]string{
 	1: "bot_id",
 	2: "user_id",
@@ -2251,46 +1742,6 @@ func (p *AgentTaskResp) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("AgentTaskResp(%+v)", *p)
-}
-
-func (p *AgentTaskResp) DeepEqual(ano *AgentTaskResp) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Success) {
-		return false
-	}
-	if !p.Field2DeepEqual(ano.Result_) {
-		return false
-	}
-	if !p.Field3DeepEqual(ano.Msg) {
-		return false
-	}
-	return true
-}
-
-func (p *AgentTaskResp) Field1DeepEqual(src bool) bool {
-
-	if p.Success != src {
-		return false
-	}
-	return true
-}
-func (p *AgentTaskResp) Field2DeepEqual(src string) bool {
-
-	if strings.Compare(p.Result_, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *AgentTaskResp) Field3DeepEqual(src string) bool {
-
-	if strings.Compare(p.Msg, src) != 0 {
-		return false
-	}
-	return true
 }
 
 var fieldIDToName_AgentTaskResp = map[int16]string{
@@ -2348,56 +1799,6 @@ func (p *GrantPermissionReq) String() string {
 	return fmt.Sprintf("GrantPermissionReq(%+v)", *p)
 }
 
-func (p *GrantPermissionReq) DeepEqual(ano *GrantPermissionReq) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.BotId) {
-		return false
-	}
-	if !p.Field2DeepEqual(ano.OperatorId) {
-		return false
-	}
-	if !p.Field3DeepEqual(ano.UserId) {
-		return false
-	}
-	if !p.Field4DeepEqual(ano.Role) {
-		return false
-	}
-	return true
-}
-
-func (p *GrantPermissionReq) Field1DeepEqual(src int64) bool {
-
-	if p.BotId != src {
-		return false
-	}
-	return true
-}
-func (p *GrantPermissionReq) Field2DeepEqual(src int64) bool {
-
-	if p.OperatorId != src {
-		return false
-	}
-	return true
-}
-func (p *GrantPermissionReq) Field3DeepEqual(src int64) bool {
-
-	if p.UserId != src {
-		return false
-	}
-	return true
-}
-func (p *GrantPermissionReq) Field4DeepEqual(src string) bool {
-
-	if strings.Compare(p.Role, src) != 0 {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_GrantPermissionReq = map[int16]string{
 	1: "bot_id",
 	2: "operator_id",
@@ -2436,36 +1837,6 @@ func (p *GrantPermissionResp) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("GrantPermissionResp(%+v)", *p)
-}
-
-func (p *GrantPermissionResp) DeepEqual(ano *GrantPermissionResp) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Success) {
-		return false
-	}
-	if !p.Field2DeepEqual(ano.Msg) {
-		return false
-	}
-	return true
-}
-
-func (p *GrantPermissionResp) Field1DeepEqual(src bool) bool {
-
-	if p.Success != src {
-		return false
-	}
-	return true
-}
-func (p *GrantPermissionResp) Field2DeepEqual(src string) bool {
-
-	if strings.Compare(p.Msg, src) != 0 {
-		return false
-	}
-	return true
 }
 
 var fieldIDToName_GrantPermissionResp = map[int16]string{
@@ -2514,46 +1885,6 @@ func (p *RevokePermissionReq) String() string {
 	return fmt.Sprintf("RevokePermissionReq(%+v)", *p)
 }
 
-func (p *RevokePermissionReq) DeepEqual(ano *RevokePermissionReq) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.BotId) {
-		return false
-	}
-	if !p.Field2DeepEqual(ano.OperatorId) {
-		return false
-	}
-	if !p.Field3DeepEqual(ano.UserId) {
-		return false
-	}
-	return true
-}
-
-func (p *RevokePermissionReq) Field1DeepEqual(src int64) bool {
-
-	if p.BotId != src {
-		return false
-	}
-	return true
-}
-func (p *RevokePermissionReq) Field2DeepEqual(src int64) bool {
-
-	if p.OperatorId != src {
-		return false
-	}
-	return true
-}
-func (p *RevokePermissionReq) Field3DeepEqual(src int64) bool {
-
-	if p.UserId != src {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_RevokePermissionReq = map[int16]string{
 	1: "bot_id",
 	2: "operator_id",
@@ -2593,36 +1924,6 @@ func (p *RevokePermissionResp) String() string {
 	return fmt.Sprintf("RevokePermissionResp(%+v)", *p)
 }
 
-func (p *RevokePermissionResp) DeepEqual(ano *RevokePermissionResp) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Success) {
-		return false
-	}
-	if !p.Field2DeepEqual(ano.Msg) {
-		return false
-	}
-	return true
-}
-
-func (p *RevokePermissionResp) Field1DeepEqual(src bool) bool {
-
-	if p.Success != src {
-		return false
-	}
-	return true
-}
-func (p *RevokePermissionResp) Field2DeepEqual(src string) bool {
-
-	if strings.Compare(p.Msg, src) != 0 {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_RevokePermissionResp = map[int16]string{
 	1: "success",
 	2: "msg",
@@ -2659,36 +1960,6 @@ func (p *ListPermissionsReq) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("ListPermissionsReq(%+v)", *p)
-}
-
-func (p *ListPermissionsReq) DeepEqual(ano *ListPermissionsReq) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.BotId) {
-		return false
-	}
-	if !p.Field2DeepEqual(ano.OperatorId) {
-		return false
-	}
-	return true
-}
-
-func (p *ListPermissionsReq) Field1DeepEqual(src int64) bool {
-
-	if p.BotId != src {
-		return false
-	}
-	return true
-}
-func (p *ListPermissionsReq) Field2DeepEqual(src int64) bool {
-
-	if p.OperatorId != src {
-		return false
-	}
-	return true
 }
 
 var fieldIDToName_ListPermissionsReq = map[int16]string{
@@ -2735,52 +2006,6 @@ func (p *ListPermissionsResp) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("ListPermissionsResp(%+v)", *p)
-}
-
-func (p *ListPermissionsResp) DeepEqual(ano *ListPermissionsResp) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Success) {
-		return false
-	}
-	if !p.Field2DeepEqual(ano.Permissions) {
-		return false
-	}
-	if !p.Field3DeepEqual(ano.Msg) {
-		return false
-	}
-	return true
-}
-
-func (p *ListPermissionsResp) Field1DeepEqual(src bool) bool {
-
-	if p.Success != src {
-		return false
-	}
-	return true
-}
-func (p *ListPermissionsResp) Field2DeepEqual(src []*BotPermission) bool {
-
-	if len(p.Permissions) != len(src) {
-		return false
-	}
-	for i, v := range p.Permissions {
-		_src := src[i]
-		if !v.DeepEqual(_src) {
-			return false
-		}
-	}
-	return true
-}
-func (p *ListPermissionsResp) Field3DeepEqual(src string) bool {
-
-	if strings.Compare(p.Msg, src) != 0 {
-		return false
-	}
-	return true
 }
 
 var fieldIDToName_ListPermissionsResp = map[int16]string{
@@ -2838,56 +2063,6 @@ func (p *CreateRouteReq) String() string {
 	return fmt.Sprintf("CreateRouteReq(%+v)", *p)
 }
 
-func (p *CreateRouteReq) DeepEqual(ano *CreateRouteReq) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.BotId) {
-		return false
-	}
-	if !p.Field2DeepEqual(ano.RoutePattern) {
-		return false
-	}
-	if !p.Field3DeepEqual(ano.RouteType) {
-		return false
-	}
-	if !p.Field4DeepEqual(ano.Priority) {
-		return false
-	}
-	return true
-}
-
-func (p *CreateRouteReq) Field1DeepEqual(src int64) bool {
-
-	if p.BotId != src {
-		return false
-	}
-	return true
-}
-func (p *CreateRouteReq) Field2DeepEqual(src string) bool {
-
-	if strings.Compare(p.RoutePattern, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *CreateRouteReq) Field3DeepEqual(src string) bool {
-
-	if strings.Compare(p.RouteType, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *CreateRouteReq) Field4DeepEqual(src int64) bool {
-
-	if p.Priority != src {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_CreateRouteReq = map[int16]string{
 	1: "bot_id",
 	2: "route_pattern",
@@ -2934,46 +2109,6 @@ func (p *CreateRouteResp) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("CreateRouteResp(%+v)", *p)
-}
-
-func (p *CreateRouteResp) DeepEqual(ano *CreateRouteResp) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Success) {
-		return false
-	}
-	if !p.Field2DeepEqual(ano.RouteId) {
-		return false
-	}
-	if !p.Field3DeepEqual(ano.Msg) {
-		return false
-	}
-	return true
-}
-
-func (p *CreateRouteResp) Field1DeepEqual(src bool) bool {
-
-	if p.Success != src {
-		return false
-	}
-	return true
-}
-func (p *CreateRouteResp) Field2DeepEqual(src int64) bool {
-
-	if p.RouteId != src {
-		return false
-	}
-	return true
-}
-func (p *CreateRouteResp) Field3DeepEqual(src string) bool {
-
-	if strings.Compare(p.Msg, src) != 0 {
-		return false
-	}
-	return true
 }
 
 var fieldIDToName_CreateRouteResp = map[int16]string{
@@ -3047,76 +2182,6 @@ func (p *BotRoute) String() string {
 	return fmt.Sprintf("BotRoute(%+v)", *p)
 }
 
-func (p *BotRoute) DeepEqual(ano *BotRoute) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Id) {
-		return false
-	}
-	if !p.Field2DeepEqual(ano.BotId) {
-		return false
-	}
-	if !p.Field3DeepEqual(ano.RoutePattern) {
-		return false
-	}
-	if !p.Field4DeepEqual(ano.RouteType) {
-		return false
-	}
-	if !p.Field5DeepEqual(ano.Priority) {
-		return false
-	}
-	if !p.Field6DeepEqual(ano.CreatedAt) {
-		return false
-	}
-	return true
-}
-
-func (p *BotRoute) Field1DeepEqual(src int64) bool {
-
-	if p.Id != src {
-		return false
-	}
-	return true
-}
-func (p *BotRoute) Field2DeepEqual(src int64) bool {
-
-	if p.BotId != src {
-		return false
-	}
-	return true
-}
-func (p *BotRoute) Field3DeepEqual(src string) bool {
-
-	if strings.Compare(p.RoutePattern, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *BotRoute) Field4DeepEqual(src string) bool {
-
-	if strings.Compare(p.RouteType, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *BotRoute) Field5DeepEqual(src int64) bool {
-
-	if p.Priority != src {
-		return false
-	}
-	return true
-}
-func (p *BotRoute) Field6DeepEqual(src string) bool {
-
-	if strings.Compare(p.CreatedAt, src) != 0 {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_BotRoute = map[int16]string{
 	1: "id",
 	2: "bot_id",
@@ -3149,26 +2214,6 @@ func (p *ListRoutesReq) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("ListRoutesReq(%+v)", *p)
-}
-
-func (p *ListRoutesReq) DeepEqual(ano *ListRoutesReq) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.BotId) {
-		return false
-	}
-	return true
-}
-
-func (p *ListRoutesReq) Field1DeepEqual(src int64) bool {
-
-	if p.BotId != src {
-		return false
-	}
-	return true
 }
 
 var fieldIDToName_ListRoutesReq = map[int16]string{
@@ -3216,52 +2261,6 @@ func (p *ListRoutesResp) String() string {
 	return fmt.Sprintf("ListRoutesResp(%+v)", *p)
 }
 
-func (p *ListRoutesResp) DeepEqual(ano *ListRoutesResp) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Success) {
-		return false
-	}
-	if !p.Field2DeepEqual(ano.Routes) {
-		return false
-	}
-	if !p.Field3DeepEqual(ano.Msg) {
-		return false
-	}
-	return true
-}
-
-func (p *ListRoutesResp) Field1DeepEqual(src bool) bool {
-
-	if p.Success != src {
-		return false
-	}
-	return true
-}
-func (p *ListRoutesResp) Field2DeepEqual(src []*BotRoute) bool {
-
-	if len(p.Routes) != len(src) {
-		return false
-	}
-	for i, v := range p.Routes {
-		_src := src[i]
-		if !v.DeepEqual(_src) {
-			return false
-		}
-	}
-	return true
-}
-func (p *ListRoutesResp) Field3DeepEqual(src string) bool {
-
-	if strings.Compare(p.Msg, src) != 0 {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_ListRoutesResp = map[int16]string{
 	1: "success",
 	2: "routes",
@@ -3301,36 +2300,6 @@ func (p *DeleteRouteReq) String() string {
 	return fmt.Sprintf("DeleteRouteReq(%+v)", *p)
 }
 
-func (p *DeleteRouteReq) DeepEqual(ano *DeleteRouteReq) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.RouteId) {
-		return false
-	}
-	if !p.Field2DeepEqual(ano.OperatorId) {
-		return false
-	}
-	return true
-}
-
-func (p *DeleteRouteReq) Field1DeepEqual(src int64) bool {
-
-	if p.RouteId != src {
-		return false
-	}
-	return true
-}
-func (p *DeleteRouteReq) Field2DeepEqual(src int64) bool {
-
-	if p.OperatorId != src {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_DeleteRouteReq = map[int16]string{
 	1: "route_id",
 	2: "operator_id",
@@ -3367,36 +2336,6 @@ func (p *DeleteRouteResp) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("DeleteRouteResp(%+v)", *p)
-}
-
-func (p *DeleteRouteResp) DeepEqual(ano *DeleteRouteResp) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Success) {
-		return false
-	}
-	if !p.Field2DeepEqual(ano.Msg) {
-		return false
-	}
-	return true
-}
-
-func (p *DeleteRouteResp) Field1DeepEqual(src bool) bool {
-
-	if p.Success != src {
-		return false
-	}
-	return true
-}
-func (p *DeleteRouteResp) Field2DeepEqual(src string) bool {
-
-	if strings.Compare(p.Msg, src) != 0 {
-		return false
-	}
-	return true
 }
 
 var fieldIDToName_DeleteRouteResp = map[int16]string{
@@ -3451,56 +2390,6 @@ func (p *GetBillingReq) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("GetBillingReq(%+v)", *p)
-}
-
-func (p *GetBillingReq) DeepEqual(ano *GetBillingReq) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.BotId) {
-		return false
-	}
-	if !p.Field2DeepEqual(ano.UserId) {
-		return false
-	}
-	if !p.Field3DeepEqual(ano.Limit) {
-		return false
-	}
-	if !p.Field4DeepEqual(ano.Offset) {
-		return false
-	}
-	return true
-}
-
-func (p *GetBillingReq) Field1DeepEqual(src int64) bool {
-
-	if p.BotId != src {
-		return false
-	}
-	return true
-}
-func (p *GetBillingReq) Field2DeepEqual(src int64) bool {
-
-	if p.UserId != src {
-		return false
-	}
-	return true
-}
-func (p *GetBillingReq) Field3DeepEqual(src int64) bool {
-
-	if p.Limit != src {
-		return false
-	}
-	return true
-}
-func (p *GetBillingReq) Field4DeepEqual(src int64) bool {
-
-	if p.Offset != src {
-		return false
-	}
-	return true
 }
 
 var fieldIDToName_GetBillingReq = map[int16]string{
@@ -3599,106 +2488,6 @@ func (p *BillingRecord) String() string {
 	return fmt.Sprintf("BillingRecord(%+v)", *p)
 }
 
-func (p *BillingRecord) DeepEqual(ano *BillingRecord) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Id) {
-		return false
-	}
-	if !p.Field2DeepEqual(ano.BotId) {
-		return false
-	}
-	if !p.Field3DeepEqual(ano.UserId) {
-		return false
-	}
-	if !p.Field4DeepEqual(ano.ConversationId) {
-		return false
-	}
-	if !p.Field5DeepEqual(ano.InputTokens) {
-		return false
-	}
-	if !p.Field6DeepEqual(ano.OutputTokens) {
-		return false
-	}
-	if !p.Field7DeepEqual(ano.Cost) {
-		return false
-	}
-	if !p.Field8DeepEqual(ano.ModelName) {
-		return false
-	}
-	if !p.Field9DeepEqual(ano.CreatedAt) {
-		return false
-	}
-	return true
-}
-
-func (p *BillingRecord) Field1DeepEqual(src int64) bool {
-
-	if p.Id != src {
-		return false
-	}
-	return true
-}
-func (p *BillingRecord) Field2DeepEqual(src int64) bool {
-
-	if p.BotId != src {
-		return false
-	}
-	return true
-}
-func (p *BillingRecord) Field3DeepEqual(src int64) bool {
-
-	if p.UserId != src {
-		return false
-	}
-	return true
-}
-func (p *BillingRecord) Field4DeepEqual(src int64) bool {
-
-	if p.ConversationId != src {
-		return false
-	}
-	return true
-}
-func (p *BillingRecord) Field5DeepEqual(src int64) bool {
-
-	if p.InputTokens != src {
-		return false
-	}
-	return true
-}
-func (p *BillingRecord) Field6DeepEqual(src int64) bool {
-
-	if p.OutputTokens != src {
-		return false
-	}
-	return true
-}
-func (p *BillingRecord) Field7DeepEqual(src float64) bool {
-
-	if p.Cost != src {
-		return false
-	}
-	return true
-}
-func (p *BillingRecord) Field8DeepEqual(src string) bool {
-
-	if strings.Compare(p.ModelName, src) != 0 {
-		return false
-	}
-	return true
-}
-func (p *BillingRecord) Field9DeepEqual(src string) bool {
-
-	if strings.Compare(p.CreatedAt, src) != 0 {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_BillingRecord = map[int16]string{
 	1: "id",
 	2: "bot_id",
@@ -3760,62 +2549,6 @@ func (p *GetBillingResp) String() string {
 	return fmt.Sprintf("GetBillingResp(%+v)", *p)
 }
 
-func (p *GetBillingResp) DeepEqual(ano *GetBillingResp) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Success) {
-		return false
-	}
-	if !p.Field2DeepEqual(ano.Records) {
-		return false
-	}
-	if !p.Field3DeepEqual(ano.Total) {
-		return false
-	}
-	if !p.Field4DeepEqual(ano.Msg) {
-		return false
-	}
-	return true
-}
-
-func (p *GetBillingResp) Field1DeepEqual(src bool) bool {
-
-	if p.Success != src {
-		return false
-	}
-	return true
-}
-func (p *GetBillingResp) Field2DeepEqual(src []*BillingRecord) bool {
-
-	if len(p.Records) != len(src) {
-		return false
-	}
-	for i, v := range p.Records {
-		_src := src[i]
-		if !v.DeepEqual(_src) {
-			return false
-		}
-	}
-	return true
-}
-func (p *GetBillingResp) Field3DeepEqual(src int64) bool {
-
-	if p.Total != src {
-		return false
-	}
-	return true
-}
-func (p *GetBillingResp) Field4DeepEqual(src string) bool {
-
-	if strings.Compare(p.Msg, src) != 0 {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_GetBillingResp = map[int16]string{
 	1: "success",
 	2: "records",
@@ -3857,6 +2590,10 @@ type BotService interface {
 	DeleteRoute(ctx context.Context, req *DeleteRouteReq) (r *DeleteRouteResp, err error)
 
 	GetBilling(ctx context.Context, req *GetBillingReq) (r *GetBillingResp, err error)
+
+	ListAgentApprovals(ctx context.Context, req *ListAgentApprovalsReq) (r *ListAgentApprovalsResp, err error)
+
+	ResumeAgent(ctx context.Context, req *ResumeAgentReq) (r *ResumeAgentResp, err error)
 }
 
 type BotServiceCreateBotArgs struct {
@@ -3891,26 +2628,6 @@ func (p *BotServiceCreateBotArgs) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("BotServiceCreateBotArgs(%+v)", *p)
-}
-
-func (p *BotServiceCreateBotArgs) DeepEqual(ano *BotServiceCreateBotArgs) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Req) {
-		return false
-	}
-	return true
-}
-
-func (p *BotServiceCreateBotArgs) Field1DeepEqual(src *CreateBotReq) bool {
-
-	if !p.Req.DeepEqual(src) {
-		return false
-	}
-	return true
 }
 
 var fieldIDToName_BotServiceCreateBotArgs = map[int16]string{
@@ -3951,26 +2668,6 @@ func (p *BotServiceCreateBotResult) String() string {
 	return fmt.Sprintf("BotServiceCreateBotResult(%+v)", *p)
 }
 
-func (p *BotServiceCreateBotResult) DeepEqual(ano *BotServiceCreateBotResult) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field0DeepEqual(ano.Success) {
-		return false
-	}
-	return true
-}
-
-func (p *BotServiceCreateBotResult) Field0DeepEqual(src *CreateBotResp) bool {
-
-	if !p.Success.DeepEqual(src) {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_BotServiceCreateBotResult = map[int16]string{
 	0: "success",
 }
@@ -4007,26 +2704,6 @@ func (p *BotServiceUpdateBotArgs) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("BotServiceUpdateBotArgs(%+v)", *p)
-}
-
-func (p *BotServiceUpdateBotArgs) DeepEqual(ano *BotServiceUpdateBotArgs) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Req) {
-		return false
-	}
-	return true
-}
-
-func (p *BotServiceUpdateBotArgs) Field1DeepEqual(src *UpdateBotReq) bool {
-
-	if !p.Req.DeepEqual(src) {
-		return false
-	}
-	return true
 }
 
 var fieldIDToName_BotServiceUpdateBotArgs = map[int16]string{
@@ -4067,26 +2744,6 @@ func (p *BotServiceUpdateBotResult) String() string {
 	return fmt.Sprintf("BotServiceUpdateBotResult(%+v)", *p)
 }
 
-func (p *BotServiceUpdateBotResult) DeepEqual(ano *BotServiceUpdateBotResult) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field0DeepEqual(ano.Success) {
-		return false
-	}
-	return true
-}
-
-func (p *BotServiceUpdateBotResult) Field0DeepEqual(src *UpdateBotResp) bool {
-
-	if !p.Success.DeepEqual(src) {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_BotServiceUpdateBotResult = map[int16]string{
 	0: "success",
 }
@@ -4123,26 +2780,6 @@ func (p *BotServiceGetBotArgs) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("BotServiceGetBotArgs(%+v)", *p)
-}
-
-func (p *BotServiceGetBotArgs) DeepEqual(ano *BotServiceGetBotArgs) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Req) {
-		return false
-	}
-	return true
-}
-
-func (p *BotServiceGetBotArgs) Field1DeepEqual(src *GetBotReq) bool {
-
-	if !p.Req.DeepEqual(src) {
-		return false
-	}
-	return true
 }
 
 var fieldIDToName_BotServiceGetBotArgs = map[int16]string{
@@ -4183,26 +2820,6 @@ func (p *BotServiceGetBotResult) String() string {
 	return fmt.Sprintf("BotServiceGetBotResult(%+v)", *p)
 }
 
-func (p *BotServiceGetBotResult) DeepEqual(ano *BotServiceGetBotResult) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field0DeepEqual(ano.Success) {
-		return false
-	}
-	return true
-}
-
-func (p *BotServiceGetBotResult) Field0DeepEqual(src *GetBotResp) bool {
-
-	if !p.Success.DeepEqual(src) {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_BotServiceGetBotResult = map[int16]string{
 	0: "success",
 }
@@ -4239,26 +2856,6 @@ func (p *BotServiceListBotsArgs) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("BotServiceListBotsArgs(%+v)", *p)
-}
-
-func (p *BotServiceListBotsArgs) DeepEqual(ano *BotServiceListBotsArgs) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Req) {
-		return false
-	}
-	return true
-}
-
-func (p *BotServiceListBotsArgs) Field1DeepEqual(src *ListBotsReq) bool {
-
-	if !p.Req.DeepEqual(src) {
-		return false
-	}
-	return true
 }
 
 var fieldIDToName_BotServiceListBotsArgs = map[int16]string{
@@ -4299,26 +2896,6 @@ func (p *BotServiceListBotsResult) String() string {
 	return fmt.Sprintf("BotServiceListBotsResult(%+v)", *p)
 }
 
-func (p *BotServiceListBotsResult) DeepEqual(ano *BotServiceListBotsResult) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field0DeepEqual(ano.Success) {
-		return false
-	}
-	return true
-}
-
-func (p *BotServiceListBotsResult) Field0DeepEqual(src *ListBotsResp) bool {
-
-	if !p.Success.DeepEqual(src) {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_BotServiceListBotsResult = map[int16]string{
 	0: "success",
 }
@@ -4355,26 +2932,6 @@ func (p *BotServiceDeleteBotArgs) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("BotServiceDeleteBotArgs(%+v)", *p)
-}
-
-func (p *BotServiceDeleteBotArgs) DeepEqual(ano *BotServiceDeleteBotArgs) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Req) {
-		return false
-	}
-	return true
-}
-
-func (p *BotServiceDeleteBotArgs) Field1DeepEqual(src *DeleteBotReq) bool {
-
-	if !p.Req.DeepEqual(src) {
-		return false
-	}
-	return true
 }
 
 var fieldIDToName_BotServiceDeleteBotArgs = map[int16]string{
@@ -4415,26 +2972,6 @@ func (p *BotServiceDeleteBotResult) String() string {
 	return fmt.Sprintf("BotServiceDeleteBotResult(%+v)", *p)
 }
 
-func (p *BotServiceDeleteBotResult) DeepEqual(ano *BotServiceDeleteBotResult) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field0DeepEqual(ano.Success) {
-		return false
-	}
-	return true
-}
-
-func (p *BotServiceDeleteBotResult) Field0DeepEqual(src *DeleteBotResp) bool {
-
-	if !p.Success.DeepEqual(src) {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_BotServiceDeleteBotResult = map[int16]string{
 	0: "success",
 }
@@ -4471,26 +3008,6 @@ func (p *BotServiceChatWithBotArgs) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("BotServiceChatWithBotArgs(%+v)", *p)
-}
-
-func (p *BotServiceChatWithBotArgs) DeepEqual(ano *BotServiceChatWithBotArgs) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Req) {
-		return false
-	}
-	return true
-}
-
-func (p *BotServiceChatWithBotArgs) Field1DeepEqual(src *ChatWithBotReq) bool {
-
-	if !p.Req.DeepEqual(src) {
-		return false
-	}
-	return true
 }
 
 var fieldIDToName_BotServiceChatWithBotArgs = map[int16]string{
@@ -4531,26 +3048,6 @@ func (p *BotServiceChatWithBotResult) String() string {
 	return fmt.Sprintf("BotServiceChatWithBotResult(%+v)", *p)
 }
 
-func (p *BotServiceChatWithBotResult) DeepEqual(ano *BotServiceChatWithBotResult) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field0DeepEqual(ano.Success) {
-		return false
-	}
-	return true
-}
-
-func (p *BotServiceChatWithBotResult) Field0DeepEqual(src *ChatWithBotResp) bool {
-
-	if !p.Success.DeepEqual(src) {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_BotServiceChatWithBotResult = map[int16]string{
 	0: "success",
 }
@@ -4587,26 +3084,6 @@ func (p *BotServiceSummarizeConversationArgs) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("BotServiceSummarizeConversationArgs(%+v)", *p)
-}
-
-func (p *BotServiceSummarizeConversationArgs) DeepEqual(ano *BotServiceSummarizeConversationArgs) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Req) {
-		return false
-	}
-	return true
-}
-
-func (p *BotServiceSummarizeConversationArgs) Field1DeepEqual(src *AgentTaskReq) bool {
-
-	if !p.Req.DeepEqual(src) {
-		return false
-	}
-	return true
 }
 
 var fieldIDToName_BotServiceSummarizeConversationArgs = map[int16]string{
@@ -4647,26 +3124,6 @@ func (p *BotServiceSummarizeConversationResult) String() string {
 	return fmt.Sprintf("BotServiceSummarizeConversationResult(%+v)", *p)
 }
 
-func (p *BotServiceSummarizeConversationResult) DeepEqual(ano *BotServiceSummarizeConversationResult) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field0DeepEqual(ano.Success) {
-		return false
-	}
-	return true
-}
-
-func (p *BotServiceSummarizeConversationResult) Field0DeepEqual(src *AgentTaskResp) bool {
-
-	if !p.Success.DeepEqual(src) {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_BotServiceSummarizeConversationResult = map[int16]string{
 	0: "success",
 }
@@ -4703,26 +3160,6 @@ func (p *BotServiceAskConversationArgs) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("BotServiceAskConversationArgs(%+v)", *p)
-}
-
-func (p *BotServiceAskConversationArgs) DeepEqual(ano *BotServiceAskConversationArgs) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Req) {
-		return false
-	}
-	return true
-}
-
-func (p *BotServiceAskConversationArgs) Field1DeepEqual(src *AgentTaskReq) bool {
-
-	if !p.Req.DeepEqual(src) {
-		return false
-	}
-	return true
 }
 
 var fieldIDToName_BotServiceAskConversationArgs = map[int16]string{
@@ -4763,26 +3200,6 @@ func (p *BotServiceAskConversationResult) String() string {
 	return fmt.Sprintf("BotServiceAskConversationResult(%+v)", *p)
 }
 
-func (p *BotServiceAskConversationResult) DeepEqual(ano *BotServiceAskConversationResult) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field0DeepEqual(ano.Success) {
-		return false
-	}
-	return true
-}
-
-func (p *BotServiceAskConversationResult) Field0DeepEqual(src *AgentTaskResp) bool {
-
-	if !p.Success.DeepEqual(src) {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_BotServiceAskConversationResult = map[int16]string{
 	0: "success",
 }
@@ -4819,26 +3236,6 @@ func (p *BotServiceExtractInsightsArgs) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("BotServiceExtractInsightsArgs(%+v)", *p)
-}
-
-func (p *BotServiceExtractInsightsArgs) DeepEqual(ano *BotServiceExtractInsightsArgs) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Req) {
-		return false
-	}
-	return true
-}
-
-func (p *BotServiceExtractInsightsArgs) Field1DeepEqual(src *AgentTaskReq) bool {
-
-	if !p.Req.DeepEqual(src) {
-		return false
-	}
-	return true
 }
 
 var fieldIDToName_BotServiceExtractInsightsArgs = map[int16]string{
@@ -4879,26 +3276,6 @@ func (p *BotServiceExtractInsightsResult) String() string {
 	return fmt.Sprintf("BotServiceExtractInsightsResult(%+v)", *p)
 }
 
-func (p *BotServiceExtractInsightsResult) DeepEqual(ano *BotServiceExtractInsightsResult) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field0DeepEqual(ano.Success) {
-		return false
-	}
-	return true
-}
-
-func (p *BotServiceExtractInsightsResult) Field0DeepEqual(src *AgentTaskResp) bool {
-
-	if !p.Success.DeepEqual(src) {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_BotServiceExtractInsightsResult = map[int16]string{
 	0: "success",
 }
@@ -4935,26 +3312,6 @@ func (p *BotServiceGenerateReplyCandidatesArgs) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("BotServiceGenerateReplyCandidatesArgs(%+v)", *p)
-}
-
-func (p *BotServiceGenerateReplyCandidatesArgs) DeepEqual(ano *BotServiceGenerateReplyCandidatesArgs) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Req) {
-		return false
-	}
-	return true
-}
-
-func (p *BotServiceGenerateReplyCandidatesArgs) Field1DeepEqual(src *AgentTaskReq) bool {
-
-	if !p.Req.DeepEqual(src) {
-		return false
-	}
-	return true
 }
 
 var fieldIDToName_BotServiceGenerateReplyCandidatesArgs = map[int16]string{
@@ -4995,26 +3352,6 @@ func (p *BotServiceGenerateReplyCandidatesResult) String() string {
 	return fmt.Sprintf("BotServiceGenerateReplyCandidatesResult(%+v)", *p)
 }
 
-func (p *BotServiceGenerateReplyCandidatesResult) DeepEqual(ano *BotServiceGenerateReplyCandidatesResult) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field0DeepEqual(ano.Success) {
-		return false
-	}
-	return true
-}
-
-func (p *BotServiceGenerateReplyCandidatesResult) Field0DeepEqual(src *AgentTaskResp) bool {
-
-	if !p.Success.DeepEqual(src) {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_BotServiceGenerateReplyCandidatesResult = map[int16]string{
 	0: "success",
 }
@@ -5051,26 +3388,6 @@ func (p *BotServiceGrantPermissionArgs) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("BotServiceGrantPermissionArgs(%+v)", *p)
-}
-
-func (p *BotServiceGrantPermissionArgs) DeepEqual(ano *BotServiceGrantPermissionArgs) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Req) {
-		return false
-	}
-	return true
-}
-
-func (p *BotServiceGrantPermissionArgs) Field1DeepEqual(src *GrantPermissionReq) bool {
-
-	if !p.Req.DeepEqual(src) {
-		return false
-	}
-	return true
 }
 
 var fieldIDToName_BotServiceGrantPermissionArgs = map[int16]string{
@@ -5111,26 +3428,6 @@ func (p *BotServiceGrantPermissionResult) String() string {
 	return fmt.Sprintf("BotServiceGrantPermissionResult(%+v)", *p)
 }
 
-func (p *BotServiceGrantPermissionResult) DeepEqual(ano *BotServiceGrantPermissionResult) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field0DeepEqual(ano.Success) {
-		return false
-	}
-	return true
-}
-
-func (p *BotServiceGrantPermissionResult) Field0DeepEqual(src *GrantPermissionResp) bool {
-
-	if !p.Success.DeepEqual(src) {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_BotServiceGrantPermissionResult = map[int16]string{
 	0: "success",
 }
@@ -5167,26 +3464,6 @@ func (p *BotServiceRevokePermissionArgs) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("BotServiceRevokePermissionArgs(%+v)", *p)
-}
-
-func (p *BotServiceRevokePermissionArgs) DeepEqual(ano *BotServiceRevokePermissionArgs) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Req) {
-		return false
-	}
-	return true
-}
-
-func (p *BotServiceRevokePermissionArgs) Field1DeepEqual(src *RevokePermissionReq) bool {
-
-	if !p.Req.DeepEqual(src) {
-		return false
-	}
-	return true
 }
 
 var fieldIDToName_BotServiceRevokePermissionArgs = map[int16]string{
@@ -5227,26 +3504,6 @@ func (p *BotServiceRevokePermissionResult) String() string {
 	return fmt.Sprintf("BotServiceRevokePermissionResult(%+v)", *p)
 }
 
-func (p *BotServiceRevokePermissionResult) DeepEqual(ano *BotServiceRevokePermissionResult) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field0DeepEqual(ano.Success) {
-		return false
-	}
-	return true
-}
-
-func (p *BotServiceRevokePermissionResult) Field0DeepEqual(src *RevokePermissionResp) bool {
-
-	if !p.Success.DeepEqual(src) {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_BotServiceRevokePermissionResult = map[int16]string{
 	0: "success",
 }
@@ -5283,26 +3540,6 @@ func (p *BotServiceListPermissionsArgs) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("BotServiceListPermissionsArgs(%+v)", *p)
-}
-
-func (p *BotServiceListPermissionsArgs) DeepEqual(ano *BotServiceListPermissionsArgs) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Req) {
-		return false
-	}
-	return true
-}
-
-func (p *BotServiceListPermissionsArgs) Field1DeepEqual(src *ListPermissionsReq) bool {
-
-	if !p.Req.DeepEqual(src) {
-		return false
-	}
-	return true
 }
 
 var fieldIDToName_BotServiceListPermissionsArgs = map[int16]string{
@@ -5343,26 +3580,6 @@ func (p *BotServiceListPermissionsResult) String() string {
 	return fmt.Sprintf("BotServiceListPermissionsResult(%+v)", *p)
 }
 
-func (p *BotServiceListPermissionsResult) DeepEqual(ano *BotServiceListPermissionsResult) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field0DeepEqual(ano.Success) {
-		return false
-	}
-	return true
-}
-
-func (p *BotServiceListPermissionsResult) Field0DeepEqual(src *ListPermissionsResp) bool {
-
-	if !p.Success.DeepEqual(src) {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_BotServiceListPermissionsResult = map[int16]string{
 	0: "success",
 }
@@ -5399,26 +3616,6 @@ func (p *BotServiceCreateRouteArgs) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("BotServiceCreateRouteArgs(%+v)", *p)
-}
-
-func (p *BotServiceCreateRouteArgs) DeepEqual(ano *BotServiceCreateRouteArgs) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Req) {
-		return false
-	}
-	return true
-}
-
-func (p *BotServiceCreateRouteArgs) Field1DeepEqual(src *CreateRouteReq) bool {
-
-	if !p.Req.DeepEqual(src) {
-		return false
-	}
-	return true
 }
 
 var fieldIDToName_BotServiceCreateRouteArgs = map[int16]string{
@@ -5459,26 +3656,6 @@ func (p *BotServiceCreateRouteResult) String() string {
 	return fmt.Sprintf("BotServiceCreateRouteResult(%+v)", *p)
 }
 
-func (p *BotServiceCreateRouteResult) DeepEqual(ano *BotServiceCreateRouteResult) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field0DeepEqual(ano.Success) {
-		return false
-	}
-	return true
-}
-
-func (p *BotServiceCreateRouteResult) Field0DeepEqual(src *CreateRouteResp) bool {
-
-	if !p.Success.DeepEqual(src) {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_BotServiceCreateRouteResult = map[int16]string{
 	0: "success",
 }
@@ -5515,26 +3692,6 @@ func (p *BotServiceListRoutesArgs) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("BotServiceListRoutesArgs(%+v)", *p)
-}
-
-func (p *BotServiceListRoutesArgs) DeepEqual(ano *BotServiceListRoutesArgs) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Req) {
-		return false
-	}
-	return true
-}
-
-func (p *BotServiceListRoutesArgs) Field1DeepEqual(src *ListRoutesReq) bool {
-
-	if !p.Req.DeepEqual(src) {
-		return false
-	}
-	return true
 }
 
 var fieldIDToName_BotServiceListRoutesArgs = map[int16]string{
@@ -5575,26 +3732,6 @@ func (p *BotServiceListRoutesResult) String() string {
 	return fmt.Sprintf("BotServiceListRoutesResult(%+v)", *p)
 }
 
-func (p *BotServiceListRoutesResult) DeepEqual(ano *BotServiceListRoutesResult) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field0DeepEqual(ano.Success) {
-		return false
-	}
-	return true
-}
-
-func (p *BotServiceListRoutesResult) Field0DeepEqual(src *ListRoutesResp) bool {
-
-	if !p.Success.DeepEqual(src) {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_BotServiceListRoutesResult = map[int16]string{
 	0: "success",
 }
@@ -5631,26 +3768,6 @@ func (p *BotServiceDeleteRouteArgs) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("BotServiceDeleteRouteArgs(%+v)", *p)
-}
-
-func (p *BotServiceDeleteRouteArgs) DeepEqual(ano *BotServiceDeleteRouteArgs) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Req) {
-		return false
-	}
-	return true
-}
-
-func (p *BotServiceDeleteRouteArgs) Field1DeepEqual(src *DeleteRouteReq) bool {
-
-	if !p.Req.DeepEqual(src) {
-		return false
-	}
-	return true
 }
 
 var fieldIDToName_BotServiceDeleteRouteArgs = map[int16]string{
@@ -5691,26 +3808,6 @@ func (p *BotServiceDeleteRouteResult) String() string {
 	return fmt.Sprintf("BotServiceDeleteRouteResult(%+v)", *p)
 }
 
-func (p *BotServiceDeleteRouteResult) DeepEqual(ano *BotServiceDeleteRouteResult) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field0DeepEqual(ano.Success) {
-		return false
-	}
-	return true
-}
-
-func (p *BotServiceDeleteRouteResult) Field0DeepEqual(src *DeleteRouteResp) bool {
-
-	if !p.Success.DeepEqual(src) {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_BotServiceDeleteRouteResult = map[int16]string{
 	0: "success",
 }
@@ -5747,26 +3844,6 @@ func (p *BotServiceGetBillingArgs) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("BotServiceGetBillingArgs(%+v)", *p)
-}
-
-func (p *BotServiceGetBillingArgs) DeepEqual(ano *BotServiceGetBillingArgs) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field1DeepEqual(ano.Req) {
-		return false
-	}
-	return true
-}
-
-func (p *BotServiceGetBillingArgs) Field1DeepEqual(src *GetBillingReq) bool {
-
-	if !p.Req.DeepEqual(src) {
-		return false
-	}
-	return true
 }
 
 var fieldIDToName_BotServiceGetBillingArgs = map[int16]string{
@@ -5807,26 +3884,158 @@ func (p *BotServiceGetBillingResult) String() string {
 	return fmt.Sprintf("BotServiceGetBillingResult(%+v)", *p)
 }
 
-func (p *BotServiceGetBillingResult) DeepEqual(ano *BotServiceGetBillingResult) bool {
-	if p == ano {
-		return true
-	} else if p == nil || ano == nil {
-		return false
-	}
-	if !p.Field0DeepEqual(ano.Success) {
-		return false
-	}
-	return true
-}
-
-func (p *BotServiceGetBillingResult) Field0DeepEqual(src *GetBillingResp) bool {
-
-	if !p.Success.DeepEqual(src) {
-		return false
-	}
-	return true
-}
-
 var fieldIDToName_BotServiceGetBillingResult = map[int16]string{
+	0: "success",
+}
+
+type BotServiceListAgentApprovalsArgs struct {
+	Req *ListAgentApprovalsReq `thrift:"req,1" frugal:"1,default,ListAgentApprovalsReq" json:"req"`
+}
+
+func NewBotServiceListAgentApprovalsArgs() *BotServiceListAgentApprovalsArgs {
+	return &BotServiceListAgentApprovalsArgs{}
+}
+
+func (p *BotServiceListAgentApprovalsArgs) InitDefault() {
+}
+
+var BotServiceListAgentApprovalsArgs_Req_DEFAULT *ListAgentApprovalsReq
+
+func (p *BotServiceListAgentApprovalsArgs) GetReq() (v *ListAgentApprovalsReq) {
+	if !p.IsSetReq() {
+		return BotServiceListAgentApprovalsArgs_Req_DEFAULT
+	}
+	return p.Req
+}
+func (p *BotServiceListAgentApprovalsArgs) SetReq(val *ListAgentApprovalsReq) {
+	p.Req = val
+}
+
+func (p *BotServiceListAgentApprovalsArgs) IsSetReq() bool {
+	return p.Req != nil
+}
+
+func (p *BotServiceListAgentApprovalsArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("BotServiceListAgentApprovalsArgs(%+v)", *p)
+}
+
+var fieldIDToName_BotServiceListAgentApprovalsArgs = map[int16]string{
+	1: "req",
+}
+
+type BotServiceListAgentApprovalsResult struct {
+	Success *ListAgentApprovalsResp `thrift:"success,0,optional" frugal:"0,optional,ListAgentApprovalsResp" json:"success,omitempty"`
+}
+
+func NewBotServiceListAgentApprovalsResult() *BotServiceListAgentApprovalsResult {
+	return &BotServiceListAgentApprovalsResult{}
+}
+
+func (p *BotServiceListAgentApprovalsResult) InitDefault() {
+}
+
+var BotServiceListAgentApprovalsResult_Success_DEFAULT *ListAgentApprovalsResp
+
+func (p *BotServiceListAgentApprovalsResult) GetSuccess() (v *ListAgentApprovalsResp) {
+	if !p.IsSetSuccess() {
+		return BotServiceListAgentApprovalsResult_Success_DEFAULT
+	}
+	return p.Success
+}
+func (p *BotServiceListAgentApprovalsResult) SetSuccess(x interface{}) {
+	p.Success = x.(*ListAgentApprovalsResp)
+}
+
+func (p *BotServiceListAgentApprovalsResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *BotServiceListAgentApprovalsResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("BotServiceListAgentApprovalsResult(%+v)", *p)
+}
+
+var fieldIDToName_BotServiceListAgentApprovalsResult = map[int16]string{
+	0: "success",
+}
+
+type BotServiceResumeAgentArgs struct {
+	Req *ResumeAgentReq `thrift:"req,1" frugal:"1,default,ResumeAgentReq" json:"req"`
+}
+
+func NewBotServiceResumeAgentArgs() *BotServiceResumeAgentArgs {
+	return &BotServiceResumeAgentArgs{}
+}
+
+func (p *BotServiceResumeAgentArgs) InitDefault() {
+}
+
+var BotServiceResumeAgentArgs_Req_DEFAULT *ResumeAgentReq
+
+func (p *BotServiceResumeAgentArgs) GetReq() (v *ResumeAgentReq) {
+	if !p.IsSetReq() {
+		return BotServiceResumeAgentArgs_Req_DEFAULT
+	}
+	return p.Req
+}
+func (p *BotServiceResumeAgentArgs) SetReq(val *ResumeAgentReq) {
+	p.Req = val
+}
+
+func (p *BotServiceResumeAgentArgs) IsSetReq() bool {
+	return p.Req != nil
+}
+
+func (p *BotServiceResumeAgentArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("BotServiceResumeAgentArgs(%+v)", *p)
+}
+
+var fieldIDToName_BotServiceResumeAgentArgs = map[int16]string{
+	1: "req",
+}
+
+type BotServiceResumeAgentResult struct {
+	Success *ResumeAgentResp `thrift:"success,0,optional" frugal:"0,optional,ResumeAgentResp" json:"success,omitempty"`
+}
+
+func NewBotServiceResumeAgentResult() *BotServiceResumeAgentResult {
+	return &BotServiceResumeAgentResult{}
+}
+
+func (p *BotServiceResumeAgentResult) InitDefault() {
+}
+
+var BotServiceResumeAgentResult_Success_DEFAULT *ResumeAgentResp
+
+func (p *BotServiceResumeAgentResult) GetSuccess() (v *ResumeAgentResp) {
+	if !p.IsSetSuccess() {
+		return BotServiceResumeAgentResult_Success_DEFAULT
+	}
+	return p.Success
+}
+func (p *BotServiceResumeAgentResult) SetSuccess(x interface{}) {
+	p.Success = x.(*ResumeAgentResp)
+}
+
+func (p *BotServiceResumeAgentResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *BotServiceResumeAgentResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("BotServiceResumeAgentResult(%+v)", *p)
+}
+
+var fieldIDToName_BotServiceResumeAgentResult = map[int16]string{
 	0: "success",
 }

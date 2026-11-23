@@ -50,3 +50,13 @@ func (h *AgentRuntimeServiceImpl) GenerateReplyCandidates(ctx context.Context, r
 func (h *AgentRuntimeServiceImpl) GetAgentSessions(ctx context.Context, req *bot_runtime.GetAgentSessionReq) (*bot_runtime.GetAgentSessionResp, error) {
 	return h.svc.GetAgentSessions(ctx, req)
 }
+
+// ResumeAgent 从 Eino checkpoint 恢复被审批中断的运行。
+func (h *AgentRuntimeServiceImpl) ResumeAgent(ctx context.Context, req *bot_runtime.ResumeAgentReq) (*bot_runtime.ResumeAgentResp, error) {
+	return h.svc.ResumeAgent(ctx, req)
+}
+
+// ListAgentRuns 返回 runtime 记录的单次运行成本、状态和中断原因。
+func (h *AgentRuntimeServiceImpl) ListAgentRuns(ctx context.Context, req *bot_runtime.ListAgentRunsReq) (*bot_runtime.ListAgentRunsResp, error) {
+	return h.svc.ListAgentRuns(ctx, req)
+}

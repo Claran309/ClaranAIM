@@ -156,6 +156,9 @@ func (h *agentServiceImpl) ChatWithBot(ctx context.Context, req *bot.ChatWithBot
 		OutputTokens: result.OutputTokens,
 		Cost:         result.Cost,
 		Msg:          result.Status,
+		SessionId:    stringPtr(result.SessionID),
+		RunId:        stringPtr(result.RunID),
+		Approval:     approvalToRPC(result.Approval),
 	}, nil
 }
 
@@ -283,4 +286,62 @@ func (h *agentServiceImpl) GetBilling(ctx context.Context, req *bot.GetBillingRe
 		})
 	}
 	return &bot.GetBillingResp{Success: true, Records: billingList, Total: total}, nil
+}
+
+// ListAgentApprovals 返回当前用户的 Agent 工具审批记录。
+func (h *agentServiceImpl) ListAgentApprovals(ctx context.Context, req *bot.ListAgentApprovalsReq) (*bot.ListAgentApprovalsResp, error) {
+	approvals, err := h.svc.ListAgentApprovals(ctx, req.UserId, req.BotId, req.Status)
+	if err != nil {
+		return &bot.ListAgentApprovalsResp{Success: false, Msg: err.Error()}, nil
+	}
+	out := make([]*bot.AgentApprovalInfo, 0, len(approvals))
+	for i := range approvals {
+		out = append(out, approvalToRPC(&approvals[i]))
+	}
+	return &bot.ListAgentApprovalsResp{Success: true, Approvals: out}, nil
+}
+
+// ResumeAgent 用用户确认/拒绝结果恢复 Agent 运行。
+func (h *agentServiceImpl) ResumeAgent(ctx context.Context, req *bot.ResumeAgentReq) (*bot.ResumeAgentResp, error) {
+	result, err := h.svc.ResumeAgent(ctx, req.ApprovalId, req.UserId, req.Approved, req.Reason)
+	if err != nil {
+		return &bot.ResumeAgentResp{Success: false, Msg: err.Error()}, nil
+	}
+	return &bot.ResumeAgentResp{
+		Success:      true,
+		Reply:        result.Reply,
+		InputTokens:  result.InputTokens,
+		OutputTokens: result.OutputTokens,
+		Cost:         result.Cost,
+		Msg:          result.Status,
+		SessionId:    result.SessionID,
+		RunId:        result.RunID,
+		Approval:     approvalToRPC(result.Approval),
+	}, nil
+}
+
+// approvalToRPC 把 controller 层的审批模型转换为 Thrift 结构。
+func approvalToRPC(approval *model.AgentApproval) *bot.AgentApprovalInfo {
+	if approval == nil {
+		return nil
+	}
+	return &bot.AgentApprovalInfo{
+		ApprovalId:     approval.ApprovalID,
+		RunId:          approval.RunID,
+		InterruptId:    approval.InterruptID,
+		SessionId:      approval.SessionID,
+		BotId:          approval.BotID,
+		UserId:         approval.UserID,
+		ConversationId: approval.ConversationID,
+		Status:         approval.Status,
+		ToolName:       approval.ToolName,
+		ArgumentsJson:  approval.ArgumentsJSON,
+		Description:    approval.Description,
+		CreatedAt:      approval.CreatedAt.Format("2006-01-02 15:04:05"),
+		UpdatedAt:      approval.UpdatedAt.Format("2006-01-02 15:04:05"),
+	}
+}
+
+func stringPtr(value string) *string {
+	return &value
 }

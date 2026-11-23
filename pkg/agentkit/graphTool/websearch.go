@@ -198,7 +198,7 @@ func newFetchWorkflow() *compose.Workflow[fetchTask, fetchedPage] {
 // performSearch 按可用性从通用搜索源逐级降级。
 // DuckDuckGo HTML 优先提供通用网页结果，SearxNG 作为备用元搜索，最后用 Wikipedia 覆盖百科类问题。
 func performSearch(ctx context.Context, query string) ([]SearchResult, error) {
-	log.Printf("[web_search] 开始搜索: %s", query)
+	log.Printf("[web_search] 开始搜索: query_len=%d", len([]rune(query)))
 
 	results, err := searchDuckDuckGoHTML(ctx, query)
 	if err != nil {
@@ -231,7 +231,7 @@ func performSearch(ctx context.Context, query string) ([]SearchResult, error) {
 // searchWikipedia 调用中文 Wikipedia OpenSearch API。
 // 返回值只有标题、摘要和 URL，后续仍会走统一网页抓取与模型摘要流程。
 func searchWikipedia(ctx context.Context, query string) ([]SearchResult, error) {
-	log.Printf("[web_search] 开始 Wikipedia 搜索: %s", query)
+	log.Printf("[web_search] 开始 Wikipedia 搜索: query_len=%d", len([]rune(query)))
 	encodedQuery := url.QueryEscape(query)
 	searchURL := fmt.Sprintf("https://zh.wikipedia.org/w/api.php?action=opensearch&search=%s&limit=5&format=json", encodedQuery)
 
@@ -400,7 +400,7 @@ func parseDuckDuckGoHTML(html string) []SearchResult {
 					Link:    strings.TrimSpace(link),
 					Snippet: strings.TrimSpace(getSnippet(snippetMatches, i)),
 				})
-				log.Printf("[web_search] 解析结果: %s -> %s", title, link)
+				log.Printf("[web_search] 解析结果: result_index=%d", len(results)+1)
 			}
 		}
 

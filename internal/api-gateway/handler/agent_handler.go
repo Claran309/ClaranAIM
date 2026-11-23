@@ -5,6 +5,7 @@ package handler
 
 import (
 	"ClaranAIM/internal/api-gateway/client"
+	"ClaranAIM/kitex_gen/bot"
 	"ClaranAIM/kitex_gen/bot_runtime"
 	"ClaranAIM/kitex_gen/message"
 	"ClaranAIM/kitex_gen/settings"
@@ -19,7 +20,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/cloudwego/hertz/pkg/app"
@@ -32,35 +32,6 @@ type AgentHandler struct{}
 // defaultAgentContextHistoryLimit 是读取会话上下文的兜底条数。
 // 正常情况下该值来自 Agent 配置；只有读取配置失败或旧数据为空时才使用这里的默认值。
 const defaultAgentContextHistoryLimit int64 = 80
-
-// agentApprovalStatusPending 表示 Agent 工具动作正在等待用户确认。
-const agentApprovalStatusPending = "pending"
-
-// agentApprovalStatusConfirmed 表示用户已经允许 Agent 继续执行等待中的动作。
-const agentApprovalStatusConfirmed = "confirmed"
-
-// agentApprovalStatusRejected 表示用户拒绝了 Agent 的待执行动作。
-const agentApprovalStatusRejected = "rejected"
-
-// agentApproval 是网关内存中的轻量审批记录，用于 MVP 版本的 agent-ask -> user-approve -> agent-act 交互。
-// 后续如果要支持多实例网关或跨重启恢复，应迁移到 agent-runtime-service 的持久化 checkpoint。
-type agentApproval struct {
-	ID             string `json:"approval_id"`
-	BotID          int64  `json:"bot_id"`
-	UserID         int64  `json:"user_id"`
-	ConversationID int64  `json:"conversation_id"`
-	Description    string `json:"description"`
-	Status         string `json:"status"`
-	CreatedAt      string `json:"created_at"`
-	UpdatedAt      string `json:"updated_at"`
-}
-
-// agentApprovals 是网关进程内的轻量审批存储。
-// 这是单实例 MVP，跨实例或跨重启可靠性应迁移到 runtime checkpoint 表。
-var agentApprovals = struct {
-	sync.Mutex
-	items map[string]agentApproval
-}{items: make(map[string]agentApproval)}
 
 // gatewayAgentSettingsService 用于创建 Agent 时解析用户保存的 LLM 预设。
 // 网关只拿服务间密钥结果，不把 API Key 明文返回给浏览器。
@@ -91,74 +62,6 @@ func parseAgentJSONNumber(value json.Number, name string) (int64, error) {
 		return 0, fmt.Errorf("无效的%s", name)
 	}
 	return id, nil
-}
-
-// newAgentApproval 创建一条待用户确认的 Agent 操作记录。
-func newAgentApproval(userID, botID, conversationID int64, description string) agentApproval {
-	now := time.Now()
-	return agentApproval{
-		ID:             fmt.Sprintf("appr_%d_%d_%d", userID, botID, now.UnixNano()),
-		UserID:         userID,
-		BotID:          botID,
-		ConversationID: conversationID,
-		Description:    strings.TrimSpace(description),
-		Status:         agentApprovalStatusPending,
-		CreatedAt:      now.Format(time.RFC3339),
-		UpdatedAt:      now.Format(time.RFC3339),
-	}
-}
-
-// storeAgentApproval 将审批记录写入当前网关进程内存。
-func storeAgentApproval(approval agentApproval) {
-	agentApprovals.Lock()
-	defer agentApprovals.Unlock()
-	agentApprovals.items[approval.ID] = approval
-}
-
-// listAgentApprovals 列出当前用户相关的审批记录。
-func listAgentApprovals(userID int64) []agentApproval {
-	agentApprovals.Lock()
-	defer agentApprovals.Unlock()
-	list := make([]agentApproval, 0)
-	for _, approval := range agentApprovals.items {
-		if approval.UserID == userID {
-			list = append(list, approval)
-		}
-	}
-	return list
-}
-
-// getAgentApproval 按审批 ID 和当前用户读取记录，防止用户查看或确认别人的审批。
-func getAgentApproval(id string, userID int64) (agentApproval, bool) {
-	agentApprovals.Lock()
-	defer agentApprovals.Unlock()
-	approval, ok := agentApprovals.items[id]
-	if !ok || approval.UserID != userID {
-		return agentApproval{}, false
-	}
-	return approval, true
-}
-
-// updateAgentApprovalStatus 更新审批状态和更新时间。
-func updateAgentApprovalStatus(id string, status string) {
-	agentApprovals.Lock()
-	defer agentApprovals.Unlock()
-	approval, ok := agentApprovals.items[id]
-	if !ok {
-		return
-	}
-	approval.Status = status
-	approval.UpdatedAt = time.Now().Format(time.RFC3339)
-	agentApprovals.items[id] = approval
-}
-
-// buildApprovalConfirmationMessage 将用户确认动作转成 Agent 可继续执行的自然语言指令。
-func buildApprovalConfirmationMessage(approval agentApproval, message string) string {
-	message = strings.TrimSpace(message)
-	if message == "" {
-		message = "继续执行上一轮等待确认的操作。"
-	}
-	return fmt.Sprintf("用户已明确允许你继续执行上一轮等待确认的操作。\n待确认事项：%s\n用户补充说明：%s\n请在当前长会话上下文中继续执行，并在完成后给出结果、影响范围和失败风险。", approval.Description, message)
 }
 
 // CreateAgent 创建属于当前用户的 Agent。
@@ -396,15 +299,19 @@ func (h *AgentHandler) ChatWithAgent(ctx context.Context, c *app.RequestContext)
 		return
 	}
 	if resp != nil && resp.Success && resp.Msg == "pending_user_approval" {
-		approval := newAgentApproval(id, botID, conversationID, resp.Reply)
-		storeAgentApproval(approval)
+		approvalID := ""
+		if resp.Approval != nil {
+			approvalID = resp.Approval.ApprovalId
+		}
 		response.Success(c, map[string]interface{}{
 			"success":       true,
 			"reply":         resp.Reply,
 			"msg":           resp.Msg,
 			"status":        "pending_approval",
-			"approval_id":   approval.ID,
-			"approval":      approval,
+			"approval_id":   approvalID,
+			"approval":      resp.Approval,
+			"session_id":    resp.SessionId,
+			"run_id":        resp.RunId,
 			"input_tokens":  resp.InputTokens,
 			"output_tokens": resp.OutputTokens,
 			"cost":          resp.Cost,
@@ -557,10 +464,20 @@ func (h *AgentHandler) ListAgentApprovals(ctx context.Context, c *app.RequestCon
 	if !ok {
 		return
 	}
-	response.Success(c, map[string]interface{}{
-		"success":   true,
-		"approvals": listAgentApprovals(userID),
+	botID, ok := parseNonNegativeQueryInt64(c, "bot_id", 0)
+	if !ok {
+		return
+	}
+	resp, err := client.AgentClient.ListAgentApprovals(ctx, &bot.ListAgentApprovalsReq{
+		UserId: userID,
+		BotId:  botID,
+		Status: strings.TrimSpace(c.Query("status")),
 	})
+	if err != nil {
+		response.Error(c, err.Error())
+		return
+	}
+	response.Success(c, resp)
 }
 
 // ConfirmAgentApproval 用用户的明确确认继续同一个 Agent 长会话。
@@ -579,17 +496,12 @@ func (h *AgentHandler) ConfirmAgentApproval(ctx context.Context, c *app.RequestC
 	if !ok {
 		return
 	}
-	approval, ok := getAgentApproval(strings.TrimSpace(req.ApprovalID), userID)
-	if !ok {
-		response.NotFound(c, "审批记录不存在")
-		return
-	}
-	if approval.Status != agentApprovalStatusPending {
-		response.BadRequest(c, "审批记录已处理")
-		return
-	}
-	updateAgentApprovalStatus(approval.ID, agentApprovalStatusConfirmed)
-	resp, err := client.AgentLongTaskClient.ChatWithBot(ctx, client.NewChatWithAgentReq(approval.BotID, userID, approval.ConversationID, buildApprovalConfirmationMessage(approval, req.Message)))
+	resp, err := client.AgentLongTaskClient.ResumeAgent(ctx, &bot.ResumeAgentReq{
+		ApprovalId: strings.TrimSpace(req.ApprovalID),
+		UserId:     userID,
+		Approved:   true,
+		Reason:     strings.TrimSpace(req.Message),
+	})
 	if err != nil {
 		response.Error(c, err.Error())
 		return
@@ -612,19 +524,17 @@ func (h *AgentHandler) RejectAgentApproval(ctx context.Context, c *app.RequestCo
 	if !ok {
 		return
 	}
-	approval, ok := getAgentApproval(strings.TrimSpace(req.ApprovalID), userID)
-	if !ok {
-		response.NotFound(c, "审批记录不存在")
+	resp, err := client.AgentLongTaskClient.ResumeAgent(ctx, &bot.ResumeAgentReq{
+		ApprovalId: strings.TrimSpace(req.ApprovalID),
+		UserId:     userID,
+		Approved:   false,
+		Reason:     "用户拒绝执行该工具操作",
+	})
+	if err != nil {
+		response.Error(c, err.Error())
 		return
 	}
-	updateAgentApprovalStatus(approval.ID, agentApprovalStatusRejected)
-	approval.Status = agentApprovalStatusRejected
-	approval.UpdatedAt = time.Now().Format(time.RFC3339)
-	response.Success(c, map[string]interface{}{
-		"success":  true,
-		"approval": approval,
-		"msg":      "已拒绝，Agent不会执行该操作",
-	})
+	response.Success(c, resp)
 }
 
 // AddAgentAsFriend 将 Agent 绑定的系统用户加入创建者好友列表。
@@ -950,6 +860,47 @@ func (h *AgentHandler) ListAgentSessions(ctx context.Context, c *app.RequestCont
 		BotId:          botID,
 		UserId:         userID,
 		ConversationId: conversationID,
+	})
+	if err != nil {
+		response.Error(c, err.Error())
+		return
+	}
+	response.Success(c, resp)
+}
+
+// ListAgentRuns 返回单次运行的成本、状态和中断原因，供 Agent 面板展示。
+func (h *AgentHandler) ListAgentRuns(ctx context.Context, c *app.RequestContext) {
+	botID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || botID <= 0 {
+		response.BadRequest(c, "无效的Agent ID")
+		return
+	}
+	userID, ok := requireCurrentUserID(c)
+	if !ok {
+		return
+	}
+	permResp, err := client.AgentClient.ListPermissions(ctx, client.NewListPermissionsReq(botID, userID))
+	if err != nil {
+		response.Error(c, err.Error())
+		return
+	}
+	if permResp == nil || !permResp.Success {
+		response.Forbidden(c, "无权查看智能助手运行记录")
+		return
+	}
+	conversationID, ok := parseNonNegativeQueryInt64(c, "conversation_id", 0)
+	if !ok {
+		return
+	}
+	limit, ok := parseNonNegativeQueryInt64(c, "limit", 50)
+	if !ok {
+		return
+	}
+	resp, err := client.AgentRuntimeClient.ListAgentRuns(ctx, &bot_runtime.ListAgentRunsReq{
+		UserId:         userID,
+		BotId:          botID,
+		ConversationId: conversationID,
+		Limit:          limit,
 	})
 	if err != nil {
 		response.Error(c, err.Error())

@@ -4,6 +4,7 @@ package dao
 import (
 	"ClaranAIM/internal/agent-manager-service/model"
 	"context"
+	"errors"
 	"strings"
 	"time"
 
@@ -25,6 +26,7 @@ func InitDB(dsn string) (*gorm.DB, error) {
 		&model.AgentSubscriptionRule{},
 		&model.AgentAuditRecord{},
 		&model.AgentTask{},
+		&model.AgentApproval{},
 		&model.BotRoute{},
 		&model.BillingRecord{},
 	}
@@ -36,6 +38,77 @@ func InitDB(dsn string) (*gorm.DB, error) {
 	}
 
 	return db, nil
+}
+
+// AgentApprovalFilter 是审批列表查询条件。
+type AgentApprovalFilter struct {
+	UserID int64
+	BotID  int64
+	Status string
+	Limit  int
+}
+
+// AgentApprovalRepository 保存工具审批状态。
+type AgentApprovalRepository interface {
+	Create(ctx context.Context, approval *model.AgentApproval) error
+	Get(ctx context.Context, approvalID string) (*model.AgentApproval, error)
+	Update(ctx context.Context, approval *model.AgentApproval) error
+	List(ctx context.Context, filter AgentApprovalFilter) ([]model.AgentApproval, error)
+}
+
+type agentApprovalRepositoryImpl struct {
+	db *gorm.DB
+}
+
+// NewAgentApprovalRepo 创建审批仓储。
+func NewAgentApprovalRepo(db *gorm.DB) AgentApprovalRepository {
+	return &agentApprovalRepositoryImpl{db: db}
+}
+
+// Create 写入审批记录。
+func (r *agentApprovalRepositoryImpl) Create(ctx context.Context, approval *model.AgentApproval) error {
+	return r.db.WithContext(ctx).Create(approval).Error
+}
+
+// Get 按审批 ID 查询。
+func (r *agentApprovalRepositoryImpl) Get(ctx context.Context, approvalID string) (*model.AgentApproval, error) {
+	var approval model.AgentApproval
+	err := r.db.WithContext(ctx).Where("approval_id = ?", approvalID).First(&approval).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &approval, nil
+}
+
+// Update 覆盖更新审批记录。
+func (r *agentApprovalRepositoryImpl) Update(ctx context.Context, approval *model.AgentApproval) error {
+	return r.db.WithContext(ctx).Save(approval).Error
+}
+
+// List 返回审批列表。
+func (r *agentApprovalRepositoryImpl) List(ctx context.Context, filter AgentApprovalFilter) ([]model.AgentApproval, error) {
+	query := r.db.WithContext(ctx).Model(&model.AgentApproval{})
+	if filter.UserID > 0 {
+		query = query.Where("user_id = ?", filter.UserID)
+	}
+	if filter.BotID > 0 {
+		query = query.Where("bot_id = ?", filter.BotID)
+	}
+	if strings.TrimSpace(filter.Status) != "" {
+		query = query.Where("status = ?", filter.Status)
+	}
+	limit := filter.Limit
+	if limit <= 0 || limit > 200 {
+		limit = 100
+	}
+	var approvals []model.AgentApproval
+	if err := query.Order("created_at DESC").Limit(limit).Find(&approvals).Error; err != nil {
+		return nil, err
+	}
+	return approvals, nil
 }
 
 // AgentDispatchRepository 保存 Kafka 触发的 Agent 调度进度，用于幂等处理。

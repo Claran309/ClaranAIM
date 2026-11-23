@@ -136,7 +136,7 @@ func (d *AgentEventDispatcher) Handle(ctx context.Context, envelope events.Envel
 	if event == nil {
 		return nil
 	}
-	log.Printf("Agent事件入口: event_id=%s type=%s conversation_id=%d conversation_type=%s sender_id=%d msg_id=%d client_msg_id=%s idempotency_key=%s participants=%v mentions=%v metadata=%v", envelope.EventID, event.EventType, event.ConversationID, event.ConversationType, event.SenderID, event.MsgID, event.ClientMsgID, event.IdempotencyKey, event.ParticipantIDs, event.MentionUserIDs, event.Metadata)
+	log.Printf("Agent事件入口: event_id=%s type=%s conversation_id=%d conversation_type=%s sender_id=%d msg_id=%d client_msg_id=%s idempotency_key=%s participants=%v mentions=%v metadata_len=%d", envelope.EventID, event.EventType, event.ConversationID, event.ConversationType, event.SenderID, event.MsgID, event.ClientMsgID, event.IdempotencyKey, event.ParticipantIDs, event.MentionUserIDs, len(event.Metadata))
 	if event.isNonTriggeringEvent() {
 		log.Printf("Agent事件静默: non_triggering_event event_id=%s type=%s conversation_id=%d sender_id=%d msg_id=%d", envelope.EventID, event.EventType, event.ConversationID, event.SenderID, event.MsgID)
 		return nil
@@ -170,14 +170,14 @@ func (d *AgentEventDispatcher) Handle(ctx context.Context, envelope events.Envel
 			if bot != nil && bot.AgentUserID == event.SenderID {
 				traceID := fmt.Sprintf("agent:%s:%d", event.dispatchEventID(envelope.EventID), bot.AgentUserID)
 				_ = d.audit(ctx, envelope, *event, bot, "silent_agent_echo", "resolved_bot_sender_is_agent_user", traceID)
-				log.Printf("Agent事件静默: resolved_bot_sender_is_agent_user event_id=%s type=%s conversation_id=%d sender_id=%d bot_id=%d agent_user_id=%d msg_id=%d client_msg_id=%s participants=%v metadata=%v", envelope.EventID, event.EventType, event.ConversationID, event.SenderID, bot.ID, bot.AgentUserID, event.MsgID, event.ClientMsgID, event.ParticipantIDs, event.Metadata)
+				log.Printf("Agent事件静默: resolved_bot_sender_is_agent_user event_id=%s type=%s conversation_id=%d sender_id=%d bot_id=%d agent_user_id=%d msg_id=%d client_msg_id=%s participants=%v metadata_len=%d", envelope.EventID, event.EventType, event.ConversationID, event.SenderID, bot.ID, bot.AgentUserID, event.MsgID, event.ClientMsgID, event.ParticipantIDs, len(event.Metadata))
 			}
 			continue
 		}
 		if event.sentByKnownAgent(bot) {
 			traceID := fmt.Sprintf("agent:%s:%d", event.dispatchEventID(envelope.EventID), bot.AgentUserID)
 			_ = d.audit(ctx, envelope, *event, bot, "silent_agent_echo", "event_sent_by_known_agent", traceID)
-			log.Printf("Agent事件静默: event_sent_by_known_agent event_id=%s type=%s conversation_id=%d sender_id=%d bot_id=%d agent_user_id=%d msg_id=%d client_msg_id=%s participants=%v metadata=%v", envelope.EventID, event.EventType, event.ConversationID, event.SenderID, bot.ID, bot.AgentUserID, event.MsgID, event.ClientMsgID, event.ParticipantIDs, event.Metadata)
+			log.Printf("Agent事件静默: event_sent_by_known_agent event_id=%s type=%s conversation_id=%d sender_id=%d bot_id=%d agent_user_id=%d msg_id=%d client_msg_id=%s participants=%v metadata_len=%d", envelope.EventID, event.EventType, event.ConversationID, event.SenderID, bot.ID, bot.AgentUserID, event.MsgID, event.ClientMsgID, event.ParticipantIDs, len(event.Metadata))
 			continue
 		}
 		sourceEventID := event.dispatchEventID(envelope.EventID)

@@ -55,6 +55,7 @@ func main() {
 	subscriptionRepo := dao.NewAgentSubscriptionRepo(db)
 	auditRepo := dao.NewAgentAuditRepo(db)
 	taskRepo := dao.NewAgentTaskRepo(db)
+	approvalRepo := dao.NewAgentApprovalRepo(db)
 	if err := eventbus.AutoMigrateReliabilityStore(db); err != nil {
 		logger.Fatal("初始化事件消费可靠性表失败", "error", err)
 	}
@@ -98,6 +99,11 @@ func main() {
 		SetMemoryService(service.AgentMemoryService)
 	}); ok {
 		impl.SetMemoryService(service.NewAgentMemoryRPC(memoryClient))
+	}
+	if impl, ok := agentService.(interface {
+		SetAgentApprovalRepository(dao.AgentApprovalRepository)
+	}); ok {
+		impl.SetAgentApprovalRepository(approvalRepo)
 	}
 	agentHandler := handler.NewAgentServiceImpl(agentService, cfg)
 

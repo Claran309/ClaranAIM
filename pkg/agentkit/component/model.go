@@ -11,13 +11,21 @@ import (
 //
 // baseURL 会去掉末尾斜杠，避免 Eino/OpenAI 客户端拼接接口路径时出现双斜杠。
 // 该函数同时支持官方 OpenAI 地址和本地/第三方 OpenAI-compatible 网关。
-func NewChatModel(ctx context.Context, apiKey, baseURL, modelName string) (*openai.ChatModel, error) {
+func NewChatModel(ctx context.Context, apiKey, baseURL, modelName string, maxOutputTokens int64, temperature float64) (*openai.ChatModel, error) {
 	baseURL = strings.TrimRight(baseURL, "/")
 
 	modelConfig := &openai.ChatModelConfig{
 		Model:   modelName,
 		APIKey:  apiKey,
 		BaseURL: baseURL,
+	}
+	if maxOutputTokens > 0 {
+		maxTokens := int(maxOutputTokens)
+		modelConfig.MaxTokens = &maxTokens
+	}
+	if temperature > 0 {
+		value := float32(temperature)
+		modelConfig.Temperature = &value
 	}
 
 	chatModel, err := openai.NewChatModel(ctx, modelConfig)

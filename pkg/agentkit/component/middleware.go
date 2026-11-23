@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 
 	commontool "github.com/cloudwego/eino-examples/adk/common/tool"
 	"github.com/cloudwego/eino/adk"
@@ -99,6 +100,8 @@ func safeWrapReader(sr *schema.StreamReader[string]) *schema.StreamReader[string
 // approvalMiddleware 处理工具调用中的用户审批流程
 type ApprovalMiddleware struct {
 	*adk.BaseChatModelAgentMiddleware
+	// ShouldApprove 返回 true 时才中断等待审批；nil 表示所有工具都审批。
+	ShouldApprove func(toolName string) bool
 }
 
 // WrapInvokableToolCall 包装同步工具调用，实现中断-恢复流程
@@ -112,6 +115,9 @@ func (m *ApprovalMiddleware) WrapInvokableToolCall(
 	// 	return endpoint, nil
 	// }
 
+	if m != nil && m.ShouldApprove != nil && tCtx != nil && !m.ShouldApprove(tCtx.Name) {
+		return endpoint, nil
+	}
 	return func(ctx context.Context, args string, opts ...tool.Option) (string, error) {
 		// 第一次执行：检查是否已被中断过
 		wasInterrupted, _, storedArgs := tool.GetInterruptState[string](ctx)
@@ -166,6 +172,9 @@ func (m *ApprovalMiddleware) WrapStreamableToolCall(
 	// 	return endpoint, nil
 	// }
 
+	if m != nil && m.ShouldApprove != nil && tCtx != nil && !m.ShouldApprove(tCtx.Name) {
+		return endpoint, nil
+	}
 	return func(ctx context.Context, args string, opts ...tool.Option) (*schema.StreamReader[string], error) {
 		// 第一次执行：检查是否已被中断过
 		wasInterrupted, _, storedArgs := tool.GetInterruptState[string](ctx)
@@ -204,4 +213,22 @@ func (m *ApprovalMiddleware) WrapStreamableToolCall(
 		// 所有中断点都已处理，执行工具
 		return endpoint(ctx, storedArgs, opts...)
 	}, nil
+}
+
+// IsHighRiskTool 判断工具是否会修改工作区或执行系统命令。
+// 只对真正有副作用的工具触发审批，避免 read_file/glob/grep 等只读操作也弹窗。
+func IsHighRiskTool(toolName string) bool {
+	name := strings.ToLower(strings.TrimSpace(toolName))
+	switch name {
+	case "write_file", "edit_file", "execute", "shell", "bash", "run_command",
+		"delete_file", "remove_file", "move_file", "rename_file", "copy_file",
+		"create_file", "overwrite_file", "apply_patch", "patch_file":
+		return true
+	}
+	for _, prefix := range []string{"write_", "edit_", "delete_", "remove_", "execute_", "shell_", "run_command", "install_"} {
+		if strings.HasPrefix(name, prefix) {
+			return true
+		}
+	}
+	return false
 }

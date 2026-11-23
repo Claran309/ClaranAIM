@@ -184,6 +184,29 @@ func (AgentTask) TableName() string {
 	return "agent_tasks"
 }
 
+// AgentApproval 保存 Agent 工具审批，归属控制面 manager，避免网关内存丢失。
+type AgentApproval struct {
+	ApprovalID     string    `json:"approval_id" gorm:"size:64;primaryKey"`
+	RunID          string    `json:"run_id" gorm:"size:64;index;not null"`
+	InterruptID    string    `json:"interrupt_id" gorm:"size:128;not null"`
+	SessionID      string    `json:"session_id" gorm:"size:128;index"`
+	BotID          int64     `json:"bot_id" gorm:"index;not null"`
+	UserID         int64     `json:"user_id" gorm:"index;not null"`
+	ConversationID int64     `json:"conversation_id" gorm:"index;default:0"`
+	Status         string    `json:"status" gorm:"size:32;index;not null;default:pending"`
+	ToolName       string    `json:"tool_name" gorm:"size:128"`
+	ArgumentsJSON  string    `json:"arguments_json" gorm:"type:text"`
+	Description    string    `json:"description" gorm:"type:text"`
+	Reason         string    `json:"reason" gorm:"type:text"`
+	CreatedAt      time.Time `json:"created_at" gorm:"autoCreateTime"`
+	UpdatedAt      time.Time `json:"updated_at" gorm:"autoUpdateTime"`
+}
+
+// TableName 固定审批表名。
+func (AgentApproval) TableName() string {
+	return "agent_approvals"
+}
+
 // BeforeCreate 在插入权限记录前补充分布式雪花 ID。
 func (p *BotPermission) BeforeCreate(tx *gorm.DB) error {
 	return fillSnowflakeID(&p.ID)

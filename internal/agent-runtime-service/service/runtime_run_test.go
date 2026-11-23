@@ -1,8 +1,8 @@
 package service
 
 import (
+	"ClaranAIM/internal/agent-runtime-service/store"
 	"ClaranAIM/kitex_gen/bot_runtime"
-	"ClaranAIM/pkg/agentkit/component"
 	"context"
 	"strings"
 	"testing"
@@ -41,18 +41,21 @@ func testRuntimeBot() *bot_runtime.RuntimeBotConfig {
 
 func testRuntimeService(t *testing.T, agent adk.Agent, storeDir string) *runtimeServiceImpl {
 	t.Helper()
-	var store *component.Store
+	var sessionStore store.SessionStore
 	if storeDir != "" {
-		var err error
-		store, err = component.NewStore(storeDir)
+		jsonlStore, err := store.NewJSONLStore(storeDir)
 		if err != nil {
-			t.Fatalf("NewStore() error = %v", err)
+			t.Fatalf("NewJSONLStore() error = %v", err)
 		}
+		sessionStore = jsonlStore
 	}
+	runtimeStore := store.NewMemoryRuntimeStore()
 	bot := testRuntimeBot()
 	return &runtimeServiceImpl{
-		sessionStore: store,
-		agentCache:   map[string]adk.Agent{runtimeAgentCacheKey(bot): agent},
+		sessionStore:    sessionStore,
+		runStore:        runtimeStore,
+		checkpointStore: runtimeStore,
+		agentCache:      map[string]adk.Agent{runtimeAgentCacheKey(bot): agent},
 	}
 }
 
@@ -69,18 +72,15 @@ func assistantEvent(content string) *adk.AgentEvent {
 
 func TestRunAgentRestoresSessionAndPersistsReply(t *testing.T) {
 	dir := t.TempDir()
-	store, err := component.NewStore(dir)
+	sessionStore, err := store.NewJSONLStore(dir)
 	if err != nil {
-		t.Fatalf("NewStore() error = %v", err)
+		t.Fatalf("NewJSONLStore() error = %v", err)
 	}
-	session, err := store.GetSession("session-restore")
-	if err != nil {
-		t.Fatalf("GetSession() error = %v", err)
-	}
-	if err := session.Append(schema.UserMessage("old question")); err != nil {
+	owner := store.SessionOwner{BotID: 7, UserID: 1}
+	if err := sessionStore.AppendMessage(context.Background(), "session-restore", owner, "user", "old question", 0); err != nil {
 		t.Fatalf("append old user error = %v", err)
 	}
-	if err := session.Append(schema.AssistantMessage("old answer", nil)); err != nil {
+	if err := sessionStore.AppendMessage(context.Background(), "session-restore", owner, "assistant", "old answer", 0); err != nil {
 		t.Fatalf("append old assistant error = %v", err)
 	}
 
@@ -110,15 +110,15 @@ func TestRunAgentRestoresSessionAndPersistsReply(t *testing.T) {
 		t.Fatalf("last captured message = %q", captured[len(captured)-1].Content)
 	}
 
-	reloaded, err := component.NewStore(dir)
+	reloaded, err := store.NewJSONLStore(dir)
 	if err != nil {
-		t.Fatalf("NewStore(reload) error = %v", err)
+		t.Fatalf("NewJSONLStore(reload) error = %v", err)
 	}
-	session, err = reloaded.GetSession("session-restore")
+	session, err := reloaded.GetSession(context.Background(), "session-restore")
 	if err != nil {
 		t.Fatalf("GetSession(reload) error = %v", err)
 	}
-	messages := session.GetMessages()
+	messages := session.Messages
 	if len(messages) != 4 {
 		t.Fatalf("persisted messages = %d, want 4", len(messages))
 	}

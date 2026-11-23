@@ -130,6 +130,7 @@ func RegisterRoutes(r *route.Engine, cfg ...*config.Config) {
 		auth.GET("/agent/:id/billing", agentHandler.GetBilling)
 		auth.GET("/agent/:id/permissions", agentHandler.ListPermissions)
 		auth.GET("/agent/:id/sessions", agentHandler.ListAgentSessions)
+		auth.GET("/agent/:id/runs", agentHandler.ListAgentRuns)
 
 		auth.GET("/memory/list", memoryHandler.ListMemories)
 		auth.POST("/memory/create", memoryHandler.CreateMemory)

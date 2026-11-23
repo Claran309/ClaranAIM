@@ -140,6 +140,56 @@ struct ChatWithBotResp {
     4: i64 output_tokens
     5: double cost
     6: string msg
+    7: optional string session_id
+    8: optional string run_id
+    9: optional AgentApprovalInfo approval
+}
+
+struct AgentApprovalInfo {
+    1: string approval_id
+    2: string run_id
+    3: string interrupt_id
+    4: string session_id
+    5: i64 bot_id
+    6: i64 user_id
+    7: i64 conversation_id
+    8: string status
+    9: string tool_name
+    10: string arguments_json
+    11: string description
+    12: string created_at
+    13: string updated_at
+}
+
+struct ListAgentApprovalsReq {
+    1: i64 user_id
+    2: i64 bot_id
+    3: string status
+}
+
+struct ListAgentApprovalsResp {
+    1: bool success
+    2: list<AgentApprovalInfo> approvals
+    3: string msg
+}
+
+struct ResumeAgentReq {
+    1: string approval_id
+    2: i64 user_id
+    3: bool approved
+    4: string reason
+}
+
+struct ResumeAgentResp {
+    1: bool success
+    2: string reply
+    3: i64 input_tokens
+    4: i64 output_tokens
+    5: double cost
+    6: string msg
+    7: string session_id
+    8: string run_id
+    9: optional AgentApprovalInfo approval
 }
 
 struct AgentTaskReq {
@@ -275,4 +325,6 @@ service BotService {
     ListRoutesResp ListRoutes(1: ListRoutesReq req)
     DeleteRouteResp DeleteRoute(1: DeleteRouteReq req)
     GetBillingResp GetBilling(1: GetBillingReq req)
+    ListAgentApprovalsResp ListAgentApprovals(1: ListAgentApprovalsReq req)
+    ResumeAgentResp ResumeAgent(1: ResumeAgentReq req)
 }

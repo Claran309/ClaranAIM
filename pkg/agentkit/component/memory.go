@@ -191,16 +191,8 @@ func (s *Store) GetSession(id string) (*Session, error) {
 			}
 			session.messages = append(session.messages, &msg)
 
-			// debug日志，显示加载的消息内容（如果消息过长，则截断显示）
-			contentRune := []rune(msg.Content)
-			displayContent := string(contentRune)
-			if len(contentRune) > 50 {
-				displayContent = string(contentRune[:50]) + "..."
-			}
-
-			displayContent = strings.ReplaceAll(displayContent, "\n", " ")
-
-			log.Printf("加载历史消息成功: role=%s, content=[%s]\n", msg.Role, displayContent)
+			// 只记录角色和长度，绝不把聊天正文写入日志。
+			log.Printf("加载历史消息成功: role=%s, content_len=%d\n", msg.Role, len([]rune(msg.Content)))
 		}
 	}
 

@@ -8,6 +8,7 @@ import (
 	"ClaranAIM/kitex_gen/memory"
 	"ClaranAIM/kitex_gen/user"
 	"ClaranAIM/kitex_gen/user/userservice"
+	"ClaranAIM/pkg/agentkit/pricing"
 	"context"
 	"errors"
 	"fmt"
@@ -38,6 +39,8 @@ type AgentService interface {
 	ListPermissions(ctx context.Context, botID, operatorID int64) ([]model.BotPermission, error)
 	RunAgentTask(ctx context.Context, botID, userID, conversationID int64, taskType, question string) (string, error)
 	GetBotByAgentUserID(ctx context.Context, agentUserID int64) (*model.Bot, error)
+	ListAgentApprovals(ctx context.Context, userID, botID int64, status string) ([]model.AgentApproval, error)
+	ResumeAgent(ctx context.Context, approvalID string, userID int64, approved bool, reason string) (*ChatResult, error)
 }
 
 // ChatResult 保存一次 Agent 对话的回复和运行元数据。
@@ -50,6 +53,8 @@ type ChatResult struct {
 	InputTokens    int64
 	OutputTokens   int64
 	Cost           float64
+	RunID          string
+	Approval       *model.AgentApproval
 }
 
 // agentServiceImpl 是 AgentService 的默认实现，组合 DAO、runtime RPC、user RPC 和 memory 客户端。
@@ -59,6 +64,7 @@ type agentServiceImpl struct {
 	routeRepo        dao.RouteRepository
 	billingRepo      dao.BillingRepository
 	subscriptionRepo dao.AgentSubscriptionRepository
+	approvalRepo     dao.AgentApprovalRepository
 	runtimeClient    botruntimeservice.Client
 	userClient       userservice.Client
 	workspaceBase    string
@@ -108,6 +114,11 @@ func (s *agentServiceImpl) SetAgentSubscriptionRepository(repo dao.AgentSubscrip
 // 当前依赖的是窄接口，后续独立 memory RPC 只要实现同一契约即可替换。
 func (s *agentServiceImpl) SetMemoryService(memory AgentMemoryService) {
 	s.memoryService = memory
+}
+
+// SetAgentApprovalRepository 注入工具审批仓储。
+func (s *agentServiceImpl) SetAgentApprovalRepository(repo dao.AgentApprovalRepository) {
+	s.approvalRepo = repo
 }
 
 // SetDefaultLLM 注入平台默认模型供应商配置。
@@ -421,6 +432,22 @@ func (s *agentServiceImpl) ChatWithBot(ctx context.Context, botID, userID, conve
 	if resultSessionID == "" {
 		resultSessionID = sessionID
 	}
+	if resp.Approval != nil {
+		approval := s.persistAgentApproval(ctx, botInfo, userID, conversationID, resultSessionID, resp.GetRunId(), resp.Approval)
+		s.recordBilling(ctx, botID, userID, conversationID, "chat_pending_approval", inputTokens, outputTokens, actualCost, botInfo.ModelName)
+		log.Printf("Agent运行等待用户审批: bot_id=%d user_id=%d run_id=%s approval_id=%s tool=%s", botID, userID, resp.GetRunId(), resp.Approval.ApprovalId, resp.Approval.ToolName)
+		return &ChatResult{
+			Reply:          resp.Reply,
+			ConversationID: conversationID,
+			Status:         "pending_user_approval",
+			SessionID:      resultSessionID,
+			InputTokens:    inputTokens,
+			OutputTokens:   outputTokens,
+			Cost:           actualCost,
+			RunID:          resp.GetRunId(),
+			Approval:       approval,
+		}, nil
+	}
 	if !skillSmoke {
 		s.recordAgentRunMemory(ctx, botID, userID, conversationID, resultSessionID, message, resp.Reply)
 	}
@@ -436,7 +463,153 @@ func (s *agentServiceImpl) ChatWithBot(ctx context.Context, botID, userID, conve
 		InputTokens:    inputTokens,
 		OutputTokens:   outputTokens,
 		Cost:           actualCost,
+		RunID:          resp.GetRunId(),
 	}, nil
+}
+
+// persistAgentApproval 把 runtime 返回的审批中断落到 manager 的 agent_approvals 表。
+func (s *agentServiceImpl) persistAgentApproval(ctx context.Context, botInfo *model.Bot, userID, conversationID int64, sessionID, runID string, info *bot_runtime.AgentApprovalInfo) *model.AgentApproval {
+	if info == nil {
+		return nil
+	}
+	now := time.Now()
+	approval := &model.AgentApproval{
+		ApprovalID:     info.ApprovalId,
+		RunID:          info.RunId,
+		InterruptID:    info.InterruptId,
+		SessionID:      info.SessionId,
+		BotID:          botInfo.ID,
+		UserID:         userID,
+		ConversationID: conversationID,
+		Status:         "pending",
+		ToolName:       info.ToolName,
+		ArgumentsJSON:  info.ArgumentsJson,
+		Description:    info.Description,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}
+	if approval.RunID == "" {
+		approval.RunID = runID
+	}
+	if approval.SessionID == "" {
+		approval.SessionID = sessionID
+	}
+	if s.approvalRepo == nil {
+		log.Printf("审批仓储未配置，审批仅返回内存对象: approval_id=%s", approval.ApprovalID)
+		return approval
+	}
+	if err := s.approvalRepo.Create(ctx, approval); err != nil {
+		log.Printf("写入Agent审批失败: approval_id=%s err=%v", approval.ApprovalID, err)
+		return approval
+	}
+	return approval
+}
+
+// ListAgentApprovals 返回当前用户可见的工具审批记录。
+func (s *agentServiceImpl) ListAgentApprovals(ctx context.Context, userID, botID int64, status string) ([]model.AgentApproval, error) {
+	if s.approvalRepo == nil {
+		return nil, nil
+	}
+	return s.approvalRepo.List(ctx, dao.AgentApprovalFilter{
+		UserID: userID,
+		BotID:  botID,
+		Status: status,
+		Limit:  100,
+	})
+}
+
+// ResumeAgent 用用户明确确认/拒绝的结果恢复被中断的 Eino checkpoint。
+func (s *agentServiceImpl) ResumeAgent(ctx context.Context, approvalID string, userID int64, approved bool, reason string) (*ChatResult, error) {
+	if s.approvalRepo == nil {
+		return nil, errors.New("审批存储未配置")
+	}
+	approval, err := s.approvalRepo.Get(ctx, strings.TrimSpace(approvalID))
+	if err != nil {
+		return nil, err
+	}
+	if approval == nil {
+		return nil, errors.New("审批记录不存在")
+	}
+	if approval.UserID != userID {
+		return nil, errors.New("无权处理该审批")
+	}
+	if approval.Status != "pending" {
+		return nil, errors.New("审批记录已处理")
+	}
+	botInfo, err := s.botRepo.GetBotByID(ctx, approval.BotID)
+	if err != nil {
+		return nil, err
+	}
+	if botInfo == nil {
+		return nil, errors.New("bot不存在")
+	}
+	if !botInfo.IsActive {
+		return nil, errors.New("bot已停用")
+	}
+	s.applyDefaultProvider(botInfo)
+	s.applyAgentOwnedSkillsDir(botInfo)
+	runtimeBot := s.runtimeConfig(botInfo)
+	resp, err := s.runtimeClient.ResumeAgent(ctx, &bot_runtime.ResumeAgentReq{
+		Bot:         runtimeBot,
+		UserId:      userID,
+		RunId:       approval.RunID,
+		InterruptId: approval.InterruptID,
+		ApprovalId:  approval.ApprovalID,
+		Approved:    approved,
+		Reason:      strings.TrimSpace(reason),
+	})
+	if err != nil {
+		return nil, err
+	}
+	if resp == nil || !resp.Success {
+		msg := "Agent恢复执行失败"
+		if resp != nil && resp.Msg != "" {
+			msg = resp.Msg
+		}
+		return nil, errors.New(msg)
+	}
+	approval.Status = "rejected"
+	if approved {
+		approval.Status = "approved"
+	}
+	approval.Reason = strings.TrimSpace(reason)
+	approval.UpdatedAt = time.Now()
+	if err := s.approvalRepo.Update(ctx, approval); err != nil {
+		log.Printf("更新审批状态失败: approval_id=%s err=%v", approval.ApprovalID, err)
+	}
+	inputTokens, outputTokens, usageSeen := int64(0), int64(0), false
+	if resp.Usage != nil {
+		inputTokens = resp.Usage.InputTokens
+		outputTokens = resp.Usage.OutputTokens
+		usageSeen = resp.Usage.UsageSeen
+	}
+	actualCost := tokenCost(botInfo.ModelName, inputTokens, outputTokens)
+	if !usageSeen {
+		s.recordBilling(ctx, botInfo.ID, userID, approval.ConversationID, "chat_resume_usage_missing", inputTokens, outputTokens, actualCost, botInfo.ModelName)
+	} else {
+		s.recordBilling(ctx, botInfo.ID, userID, approval.ConversationID, "chat_resume", inputTokens, outputTokens, actualCost, botInfo.ModelName)
+	}
+	result := &ChatResult{
+		Reply:          resp.Reply,
+		ConversationID: approval.ConversationID,
+		Status:         resp.Msg,
+		SessionID:      resp.SessionId,
+		InputTokens:    inputTokens,
+		OutputTokens:   outputTokens,
+		Cost:           actualCost,
+		RunID:          resp.RunId,
+	}
+	if resp.Approval != nil {
+		next := s.persistAgentApproval(ctx, botInfo, userID, approval.ConversationID, resp.SessionId, resp.RunId, resp.Approval)
+		result.Status = "pending_user_approval"
+		result.Approval = next
+		return result, nil
+	}
+	if result.SessionID == "" {
+		result.SessionID = approval.SessionID
+	}
+	s.recordAgentRunMemory(ctx, botInfo.ID, userID, approval.ConversationID, result.SessionID, "用户审批结果: "+approval.Status, resp.Reply)
+	return result, nil
 }
 
 const defaultSkillSmokeMarker = "skill-smoke-ok"
@@ -1006,21 +1179,12 @@ func timeNowUnixNano() int64 {
 
 // tokenCost 按模型价格和实际输入/输出 token 计算费用。
 func tokenCost(modelName string, inputTokens, outputTokens int64) float64 {
-	inputYuanPerMillion, outputYuanPerMillion := modelTokenPrice(modelName)
-	return float64(inputTokens)/1_000_000*inputYuanPerMillion + float64(outputTokens)/1_000_000*outputYuanPerMillion
+	return pricing.EstimateCNY(modelName, inputTokens, outputTokens)
 }
 
 // modelTokenPrice 返回指定模型每百万 token 的输入/输出价格，单位人民币。
 func modelTokenPrice(modelName string) (inputYuanPerMillion, outputYuanPerMillion float64) {
-	const usdToCny = 7.30
-	normalized := strings.ToLower(strings.TrimSpace(modelName))
-	switch {
-	case strings.Contains(normalized, "glm-4.7") || strings.Contains(normalized, "glm4.7"):
-		// GLM-4.7 价格按 Z.AI 官方美元计价折算：输入 $0.6/M tokens，输出 $2.2/M tokens。
-		return 0.6 * usdToCny, 2.2 * usdToCny
-	default:
-		return 0, 0
-	}
+	return pricing.PriceCNYPerMillion(modelName)
 }
 
 // CreateRoute 在确认 Agent 存在后创建路由规则，并尝试同步为 Agent-Native 订阅规则。

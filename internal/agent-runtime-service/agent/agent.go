@@ -102,6 +102,9 @@ func NewDeepAgent(ctx context.Context, model *openai.ChatModel, agentRoot string
 	}
 	// 注册安全工具调用中间件
 	handlers = append(handlers, &component.SafeToolMiddleware{})
+	if approvalEnabled(toolPolicy) {
+		handlers = append(handlers, &component.ApprovalMiddleware{ShouldApprove: component.IsHighRiskTool})
+	}
 
 	// 创建DeepAgent类型的Agent实例
 	effectiveName := agentName
@@ -160,6 +163,17 @@ func toolPolicyDisablesTools(toolPolicy string) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+// approvalEnabled 决定是否为当前工具策略注册硬审批中断。
+// readonly/disabled/skill_only 不走审批，而是由提示词和工具策略限制副作用动作。
+func approvalEnabled(toolPolicy string) bool {
+	switch strings.ToLower(strings.TrimSpace(toolPolicy)) {
+	case "readonly", "read_only", "disabled", "skill_only", "skill-only", "no_tools", "none":
+		return false
+	default:
+		return true
 	}
 }
 

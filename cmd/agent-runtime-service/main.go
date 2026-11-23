@@ -4,6 +4,7 @@ import (
 	"ClaranAIM/internal/agent-runtime-service/handler"
 	"ClaranAIM/internal/agent-runtime-service/logic"
 	"ClaranAIM/internal/agent-runtime-service/service"
+	"ClaranAIM/internal/agent-runtime-service/store"
 	"ClaranAIM/kitex_gen/bot_runtime/botruntimeservice"
 	"ClaranAIM/kitex_gen/mcp_gateway/mcpgatewayservice"
 	"ClaranAIM/kitex_gen/rag/ragservice"
@@ -35,11 +36,29 @@ func main() {
 	obsShutdown := observability.InitService(cfg.Service.Name, cfg)
 	defer obsShutdown()
 
+	var sessionStore store.SessionStore
+	var runStore store.RunStore
+	var checkpointStore store.CheckpointStore
+	if cfg.MySQL.DSN != "" {
+		db, dbErr := store.InitDB(cfg.MySQL.DSN)
+		if dbErr != nil {
+			logger.Warn("agent-runtime-service MySQL初始化失败，回退JSONL/内存存储", "error", dbErr)
+		} else {
+			gormStore := store.NewGormStore(db)
+			sessionStore = gormStore
+			runStore = gormStore
+			checkpointStore = gormStore
+			logger.Info("agent-runtime-service 会话/运行/审批checkpoint已使用MySQL持久化")
+		}
+	}
 	runtimeSvc := service.NewAgentRuntimeService(service.RuntimeConfig{
 		SessionDir:          cfg.Agent.SessionDir,
 		DefaultWorkspaceDir: cfg.Agent.AgentRoot,
 		CozeloopToken:       cfg.Agent.CozeloopToken,
 		CozeloopWorkspaceID: cfg.Agent.CozeloopWSID,
+		SessionStore:        sessionStore,
+		RunStore:            runStore,
+		CheckpointStore:     checkpointStore,
 	})
 	runtimeHandler := handler.NewAgentRuntimeServiceImpl(runtimeSvc)
 
