@@ -9,6 +9,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
@@ -97,5 +98,40 @@ func TestIntegrationFailedRecordCanBeReclaimed(t *testing.T) {
 	}
 	if ok, err := store.TryClaim(ctx, key, envelope); err != nil || ok {
 		t.Fatalf("claim after processed = (%v, %v), want false", ok, err)
+	}
+}
+
+// TestIntegrationCrashedConsumerLeaseIsReclaimed 覆盖 A1 的“消费者崩溃重试”：
+// 实例 A 抢占后崩溃（只留下 processing 记录、没有成功/失败），租约过期后实例 B 必须能接管。
+func TestIntegrationCrashedConsumerLeaseIsReclaimed(t *testing.T) {
+	db := setupReliabilityDB(t)
+	storeA := NewGormReliabilityStore(db)
+	storeB := NewGormReliabilityStore(db)
+	ctx := context.Background()
+	envelope := testEnvelope(t, "event-crash-recovery")
+	key := ConsumerEventKey("websocket-gateway", envelope)
+
+	if claimed, err := storeA.TryClaim(ctx, key, envelope); err != nil || !claimed {
+		t.Fatalf("instance A claim = (%v, %v), want true", claimed, err)
+	}
+	if claimed, err := storeB.TryClaim(ctx, key, envelope); err != nil || claimed {
+		t.Fatalf("instance B claim during active lease = (%v, %v), want false", claimed, err)
+	}
+
+	// 模拟实例 A 崩溃：记录停留在 processing，且 updated_at 早于租约窗口。
+	stale := time.Now().Add(-staleProcessingWindow - time.Minute)
+	if err := db.Model(&GormDeliveryRecord{}).Where("`key` = ?", key).
+		Updates(map[string]interface{}{"state": DeliveryStateProcessing, "updated_at": stale}).Error; err != nil {
+		t.Fatalf("simulate crash error = %v", err)
+	}
+
+	if claimed, err := storeB.TryClaim(ctx, key, envelope); err != nil || !claimed {
+		t.Fatalf("instance B takeover after lease expiry = (%v, %v), want true", claimed, err)
+	}
+	if err := storeB.MarkProcessed(ctx, key, envelope); err != nil {
+		t.Fatalf("MarkProcessed() error = %v", err)
+	}
+	if ok, err := storeA.IsProcessed(ctx, key); err != nil || !ok {
+		t.Fatalf("IsProcessed() = (%v, %v), want true", ok, err)
 	}
 }

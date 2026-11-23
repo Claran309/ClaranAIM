@@ -525,7 +525,7 @@ go test -tags=integration ./internal/msg-core-service/service/... -v
 
 CI 配置在 [`.github/workflows/ci.yml`](.github/workflows/ci.yml)，包含 gofmt、go vet、golangci-lint、go build、`go test -race`、msg-core MySQL 集成测试和 compose 文件校验。
 
-集成测试覆盖 8 组真实 MySQL 场景（串行执行，避免共享 `event_outbox` 表互相清表）。核心 3 个服务共 35 个集成测试（msg-core 12、agent-runtime 13、agent-manager 10）：
+集成测试覆盖 8 组真实 MySQL 场景（串行执行，避免共享 `event_outbox` 表互相清表）。核心 3 个服务共 36 个集成测试（msg-core 13、agent-runtime 13、agent-manager 10）：
 
 ```bash
 go test -p 1 -tags=integration ./internal/msg-core-service/service/...
@@ -537,6 +537,15 @@ go test -p 1 -tags=integration ./internal/group-service/service/...
 go test -p 1 -tags=integration ./pkg/eventbus/...
 go test -p 1 -tags=integration ./pkg/outbox/...
 ```
+
+真实 Kafka 场景单独用 `CLARAN_TEST_KAFKA_BROKERS` 开启（CI 已配置 broker）：
+
+```powershell
+$env:CLARAN_TEST_KAFKA_BROKERS="127.0.0.1:9092"
+go test -p 1 -tags=integration ./pkg/eventbus/... -run TestIntegrationKafkaBrokerDuplicateDeliveryIsIdempotent -v
+```
+
+该用例向临时 topic 写入两条相同 `event_id` 的消息，验证消费侧幂等表只执行一次；未设置 broker 时自动 `SKIP`。
 
 契约与可靠性约束也有自动化测试：`internal/architecture` 校验跨服务 import、IDL 与生成代码同步、Thrift 字段编号唯一、RPC 方法存在；`pkg/eventbus` 用 MySQL 主键唯一约束验证两个 consumer 实例并发时同一事件只执行一次；`pkg/governance` 验证连续超时后 Kitex 熔断返回 `ErrCircuitBreak`，关闭熔断后调用恢复。
 

@@ -611,11 +611,17 @@ func (s *messageServiceImpl) MarkConversationRead(ctx context.Context, conversat
 	}
 	readAt := time.Now()
 	if err := s.repo.WithTransaction(ctx, func(tx dao.MessageRepository) error {
-		if err := tx.UpdateParticipantReadCursor(ctx, conversationID, userID, messageID, readAt); err != nil {
+		advanced, err := tx.AdvanceParticipantReadCursor(ctx, conversationID, userID, messageID, readAt)
+		if err != nil {
 			return err
 		}
 		if err := tx.MarkMessagesReadThrough(ctx, conversationID, userID, messageID, readAt); err != nil {
 			return err
+		}
+		if !advanced {
+			// 重复或乱序的旧 ACK：游标没有前进，已读状态已经存在，
+			// 不再产生 message.read 事件，避免多端重复 ACK 把事件流放大。
+			return nil
 		}
 		if err := s.saveReadReceipt(ctx, tx, conversationID, userID, messageID); err != nil {
 			return err

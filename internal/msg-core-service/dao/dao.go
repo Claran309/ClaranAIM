@@ -82,8 +82,9 @@ type MessageRepository interface {
 	MarkMessagesReadThrough(ctx context.Context, conversationID, userID, messageID int64, readAt time.Time) error
 	// MarkMessageLocalDeleted 仅在某个用户本地视图中隐藏一条消息。
 	MarkMessageLocalDeleted(ctx context.Context, conversationID, userID, messageID int64, deletedAt time.Time) error
-	// UpdateParticipantReadCursor 保存会话级已读游标。
-	UpdateParticipantReadCursor(ctx context.Context, conversationID, userID, messageID int64, readAt time.Time) error
+	// AdvanceParticipantReadCursor 保存会话级已读游标，返回游标是否真的前进。
+	// 返回 false 表示这是重复或乱序的旧 ACK，调用方不应再产生已读事件。
+	AdvanceParticipantReadCursor(ctx context.Context, conversationID, userID, messageID int64, readAt time.Time) (bool, error)
 	// UpdateParticipantSettings 保存用户级会话 UI 设置。
 	UpdateParticipantSettings(ctx context.Context, conversationID, userID int64, draft *string, isPinned *bool, notifyEnabled *bool) error
 	// GetMessages 获取会话的消息列表，支持分页（beforeID游标分页）
@@ -314,17 +315,22 @@ func (r *messageRepositoryImpl) MarkMessageLocalDeleted(ctx context.Context, con
 	return r.UpsertMessageUserState(ctx, state)
 }
 
-// UpdateParticipantReadCursor 保存最新已读消息，用于未读数计算。
+// AdvanceParticipantReadCursor 保存最新已读消息，用于未读数计算。
 // 游标必须单调前进：移动端晚到的旧 ACK（乱序）不能把已读位置推回更早的消息，
 // 否则未读数会“复活”，前端会出现已读消息重新变未读。
-func (r *messageRepositoryImpl) UpdateParticipantReadCursor(ctx context.Context, conversationID, userID, messageID int64, readAt time.Time) error {
-	return r.db.WithContext(ctx).
+// 返回值表示本次是否真的推进了游标，供上层对重复 ACK 做去重。
+func (r *messageRepositoryImpl) AdvanceParticipantReadCursor(ctx context.Context, conversationID, userID, messageID int64, readAt time.Time) (bool, error) {
+	result := r.db.WithContext(ctx).
 		Model(&model.ConversationParticipant{}).
 		Where("conversation_id = ? AND user_id = ? AND last_read_message_id < ?", conversationID, userID, messageID).
 		Updates(map[string]interface{}{
 			"last_read_message_id": messageID,
 			"last_read_at":         readAt,
-		}).Error
+		})
+	if result.Error != nil {
+		return false, result.Error
+	}
+	return result.RowsAffected > 0, nil
 }
 
 // UpdateParticipantSettings 更新用户级会话设置。

@@ -248,3 +248,33 @@ func TestIntegrationReadCursorIsMonotonicUnderOutOfOrderAcks(t *testing.T) {
 		t.Fatal("earlier message should still be marked read by the newer ack")
 	}
 }
+
+// TestIntegrationDuplicateAckFromSecondDeviceDoesNotDuplicateReceipt 覆盖 A1 的“多端去重”：
+// 同一用户的两台设备重复上报同一条已读时，只应产生一条 message.read 事件。
+func TestIntegrationDuplicateAckFromSecondDeviceDoesNotDuplicateReceipt(t *testing.T) {
+	svc, db := setupIntegrationService(t)
+	conv := createIntegrationConversation(t, svc)
+	msg, err := svc.SendMessageExt(context.Background(), SendMessageOptions{
+		ConversationID: conv.ID,
+		SenderID:       101,
+		Content:        "multi device ack",
+		ClientMsgID:    "it-multi-1",
+	})
+	if err != nil {
+		t.Fatalf("SendMessageExt() error = %v", err)
+	}
+	for i := 0; i < 3; i++ {
+		if err := svc.MarkConversationRead(context.Background(), conv.ID, 102, msg.ID); err != nil {
+			t.Fatalf("MarkConversationRead(device %d) error = %v", i+1, err)
+		}
+	}
+	var readEvents int64
+	if err := db.Model(&outbox.Event{}).
+		Where("aggregate_id = ? AND event_type = ?", msg.ID, events.EventTypeMessageRead).
+		Count(&readEvents).Error; err != nil {
+		t.Fatalf("count read events error = %v", err)
+	}
+	if readEvents != 1 {
+		t.Fatalf("message.read events = %d, want 1 (duplicate acks must be deduped)", readEvents)
+	}
+}

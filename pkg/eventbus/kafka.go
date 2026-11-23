@@ -53,11 +53,19 @@ func (p *KafkaPublisher) Publish(ctx context.Context, envelope events.Envelope) 
 	if err != nil {
 		return err
 	}
+	return p.writeRaw(ctx, topic, envelope.Key, value)
+}
+
+// writeRaw 写入指定 topic，供集成测试使用临时 topic，避免污染业务事件流。
+func (p *KafkaPublisher) writeRaw(ctx context.Context, topic, key string, value []byte) error {
+	if p == nil || p.writer == nil {
+		return nil
+	}
 	writeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 	return p.writer.WriteMessages(writeCtx, kafka.Message{
 		Topic: topic,
-		Key:   []byte(envelope.Key),
+		Key:   []byte(key),
 		Value: value,
 		Time:  time.Now(),
 	})
@@ -78,6 +86,11 @@ type KafkaConsumer struct {
 
 // NewKafkaConsumer 创建一个绑定指定 topic 和 groupID 的 Kafka 消费者。
 func NewKafkaConsumer(brokers []string, topic, groupID string) *KafkaConsumer {
+	return newKafkaConsumerWithTopic(brokers, topic, groupID)
+}
+
+// newKafkaConsumerWithTopic 允许集成测试订阅临时 topic。
+func newKafkaConsumerWithTopic(brokers []string, topic, groupID string) *KafkaConsumer {
 	return &KafkaConsumer{
 		reader: kafka.NewReader(kafka.ReaderConfig{
 			Brokers:        brokers,
