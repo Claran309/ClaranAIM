@@ -537,7 +537,7 @@ go test -p 1 -tags=integration ./pkg/eventbus/...
 go test -p 1 -tags=integration ./pkg/outbox/...
 ```
 
-契约与可靠性约束也有自动化测试：`internal/architecture` 校验跨服务 import、IDL 与生成代码同步、Thrift 字段编号唯一、RPC 方法存在；`pkg/eventbus` 用 MySQL 主键唯一约束验证两个 consumer 实例并发时同一事件只执行一次。
+契约与可靠性约束也有自动化测试：`internal/architecture` 校验跨服务 import、IDL 与生成代码同步、Thrift 字段编号唯一、RPC 方法存在；`pkg/eventbus` 用 MySQL 主键唯一约束验证两个 consumer 实例并发时同一事件只执行一次；`pkg/governance` 验证连续超时后 Kitex 熔断返回 `ErrCircuitBreak`，关闭熔断后调用恢复。
 
 ## 运维与排障
 

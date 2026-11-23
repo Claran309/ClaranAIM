@@ -177,7 +177,7 @@ ClaranAIM 是一个 AIM 系统：Agent + Instant Messaging。IM 负责用户、�
 | A9 可观测性样板 | 完成 | 消息写入 P99、Outbox 积压、Kafka 消费延迟、WS 失败率；4 条告警；Grafana Reliability 面板 |
 | A10 README 与叙事 | 完成 | 3 个核心域、个人实现边界、已知限制 |
 | A11 仓库清理 | 完成 | 删除空目录；`.gitignore` 覆盖 smoke 产物；`go vet` 干净；README 目录结构同步 |
-| A12 可选加分项 | 完成 | IDL 契约测试（struct/字段编号/RPC 方法同步）、DTM 补偿失败与幂等测试、Kafka/Outbox 积压指标、限流器测试、多实例 consumer 原子抢占测试 |
+| A12 可选加分项 | 完成 | IDL 契约测试（struct/字段编号/RPC 方法同步）、DTM 补偿失败与幂等测试、Kafka/Outbox 积压指标、限流器测试、Kitex 熔断打开/恢复测试、多实例 consumer 原子抢占测试 |
 
 ### 4.2 Reflection 补充清单（R1-R7）完成情况
 
