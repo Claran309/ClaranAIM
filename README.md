@@ -61,6 +61,7 @@ go test ./internal/rag-service/service/... -run TestRetrievalEvalReport -v
 - `RuleCRAGEvaluator` 根据 retrieval quality、coverage、specificity、conflict 输出 correct/incorrect/ambiguous。
 - `RuleSelfRAGJudge` 输出 `IsRel`、`IsSup`、`IsUse`。
 - 所有阈值都在 `pkg/config/config.go` 中配置（`rag.crag_*`、`rag.self_rag_relevance_threshold`），不硬编码。
+- 阈值出处写在同一处注释里（来自 50 条评测的分数分布，不是凭空取值）；改阈值必须重跑 `TestRetrievalEvalReport`。
 - 配置 `rag.router_provider=llm` 时可启用 LLM CRAG/Self-RAG judge；LLM 超时、返回非 JSON 或状态码异常时自动回退规则版。
 
 
@@ -524,7 +525,7 @@ go test -tags=integration ./internal/msg-core-service/service/... -v
 
 CI 配置在 [`.github/workflows/ci.yml`](.github/workflows/ci.yml)，包含 gofmt、go vet、golangci-lint、go build、`go test -race`、msg-core MySQL 集成测试和 compose 文件校验。
 
-集成测试覆盖 8 组真实 MySQL 场景（串行执行，避免共享 `event_outbox` 表互相清表）。核心 3 个服务共 34 个集成测试（msg-core 11、agent-runtime 13、agent-manager 10）：
+集成测试覆盖 8 组真实 MySQL 场景（串行执行，避免共享 `event_outbox` 表互相清表）。核心 3 个服务共 35 个集成测试（msg-core 12、agent-runtime 13、agent-manager 10）：
 
 ```bash
 go test -p 1 -tags=integration ./internal/msg-core-service/service/...

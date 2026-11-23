@@ -203,3 +203,48 @@ func TestIntegrationGetHistoryRespectsParticipantBoundary(t *testing.T) {
 		t.Fatal("GetHistory() for non-participant succeeded, want error")
 	}
 }
+
+// TestIntegrationReadCursorIsMonotonicUnderOutOfOrderAcks 覆盖 A1 的“乱序补偿”：
+// 移动端晚到的旧 ACK 不能把已读游标推回更早的消息。
+func TestIntegrationReadCursorIsMonotonicUnderOutOfOrderAcks(t *testing.T) {
+	svc, db := setupIntegrationService(t)
+	conv := createIntegrationConversation(t, svc)
+	first, err := svc.SendMessageExt(context.Background(), SendMessageOptions{
+		ConversationID: conv.ID,
+		SenderID:       101,
+		Content:        "ack order 1",
+		ClientMsgID:    "it-order-1",
+	})
+	if err != nil {
+		t.Fatalf("SendMessageExt(first) error = %v", err)
+	}
+	second, err := svc.SendMessageExt(context.Background(), SendMessageOptions{
+		ConversationID: conv.ID,
+		SenderID:       101,
+		Content:        "ack order 2",
+		ClientMsgID:    "it-order-2",
+	})
+	if err != nil {
+		t.Fatalf("SendMessageExt(second) error = %v", err)
+	}
+	if err := svc.MarkConversationRead(context.Background(), conv.ID, 102, second.ID); err != nil {
+		t.Fatalf("MarkConversationRead(newest) error = %v", err)
+	}
+	if err := svc.MarkConversationRead(context.Background(), conv.ID, 102, first.ID); err != nil {
+		t.Fatalf("MarkConversationRead(stale ack) error = %v", err)
+	}
+	var participant model.ConversationParticipant
+	if err := db.Where("conversation_id = ? AND user_id = ?", conv.ID, 102).First(&participant).Error; err != nil {
+		t.Fatalf("load participant error = %v", err)
+	}
+	if participant.LastReadMessageID != second.ID {
+		t.Fatalf("cursor regressed to %d, want %d (stale ack must not rewind)", participant.LastReadMessageID, second.ID)
+	}
+	var staleState model.MessageUserState
+	if err := db.Where("message_id = ? AND user_id = ?", first.ID, 102).First(&staleState).Error; err != nil {
+		t.Fatalf("load state error = %v", err)
+	}
+	if staleState.ReadAt == nil {
+		t.Fatal("earlier message should still be marked read by the newer ack")
+	}
+}

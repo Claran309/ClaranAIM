@@ -154,6 +154,15 @@ type RAGConfig struct {
 	RerankAPIKey       string `yaml:"rerank_api_key"`
 	RerankModel        string `yaml:"rerank_model"`
 	// Rule-based quality gate 阈值；LLM judge 不可用时使用这些值。
+	//
+	// 取值出处（不是凭空拍的数）：
+	//   - 0.32 / 0.18：A6 评测集上 keyword-only 与 vector-only 的检索质量分位点附近，
+	//     低于该分数时合成语料上几乎只剩无关 chunk。
+	//   - 0.62 / 0.45 / 0.55：需要“部分可用但覆盖不足”的中间区间；
+	//     0.62 是 correct 与 ambiguous 的分界，0.45 对应 3 条候选只覆盖约 1.35 条，
+	//     0.55 对应冲突标记出现 2 个以上时的经验阈值。
+	//   - 0.50：Self-RAG IsRel 的判定线，与 A6 评测中 gold chunk 最低命中分数对齐。
+	// 调整这些值后必须重跑 `TestRetrievalEvalReport`，避免只改数字不改结论。
 	CRAGIncorrectScore        float64 `yaml:"crag_incorrect_score"`
 	CRAGIncorrectQuality      float64 `yaml:"crag_incorrect_quality"`
 	CRAGAmbiguousScore        float64 `yaml:"crag_ambiguous_score"`

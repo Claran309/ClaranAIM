@@ -315,10 +315,12 @@ func (r *messageRepositoryImpl) MarkMessageLocalDeleted(ctx context.Context, con
 }
 
 // UpdateParticipantReadCursor 保存最新已读消息，用于未读数计算。
+// 游标必须单调前进：移动端晚到的旧 ACK（乱序）不能把已读位置推回更早的消息，
+// 否则未读数会“复活”，前端会出现已读消息重新变未读。
 func (r *messageRepositoryImpl) UpdateParticipantReadCursor(ctx context.Context, conversationID, userID, messageID int64, readAt time.Time) error {
 	return r.db.WithContext(ctx).
 		Model(&model.ConversationParticipant{}).
-		Where("conversation_id = ? AND user_id = ?", conversationID, userID).
+		Where("conversation_id = ? AND user_id = ? AND last_read_message_id < ?", conversationID, userID, messageID).
 		Updates(map[string]interface{}{
 			"last_read_message_id": messageID,
 			"last_read_at":         readAt,
