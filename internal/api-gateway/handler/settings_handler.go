@@ -207,10 +207,10 @@ func (h *SettingsHandler) SavePrompt(ctx context.Context, c *app.RequestContext)
 		UserId:     userID,
 		Id:         parseSettingsNumber(req.ID),
 		Type:       defaultSettingString(req.Type, settingsProviderTranslate),
-		Name:      req.Name,
-		Content:   req.Content,
-		IsDefault: req.IsDefault,
-		Enabled:   enabled,
+		Name:       req.Name,
+		Content:    req.Content,
+		IsDefault:  req.IsDefault,
+		Enabled:    enabled,
 		EnabledSet: enabledSet,
 	})
 	if err != nil || !resp.GetSuccess() {

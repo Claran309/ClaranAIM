@@ -1,8 +1,7 @@
 package agent
 
 import (
-	"ClaranAIM/internal/agent-manager-service/component"
-	runtimecomponent "ClaranAIM/internal/agent-runtime-service/component"
+	"ClaranAIM/pkg/agentkit/component"
 	"context"
 	"fmt"
 	"log"
@@ -33,7 +32,7 @@ func NewDeepAgent(ctx context.Context, model *openai.ChatModel, agentRoot string
 	if err != nil {
 		return nil, err
 	}
-	sandboxBackend := runtimecomponent.NewWorkspaceSandbox(backend, agentRoot)
+	sandboxBackend := component.NewWorkspaceSandbox(backend, agentRoot)
 
 	// 注册全局回调，便于在本地日志中观察 Agent 每个组件的启动、结束和异常。
 	handler := callbacks.NewHandlerBuilder().

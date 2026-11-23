@@ -1,5 +1,7 @@
 # ClaranAIM
 
+[![CI](https://github.com/Claran309/ClaranAIM/actions/workflows/ci.yml/badge.svg)](https://github.com/Claran309/ClaranAIM/actions/workflows/ci.yml)
+
 ClaranAIM 是一个 Agent-Native AIM 系统，AIM = Agent + Instant Messaging
 
 它不是把聊天机器人挂在 IM 旁边，而是把 Agent 设计成 IM 里的原生成员：Agent 拥有身份、会话、权限、记忆、Skill、MCP 工具和审计记录，可以进入私聊和群聊，理解真实聊天上下文，处理文件与知识库，在协作链路里执行任务并沉淀结果
@@ -27,6 +29,7 @@ ClaranAIM 是一个 Agent-Native AIM 系统，AIM = Agent + Instant Messaging
 | DeepWiki项目解析  |**[DeepWiki-ClaranAIM](https://deepwiki.com/Claran309/ClaranAIM.)** |
 | 项目总结  |**[AIM项目总结梳理](https://www.claran-blog.work/go-AIM/)** |
 | API 文档  |**[apiDoc.md](docs/apiDoc.md)** |
+| 架构决策  |**[ADR-0001 agent 服务边界](docs/design-decisions/0001-agent-service-boundary.md)** |
 | 阶段计划  |**[plan.md](docs/plan.md)** |
 
 ## 架构图
@@ -180,21 +183,22 @@ ClaranAIM/
     ├── mcp-gateway-service/                 # MCP 工具网关
     └── admin-service/                       # 管理台聚合服务
 ├── pkg/
-    ├── cache/redis/                         # Redis 客户端
-    ├── config/                              # 配置加载和环境变量覆盖
-    ├── documentparser/                      # 文档解析与 OCR 适配
-    ├── dtm/                                 # DTM Saga 封装
-    ├── eventbus/                            # Kafka 发布、消费和可靠处理
-    ├── events/                              # 统一事件 Envelope 和 topic
-    ├── governance/                          # Kitex 超时、熔断、限流配置
-    ├── health/                              # 启动健康检查
-    ├── idgen/                               # 雪花 ID、十位 UID、十位群号
-    ├── jwt/                                 # access token / refresh token
-    ├── logger/                              # Zap 日志
-    ├── observability/                       # OTel、metrics、trace
-    ├── outbox/                              # 事务 Outbox
-    ├── password/                            # bcrypt
-    ├── response/                            # HTTP 响应封装
+│   ├── agentkit/                          # Agent 共享库：模型工厂、会话存储、中间件、工作区沙箱、Graph 工具
+│   ├── cache/redis/                       # Redis 客户端
+│   ├── config/                            # 配置加载和环境变量覆盖
+│   ├── documentparser/                    # 文档解析与 OCR 适配
+│   ├── dtm/                               # DTM Saga 封装
+│   ├── eventbus/                          # Kafka 发布、消费和可靠处理
+│   ├── events/                            # 统一事件 Envelope 和 topic
+│   ├── governance/                        # Kitex 超时、熔断、限流配置
+│   ├── health/                            # 启动健康检查
+│   ├── idgen/                             # 雪花 ID、十位 UID、十位群号
+│   ├── jwt/                               # access token / refresh token
+│   ├── logger/                            # Zap 日志
+│   ├── observability/                     # OTel、metrics、trace
+│   ├── outbox/                            # 事务 Outbox
+│   ├── password/                          # bcrypt
+│   └── response/                          # HTTP 响应封装
 ├── idl/                                     # Thrift IDL
 ├── kitex_gen/                               # Kitex 生成代码
 ├── config/                                  # 各服务 YAML 配置
@@ -213,6 +217,7 @@ ClaranAIM/
 ├── docs/
     ├── apiDoc.md
     ├── plan.md
+    ├── design-decisions/
     ├── update/
     ├── learn/
     └── AI assistent/
@@ -350,6 +355,39 @@ docker compose -f deployment\docker\docker-compose.full.yaml down
 | `scripts\service-control.ps1` | `start/stop/status` 的共享实现，避免三个 bat 文件重复维护服务清单和端口检查逻辑 | 保留 |
 | `scripts\e2e-smoke.ps1` | 可选本地验收脚本，用于检查前端 JS 语法、Go 包构建和一些文档/目录约束，不是日常启动必需 | 保留 |
 
+
+## 开发与测试
+
+提交前跑一遍与 CI 相同的门禁：
+
+```bash
+gofmt -l cmd internal pkg   # 应输出为空
+go vet ./...
+golangci-lint run ./...
+go build ./...
+go test -race ./...
+```
+
+服务边界约束由架构测试保护，改了 import 之后可以单独跑：
+
+```bash
+go test ./internal/architecture/... -v
+```
+
+`pkg/agentkit` 的共享能力（会话存储、工作区沙箱）有独立单元测试：
+
+```bash
+go test ./pkg/agentkit/... -v
+```
+
+MySQL 集成测试默认跳过，需要本地 MySQL 8+ 并显式提供 DSN：
+
+```powershell
+$env:CLARAN_TEST_MYSQL_DSN="root:root@tcp(127.0.0.1:3306)/claran_test?charset=utf8mb4&parseTime=True&loc=Local"
+go test -tags=integration ./internal/msg-core-service/service/... -v
+```
+
+CI 配置在 [`.github/workflows/ci.yml`](.github/workflows/ci.yml)，包含 gofmt、go vet、golangci-lint、go build、`go test -race`、msg-core MySQL 集成测试和 compose 文件校验。
 
 ## 运维与排障
 

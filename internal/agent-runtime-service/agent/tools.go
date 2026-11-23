@@ -1,8 +1,8 @@
 package agent
 
 import (
-	"ClaranAIM/internal/agent-runtime-service/graphTool"
 	"ClaranAIM/internal/agent-runtime-service/logic"
+	"ClaranAIM/pkg/agentkit/graphTool"
 	"context"
 	"log"
 

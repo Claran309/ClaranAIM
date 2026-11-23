@@ -239,6 +239,9 @@ func perPageFetchBudget(totalBudget, remain time.Duration, resultCount int) time
 	if totalBudget <= 0 {
 		totalBudget = 10 * time.Second
 	}
+	if remain > totalBudget {
+		remain = totalBudget
+	}
 	if remain <= 0 {
 		return 500 * time.Millisecond
 	}

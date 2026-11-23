@@ -1,7 +1,7 @@
 package agent
 
 import (
-	"ClaranAIM/internal/agent-runtime-service/component"
+	"ClaranAIM/pkg/agentkit/component"
 	"context"
 	"fmt"
 	"log"
