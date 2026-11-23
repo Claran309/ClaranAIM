@@ -190,7 +190,8 @@ func (s *Store) GetSession(id string) (*Session, error) {
 			}
 			var msg schema.Message
 			if err := json.Unmarshal([]byte(line), &msg); err != nil {
-				log.Printf("解析消息失败，跳过该消息: %s, error: %v\n", line, err)
+				// 不打印原始 JSONL 行：它包含聊天正文，日志只允许出现长度等元信息。
+				log.Printf("解析消息失败，跳过该消息: line_len=%d, error: %v\n", len([]rune(line)), err)
 				continue
 			}
 			session.messages = append(session.messages, &msg)
