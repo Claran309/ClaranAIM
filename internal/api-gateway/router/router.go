@@ -140,6 +140,7 @@ func RegisterRoutes(r *route.Engine, cfg ...*config.Config) {
 		auth.POST("/memory/candidate/create", memoryHandler.CreateCandidate)
 		auth.POST("/memory/candidate/:id/accept", memoryHandler.AcceptCandidate)
 		auth.POST("/memory/candidate/:id/reject", memoryHandler.RejectCandidate)
+		auth.POST("/memory/consolidate", memoryHandler.ConsolidateMemories)
 
 		auth.POST("/rag/ingest", ragHandler.IngestDocument)
 		auth.POST("/rag/upload", ragHandler.UploadDocument)

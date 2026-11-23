@@ -11,6 +11,8 @@ import (
 type AgentMemoryService interface {
 	Recall(ctx context.Context, req *memory.RecallReq) (*memory.RecallResp, error)
 	CreateMemory(ctx context.Context, req *memory.CreateMemoryReq) (*memory.CreateMemoryResp, error)
+	CreateCandidate(ctx context.Context, req *memory.CreateCandidateReq) (*memory.CreateCandidateResp, error)
+	AcceptCandidate(ctx context.Context, req *memory.CandidateActionReq) (*memory.CandidateActionResp, error)
 	ListMemories(ctx context.Context, req *memory.ListMemoriesReq) (*memory.ListMemoriesResp, error)
 }
 
@@ -55,6 +57,34 @@ func (r *AgentMemoryRPC) ListMemories(ctx context.Context, req *memory.ListMemor
 		return nil, errors.New("memory-service客户端未配置")
 	}
 	resp, err := r.client.ListMemories(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	if !resp.GetSuccess() {
+		return nil, memoryRPCError(resp.GetMsg())
+	}
+	return resp, nil
+}
+
+func (r *AgentMemoryRPC) CreateCandidate(ctx context.Context, req *memory.CreateCandidateReq) (*memory.CreateCandidateResp, error) {
+	if r == nil || r.client == nil {
+		return nil, errors.New("memory-service客户端未配置")
+	}
+	resp, err := r.client.CreateCandidate(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	if !resp.GetSuccess() {
+		return nil, memoryRPCError(resp.GetMsg())
+	}
+	return resp, nil
+}
+
+func (r *AgentMemoryRPC) AcceptCandidate(ctx context.Context, req *memory.CandidateActionReq) (*memory.CandidateActionResp, error) {
+	if r == nil || r.client == nil {
+		return nil, errors.New("memory-service客户端未配置")
+	}
+	resp, err := r.client.AcceptCandidate(ctx, req)
 	if err != nil {
 		return nil, err
 	}

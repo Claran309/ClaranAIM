@@ -218,7 +218,8 @@ func (d *AgentEventDispatcher) Handle(ctx context.Context, envelope events.Envel
 			_ = d.markTaskFailed(ctx, sourceEventID, err.Error())
 			return err
 		}
-		result, err := d.agentService.ChatWithBot(ctx, bot.ID, event.SenderID, event.ConversationID, agentInput)
+		agentCtx := service.WithSourceMessageID(ctx, event.MsgID)
+		result, err := d.agentService.ChatWithBot(agentCtx, bot.ID, event.SenderID, event.ConversationID, agentInput)
 		if err != nil {
 			_ = d.dispatchRepo.MarkFailed(ctx, sourceEventID, bot.AgentUserID, err.Error())
 			_ = d.markTaskFailed(ctx, sourceEventID, err.Error())

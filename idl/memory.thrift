@@ -27,6 +27,10 @@ struct MemoryFact {
     24: i64 previous_memory_id
     25: string created_at
     26: string updated_at
+    27: list<i64> source_event_ids
+    28: i64 reference_count
+    29: string last_used_at
+    30: string corrected_at
 }
 
 struct CreateMemoryReq {
@@ -49,6 +53,7 @@ struct CreateMemoryReq {
     17: double confidence
     18: double importance
     19: i64 previous_memory_id
+    20: list<i64> source_event_ids
 }
 
 struct CreateMemoryResp {
@@ -160,6 +165,7 @@ struct MemoryCandidate {
     19: i64 accepted_memory_id
     20: string created_at
     21: string updated_at
+    22: list<i64> source_event_ids
 }
 
 struct CreateCandidateReq {
@@ -179,6 +185,22 @@ struct CreateCandidateReq {
     14: double importance
     15: list<i64> conflict_memory_ids
     16: string conflict_resolution
+    17: list<i64> source_event_ids
+}
+
+struct ConsolidateMemoriesReq {
+    1: i64 owner_user_id
+    2: i64 bot_id
+    3: bool dry_run
+    4: i64 limit
+}
+
+struct ConsolidateMemoriesResp {
+    1: bool success
+    2: i64 duplicates_merged
+    3: i64 importance_decayed
+    4: i64 archived
+    5: string msg
 }
 
 struct CandidateFilter {
@@ -228,4 +250,5 @@ service MemoryService {
     ListCandidatesResp ListCandidates(1: ListCandidatesReq req)
     CandidateActionResp AcceptCandidate(1: CandidateActionReq req)
     CandidateActionResp RejectCandidate(1: CandidateActionReq req)
+    ConsolidateMemoriesResp ConsolidateMemories(1: ConsolidateMemoriesReq req)
 }

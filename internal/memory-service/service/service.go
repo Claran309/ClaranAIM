@@ -25,6 +25,7 @@ type MemoryService interface {
 	ListCandidates(ctx context.Context, viewerID int64, filter CandidateFilter) ([]MemoryCandidate, int64, error)
 	AcceptCandidate(ctx context.Context, viewerID, candidateID int64) (*MemoryCandidate, error)
 	RejectCandidate(ctx context.Context, viewerID, candidateID int64) (*MemoryCandidate, error)
+	ConsolidateMemories(ctx context.Context, input ConsolidateInput) (ConsolidateResult, error)
 }
 
 // memoryServiceImpl 是 MemoryService 的默认实现，负责参数校验、权限裁剪和 DTO 转换。
@@ -92,6 +93,7 @@ func (s *memoryServiceImpl) CreateMemory(ctx context.Context, input CreateMemory
 		EmbeddingRef:     strings.TrimSpace(input.EmbeddingRef),
 		Confidence:       input.Confidence,
 		Importance:       normalizeScore(input.Importance, 0.5),
+		SourceEventIDs:   model.EncodeIDList(input.SourceEventIDs),
 		PreviousMemoryID: input.PreviousMemoryID,
 	}
 	if err := s.repo.Create(ctx, fact); err != nil {
@@ -188,8 +190,13 @@ func (s *memoryServiceImpl) UpdateMemory(ctx context.Context, viewerID, memoryID
 	if input.Title != "" {
 		fact.Title = strings.TrimSpace(input.Title)
 	}
+	corrected := false
 	if input.Content != "" {
-		fact.Content = strings.TrimSpace(input.Content)
+		nextContent := strings.TrimSpace(input.Content)
+		if nextContent != fact.Content {
+			fact.Content = nextContent
+			corrected = true
+		}
 	}
 	if input.Source != "" {
 		fact.Source = strings.TrimSpace(input.Source)
@@ -208,9 +215,15 @@ func (s *memoryServiceImpl) UpdateMemory(ctx context.Context, viewerID, memoryID
 	}
 	if input.Confidence != nil {
 		fact.Confidence = *input.Confidence
+	} else if corrected && fact.Confidence < 0.9 {
+		fact.Confidence = 0.9
 	}
 	if input.Importance != nil {
 		fact.Importance = normalizeScore(*input.Importance, fact.Importance)
+	}
+	if corrected {
+		now := time.Now()
+		fact.CorrectedAt = &now
 	}
 	if err := validateFact(*fact); err != nil {
 		return nil, err
@@ -268,6 +281,7 @@ func (s *memoryServiceImpl) CreateCandidate(ctx context.Context, input Candidate
 		Evidence:           strings.TrimSpace(input.Evidence),
 		Confidence:         input.Confidence,
 		Importance:         normalizeScore(input.Importance, 0.5),
+		SourceEventIDs:     model.EncodeIDList(input.SourceEventIDs),
 		Status:             model.CandidatePending,
 		ConflictMemoryIDs:  model.EncodeIDList(input.ConflictMemoryIDs),
 		ConflictResolution: resolution,
@@ -333,6 +347,7 @@ func (s *memoryServiceImpl) AcceptCandidate(ctx context.Context, viewerID, candi
 		VectorStatus:     model.VectorPending,
 		Confidence:       candidate.Confidence,
 		Importance:       candidate.Importance,
+		SourceEventIDs:   model.DecodeIDList(candidate.SourceEventIDs),
 		PreviousMemoryID: previousID,
 	})
 	if err != nil {
@@ -830,6 +845,10 @@ func memoryFactToDTO(fact *model.MemoryFact) *MemoryFact {
 		PreviousMemoryID: fact.PreviousMemoryID,
 		CreatedAt:        fact.CreatedAt.Format(time.RFC3339),
 		UpdatedAt:        fact.UpdatedAt.Format(time.RFC3339),
+		SourceEventIDs:   model.DecodeIDList(fact.SourceEventIDs),
+		ReferenceCount:   fact.ReferenceCount,
+		LastUsedAt:       formatOptionalTime(fact.LastUsedAt),
+		CorrectedAt:      formatOptionalTime(fact.CorrectedAt),
 	}
 }
 
@@ -867,6 +886,7 @@ func candidateToDTO(candidate *model.MemoryCandidate) *MemoryCandidate {
 		AcceptedMemoryID:   candidate.AcceptedMemoryID,
 		CreatedAt:          candidate.CreatedAt.Format(time.RFC3339),
 		UpdatedAt:          candidate.UpdatedAt.Format(time.RFC3339),
+		SourceEventIDs:     model.DecodeIDList(candidate.SourceEventIDs),
 	}
 }
 

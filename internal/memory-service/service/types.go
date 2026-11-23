@@ -20,6 +20,7 @@ type CreateMemoryInput struct {
 	Confidence       float64
 	Importance       float64
 	PreviousMemoryID int64
+	SourceEventIDs   []int64
 }
 
 type UpdateMemoryInput struct {
@@ -71,6 +72,7 @@ type CandidateInput struct {
 	Importance         float64
 	ConflictMemoryIDs  []int64
 	ConflictResolution string
+	SourceEventIDs     []int64
 }
 
 type CandidateFilter struct {
@@ -108,6 +110,10 @@ type MemoryFact struct {
 	PreviousMemoryID int64
 	CreatedAt        string
 	UpdatedAt        string
+	SourceEventIDs   []int64
+	ReferenceCount   int64
+	LastUsedAt       string
+	CorrectedAt      string
 }
 
 type MemoryCandidate struct {
@@ -132,4 +138,18 @@ type MemoryCandidate struct {
 	AcceptedMemoryID   int64
 	CreatedAt          string
 	UpdatedAt          string
+	SourceEventIDs     []int64
+}
+
+type ConsolidateInput struct {
+	OwnerUserID int64
+	BotID       int64
+	DryRun      bool
+	Limit       int
+}
+
+type ConsolidateResult struct {
+	DuplicatesMerged  int64
+	ImportanceDecayed int64
+	Archived          int64
 }

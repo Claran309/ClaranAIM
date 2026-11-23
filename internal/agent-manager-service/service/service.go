@@ -769,7 +769,7 @@ func (s *agentServiceImpl) recordAgentRunMemory(ctx context.Context, botID, user
 	if s.agentRunMemoryExists(ctx, botID, userID, conversationID, sessionID, content) {
 		return
 	}
-	_, err := s.memoryService.CreateMemory(ctx, &memory.CreateMemoryReq{
+	candidateResp, err := s.memoryService.CreateCandidate(ctx, &memory.CreateCandidateReq{
 		BotId:          botID,
 		UserId:         userID,
 		OwnerUserId:    userID,
@@ -779,12 +779,23 @@ func (s *agentServiceImpl) recordAgentRunMemory(ctx context.Context, botID, user
 		Type:           "agent_run_summary",
 		Content:        content,
 		Source:         "agent_run",
-		Visibility:     "private",
-		VectorStatus:   "pending",
+		Evidence:       "agent run summary generated from one user turn and one assistant reply",
 		Confidence:     0.5,
+		Importance:     0.5,
+		SourceEventIds: sourceMessageIDs(ctx),
 	})
 	if err != nil {
-		log.Printf("写入Agent运行摘要记忆失败: bot_id=%d user_id=%d err=%v", botID, userID, err)
+		log.Printf("写入Agent运行摘要候选失败: bot_id=%d user_id=%d err=%v", botID, userID, err)
+		return
+	}
+	if candidateResp.GetCandidate() == nil {
+		return
+	}
+	if _, err := s.memoryService.AcceptCandidate(ctx, &memory.CandidateActionReq{
+		ViewerId:    userID,
+		CandidateId: candidateResp.GetCandidate().Id,
+	}); err != nil {
+		log.Printf("规则接受Agent运行摘要候选失败: bot_id=%d user_id=%d candidate_id=%d err=%v", botID, userID, candidateResp.GetCandidate().Id, err)
 	}
 }
 

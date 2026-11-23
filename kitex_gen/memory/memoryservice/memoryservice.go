@@ -76,6 +76,13 @@ var serviceMethods = map[string]kitex.MethodInfo{
 		false,
 		kitex.WithStreamingMode(kitex.StreamingNone),
 	),
+	"ConsolidateMemories": kitex.NewMethodInfo(
+		consolidateMemoriesHandler,
+		newMemoryServiceConsolidateMemoriesArgs,
+		newMemoryServiceConsolidateMemoriesResult,
+		false,
+		kitex.WithStreamingMode(kitex.StreamingNone),
+	),
 }
 
 var (
@@ -304,6 +311,24 @@ func newMemoryServiceRejectCandidateResult() interface{} {
 	return memory.NewMemoryServiceRejectCandidateResult()
 }
 
+func consolidateMemoriesHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
+	realArg := arg.(*memory.MemoryServiceConsolidateMemoriesArgs)
+	realResult := result.(*memory.MemoryServiceConsolidateMemoriesResult)
+	success, err := handler.(memory.MemoryService).ConsolidateMemories(ctx, realArg.Req)
+	if err != nil {
+		return err
+	}
+	realResult.Success = success
+	return nil
+}
+func newMemoryServiceConsolidateMemoriesArgs() interface{} {
+	return memory.NewMemoryServiceConsolidateMemoriesArgs()
+}
+
+func newMemoryServiceConsolidateMemoriesResult() interface{} {
+	return memory.NewMemoryServiceConsolidateMemoriesResult()
+}
+
 type kClient struct {
 	c client.Client
 }
@@ -399,6 +424,16 @@ func (p *kClient) RejectCandidate(ctx context.Context, req *memory.CandidateActi
 	_args.Req = req
 	var _result memory.MemoryServiceRejectCandidateResult
 	if err = p.c.Call(ctx, "RejectCandidate", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
+
+func (p *kClient) ConsolidateMemories(ctx context.Context, req *memory.ConsolidateMemoriesReq) (r *memory.ConsolidateMemoriesResp, err error) {
+	var _args memory.MemoryServiceConsolidateMemoriesArgs
+	_args.Req = req
+	var _result memory.MemoryServiceConsolidateMemoriesResult
+	if err = p.c.Call(ctx, "ConsolidateMemories", &_args, &_result); err != nil {
 		return
 	}
 	return _result.GetSuccess(), nil

@@ -154,26 +154,27 @@ type RAGConfig struct {
 
 // MemoryRAGConfig 控制 memory-service 的长期记忆向量召回和融合打分策略。
 type MemoryRAGConfig struct {
-	Enabled            bool    `yaml:"enabled"`
-	EmbeddingDim       int     `yaml:"embedding_dim"`
-	EmbeddingProvider  string  `yaml:"embedding_provider"`
-	EmbeddingURL       string  `yaml:"embedding_url"`
-	EmbeddingAPIKey    string  `yaml:"embedding_api_key"`
-	EmbeddingModel     string  `yaml:"embedding_model"`
-	EmbeddingDimension int     `yaml:"embedding_dimension"`
-	MilvusEnabled      bool    `yaml:"milvus_enabled"`
-	MilvusAddress      string  `yaml:"milvus_address"`
-	MilvusCollection   string  `yaml:"milvus_collection"`
-	VectorCandidateK   int     `yaml:"vector_candidate_k"`
-	MinScore           float64 `yaml:"min_score"`
-	VectorWeight       float64 `yaml:"vector_weight"`
-	ImportanceWeight   float64 `yaml:"importance_weight"`
-	RecencyWeight      float64 `yaml:"recency_weight"`
-	ScopeWeight        float64 `yaml:"scope_weight"`
-	LLMFilterEnabled   bool    `yaml:"llm_filter_enabled"`
-	LLMFilterBaseURL   string  `yaml:"llm_filter_base_url"`
-	LLMFilterAPIKey    string  `yaml:"llm_filter_api_key"`
-	LLMFilterModel     string  `yaml:"llm_filter_model"`
+	Enabled                      bool    `yaml:"enabled"`
+	EmbeddingDim                 int     `yaml:"embedding_dim"`
+	EmbeddingProvider            string  `yaml:"embedding_provider"`
+	EmbeddingURL                 string  `yaml:"embedding_url"`
+	EmbeddingAPIKey              string  `yaml:"embedding_api_key"`
+	EmbeddingModel               string  `yaml:"embedding_model"`
+	EmbeddingDimension           int     `yaml:"embedding_dimension"`
+	MilvusEnabled                bool    `yaml:"milvus_enabled"`
+	MilvusAddress                string  `yaml:"milvus_address"`
+	MilvusCollection             string  `yaml:"milvus_collection"`
+	VectorCandidateK             int     `yaml:"vector_candidate_k"`
+	MinScore                     float64 `yaml:"min_score"`
+	VectorWeight                 float64 `yaml:"vector_weight"`
+	ImportanceWeight             float64 `yaml:"importance_weight"`
+	RecencyWeight                float64 `yaml:"recency_weight"`
+	ScopeWeight                  float64 `yaml:"scope_weight"`
+	LLMFilterEnabled             bool    `yaml:"llm_filter_enabled"`
+	LLMFilterBaseURL             string  `yaml:"llm_filter_base_url"`
+	LLMFilterAPIKey              string  `yaml:"llm_filter_api_key"`
+	LLMFilterModel               string  `yaml:"llm_filter_model"`
+	ConsolidationIntervalMinutes int     `yaml:"consolidation_interval_minutes"`
 }
 
 // WebSearchConfig 控制 web-search-service 的一次性联网搜索增强策略。
@@ -346,6 +347,7 @@ func Load(configPath string) (*Config, error) {
 	v.SetDefault("memory_rag.scope_weight", 0.15)
 	v.SetDefault("memory_rag.llm_filter_enabled", false)
 	v.SetDefault("memory_rag.llm_filter_model", "glm-4-flash")
+	v.SetDefault("memory_rag.consolidation_interval_minutes", 360)
 	v.SetDefault("web_search.max_results", 5)
 	v.SetDefault("web_search.max_fetch", 5)
 	v.SetDefault("web_search.max_passages", 3)

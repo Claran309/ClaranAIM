@@ -20,6 +20,7 @@ type Client interface {
 	ListCandidates(ctx context.Context, req *memory.ListCandidatesReq, callOptions ...callopt.Option) (r *memory.ListCandidatesResp, err error)
 	AcceptCandidate(ctx context.Context, req *memory.CandidateActionReq, callOptions ...callopt.Option) (r *memory.CandidateActionResp, err error)
 	RejectCandidate(ctx context.Context, req *memory.CandidateActionReq, callOptions ...callopt.Option) (r *memory.CandidateActionResp, err error)
+	ConsolidateMemories(ctx context.Context, req *memory.ConsolidateMemoriesReq, callOptions ...callopt.Option) (r *memory.ConsolidateMemoriesResp, err error)
 }
 
 // NewClient creates a client for the service defined in IDL.
@@ -94,4 +95,9 @@ func (p *kMemoryServiceClient) AcceptCandidate(ctx context.Context, req *memory.
 func (p *kMemoryServiceClient) RejectCandidate(ctx context.Context, req *memory.CandidateActionReq, callOptions ...callopt.Option) (r *memory.CandidateActionResp, err error) {
 	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
 	return p.kClient.RejectCandidate(ctx, req)
+}
+
+func (p *kMemoryServiceClient) ConsolidateMemories(ctx context.Context, req *memory.ConsolidateMemoriesReq, callOptions ...callopt.Option) (r *memory.ConsolidateMemoriesResp, err error) {
+	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
+	return p.kClient.ConsolidateMemories(ctx, req)
 }

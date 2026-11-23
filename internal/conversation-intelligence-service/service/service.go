@@ -170,6 +170,7 @@ type MemoryCandidateArchiveInput struct {
 	Evidence       string
 	Importance     float64
 	Confidence     float64
+	SourceMsgIDs   []int64
 }
 
 type ArtifactBundle struct {
@@ -561,6 +562,7 @@ func (s *conversationIntelligenceServiceImpl) archiveMemoryCandidates(ctx contex
 			Evidence:       candidate.Evidence,
 			Importance:     candidate.Importance,
 			Confidence:     candidate.Confidence,
+			SourceMsgIDs:   candidate.SourceMsgIDs,
 		})
 	}
 }

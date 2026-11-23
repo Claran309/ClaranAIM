@@ -34,6 +34,10 @@ type MemoryFact struct {
 	PreviousMemoryId int64   `thrift:"previous_memory_id,24" frugal:"24,default,i64" json:"previous_memory_id"`
 	CreatedAt        string  `thrift:"created_at,25" frugal:"25,default,string" json:"created_at"`
 	UpdatedAt        string  `thrift:"updated_at,26" frugal:"26,default,string" json:"updated_at"`
+	SourceEventIds   []int64 `thrift:"source_event_ids,27" frugal:"27,default,list<i64>" json:"source_event_ids"`
+	ReferenceCount   int64   `thrift:"reference_count,28" frugal:"28,default,i64" json:"reference_count"`
+	LastUsedAt       string  `thrift:"last_used_at,29" frugal:"29,default,string" json:"last_used_at"`
+	CorrectedAt      string  `thrift:"corrected_at,30" frugal:"30,default,string" json:"corrected_at"`
 }
 
 func NewMemoryFact() *MemoryFact {
@@ -146,6 +150,22 @@ func (p *MemoryFact) GetCreatedAt() (v string) {
 func (p *MemoryFact) GetUpdatedAt() (v string) {
 	return p.UpdatedAt
 }
+
+func (p *MemoryFact) GetSourceEventIds() (v []int64) {
+	return p.SourceEventIds
+}
+
+func (p *MemoryFact) GetReferenceCount() (v int64) {
+	return p.ReferenceCount
+}
+
+func (p *MemoryFact) GetLastUsedAt() (v string) {
+	return p.LastUsedAt
+}
+
+func (p *MemoryFact) GetCorrectedAt() (v string) {
+	return p.CorrectedAt
+}
 func (p *MemoryFact) SetId(val int64) {
 	p.Id = val
 }
@@ -224,6 +244,18 @@ func (p *MemoryFact) SetCreatedAt(val string) {
 func (p *MemoryFact) SetUpdatedAt(val string) {
 	p.UpdatedAt = val
 }
+func (p *MemoryFact) SetSourceEventIds(val []int64) {
+	p.SourceEventIds = val
+}
+func (p *MemoryFact) SetReferenceCount(val int64) {
+	p.ReferenceCount = val
+}
+func (p *MemoryFact) SetLastUsedAt(val string) {
+	p.LastUsedAt = val
+}
+func (p *MemoryFact) SetCorrectedAt(val string) {
+	p.CorrectedAt = val
+}
 
 func (p *MemoryFact) String() string {
 	if p == nil {
@@ -259,6 +291,10 @@ var fieldIDToName_MemoryFact = map[int16]string{
 	24: "previous_memory_id",
 	25: "created_at",
 	26: "updated_at",
+	27: "source_event_ids",
+	28: "reference_count",
+	29: "last_used_at",
+	30: "corrected_at",
 }
 
 type CreateMemoryReq struct {
@@ -281,6 +317,7 @@ type CreateMemoryReq struct {
 	Confidence       float64 `thrift:"confidence,17" frugal:"17,default,double" json:"confidence"`
 	Importance       float64 `thrift:"importance,18" frugal:"18,default,double" json:"importance"`
 	PreviousMemoryId int64   `thrift:"previous_memory_id,19" frugal:"19,default,i64" json:"previous_memory_id"`
+	SourceEventIds   []int64 `thrift:"source_event_ids,20" frugal:"20,default,list<i64>" json:"source_event_ids"`
 }
 
 func NewCreateMemoryReq() *CreateMemoryReq {
@@ -365,6 +402,10 @@ func (p *CreateMemoryReq) GetImportance() (v float64) {
 func (p *CreateMemoryReq) GetPreviousMemoryId() (v int64) {
 	return p.PreviousMemoryId
 }
+
+func (p *CreateMemoryReq) GetSourceEventIds() (v []int64) {
+	return p.SourceEventIds
+}
 func (p *CreateMemoryReq) SetBotId(val int64) {
 	p.BotId = val
 }
@@ -422,6 +463,9 @@ func (p *CreateMemoryReq) SetImportance(val float64) {
 func (p *CreateMemoryReq) SetPreviousMemoryId(val int64) {
 	p.PreviousMemoryId = val
 }
+func (p *CreateMemoryReq) SetSourceEventIds(val []int64) {
+	p.SourceEventIds = val
+}
 
 func (p *CreateMemoryReq) String() string {
 	if p == nil {
@@ -450,6 +494,7 @@ var fieldIDToName_CreateMemoryReq = map[int16]string{
 	17: "confidence",
 	18: "importance",
 	19: "previous_memory_id",
+	20: "source_event_ids",
 }
 
 type CreateMemoryResp struct {
@@ -1214,6 +1259,7 @@ type MemoryCandidate struct {
 	AcceptedMemoryId   int64   `thrift:"accepted_memory_id,19" frugal:"19,default,i64" json:"accepted_memory_id"`
 	CreatedAt          string  `thrift:"created_at,20" frugal:"20,default,string" json:"created_at"`
 	UpdatedAt          string  `thrift:"updated_at,21" frugal:"21,default,string" json:"updated_at"`
+	SourceEventIds     []int64 `thrift:"source_event_ids,22" frugal:"22,default,list<i64>" json:"source_event_ids"`
 }
 
 func NewMemoryCandidate() *MemoryCandidate {
@@ -1306,6 +1352,10 @@ func (p *MemoryCandidate) GetCreatedAt() (v string) {
 func (p *MemoryCandidate) GetUpdatedAt() (v string) {
 	return p.UpdatedAt
 }
+
+func (p *MemoryCandidate) GetSourceEventIds() (v []int64) {
+	return p.SourceEventIds
+}
 func (p *MemoryCandidate) SetId(val int64) {
 	p.Id = val
 }
@@ -1369,6 +1419,9 @@ func (p *MemoryCandidate) SetCreatedAt(val string) {
 func (p *MemoryCandidate) SetUpdatedAt(val string) {
 	p.UpdatedAt = val
 }
+func (p *MemoryCandidate) SetSourceEventIds(val []int64) {
+	p.SourceEventIds = val
+}
 
 func (p *MemoryCandidate) String() string {
 	if p == nil {
@@ -1399,6 +1452,7 @@ var fieldIDToName_MemoryCandidate = map[int16]string{
 	19: "accepted_memory_id",
 	20: "created_at",
 	21: "updated_at",
+	22: "source_event_ids",
 }
 
 type CreateCandidateReq struct {
@@ -1418,6 +1472,7 @@ type CreateCandidateReq struct {
 	Importance         float64 `thrift:"importance,14" frugal:"14,default,double" json:"importance"`
 	ConflictMemoryIds  []int64 `thrift:"conflict_memory_ids,15" frugal:"15,default,list<i64>" json:"conflict_memory_ids"`
 	ConflictResolution string  `thrift:"conflict_resolution,16" frugal:"16,default,string" json:"conflict_resolution"`
+	SourceEventIds     []int64 `thrift:"source_event_ids,17" frugal:"17,default,list<i64>" json:"source_event_ids"`
 }
 
 func NewCreateCandidateReq() *CreateCandidateReq {
@@ -1490,6 +1545,10 @@ func (p *CreateCandidateReq) GetConflictMemoryIds() (v []int64) {
 func (p *CreateCandidateReq) GetConflictResolution() (v string) {
 	return p.ConflictResolution
 }
+
+func (p *CreateCandidateReq) GetSourceEventIds() (v []int64) {
+	return p.SourceEventIds
+}
 func (p *CreateCandidateReq) SetBotId(val int64) {
 	p.BotId = val
 }
@@ -1538,6 +1597,9 @@ func (p *CreateCandidateReq) SetConflictMemoryIds(val []int64) {
 func (p *CreateCandidateReq) SetConflictResolution(val string) {
 	p.ConflictResolution = val
 }
+func (p *CreateCandidateReq) SetSourceEventIds(val []int64) {
+	p.SourceEventIds = val
+}
 
 func (p *CreateCandidateReq) String() string {
 	if p == nil {
@@ -1563,6 +1625,128 @@ var fieldIDToName_CreateCandidateReq = map[int16]string{
 	14: "importance",
 	15: "conflict_memory_ids",
 	16: "conflict_resolution",
+	17: "source_event_ids",
+}
+
+type ConsolidateMemoriesReq struct {
+	OwnerUserId int64 `thrift:"owner_user_id,1" frugal:"1,default,i64" json:"owner_user_id"`
+	BotId       int64 `thrift:"bot_id,2" frugal:"2,default,i64" json:"bot_id"`
+	DryRun      bool  `thrift:"dry_run,3" frugal:"3,default,bool" json:"dry_run"`
+	Limit       int64 `thrift:"limit,4" frugal:"4,default,i64" json:"limit"`
+}
+
+func NewConsolidateMemoriesReq() *ConsolidateMemoriesReq {
+	return &ConsolidateMemoriesReq{}
+}
+
+func (p *ConsolidateMemoriesReq) InitDefault() {
+}
+
+func (p *ConsolidateMemoriesReq) GetOwnerUserId() (v int64) {
+	return p.OwnerUserId
+}
+
+func (p *ConsolidateMemoriesReq) GetBotId() (v int64) {
+	return p.BotId
+}
+
+func (p *ConsolidateMemoriesReq) GetDryRun() (v bool) {
+	return p.DryRun
+}
+
+func (p *ConsolidateMemoriesReq) GetLimit() (v int64) {
+	return p.Limit
+}
+func (p *ConsolidateMemoriesReq) SetOwnerUserId(val int64) {
+	p.OwnerUserId = val
+}
+func (p *ConsolidateMemoriesReq) SetBotId(val int64) {
+	p.BotId = val
+}
+func (p *ConsolidateMemoriesReq) SetDryRun(val bool) {
+	p.DryRun = val
+}
+func (p *ConsolidateMemoriesReq) SetLimit(val int64) {
+	p.Limit = val
+}
+
+func (p *ConsolidateMemoriesReq) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("ConsolidateMemoriesReq(%+v)", *p)
+}
+
+var fieldIDToName_ConsolidateMemoriesReq = map[int16]string{
+	1: "owner_user_id",
+	2: "bot_id",
+	3: "dry_run",
+	4: "limit",
+}
+
+type ConsolidateMemoriesResp struct {
+	Success           bool   `thrift:"success,1" frugal:"1,default,bool" json:"success"`
+	DuplicatesMerged  int64  `thrift:"duplicates_merged,2" frugal:"2,default,i64" json:"duplicates_merged"`
+	ImportanceDecayed int64  `thrift:"importance_decayed,3" frugal:"3,default,i64" json:"importance_decayed"`
+	Archived          int64  `thrift:"archived,4" frugal:"4,default,i64" json:"archived"`
+	Msg               string `thrift:"msg,5" frugal:"5,default,string" json:"msg"`
+}
+
+func NewConsolidateMemoriesResp() *ConsolidateMemoriesResp {
+	return &ConsolidateMemoriesResp{}
+}
+
+func (p *ConsolidateMemoriesResp) InitDefault() {
+}
+
+func (p *ConsolidateMemoriesResp) GetSuccess() (v bool) {
+	return p.Success
+}
+
+func (p *ConsolidateMemoriesResp) GetDuplicatesMerged() (v int64) {
+	return p.DuplicatesMerged
+}
+
+func (p *ConsolidateMemoriesResp) GetImportanceDecayed() (v int64) {
+	return p.ImportanceDecayed
+}
+
+func (p *ConsolidateMemoriesResp) GetArchived() (v int64) {
+	return p.Archived
+}
+
+func (p *ConsolidateMemoriesResp) GetMsg() (v string) {
+	return p.Msg
+}
+func (p *ConsolidateMemoriesResp) SetSuccess(val bool) {
+	p.Success = val
+}
+func (p *ConsolidateMemoriesResp) SetDuplicatesMerged(val int64) {
+	p.DuplicatesMerged = val
+}
+func (p *ConsolidateMemoriesResp) SetImportanceDecayed(val int64) {
+	p.ImportanceDecayed = val
+}
+func (p *ConsolidateMemoriesResp) SetArchived(val int64) {
+	p.Archived = val
+}
+func (p *ConsolidateMemoriesResp) SetMsg(val string) {
+	p.Msg = val
+}
+
+func (p *ConsolidateMemoriesResp) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("ConsolidateMemoriesResp(%+v)", *p)
+}
+
+var fieldIDToName_ConsolidateMemoriesResp = map[int16]string{
+	1: "success",
+	2: "duplicates_merged",
+	3: "importance_decayed",
+	4: "archived",
+	5: "msg",
 }
 
 type CandidateFilter struct {
@@ -1901,6 +2085,8 @@ type MemoryService interface {
 	AcceptCandidate(ctx context.Context, req *CandidateActionReq) (r *CandidateActionResp, err error)
 
 	RejectCandidate(ctx context.Context, req *CandidateActionReq) (r *CandidateActionResp, err error)
+
+	ConsolidateMemories(ctx context.Context, req *ConsolidateMemoriesReq) (r *ConsolidateMemoriesResp, err error)
 }
 
 type MemoryServiceCreateMemoryArgs struct {
@@ -2584,5 +2770,81 @@ func (p *MemoryServiceRejectCandidateResult) String() string {
 }
 
 var fieldIDToName_MemoryServiceRejectCandidateResult = map[int16]string{
+	0: "success",
+}
+
+type MemoryServiceConsolidateMemoriesArgs struct {
+	Req *ConsolidateMemoriesReq `thrift:"req,1" frugal:"1,default,ConsolidateMemoriesReq" json:"req"`
+}
+
+func NewMemoryServiceConsolidateMemoriesArgs() *MemoryServiceConsolidateMemoriesArgs {
+	return &MemoryServiceConsolidateMemoriesArgs{}
+}
+
+func (p *MemoryServiceConsolidateMemoriesArgs) InitDefault() {
+}
+
+var MemoryServiceConsolidateMemoriesArgs_Req_DEFAULT *ConsolidateMemoriesReq
+
+func (p *MemoryServiceConsolidateMemoriesArgs) GetReq() (v *ConsolidateMemoriesReq) {
+	if !p.IsSetReq() {
+		return MemoryServiceConsolidateMemoriesArgs_Req_DEFAULT
+	}
+	return p.Req
+}
+func (p *MemoryServiceConsolidateMemoriesArgs) SetReq(val *ConsolidateMemoriesReq) {
+	p.Req = val
+}
+
+func (p *MemoryServiceConsolidateMemoriesArgs) IsSetReq() bool {
+	return p.Req != nil
+}
+
+func (p *MemoryServiceConsolidateMemoriesArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("MemoryServiceConsolidateMemoriesArgs(%+v)", *p)
+}
+
+var fieldIDToName_MemoryServiceConsolidateMemoriesArgs = map[int16]string{
+	1: "req",
+}
+
+type MemoryServiceConsolidateMemoriesResult struct {
+	Success *ConsolidateMemoriesResp `thrift:"success,0,optional" frugal:"0,optional,ConsolidateMemoriesResp" json:"success,omitempty"`
+}
+
+func NewMemoryServiceConsolidateMemoriesResult() *MemoryServiceConsolidateMemoriesResult {
+	return &MemoryServiceConsolidateMemoriesResult{}
+}
+
+func (p *MemoryServiceConsolidateMemoriesResult) InitDefault() {
+}
+
+var MemoryServiceConsolidateMemoriesResult_Success_DEFAULT *ConsolidateMemoriesResp
+
+func (p *MemoryServiceConsolidateMemoriesResult) GetSuccess() (v *ConsolidateMemoriesResp) {
+	if !p.IsSetSuccess() {
+		return MemoryServiceConsolidateMemoriesResult_Success_DEFAULT
+	}
+	return p.Success
+}
+func (p *MemoryServiceConsolidateMemoriesResult) SetSuccess(x interface{}) {
+	p.Success = x.(*ConsolidateMemoriesResp)
+}
+
+func (p *MemoryServiceConsolidateMemoriesResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *MemoryServiceConsolidateMemoriesResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("MemoryServiceConsolidateMemoriesResult(%+v)", *p)
+}
+
+var fieldIDToName_MemoryServiceConsolidateMemoriesResult = map[int16]string{
 	0: "success",
 }

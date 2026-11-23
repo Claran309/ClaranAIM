@@ -117,6 +117,7 @@ func (s *MemoryClientSink) CreateCandidate(ctx context.Context, input MemoryCand
 		Evidence:       input.Evidence,
 		Confidence:     input.Confidence,
 		Importance:     input.Importance,
+		SourceEventIds: input.SourceMsgIDs,
 	})
 	if err != nil {
 		return err

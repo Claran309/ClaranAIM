@@ -39,6 +39,7 @@ func (h *MemoryServiceImpl) CreateMemory(ctx context.Context, req *memory.Create
 		EmbeddingRef:     req.EmbeddingRef,
 		Confidence:       req.Confidence,
 		Importance:       req.Importance,
+		SourceEventIDs:   req.SourceEventIds,
 		PreviousMemoryID: req.PreviousMemoryId,
 	})
 	if err != nil {
@@ -115,6 +116,7 @@ func (h *MemoryServiceImpl) CreateCandidate(ctx context.Context, req *memory.Cre
 		Importance:         req.Importance,
 		ConflictMemoryIDs:  req.ConflictMemoryIds,
 		ConflictResolution: req.ConflictResolution,
+		SourceEventIDs:     req.SourceEventIds,
 	})
 	if err != nil {
 		return &memory.CreateCandidateResp{Success: false, Msg: err.Error()}, nil
@@ -222,6 +224,10 @@ func toRPCMemoryFact(fact *memorysvc.MemoryFact) *memory.MemoryFact {
 		PreviousMemoryId: fact.PreviousMemoryID,
 		CreatedAt:        fact.CreatedAt,
 		UpdatedAt:        fact.UpdatedAt,
+		SourceEventIds:   fact.SourceEventIDs,
+		ReferenceCount:   fact.ReferenceCount,
+		LastUsedAt:       fact.LastUsedAt,
+		CorrectedAt:      fact.CorrectedAt,
 	}
 }
 
@@ -259,7 +265,27 @@ func toRPCCandidate(candidate *memorysvc.MemoryCandidate) *memory.MemoryCandidat
 		AcceptedMemoryId:   candidate.AcceptedMemoryID,
 		CreatedAt:          candidate.CreatedAt,
 		UpdatedAt:          candidate.UpdatedAt,
+		SourceEventIds:     candidate.SourceEventIDs,
 	}
+}
+
+// ConsolidateMemories 触发一次记忆巩固任务；dry_run 可用于观察将合并/衰减/归档的数量。
+func (h *MemoryServiceImpl) ConsolidateMemories(ctx context.Context, req *memory.ConsolidateMemoriesReq) (*memory.ConsolidateMemoriesResp, error) {
+	result, err := h.svc.ConsolidateMemories(ctx, memorysvc.ConsolidateInput{
+		OwnerUserID: req.OwnerUserId,
+		BotID:       req.BotId,
+		DryRun:      req.DryRun,
+		Limit:       int(req.Limit),
+	})
+	if err != nil {
+		return &memory.ConsolidateMemoriesResp{Success: false, Msg: err.Error()}, nil
+	}
+	return &memory.ConsolidateMemoriesResp{
+		Success:           true,
+		DuplicatesMerged:  result.DuplicatesMerged,
+		ImportanceDecayed: result.ImportanceDecayed,
+		Archived:          result.Archived,
+	}, nil
 }
 
 func optionalBool(value bool, set bool) *bool {

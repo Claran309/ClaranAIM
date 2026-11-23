@@ -63,6 +63,9 @@ type MemoryFact struct {
 	EmbeddingRef     string         `json:"embedding_ref" gorm:"size:255"`
 	Confidence       float64        `json:"confidence" gorm:"not null;default:0"`
 	Importance       float64        `json:"importance" gorm:"not null;default:0.5;index"`
+	SourceEventIDs   string         `json:"-" gorm:"type:text"`
+	ReferenceCount   int64          `json:"reference_count" gorm:"not null;default:0"`
+	CorrectedAt      *time.Time     `json:"corrected_at" gorm:"index"`
 	ExpiredAt        *time.Time     `json:"expired_at" gorm:"index"`
 	SupersededBy     int64          `json:"superseded_by" gorm:"index"`
 	PreviousMemoryID int64          `json:"previous_memory_id" gorm:"index"`
@@ -109,6 +112,7 @@ type MemoryCandidate struct {
 	Content            string         `json:"content" gorm:"type:text;not null"`
 	Source             string         `json:"source" gorm:"size:255"`
 	Evidence           string         `json:"evidence" gorm:"type:text"`
+	SourceEventIDs     string         `json:"-" gorm:"type:text"`
 	Confidence         float64        `json:"confidence" gorm:"not null;default:0"`
 	Importance         float64        `json:"importance" gorm:"not null;default:0.5"`
 	Status             string         `json:"status" gorm:"size:32;index;not null;default:pending"`

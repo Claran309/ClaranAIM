@@ -62,6 +62,7 @@ type MemoryRepository interface {
 	ListCandidates(ctx context.Context, filter MemoryCandidateFilter) ([]model.MemoryCandidate, int64, error)
 	GetCandidateByID(ctx context.Context, id int64) (*model.MemoryCandidate, error)
 	UpdateCandidate(ctx context.Context, candidate *model.MemoryCandidate) error
+	ListOwnerUserIDs(ctx context.Context, botID int64) ([]int64, error)
 }
 
 // memoryRepositoryImpl 是基于 GORM 的记忆仓储实现。
@@ -151,7 +152,23 @@ func (r *memoryRepositoryImpl) Touch(ctx context.Context, ids []int64, at time.T
 	if len(ids) == 0 {
 		return nil
 	}
-	return r.db.WithContext(ctx).Model(&model.MemoryFact{}).Where("id IN ?", ids).Update("last_used_at", at).Error
+	return r.db.WithContext(ctx).Model(&model.MemoryFact{}).Where("id IN ?", ids).Updates(map[string]interface{}{
+		"last_used_at":    at,
+		"reference_count": gorm.Expr("reference_count + 1"),
+	}).Error
+}
+
+// ListOwnerUserIDs 返回有记忆事实的 owner 列表，供定时巩固任务按用户分片执行。
+func (r *memoryRepositoryImpl) ListOwnerUserIDs(ctx context.Context, botID int64) ([]int64, error) {
+	query := r.db.WithContext(ctx).Model(&model.MemoryFact{}).Distinct("owner_user_id")
+	if botID > 0 {
+		query = query.Where("bot_id = ?", botID)
+	}
+	var ids []int64
+	if err := query.Pluck("owner_user_id", &ids).Error; err != nil {
+		return nil, err
+	}
+	return ids, nil
 }
 
 // CreateCandidate 写入一条待用户确认或规则接受的候选记忆。

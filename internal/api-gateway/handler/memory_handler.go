@@ -341,6 +341,32 @@ func (h *MemoryHandler) handleCandidateAction(ctx context.Context, c *app.Reques
 	response.Success(c, map[string]interface{}{"success": true, "candidate": resp.GetCandidate()})
 }
 
+// ConsolidateMemories 手动触发当前用户的记忆巩固任务，dry_run=true 时只返回将处理的数量。
+func (h *MemoryHandler) ConsolidateMemories(ctx context.Context, c *app.RequestContext) {
+	if !h.ensureService(c) {
+		return
+	}
+	userID, ok := requireCurrentUserID(c)
+	if !ok {
+		return
+	}
+	dryRun := strings.EqualFold(strings.TrimSpace(c.Query("dry_run")), "true")
+	resp, err := h.svc.ConsolidateMemories(ctx, &memory.ConsolidateMemoriesReq{
+		OwnerUserId: userID,
+		BotId:       parseInt64Query(c, "bot_id"),
+		DryRun:      dryRun,
+		Limit:       1000,
+	})
+	if err != nil || !resp.GetSuccess() {
+		if err == nil {
+			err = memoryStatusError(resp.GetSuccess(), resp.GetMsg())
+		}
+		response.BadRequest(c, err.Error())
+		return
+	}
+	response.Success(c, resp)
+}
+
 // memoryRequest 是前端创建/编辑记忆事实的请求体。
 // ID 字段使用 json.Number，避免雪花 ID 在浏览器和 Go 解码之间损失精度。
 type memoryRequest struct {

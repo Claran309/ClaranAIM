@@ -12,6 +12,7 @@ import (
 	"ClaranAIM/pkg/observability"
 	"context"
 	"net"
+	"time"
 
 	"github.com/cloudwego/kitex/pkg/rpcinfo"
 	"github.com/cloudwego/kitex/pkg/transmeta"
@@ -81,6 +82,7 @@ func main() {
 		ScopeWeight:        cfg.MemoryRAG.ScopeWeight,
 		EnableLLMFiltering: cfg.MemoryRAG.LLMFilterEnabled,
 	})
+	startMemoryConsolidation(memoryService, cfg.MemoryRAG.ConsolidationIntervalMinutes)
 
 	r, err := etcd.NewEtcdRegistry(cfg.Etcd.Endpoints)
 	if err != nil {
@@ -118,4 +120,29 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+// startMemoryConsolidation 启动低频率记忆巩固任务，合并重复事实并衰减长期未引用的低重要度记忆。
+func startMemoryConsolidation(svc memorysvc.MemoryService, intervalMinutes int) {
+	if intervalMinutes <= 0 {
+		intervalMinutes = 360
+	}
+	go func() {
+		ticker := time.NewTicker(time.Duration(intervalMinutes) * time.Minute)
+		defer ticker.Stop()
+		for range ticker.C {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			result, err := svc.ConsolidateMemories(ctx, memorysvc.ConsolidateInput{Limit: 1000})
+			cancel()
+			if err != nil {
+				logger.Warn("记忆巩固任务失败", "error", err)
+				continue
+			}
+			logger.Info("记忆巩固任务完成",
+				"duplicates_merged", result.DuplicatesMerged,
+				"importance_decayed", result.ImportanceDecayed,
+				"archived", result.Archived,
+			)
+		}
+	}()
 }
