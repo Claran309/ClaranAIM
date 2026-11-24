@@ -1,0 +1,26 @@
+{
+  "avg_ms": 1,
+  "concurrency": 50,
+  "elapsed_s": 30.002,
+  "errors": {
+    "timeout": 37
+  },
+  "failed": 1413466,
+  "max_ms": 49.62,
+  "ok": 0,
+  "p50_ms": 0.9,
+  "p90_ms": 1.75,
+  "p95_ms": 2.34,
+  "p99_ms": 4.29,
+  "rps": 47110.4,
+  "run_id": "AIM-P1-C2-probe",
+  "scenario": "c2",
+  "sent": 1413429,
+  "started_at": "2026-11-24T15:01:42+08:00",
+  "statuses": {
+    "0": 37,
+    "500": 1413429
+  },
+  "ws_dup": 0,
+  "ws_recv": 0
+}

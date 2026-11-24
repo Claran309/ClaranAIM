@@ -1,0 +1,27 @@
+{
+  "avg_ms": 6.32,
+  "concurrency": 5,
+  "elapsed_s": 100.017,
+  "errors": {
+    "http_200: {\"code\":0,\"message\":\"success\",\"data\":{\"success\":false,\"msg_id\":0,\"send_time\":\"\",\"msg\":\"dial tcp 127.0.0.1:3306: connectex: No connection could be made because the target machine actively refused it.\"}": 68602,
+    "http_200: {\"code\":0,\"message\":\"success\",\"data\":{\"success\":false,\"msg_id\":0,\"send_time\":\"\",\"msg\":\"driver: bad connection\"}}": 2480,
+    "http_200: {\"code\":0,\"message\":\"success\",\"data\":{\"success\":false,\"msg_id\":0,\"send_time\":\"\",\"msg\":\"invalid connection\"}}": 6
+  },
+  "failed": 71088,
+  "max_ms": 222.91,
+  "ok": 7419,
+  "p50_ms": 2.19,
+  "p90_ms": 12.21,
+  "p95_ms": 40.85,
+  "p99_ms": 52.47,
+  "rps": 784.94,
+  "run_id": "AIM-P1-C10-mysql-174137",
+  "scenario": "c3",
+  "sent": 78507,
+  "started_at": "2026-11-24T17:41:38+08:00",
+  "statuses": {
+    "200": 78507
+  },
+  "ws_dup": 0,
+  "ws_recv": 0
+}

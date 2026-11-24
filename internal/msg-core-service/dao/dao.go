@@ -2,6 +2,7 @@ package dao
 
 import (
 	"ClaranAIM/internal/msg-core-service/model"
+	"ClaranAIM/pkg/dbpool"
 	"ClaranAIM/pkg/outbox"
 	"context"
 	"errors"
@@ -20,6 +21,7 @@ func InitDB(dsn string) (*gorm.DB, error) {
 	if err != nil {
 		return nil, err
 	}
+	dbpool.Configure(db)
 
 	// 需要自动迁移的模型列表
 	models := []interface{}{

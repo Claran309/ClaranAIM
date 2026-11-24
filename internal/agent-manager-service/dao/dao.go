@@ -3,6 +3,7 @@ package dao
 
 import (
 	"ClaranAIM/internal/agent-manager-service/model"
+	"ClaranAIM/pkg/dbpool"
 	"context"
 	"errors"
 	"strings"
@@ -18,6 +19,7 @@ func InitDB(dsn string) (*gorm.DB, error) {
 	if err != nil {
 		return nil, err
 	}
+	dbpool.Configure(db)
 
 	models := []interface{}{
 		&model.Bot{},

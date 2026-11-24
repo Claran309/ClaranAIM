@@ -1,0 +1,13 @@
+{
+  "run_id": "AIM-P1-C10-mysql-173749",
+  "expect_sent": 7459,
+  "messages": 7459,
+  "user_states": 14918,
+  "outbox_total": 7459,
+  "outbox_published": 7459,
+  "outbox_pending": 0,
+  "outbox_max_pub_ms": 94108.0,
+  "kafka_offset": 91918,
+  "missing_messages": 0,
+  "duplicate_outbox": 0
+}

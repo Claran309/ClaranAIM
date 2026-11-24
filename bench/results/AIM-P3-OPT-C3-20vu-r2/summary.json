@@ -1,0 +1,23 @@
+{
+  "avg_ms": 65.14,
+  "concurrency": 20,
+  "elapsed_s": 60.038,
+  "errors": {},
+  "failed": 0,
+  "max_ms": 316.13,
+  "ok": 18409,
+  "p50_ms": 62.47,
+  "p90_ms": 80.61,
+  "p95_ms": 93.11,
+  "p99_ms": 114.83,
+  "rps": 306.62,
+  "run_id": "AIM-P3-OPT-C3-20vu-r2",
+  "scenario": "c3",
+  "sent": 18409,
+  "started_at": "2026-11-24T18:31:30+08:00",
+  "statuses": {
+    "200": 18409
+  },
+  "ws_dup": 0,
+  "ws_recv": 0
+}

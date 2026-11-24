@@ -1,0 +1,23 @@
+{
+  "avg_ms": 74.61,
+  "concurrency": 20,
+  "elapsed_s": 60.094,
+  "errors": {},
+  "failed": 0,
+  "max_ms": 462.8,
+  "ok": 16079,
+  "p50_ms": 60.25,
+  "p90_ms": 113.52,
+  "p95_ms": 157.21,
+  "p99_ms": 289.45,
+  "rps": 267.56,
+  "run_id": "AIM-P1-C3-C3-20vu-r3",
+  "scenario": "c3",
+  "sent": 16079,
+  "started_at": "2026-11-24T17:01:25+08:00",
+  "statuses": {
+    "200": 16079
+  },
+  "ws_dup": 0,
+  "ws_recv": 0
+}

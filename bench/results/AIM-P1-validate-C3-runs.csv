@@ -1,0 +1,2 @@
+"run_id","phase","level","repeat","sent","ok","failed","rps","p50","p95","p99","ws_recv","path"
+"AIM-P1-validate-C3-20vu-r1","c3","20","1","8985","8985","0","447.92","32.85","100.7","121.19","0","bench/results/AIM-P1-validate-C3-20vu-r1/summary.json"

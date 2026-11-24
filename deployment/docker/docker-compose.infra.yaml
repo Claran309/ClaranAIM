@@ -10,7 +10,7 @@ services:
       MYSQL_DATABASE: ${MYSQL_DATABASE:-ClaranCloudDisk}
       MYSQL_USER: ${MYSQL_USER:-claran}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:-chr070309}
-    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci --port=33060
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci --port=33060 --mysqlx-port=33061
     volumes:
       - claran_mysql_data:/var/lib/mysql
     networks:
@@ -224,6 +224,9 @@ services:
     restart: unless-stopped
     environment:
       COLLECTOR_OTLP_ENABLED: "true"
+      # 内存存储下限制轨迹数量，避免高并发压测把 Jaeger 堆到数 GB。
+      SPAN_STORAGE_TYPE: "memory"
+      MEMORY_MAX_TRACES: "500"
     ports:
       - "8085:16686"
     networks:

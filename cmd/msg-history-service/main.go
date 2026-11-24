@@ -36,6 +36,7 @@ func main() {
 	}
 	sqlDB, _ := db.DB()
 	health.CheckMySQL(sqlDB, "msg-history-service")
+	observability.RegisterDBStats(sqlDB, cfg.Service.Name)
 
 	historyRepo := dao.NewHistoryRepo(db)
 	historyService := service.NewHistoryService(historyRepo)

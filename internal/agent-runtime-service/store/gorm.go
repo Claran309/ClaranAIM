@@ -1,6 +1,7 @@
 package store
 
 import (
+	"ClaranAIM/pkg/dbpool"
 	"context"
 	"errors"
 	"fmt"
@@ -21,6 +22,7 @@ func InitDB(dsn string) (*gorm.DB, error) {
 	if err != nil {
 		return nil, err
 	}
+	dbpool.Configure(db)
 	models := []interface{}{
 		&AgentSession{},
 		&AgentMessage{},

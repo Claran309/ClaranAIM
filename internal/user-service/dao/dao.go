@@ -5,6 +5,7 @@ package dao
 
 import (
 	"ClaranAIM/internal/user-service/model"
+	"ClaranAIM/pkg/dbpool"
 	"context"
 	"errors"
 
@@ -20,6 +21,7 @@ func InitDB(dsn string) (*gorm.DB, error) {
 	if err != nil {
 		return nil, err
 	}
+	dbpool.Configure(db)
 
 	// 需要自动迁移的模型列表。FriendGroup 迁移前先清理历史重复分组，
 	// 否则新增 (user_id,name) 唯一索引时会因为旧数据重复导致服务无法启动。

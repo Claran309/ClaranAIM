@@ -1,0 +1,23 @@
+{
+  "avg_ms": 6.27,
+  "concurrency": 10,
+  "elapsed_s": 60.01,
+  "errors": {},
+  "failed": 0,
+  "max_ms": 84.02,
+  "ok": 94580,
+  "p50_ms": 7.5,
+  "p90_ms": 11.01,
+  "p95_ms": 12.03,
+  "p99_ms": 14.68,
+  "rps": 1576.06,
+  "run_id": "AIM-P1-C2-C2-10vu-r2",
+  "scenario": "c2",
+  "sent": 94580,
+  "started_at": "2026-11-24T16:45:04+08:00",
+  "statuses": {
+    "200": 94580
+  },
+  "ws_dup": 0,
+  "ws_recv": 0
+}

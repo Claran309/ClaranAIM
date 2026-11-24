@@ -1,0 +1,13 @@
+{
+  "run_id": "AIM-P1-C3-C3-50vu-r1",
+  "expect_sent": 27249,
+  "messages": 27249,
+  "user_states": 54498,
+  "outbox_total": 27249,
+  "outbox_published": 0,
+  "outbox_pending": 27249,
+  "outbox_max_pub_ms": 0.0,
+  "kafka_offset": 54125,
+  "missing_messages": 0,
+  "duplicate_outbox": 0
+}

@@ -5,10 +5,13 @@ import (
 	"ClaranAIM/pkg/config"
 	"ClaranAIM/pkg/logger"
 	"context"
+	"database/sql"
 	"errors"
 	"net"
 	"net/http"
+	"net/http/pprof"
 	"net/url"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -104,6 +107,14 @@ var (
 		Name: "claran_business_gauge",
 		Help: "Domain-level business gauge values.",
 	}, []string{"service", "domain", "name"})
+	dbPoolGauge = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "claran_db_pool",
+		Help: "database/sql pool statistics.",
+	}, []string{"service", "name"})
+	goRuntimeGauge = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "claran_go_runtime",
+		Help: "Go runtime statistics.",
+	}, []string{"service", "name"})
 )
 
 // Init starts local /metrics endpoint and configures OTLP trace exporting when enabled.
@@ -136,6 +147,8 @@ func Init(serviceName string, cfg config.ObservabilityConfig) (*Runtime, error) 
 		businessEventsTotal,
 		businessDurationMS,
 		businessGauge,
+		dbPoolGauge,
+		goRuntimeGauge,
 	} {
 		_ = registry.Register(collector)
 	}
@@ -176,6 +189,7 @@ func Init(serviceName string, cfg config.ObservabilityConfig) (*Runtime, error) 
 	}
 	serviceUptimeSeconds.WithLabelValues(serviceName).Set(0)
 	go runtime.serve()
+	go runtime.collectGoRuntime()
 	logger.Info("可观测性指标端点已启动", "service", serviceName, "metrics", runtime.MetricsAddress, "otlp_endpoint", cfg.OTLPEndpoint)
 	return runtime, nil
 }
@@ -336,7 +350,67 @@ func metricsHandler(registry *prometheus.Registry) http.Handler {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
+	mux.HandleFunc("/debug/pprof/", pprof.Index)
+	mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+	mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+	mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+	mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+	mux.Handle("/debug/pprof/goroutine", pprof.Handler("goroutine"))
+	mux.Handle("/debug/pprof/heap", pprof.Handler("heap"))
+	mux.Handle("/debug/pprof/threadcreate", pprof.Handler("threadcreate"))
+	mux.Handle("/debug/pprof/block", pprof.Handler("block"))
+	mux.Handle("/debug/pprof/mutex", pprof.Handler("mutex"))
 	return mux
+}
+
+// collectGoRuntime 周期性写入 goroutine 和内存指标。
+// 这些指标不依赖外部 exporter，保证本地压测时 Prometheus 能直接看到进程状态。
+func (r *Runtime) collectGoRuntime() {
+	if r == nil || !r.Enabled {
+		return
+	}
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+	for ; ; <-ticker.C {
+		var stats runtime.MemStats
+		runtime.ReadMemStats(&stats)
+		goRuntimeGauge.WithLabelValues(r.ServiceName, "goroutines").Set(float64(runtime.NumGoroutine()))
+		goRuntimeGauge.WithLabelValues(r.ServiceName, "heap_alloc_bytes").Set(float64(stats.HeapAlloc))
+		goRuntimeGauge.WithLabelValues(r.ServiceName, "heap_inuse_bytes").Set(float64(stats.HeapInuse))
+		goRuntimeGauge.WithLabelValues(r.ServiceName, "sys_bytes").Set(float64(stats.Sys))
+		goRuntimeGauge.WithLabelValues(r.ServiceName, "gc_pause_total_ns").Set(float64(stats.PauseTotalNs))
+		goRuntimeGauge.WithLabelValues(r.ServiceName, "num_gc").Set(float64(stats.NumGC))
+	}
+}
+
+// RegisterDBStats 把 database/sql 连接池指标挂到当前服务的 /metrics。
+// 压测时用它区分“DB 池排队”和“业务代码慢”。
+func RegisterDBStats(db *sql.DB, serviceName string) {
+	if db == nil {
+		return
+	}
+	collect := func() {
+		stats := db.Stats()
+		set := func(name string, value float64) {
+			dbPoolGauge.WithLabelValues(serviceName, name).Set(value)
+		}
+		set("open", float64(stats.OpenConnections))
+		set("in_use", float64(stats.InUse))
+		set("idle", float64(stats.Idle))
+		set("max_open", float64(stats.MaxOpenConnections))
+		set("wait_count", float64(stats.WaitCount))
+		set("wait_duration_ms", float64(stats.WaitDuration.Milliseconds()))
+		set("max_idle_closed", float64(stats.MaxIdleClosed))
+		set("max_lifetime_closed", float64(stats.MaxLifetimeClosed))
+	}
+	collect()
+	go func() {
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+		for range ticker.C {
+			collect()
+		}
+	}()
 }
 
 func (r *Runtime) serve() {

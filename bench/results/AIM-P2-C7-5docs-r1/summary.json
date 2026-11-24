@@ -1,0 +1,23 @@
+{
+  "avg_ms": 5494.59,
+  "concurrency": 2,
+  "elapsed_s": 16.489,
+  "errors": {},
+  "failed": 0,
+  "max_ms": 5633.83,
+  "ok": 6,
+  "p50_ms": 5511.45,
+  "p90_ms": 5633.83,
+  "p95_ms": 5633.83,
+  "p99_ms": 5633.83,
+  "rps": 0.36,
+  "run_id": "AIM-P2-C7-5docs-r1",
+  "scenario": "rag-ingest",
+  "sent": 6,
+  "started_at": "2026-11-24T18:14:29+08:00",
+  "statuses": {
+    "200": 6
+  },
+  "ws_dup": 0,
+  "ws_recv": 0
+}

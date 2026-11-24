@@ -1,0 +1,14 @@
+{
+  "scenario": "mysql_down_30s",
+  "run_id": "AIM-P1-C10-mysql-173431",
+  "fault_injected_at": "2026-11-24T17:34:47.7983898+08:00",
+  "mysql_restarted_at": "2026-11-24T17:35:18.2873498+08:00",
+  "health_recovered": true,
+  "api_recovered": true,
+  "recovery_seconds": 30.8,
+  "sent": 6875,
+  "failed_requests": 74594,
+  "messages": 6875,
+  "missing": 0,
+  "duplicate_outbox": 0
+}

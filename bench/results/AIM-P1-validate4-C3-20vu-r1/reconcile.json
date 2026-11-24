@@ -1,0 +1,13 @@
+{
+  "run_id": "AIM-P1-validate4-C3-20vu-r1",
+  "expect_sent": 5950,
+  "messages": 7363,
+  "user_states": 14726,
+  "outbox_total": 7363,
+  "outbox_published": 604,
+  "outbox_pending": 6758,
+  "outbox_max_pub_ms": 30263.0,
+  "kafka_offset": 11733,
+  "missing_messages": 0,
+  "duplicate_outbox": 0
+}

@@ -1,0 +1,23 @@
+{
+  "avg_ms": 655.34,
+  "concurrency": 10,
+  "elapsed_s": 60.538,
+  "errors": {},
+  "failed": 0,
+  "max_ms": 961.47,
+  "ok": 921,
+  "p50_ms": 647.37,
+  "p90_ms": 715.91,
+  "p95_ms": 735.19,
+  "p99_ms": 890.68,
+  "rps": 15.21,
+  "run_id": "AIM-P2-C6-10vu-r3",
+  "scenario": "agent",
+  "sent": 921,
+  "started_at": "2026-11-24T18:07:38+08:00",
+  "statuses": {
+    "200": 921
+  },
+  "ws_dup": 0,
+  "ws_recv": 0
+}

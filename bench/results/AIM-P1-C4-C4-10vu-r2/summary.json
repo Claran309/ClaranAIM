@@ -1,0 +1,23 @@
+{
+  "avg_ms": 247.12,
+  "concurrency": 10,
+  "elapsed_s": 60.51,
+  "errors": {},
+  "failed": 0,
+  "max_ms": 934.4,
+  "ok": 2435,
+  "p50_ms": 197.04,
+  "p90_ms": 599.25,
+  "p95_ms": 692.75,
+  "p99_ms": 773.27,
+  "rps": 40.24,
+  "run_id": "AIM-P1-C4-C4-10vu-r2",
+  "scenario": "c4",
+  "sent": 2435,
+  "started_at": "2026-11-24T17:16:27+08:00",
+  "statuses": {
+    "200": 2435
+  },
+  "ws_dup": 0,
+  "ws_recv": 2335
+}

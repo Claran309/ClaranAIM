@@ -39,6 +39,7 @@ func main() {
 	}
 	sqlDB, _ := db.DB()
 	health.CheckMySQL(sqlDB, "memory-service")
+	observability.RegisterDBStats(sqlDB, cfg.Service.Name)
 	embedder := memorysvc.MemoryEmbeddingProvider(memorysvc.HashMemoryEmbeddingProvider{Dim: cfg.MemoryRAG.EmbeddingDim})
 	if cfg.MemoryRAG.EmbeddingProvider == "glm" && cfg.MemoryRAG.EmbeddingAPIKey != "" {
 		embedder = memorysvc.NewGLMMemoryEmbeddingProvider(cfg.MemoryRAG.EmbeddingURL, cfg.MemoryRAG.EmbeddingAPIKey, cfg.MemoryRAG.EmbeddingModel, cfg.MemoryRAG.EmbeddingDimension)

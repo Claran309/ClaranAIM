@@ -42,6 +42,7 @@ func main() {
 	}
 	sqlDB, _ := db.DB()
 	health.CheckMySQL(sqlDB, "rag-service")
+	observability.RegisterDBStats(sqlDB, cfg.Service.Name)
 
 	vectorIndex := ragsvc.VectorIndex(ragsvc.NewLocalVectorIndex())
 	if cfg.Milvus.Enabled {

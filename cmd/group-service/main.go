@@ -43,6 +43,7 @@ func main() {
 	}
 	sqlDB, _ := db.DB()
 	health.CheckMySQL(sqlDB, "group-service")
+	observability.RegisterDBStats(sqlDB, cfg.Service.Name)
 
 	var redisClient *redis.RedisClient
 	if cfg.Redis.Addr != "" {

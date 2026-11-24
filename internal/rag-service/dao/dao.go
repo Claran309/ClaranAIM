@@ -3,6 +3,7 @@ package dao
 
 import (
 	"ClaranAIM/internal/rag-service/model"
+	"ClaranAIM/pkg/dbpool"
 	"context"
 	"errors"
 	"sort"
@@ -18,6 +19,7 @@ func InitDB(dsn string) (*gorm.DB, error) {
 	if err != nil {
 		return nil, err
 	}
+	dbpool.Configure(db)
 	if err := db.AutoMigrate(&model.Document{}, &model.Chunk{}); err != nil {
 		return nil, err
 	}

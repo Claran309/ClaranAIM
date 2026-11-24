@@ -3,6 +3,7 @@ package dao
 
 import (
 	"ClaranAIM/internal/memory-service/model"
+	"ClaranAIM/pkg/dbpool"
 	"context"
 	"errors"
 	"time"
@@ -17,6 +18,7 @@ func InitDB(dsn string) (*gorm.DB, error) {
 	if err != nil {
 		return nil, err
 	}
+	dbpool.Configure(db)
 	if err := db.AutoMigrate(&model.MemoryFact{}, &model.MemoryCandidate{}); err != nil {
 		return nil, err
 	}

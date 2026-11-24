@@ -1,0 +1,13 @@
+{
+  "scenario": "kill9_msg_core",
+  "run_id": "AIM-P1-C10-kill-174337",
+  "killed_at": "2026-11-24T17:43:52.3184814+08:00",
+  "restarted_at": "2026-11-24T17:43:52.3481679+08:00",
+  "api_recovered": true,
+  "recovery_seconds": 1.4,
+  "sent": 9034,
+  "failed_requests": 180,
+  "messages": 9034,
+  "missing": 0,
+  "duplicate_outbox": 0
+}

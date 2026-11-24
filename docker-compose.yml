@@ -122,7 +122,7 @@ services:
     image: mysql/mysql-server:8.0
     container_name: claran-mysql
     restart: unless-stopped
-    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci --port=33060
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci --port=33060 --mysqlx-port=33061
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-chr070309}
       MYSQL_DATABASE: ${MYSQL_DATABASE:-ClaranAIM}

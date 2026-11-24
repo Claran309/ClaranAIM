@@ -3,6 +3,7 @@ package outbox
 import (
 	"context"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 )
@@ -39,6 +40,8 @@ func (s *MemoryStore) FetchDue(ctx context.Context, limit int, lockFor time.Dura
 			break
 		}
 	}
+	// 与 GormStore 的 ORDER BY next_retry_at, id 保持一致，保证测试可复现。
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out, nil
 }
 

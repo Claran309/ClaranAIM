@@ -1,0 +1,23 @@
+{
+  "avg_ms": 140.27,
+  "concurrency": 10,
+  "elapsed_s": 61.466,
+  "errors": {},
+  "failed": 0,
+  "max_ms": 2054.89,
+  "ok": 945,
+  "p50_ms": 2.89,
+  "p90_ms": 434.97,
+  "p95_ms": 1738.36,
+  "p99_ms": 1837.65,
+  "rps": 15.37,
+  "run_id": "AIM-P2-C8-20qps-r2",
+  "scenario": "rag-search",
+  "sent": 945,
+  "started_at": "2026-11-24T18:21:52+08:00",
+  "statuses": {
+    "200": 945
+  },
+  "ws_dup": 0,
+  "ws_recv": 0
+}

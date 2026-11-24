@@ -1,0 +1,26 @@
+{
+  "avg_ms": 37.88,
+  "concurrency": 20,
+  "elapsed_s": 20.032,
+  "errors": {
+    "http_200: {\"code\":0,\"message\":\"success\",\"data\":{\"success\":false,\"msg_id\":0,\"send_time\":\"\",\"msg\":\"dial tcp 127.0.0.1:3306: connectex: Only one usage of each socket address (protocol/network address/port) is norm": 922,
+    "http_200: {\"code\":0,\"message\":\"success\",\"data\":{\"success\":false,\"msg_id\":0,\"send_time\":\"\",\"msg\":\"无权访问该会话\"}}": 7263
+  },
+  "failed": 8185,
+  "max_ms": 130.69,
+  "ok": 2360,
+  "p50_ms": 27.68,
+  "p90_ms": 77.73,
+  "p95_ms": 85.4,
+  "p99_ms": 99.48,
+  "rps": 526.4,
+  "run_id": "AIM-P1-validate2-C3-20vu-r1",
+  "scenario": "c3",
+  "sent": 10545,
+  "started_at": "2026-11-24T15:23:41+08:00",
+  "statuses": {
+    "200": 10545
+  },
+  "ws_dup": 0,
+  "ws_recv": 0
+}

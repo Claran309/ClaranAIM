@@ -462,6 +462,22 @@ go build -o .smoke-bin/api-gateway.exe ./cmd/api-gateway
 
 限制：本地链路默认关闭 Kafka 时 Outbox 只会积压不发布；Kafka 消费指标只有在 `websocket-gateway` 实际消费到消息后才出现。
 
+## 压测与容量基线
+
+在 16GB Windows 单机、Docker VM 7.6GiB 下用 `bench/loadgen` 做本地压测
+（mock LLM / mock embedding，固定 commit、固定数据量，每组 3 次取中位数）：
+
+| 场景 | 结果 |
+|---|---|
+| 读路径（会话 + 历史） | 1590 RPS @10VU / 2135 RPS @20VU，P99 14.7 / 21.8ms |
+| 单聊写入 | 198 / 290 / 430 msg/s @10/20/50VU，P99 92.9 / 163.3 / 329.2ms |
+| 群聊扇出（10 群，平均 105 人） | 40.2 msg/s，P99 773ms，约 105 行 `message_user_states`/消息 |
+| 故障注入 | MySQL 停 30s 后 31s 恢复；Kafka 停 60s 后 13751 条全部补发；kill -9 msg-core 后 1.4s 恢复；均 0 丢失 |
+| Outbox 优化 | 排空 46 → 285-483 events/s；C3 20VU P99 163 → 110-115ms |
+
+原始数据、对账 SQL、环境说明和简历数字见 `bench/` 与 `bench/report/`。
+这些数字只代表上述单机、单分区、mock 依赖配置，不代表生产容量。
+
 ## Agent Reflection
 
 Agent 最终输出后会经过一轮 critic 自检（`internal/agent-runtime-service/reflection`）：

@@ -50,6 +50,7 @@ func main() {
 	}
 	sqlDB, _ := db.DB()
 	health.CheckMySQL(sqlDB, "msg-core-service")
+	observability.RegisterDBStats(sqlDB, cfg.Service.Name)
 
 	msgRepo := dao.NewMessageRepo(db)
 	if err := eventbus.AutoMigrateReliabilityStore(db); err != nil {

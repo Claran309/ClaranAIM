@@ -10,9 +10,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"log"
 	"math"
+	"os"
 	"strconv"
+	"sync"
 	"time"
 
 	"gorm.io/gorm"
@@ -274,24 +277,49 @@ func backoff(retryCount int) time.Duration {
 // Worker 轮询 Outbox 表并把到期事件发布到配置的 Publisher。
 // 它可以在各业务服务内启动，也可以日后拆成独立发布进程。
 type Worker struct {
-	store      Store
-	publisher  Publisher
-	limit      int
-	lockFor    time.Duration
-	interval   time.Duration
-	maxRetries int
+	store       Store
+	publisher   Publisher
+	limit       int
+	lockFor     time.Duration
+	interval    time.Duration
+	maxRetries  int
+	concurrency int
 }
 
 // NewWorker 创建带保守默认参数的 Outbox Worker。
 func NewWorker(store Store, publisher Publisher) *Worker {
-	return &Worker{
-		store:      store,
-		publisher:  publisher,
-		limit:      50,
-		lockFor:    30 * time.Second,
-		interval:   time.Second,
-		maxRetries: 10,
+	worker := &Worker{
+		store:       store,
+		publisher:   publisher,
+		limit:       50,
+		lockFor:     30 * time.Second,
+		interval:    time.Second,
+		maxRetries:  10,
+		concurrency: 1,
 	}
+	// 默认值保持生产行为不变；压测/高吞吐场景可通过环境变量调大。
+	if value := envInt("OUTBOX_BATCH_SIZE"); value > 0 {
+		worker.limit = value
+	}
+	if value := envInt("OUTBOX_INTERVAL_MS"); value > 0 {
+		worker.interval = time.Duration(value) * time.Millisecond
+	}
+	if value := envInt("OUTBOX_CONCURRENCY"); value > 0 {
+		worker.concurrency = value
+	}
+	return worker
+}
+
+func envInt(key string) int {
+	value := os.Getenv(key)
+	if value == "" {
+		return 0
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil {
+		return 0
+	}
+	return parsed
 }
 
 // SetMaxRetries 设置单条事件进入 dead 状态前允许的最大发布尝试次数。
@@ -335,34 +363,81 @@ func (w *Worker) ProcessOnce(ctx context.Context) error {
 	if backlog, backlogErr := w.store.CountBacklog(ctx); backlogErr == nil {
 		observability.SetBusinessGauge("outbox", "backlog", float64(backlog))
 	}
-	for _, record := range records {
-		envelope, err := record.Envelope()
-		if err != nil {
-			decodeErr := fmt.Errorf("decode envelope: %w", err)
-			if record.RetryCount+1 >= w.maxRetries {
-				_ = w.store.MarkDead(ctx, record.ID, decodeErr)
-				observability.RecordBusinessEvent("outbox", "publish", "dead")
-				continue
+	if w.concurrency <= 1 {
+		for _, record := range records {
+			if err := w.publishOne(ctx, record); err != nil {
+				return err
 			}
-			_ = w.store.MarkRetry(ctx, record.ID, decodeErr)
-			observability.RecordBusinessEvent("outbox", "publish", "retry")
-			continue
 		}
-		if err := w.publisher.Publish(ctx, envelope); err != nil {
-			if record.RetryCount+1 >= w.maxRetries {
-				_ = w.store.MarkDead(ctx, record.ID, err)
-				observability.RecordBusinessEvent("outbox", "publish", "dead")
-				continue
-			}
-			_ = w.store.MarkRetry(ctx, record.ID, err)
-			observability.RecordBusinessEvent("outbox", "publish", "retry")
-			continue
-		}
-		if err := w.store.MarkPublished(ctx, record.ID); err != nil {
-			observability.RecordBusinessEvent("outbox", "mark_published", "error")
-			return err
-		}
-		observability.RecordBusinessEvent("outbox", "publish", "success")
+		return nil
 	}
+
+	// 按 EventKey 分片并发发布：同一会话的事件仍然串行，避免乱序；
+	// 不同会话之间并行，突破单条 Kafka 写入延迟（约 20ms）的限制。
+	shards := make([][]Event, w.concurrency)
+	for _, record := range records {
+		idx := int(hashKey(record.EventKey) % uint32(w.concurrency))
+		shards[idx] = append(shards[idx], record)
+	}
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	var firstErr error
+	for _, shard := range shards {
+		if len(shard) == 0 {
+			continue
+		}
+		wg.Add(1)
+		go func(recs []Event) {
+			defer wg.Done()
+			for _, record := range recs {
+				if err := w.publishOne(ctx, record); err != nil {
+					mu.Lock()
+					if firstErr == nil {
+						firstErr = err
+					}
+					mu.Unlock()
+					return
+				}
+			}
+		}(shard)
+	}
+	wg.Wait()
+	return firstErr
+}
+
+func (w *Worker) publishOne(ctx context.Context, record Event) error {
+	envelope, err := record.Envelope()
+	if err != nil {
+		decodeErr := fmt.Errorf("decode envelope: %w", err)
+		if record.RetryCount+1 >= w.maxRetries {
+			_ = w.store.MarkDead(ctx, record.ID, decodeErr)
+			observability.RecordBusinessEvent("outbox", "publish", "dead")
+			return nil
+		}
+		_ = w.store.MarkRetry(ctx, record.ID, decodeErr)
+		observability.RecordBusinessEvent("outbox", "publish", "retry")
+		return nil
+	}
+	if err := w.publisher.Publish(ctx, envelope); err != nil {
+		if record.RetryCount+1 >= w.maxRetries {
+			_ = w.store.MarkDead(ctx, record.ID, err)
+			observability.RecordBusinessEvent("outbox", "publish", "dead")
+			return nil
+		}
+		_ = w.store.MarkRetry(ctx, record.ID, err)
+		observability.RecordBusinessEvent("outbox", "publish", "retry")
+		return nil
+	}
+	if err := w.store.MarkPublished(ctx, record.ID); err != nil {
+		observability.RecordBusinessEvent("outbox", "mark_published", "error")
+		return err
+	}
+	observability.RecordBusinessEvent("outbox", "publish", "success")
 	return nil
+}
+
+func hashKey(key string) uint32 {
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(key))
+	return h.Sum32()
 }

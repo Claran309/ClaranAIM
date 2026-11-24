@@ -1,0 +1,26 @@
+{
+  "avg_ms": 27588.43,
+  "concurrency": 50,
+  "elapsed_s": 110.358,
+  "errors": {
+    "timeout": 139
+  },
+  "failed": 200,
+  "max_ms": 30005.17,
+  "ok": 0,
+  "p50_ms": 30000.48,
+  "p90_ms": 30003.11,
+  "p95_ms": 30004.15,
+  "p99_ms": 30005.04,
+  "rps": 0.55,
+  "run_id": "AIM-P1-C2-C2-50vu-r3",
+  "scenario": "c2",
+  "sent": 61,
+  "started_at": "2026-11-24T15:40:15+08:00",
+  "statuses": {
+    "0": 139,
+    "500": 61
+  },
+  "ws_dup": 0,
+  "ws_recv": 0
+}

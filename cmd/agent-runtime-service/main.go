@@ -53,6 +53,9 @@ func main() {
 			sessionStore = gormStore
 			runStore = gormStore
 			checkpointStore = gormStore
+			if sqlDB, sqlErr := db.DB(); sqlErr == nil {
+				observability.RegisterDBStats(sqlDB, cfg.Service.Name)
+			}
 			logger.Info("agent-runtime-service 会话/运行/审批checkpoint已使用MySQL持久化")
 		}
 	}

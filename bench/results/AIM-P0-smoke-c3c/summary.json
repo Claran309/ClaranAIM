@@ -1,0 +1,26 @@
+{
+  "avg_ms": 37.3,
+  "concurrency": 4,
+  "elapsed_s": 15,
+  "errors": {
+    "timeout": 4
+  },
+  "failed": 4,
+  "max_ms": 115.78,
+  "ok": 1602,
+  "p50_ms": 40.11,
+  "p90_ms": 50.41,
+  "p95_ms": 55.51,
+  "p99_ms": 65.67,
+  "rps": 106.8,
+  "run_id": "AIM-P0-smoke-c3c",
+  "scenario": "c3",
+  "sent": 1602,
+  "started_at": "2026-11-24T14:53:20+08:00",
+  "statuses": {
+    "0": 4,
+    "200": 1602
+  },
+  "ws_dup": 0,
+  "ws_recv": 0
+}

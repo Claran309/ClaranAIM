@@ -4,6 +4,7 @@ package dao
 
 import (
 	"ClaranAIM/internal/group-service/model"
+	"ClaranAIM/pkg/dbpool"
 	"ClaranAIM/pkg/outbox"
 	"context"
 	"errors"
@@ -19,6 +20,7 @@ func InitDB(dsn string) (*gorm.DB, error) {
 	if err != nil {
 		return nil, err
 	}
+	dbpool.Configure(db)
 
 	models := []interface{}{
 		&model.Group{},
