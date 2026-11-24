@@ -5,6 +5,8 @@
 > 环境：Windows 20C / 15.7GB；Docker VM 7.6GiB；基础设施 Docker + Go 服务宿主机
 > 记录时间：2026-11-24
 
+> 原始结果默认不提交；运行 `bench/scripts` 在本地生成 `bench/results/`。
+
 ## 1. 测试配置（固定）
 
 | 项目 | 值 |

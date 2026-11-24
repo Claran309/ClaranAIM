@@ -4,6 +4,8 @@
 > 基线：`main @ e76a742` + Phase 0/3 工具与优化改动
 > 记录时间：2026-11-24
 
+> 原始结果默认不提交；运行 `bench/scripts` 在本地生成 `bench/results/`。
+
 ## 1. 数据来源
 
 所有数字均可在 `bench/results/<run-id>/` 中找到原始 `summary.json`、

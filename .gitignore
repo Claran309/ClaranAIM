@@ -98,3 +98,7 @@ storage/**/*.gif
 # Local smoke-test artifacts
 .smoke-bin/
 .smoke-logs/
+
+# Personal learning notes and generated benchmark artifacts (kept local only)
+docs/learn/
+docs/plan.md

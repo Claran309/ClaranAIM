@@ -71,7 +71,7 @@
 
 ## 6. Smoke 证据
 
-`bench/results/AIM-P0-smoke-final/smoke.json`：
+运行 `bench/scripts/smoke.ps1` 后，本地 `bench/results/AIM-P0-smoke-final/smoke.json`：
 
 - 登录、发送、历史、幂等：PASS
 - 落库 1 条、用户状态 2 条、Outbox `published`：PASS

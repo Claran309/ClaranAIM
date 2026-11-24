@@ -74,7 +74,6 @@ go test ./internal/rag-service/service/... -run TestRetrievalEvalReport -v
 | 项目总结  |**[AIM项目总结梳理](https://www.claran-blog.work/go-AIM/)** |
 | API 文档  |**[apiDoc.md](docs/apiDoc.md)** |
 | 架构决策  |**[ADR-0001 agent 服务边界](docs/design-decisions/0001-agent-service-boundary.md)** |
-| 阶段计划  |**[plan.md](docs/plan.md)** |
 
 ## 架构图
 
@@ -264,10 +263,8 @@ ClaranAIM/
             └── config/grafana/dashboards/       # ClaranAIM Overview / Reliability 面板
 ├── docs/
     ├── apiDoc.md
-    ├── plan.md
     ├── design-decisions/
     ├── update/
-    ├── learn/
     └── AI assistent/
 ├── scripts/
     ├── service-control.ps1
@@ -475,7 +472,8 @@ go build -o .smoke-bin/api-gateway.exe ./cmd/api-gateway
 | 故障注入 | MySQL 停 30s 后 31s 恢复；Kafka 停 60s 后 13751 条全部补发；kill -9 msg-core 后 1.4s 恢复；均 0 丢失 |
 | Outbox 优化 | 排空 46 → 285-483 events/s；C3 20VU P99 163 → 110-115ms |
 
-原始数据、对账 SQL、环境说明和压测结论见 `bench/` 与 `bench/report/`。
+压测脚本、环境说明和结论报告见 `bench/` 与 `bench/report/`；
+原始结果由脚本在本地 `bench/results/` 生成，不随仓库提交。
 这些数字只代表上述单机、单分区、mock 依赖配置，不代表生产容量。
 
 ## Agent Reflection

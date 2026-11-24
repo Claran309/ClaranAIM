@@ -1,7 +1,0 @@
-"run_id","phase","level","repeat","sent","ok","failed","rps","p50","p95","p99","ws_recv","path","note","free_gb"
-"AIM-P1-C2-C2-10vu-r1","c2","10","1","97116","97116","0","1618.37","7.36","11.93","14.73","0","bench/results/AIM-P1-C2-C2-10vu-r1/summary.json","normal","1.95"
-"AIM-P1-C2-C2-10vu-r2","c2","10","2","94580","94580","0","1576.06","7.5","12.03","14.68","0","bench/results/AIM-P1-C2-C2-10vu-r2/summary.json","normal","1.91"
-"AIM-P1-C2-C2-10vu-r3","c2","10","3","95458","95458","0","1590.61","7.47","11.93","14.81","0","bench/results/AIM-P1-C2-C2-10vu-r3/summary.json","normal","2.34"
-"AIM-P1-C2-C2-20vu-r1","c2","20","1","128124","128124","0","2134.77","10.78","18.37","21.7","0","bench/results/AIM-P1-C2-C2-20vu-r1/summary.json","normal","1.74"
-"AIM-P1-C2-C2-20vu-r2","c2","20","2","125484","125484","0","2090.81","10.85","19.01","23.47","0","bench/results/AIM-P1-C2-C2-20vu-r2/summary.json","normal","2.14"
-"AIM-P1-C2-C2-20vu-r3","c2","20","3","129198","129198","0","2152.82","10.24","18.39","21.83","0","bench/results/AIM-P1-C2-C2-20vu-r3/summary.json","normal","1.7"

@@ -1,4 +1,0 @@
-"run_id","phase","level","repeat","sent","ok","failed","rps","p50","p95","p99","ws_recv","path","note","free_gb"
-"AIM-P1-C4-C4-10vu-r1","c4","10","1","1395","1395","0","23.09","360.49","762.5","849.3","1389","bench/results/AIM-P1-C4-C4-10vu-r1/summary.json","normal","1.91"
-"AIM-P1-C4-C4-10vu-r2","c4","10","2","1400","1400","0","23.16","358.03","755.1","853.1","1397","bench/results/AIM-P1-C4-C4-10vu-r2/summary.json","normal","1.3"
-"-","c4","10","3","0","0","0","0","0","0","0","0","","resource_limited_skip","0.8"

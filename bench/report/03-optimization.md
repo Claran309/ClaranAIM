@@ -4,6 +4,8 @@
 > 基线：`main @ e76a742` + Phase 0/1/2 工具与观测改动
 > 记录时间：2026-11-24
 
+> 原始结果默认不提交；运行 `bench/scripts` 在本地生成 `bench/results/`。
+
 ## 1. 优化目标
 
 Phase 1 基线确认：`pkg/outbox` 默认 `limit=50`、`interval=1s`、串行发布，

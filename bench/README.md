@@ -88,6 +88,8 @@ bench/
 
 ## 5. 结果结构
 
+原始结果默认不提交；运行脚本后生成在本地 `bench/results/`，仓库只保留报告与脚本。
+
 `bench/results/<run-id>/summary.json`：
 
 | 字段 | 含义 |
