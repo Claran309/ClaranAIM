@@ -9,7 +9,7 @@ services:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-chr070309}
       MYSQL_DATABASE: ${MYSQL_DATABASE:-ClaranCloudDisk}
       MYSQL_USER: ${MYSQL_USER:-claran}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-chr070309}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?set MYSQL_PASSWORD in .env}
     command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci --port=33060 --mysqlx-port=33061
     volumes:
       - claran_mysql_data:/var/lib/mysql
@@ -172,7 +172,7 @@ services:
       - "7474:7474"
       - "7687:7687"
     environment:
-      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:-claran_neo4j_123}
+      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:?set NEO4J_PASSWORD in .env}
       NEO4J_PLUGINS: '["apoc","graph-data-science"]'
       NEO4J_server_memory_heap_initial__size: 512m
       NEO4J_server_memory_heap_max__size: 2G

@@ -9,7 +9,7 @@ neo4j:
   enabled: true
   uri: "bolt://127.0.0.1:7687"
   username: "neo4j"
-  password: "claran_neo4j_123"
+  password: ""
   database: "neo4j"
 
 rag:
