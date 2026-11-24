@@ -58,6 +58,6 @@
 
 - 不能声称生产环境或 4C8G 环境下的容量；本机是 20 核 / 15.7GB / 7.6GiB Docker VM。
 - 不能声称真实 LLM 并发能力；C6 使用 mock LLM（150ms 固定延迟）。
-- 不能声称 Milvus 生产检索性能；C8 使用本地向量索引（Milvus 关闭）。
+- 不能声称 Milvus 生产检索性能；Milvus 已补测（mock embedding/256 维、无预热/批量），C8 基线使用本地索引。
 - 不能声称多 Agent、多分区 Kafka 的扩展性；本轮都是单实例、单分区。
 

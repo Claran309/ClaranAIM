@@ -13,7 +13,7 @@
 | Agent | 单个 BenchAgent，owner `1100000001`，max_output 128，context 80，memory 12 |
 | RAG router | rule |
 | 图抽取 | off |
-| 向量后端 | 本地索引（Milvus 关闭） |
+| 向量后端 | 基线本地索引；4.1 为 Milvus 补测 |
 | RAG 数据量 | 20 documents / 17,413 chunks |
 | 每轮 | warmup 10s + 测量 60s；每档 3 次 |
 
