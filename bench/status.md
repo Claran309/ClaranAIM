@@ -106,6 +106,9 @@ Goal 已完成。资源问题的根因是 Jaeger 轨迹无上限（涨到 3.5GB�
 - `bench/report/04-resume.md`（简历 bullet 与限制）
 - `bench/results/AIM-P1-*`、`AIM-P2-*`、`AIM-P3-*`、`AIM-P0-smoke-final/smoke.json`
 
+补充：Milvus 对比测试已完成（36 篇 / 34,344 chunks），C8 P95 仍约 1.8s；
+定位瓶颈为 `rag_chunks.updated_at` 无索引导致 filesort，临时加索引后 P95 约 1.35s。
+
 ## 6. 完成检查
 
 - [x] Phase 0 PASS

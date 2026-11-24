@@ -1,0 +1,23 @@
+{
+  "avg_ms": 160.79,
+  "concurrency": 10,
+  "elapsed_s": 62.254,
+  "errors": {},
+  "failed": 0,
+  "max_ms": 2499.65,
+  "ok": 912,
+  "p50_ms": 3.98,
+  "p90_ms": 9.24,
+  "p95_ms": 1777.57,
+  "p99_ms": 1869.41,
+  "rps": 14.65,
+  "run_id": "AIM-P2-C8-milvus-20qps-r1",
+  "scenario": "rag-search",
+  "sent": 912,
+  "started_at": "2026-11-24T21:55:40+08:00",
+  "statuses": {
+    "200": 912
+  },
+  "ws_dup": 0,
+  "ws_recv": 0
+}

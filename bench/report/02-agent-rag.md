@@ -57,17 +57,40 @@
 - **P50 约 3ms、P95 约 1.74s**：明显双峰。多数查询走快速路径，少数查询
   触发昂贵的本地向量索引/BM25 扫描（17k chunks），这是 RAG 检索的主要问题。
 
+### 4.1 Milvus 补充测试
+
+为区分“向量检索慢”与“其他路径慢”，额外启用 Milvus（`claran_rag_chunks_milvus`，
+36 篇文档 / 34,344 chunks）重跑 C8：
+
+| 目标 QPS | 实际 RPS | 中位 P50 | 中位 P95 | 中位 P99 | 失败 |
+|---|---|---|---|---|---|
+| 10 | 7.78 | 3.80ms | 1830.92ms | 1943.75ms | 0 |
+| 20 | 15.03 | 3.99ms | 1784.71ms | 1904.95ms | 0 |
+
+- Milvus 10QPS：P95 1841.86 / 1830.92 / 1804.58ms。
+- Milvus 20QPS：P95 1777.57 / 1784.71 / 1383.64ms。
+- **Milvus 没有改善长尾**：P50 仍约 4ms，P95 仍约 1.8s，说明瓶颈不在向量检索。
+- 进一步定位：`ListChunks` 使用 `ORDER BY rag_chunks.updated_at DESC LIMIT 300`，
+  但 `updated_at` 没有索引，MySQL 需要对 3 万级行做 filesort。
+- 临时加 `idx_rag_chunks_updated_at(updated_at)` 后，10QPS P95 从约 1.83s
+  降到 **1.35s**（约 -26%），但仍未消除长尾；剩余部分需要继续 profile
+  （Milvus 索引预热、文档 join、连接池竞争）。
+- Milvus 入库也更慢：36 篇 × 256KB 约 10 分钟，约 **3.6 docs/min**，
+  低于本地索引的 22 docs/min；当前是逐 chunk 写入，没有批量。
+
 ## 5. 结论
 
 - Agent：单 Agent 下约 15-16 runs/s，P99 0.84s（10VU）；20VU 无吞吐收益。
 - RAG 入库：256KB 文档约 22 docs/min，线性受 chunk/embedding 次数限制。
-- RAG 检索：中位延迟极低，但 P95 约 1.74s，存在明显长尾；
-  本地向量索引在 17k chunks 规模下不适合作为生产检索后端。
+- RAG 检索：中位延迟极低，但 P95 约 1.74-1.84s；启用 Milvus 后长尾基本不变，
+  说明问题不在向量索引，而在 MySQL 候选集排序（`updated_at` 无索引）；
+  加索引可把 P95 降到约 1.35s，但仍有残余长尾。
 - 所有轮次 0 失败；本轮未做真实模型调用，成本为 0。
 
 ## 6. 限制
 
-- Milvus 未启用，检索走本地索引；生产级向量库下的数字需在 Phase 2 扩展测试中补。
+- Milvus 已补测（36 篇/34k chunks），但未做索引预热与批量写入优化；
+  Milvus 下的数字只代表当前配置。
 - C7 使用 256KB × 6 篇，而不是 1MB × 20 篇，属于本机资源自适应档位。
 - Agent 只测单 Agent、单 owner；多 Agent 并发未覆盖。
 

@@ -1,6 +1,7 @@
 param(
     [switch]$Agent,
     [switch]$RAG,
+    [switch]$Milvus,
     [string]$MockBase = "http://127.0.0.1:18090/v1"
 )
 
@@ -27,7 +28,13 @@ $env:MEMORY_RAG_EMBEDDING_API_KEY = "mock-key"
 $env:MEMORY_RAG_EMBEDDING_MODEL = "mock-embedding"
 $env:MEMORY_RAG_EMBEDDING_DIMENSION = "256"
 $env:MEMORY_RAG_MILVUS_ENABLED = "false"
-$env:MILVUS_ENABLED = "false"
+if ($Milvus) {
+    $env:MILVUS_ENABLED = "true"
+    $env:MILVUS_ADDRESS = "127.0.0.1:19530"
+    $env:MILVUS_COLLECTION = "claran_rag_chunks_milvus"
+} else {
+    $env:MILVUS_ENABLED = "false"
+}
 $env:NEO4J_ENABLED = "false"
 $env:RAG_ROUTER_PROVIDER = "rule"
 
