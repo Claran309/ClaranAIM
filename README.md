@@ -8,19 +8,19 @@ ClaranAIM 是一个 Agent-Native AIM 系统，AIM = Agent + Instant Messaging。
 
 17 个服务按领域拆分，真正需要按领域理解的只有 3 个核心域：
 
-| 核心域 | 负责什么 | 关键问题 | 关键方案 | 可验证数字 |
+| 核心域 | 负责什么 | 关键问题 | 关键方案 | 验证方式 |
 | --- | --- | --- | --- | --- |
 | 消息一致性域 | 会话、消息事实、已读游标、Outbox、WebSocket 推送 | 写库成功但事件丢失、重复投递、多端乱序 | 消息与 Outbox 同事务、consumer 幂等表 + 死信、用户级同步游标 | msg-core 单测 + 4 个真实 MySQL 集成测试；一条发送链路 7 span 跨 3 服务 |
 | Agent 运行时域 | 配置、权限、长会话、运行预算、工具审批、Eino 执行 | 长会话丢失、工具越权、失控调用 | MySQL 会话 + 滚动摘要、Eino checkpoint 恢复、RunBudget 四维预算、高风险工具审批中断 | 会话/运行/审批/checkpoint 真实 MySQL 测试；预算与恢复单测 |
 | 知识与记忆域 | RAG 入库、Hybrid 检索、GraphRAG、长期记忆治理 | 检索质量无法量化、记忆越积越脏 | 父子切片 + BM25/向量 RRF、可配置质量门禁、候选记忆 → 确认 → 巩固 | 50 条检索评测：Hybrid RRF Recall@5 = 1.000；权限泄漏 0 |
 
-其余服务是 IM 基础能力（用户、好友、群、文件、历史、设置）和治理入口（admin、MCP Gateway、conversation-intelligence）。它们重要，但不是面试叙事的主线。
+其余服务提供 IM 基础能力（用户、好友、群、文件、历史、设置）和治理入口（admin、MCP Gateway、conversation-intelligence），与 3 个核心域共同组成完整系统。
 
-**个人实现 vs 框架能力**：Kitex、Thrift、Hertz、Eino ADK、GORM、Kafka-go、Milvus/Neo4j 客户端、OpenTelemetry SDK 都是框架能力；本人实现的是服务拆分与边界、消息/Outbox/幂等/游标的一致性设计、Agent 会话与运行预算/审批恢复、RAG 切片与检索编排、记忆候选与巩固、CI 与可观测性样板。Eino 提供 DeepAgent 与 checkpoint 机制，审批中间件、预算追踪、运行记录和恢复入口是本项目代码。
+**实现边界**：Kitex、Thrift、Hertz、Eino ADK、GORM、Kafka-go、Milvus/Neo4j 客户端、OpenTelemetry SDK 属于框架与基础设施；项目代码负责服务拆分与边界、消息/Outbox/幂等/游标的一致性设计、Agent 会话与运行预算/审批恢复、RAG 切片与检索编排、记忆候选与巩固、CI 与可观测性。Eino 提供 DeepAgent 与 checkpoint 机制，审批中间件、预算追踪、运行记录和恢复入口由本项目实现。
 
-**运行成本可见**：Agent 运行弹窗里的“运行记录与成本”直接读 `agent_runs`，展示每次运行的状态、步数、输入/输出 token、美元成本和中断原因；数据由 runtime 写入，不是前端估算。
+**成本可观测**：Agent 运行弹窗里的“运行记录与成本”读取 `agent_runs`，展示每次运行的状态、步数、输入/输出 token、美元成本和中断原因；数据由 runtime 写入。
 
-**已知限制**：本地默认 embedding 是 `glm`，未配置 Key 时才回退 hash（启动日志会告警）；CRAG/Self-RAG 默认是规则版质量门禁，不是论文实现；rerank 在当前 50 条合成评测上没有提升；多 Agent 群聊协作（Phase 7）尚未开始；K8s、灰度发布和 K6 压测不在当前范围。
+**已知限制**：本地默认 embedding 是 `glm`，未配置 Key 时才回退 hash（启动日志会告警）；CRAG/Self-RAG 默认是规则版质量门禁，不是论文实现；rerank 在当前 50 条合成评测上没有提升；多 Agent 群聊协作（Phase 7）尚未开始；K8s 和灰度发布暂不在范围内；压测使用仓库内 `bench/loadgen`。
 
 ## 核心能力
 
@@ -475,7 +475,7 @@ go build -o .smoke-bin/api-gateway.exe ./cmd/api-gateway
 | 故障注入 | MySQL 停 30s 后 31s 恢复；Kafka 停 60s 后 13751 条全部补发；kill -9 msg-core 后 1.4s 恢复；均 0 丢失 |
 | Outbox 优化 | 排空 46 → 285-483 events/s；C3 20VU P99 163 → 110-115ms |
 
-原始数据、对账 SQL、环境说明和简历数字见 `bench/` 与 `bench/report/`。
+原始数据、对账 SQL、环境说明和压测结论见 `bench/` 与 `bench/report/`。
 这些数字只代表上述单机、单分区、mock 依赖配置，不代表生产容量。
 
 ## Agent Reflection
